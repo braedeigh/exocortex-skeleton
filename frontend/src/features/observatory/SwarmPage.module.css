@@ -1,0 +1,167 @@
+/* One swarm's page. Page chrome comes from NightCrewPage.module.css; these
+   are the sections inside it. */
+.section {
+  margin: var(--space-5) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.empty,
+.muted {
+  color: var(--text-secondary);
+}
+
+.countsRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+}
+
+.needing {
+  color: var(--orange);
+  font-weight: 600;
+}
+
+.summary {
+  margin: 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.differences {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--orange);
+  background: color-mix(in srgb, var(--orange) 6%, transparent);
+}
+
+.h2 {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+.h3 {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.list {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  line-height: 1.45;
+}
+
+.button {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* A text-styled button that still has a real hit area. */
+.link {
+  min-height: 40px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.askRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-end;
+}
+
+.ask {
+  flex: 1;
+  min-height: 48px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.note {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A message between sessions — the same teal as its card in the chat. */
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--ongoing);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--ongoing) 6%, transparent);
+}
+
+.messageText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.run {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-3);
+}
+
+.runHead {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.pre {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  max-height: 420px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.error {
+  color: var(--red);
+}

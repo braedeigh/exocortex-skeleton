@@ -51,9 +51,13 @@ import threading
 import time
 
 import activityfeed
+import config as app_config
 import lanes
+import peermail
 import recap_summary
+import sqlstore
 import store
+import toolcallstore
 import worktrees
 from routes import terminal
 from routes.kitchen.shared import _mem_available_mb, MIN_SPAWN_MB
@@ -542,6 +546,17 @@ def _build_cmd(config, resume_sid):
     prompt_file = config.get("system_prompt_file")
     if prompt_file and Path(prompt_file).is_file():
         cmd += ["--append-system-prompt-file", str(prompt_file)]
+    # Tell every Observatory session that the other agents exist and how to
+    # reach them (peermail.prompt). Only a turn that knows its own
+    # conversation id gets it: that id is its return address.
+    if config.get("conv_id"):
+        cmd += ["--append-system-prompt", peermail.prompt(config["conv_id"])]
+    # Keep the input open for the life of the turn, so messages can be handed
+    # in mid-turn (see _TurnInput). `--replay-user-messages` makes the agent
+    # echo each message back as it reads it, which is how the turn knows when
+    # every handed-in message has been picked up and it's safe to close.
+    if config.get("stream_input"):
+        cmd += ["--input-format", "stream-json", "--replay-user-messages"]
     return cmd
 
 
@@ -570,9 +585,23 @@ def _spawn(config, text, resume_sid, cwd_override=None):
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_f,
         cwd=cwd, text=True, bufsize=1, env=env,
     )
-    proc.stdin.write(text)
-    proc.stdin.close()
+    # Hand over the prompt. A streaming-input turn gets it as one JSON message
+    # and its input stays open (_TurnInput closes it when the turn is done);
+    # otherwise it's plain text and the input closes now, which is what tells
+    # the agent that's everything.
+    if config.get("stream_input"):
+        proc.stdin.write(_stream_message(text))
+        proc.stdin.flush()
+    else:
+        proc.stdin.write(text)
+        proc.stdin.close()
     return proc, stderr_f
+
+
+def _stream_message(text):
+    """One user message in Claude Code's streaming-input format."""
+    return json.dumps({"type": "user",
+                       "message": {"role": "user", "content": text}}) + "\n"
 
 
 # --- where a turn lives, and why it isn't here anymore -----------------------
@@ -767,6 +796,235 @@ def _stderr_tail(stderr_f):
         return ""
 
 
+# --- Handing messages to a running agent -------------------------------------
+# A turn used to take one prompt and close its input. Now (when
+# config.TURN_STREAM_INPUT is on) the input stays open for the whole turn, and
+# a companion thread checks the session's mailbox (peermail.py) about once a
+# second. A message waiting there is written straight into the running agent,
+# which reads it after whatever step it's on and decides what to do with it.
+# Tested against the real CLI: a message handed in during a slow Bash step was
+# read the moment the step finished, acted on, and the agent went back to its
+# own work in the same turn.
+#
+# The same thread also does the two other jobs that need doing WHILE a turn
+# runs: it stops the turn when a message asks to interrupt it, and it folds the
+# turn's new tool calls into exo.db every few seconds (toolcallstore.
+# live_ingest), so other agents see this one's work as it happens.
+#
+# Prompt that produced it: "keep the agents input open. change them to queue
+# messages to the server so they can inject whenever it's ready."
+
+# How often the companion checks the mailbox, and how often it folds tool
+# calls into SQL. The mailbox check is one indexed query.
+_INBOX_POLL_SEC = 1.0
+_LIVE_INGEST_SEC = 3.0
+# A turn whose final result is in, but which is still waiting on the echo of a
+# handed-in message, closes anyway after this long with nothing happening —
+# the backstop if an echo is ever missed, so a turn can't hang open forever.
+_ECHO_WAIT_SEC = 30.0
+
+
+class _TurnInput:
+    """The running agent's open input, shared by the loop that reads its
+    output and the thread that hands messages in. One lock around every write
+    and the close, so a message can never be written into an input that's
+    being shut."""
+
+    def __init__(self, proc):
+        stdin = getattr(proc, "stdin", None)
+        self.stdin = stdin
+        self.open = stdin is not None and not getattr(stdin, "closed", True)
+        self.lock = threading.Lock()
+        # Texts handed in that the agent hasn't echoed back yet. The turn may
+        # only close once this is empty — closing earlier would drop a message
+        # the agent was about to start on.
+        self.unread = []
+        self.result_at = None       # monotonic time of the last final result
+        self.last_event_at = time.monotonic()
+
+    def hand_in(self, text):
+        """Write one message into the agent. Caller holds the lock. False if
+        the input is already shut."""
+        if not self.open:
+            return False
+        try:
+            self.stdin.write(_stream_message(text))
+            self.stdin.flush()
+        except (OSError, ValueError):
+            self.open = False
+            return False
+        self.unread.append(text)
+        return True
+
+    def saw_echo(self, text):
+        with self.lock:
+            if text in self.unread:
+                self.unread.remove(text)
+
+    def saw_result(self):
+        """The agent finished answering everything it had. Close its input
+        unless a handed-in message is still unread — then it will answer that
+        too, in the same turn, and emit another result."""
+        with self.lock:
+            self.result_at = time.monotonic()
+            if not self.unread:
+                self._close()
+
+    def close(self):
+        with self.lock:
+            self._close()
+
+    def _close(self):
+        if self.open:
+            self.open = False
+            try:
+                self.stdin.close()
+            except (OSError, ValueError):
+                pass
+
+
+def _deliver_lines(conv_id, log_path, rows, conv_journals):
+    """Write delivered messages into the recipient's transcript and journal,
+    and return the text the agent is handed.
+
+    The owner's messages are written exactly as a normal send writes them —
+    a `user` line, journaled if the session journals and she's on the record —
+    so they look the same in the chat however they got there. An agent's
+    message is a `peer` line, which the chat draws as a colored card, and is
+    never journaled: the journal is what she and the Keeper said."""
+    text = peermail.compose(rows)
+    for r in rows:
+        if r["kind"] == "B":
+            journaled = False
+            slash = r["text"].lstrip().startswith("/")
+            if r["record"] and conv_journals and not slash:
+                journaled = bool(terminal._capture_journal(r["text"], r["text"]))
+            elif conv_journals and not slash:
+                terminal._note_off_record(r["text"])
+            line = {"type": "user", "text": r["text"], "ts": _now(),
+                    "journaled": journaled}
+            if not r["record"]:
+                line["off_record"] = True
+            peermail.append_line(log_path, line)
+        else:
+            peermail.append_line(log_path, peermail.peer_line(r, "in"))
+    # When what the agent receives isn't simply her words, tell the journal's
+    # fallback capture doors it's not a journal line — otherwise they'd find
+    # it in Claude Code's transcript and mint it as if she'd typed it.
+    if conv_journals and text != (rows[0]["text"] if len(rows) == 1 else None):
+        terminal._note_off_record(text)
+    return text
+
+
+def _journals(conv_id):
+    entry = store.read("bot_chats/index", {}).get(conv_id)
+    return isinstance(entry, dict) and entry.get("journal") is True
+
+
+def _deliver_midturn(proc, conv_id, log_path, turn_input):
+    """Hand the running agent whatever is waiting for it. Returns True if the
+    turn was stopped for an interrupt."""
+    rows = peermail.waiting(conv_id)
+    if not rows:
+        return False
+    policy = peermail.policy_of(conv_id)
+    modes = {r["id"]: peermail.effective_mode(r["mode"], policy) for r in rows}
+    # Stop the turn for an interrupt. The messages stay waiting: the moment
+    # the turn is down, the end-of-turn drain starts a new one with all of
+    # them together. Marked in _stop_requested first, so the death reads as
+    # deliberate rather than a crash (the same belt the Stop button uses).
+    if "interrupt" in modes.values():
+        _stop_requested.add(conv_id)
+        turn_input.close()
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        return True
+    handable = [r for r in rows if modes[r["id"]] == "inject"]
+    if not handable:
+        return False            # all 'queue' — they wait for the turn to end
+    with turn_input.lock:
+        if not turn_input.open:
+            return False        # the turn is closing; the end-of-turn drain has them
+        won = peermail.claim(handable, "injected")
+        if not won:
+            return False
+        if not turn_input.hand_in(peermail.compose(won)):
+            # The input shut between the check and the write. Put them back so
+            # the end-of-turn drain delivers them rather than losing them.
+            peermail.unclaim(won)
+            return False
+        _deliver_lines(conv_id, log_path, won, _journals(conv_id))
+    peermail.note_delivered(conv_id, won)
+    return False
+
+
+def _note_model_call(event, open_calls, log, conv_id):
+    """Keep the record of each model call as it streams by (docs/swarms.md,
+    stage 1).
+
+    Two moments matter. When a call STARTS, its usage says how much the model
+    is reading — the session's context size right now — so a top-level call
+    stores that on the session (`context_tokens`, `context_model`); the
+    self-continuing cap reads it. When a call FINISHES, its final output
+    count (thinking included) exists only here in the live stream, so it's
+    written into the transcript as a `call-usage` line, which
+    toolcallstore.py folds into `model_calls`. Subagent calls are tracked by
+    the tool call that started them, so a subagent's numbers never overwrite
+    the main conversation's."""
+    inner = event.get("event") or {}
+    parent = event.get("parent_tool_use_id")
+    kind = inner.get("type")
+    if kind == "message_start":
+        message = inner.get("message") or {}
+        open_calls[parent] = message.get("id")
+        usage = message.get("usage") or {}
+        if parent is None and usage:
+            context = sum(int(usage.get(k) or 0) for k in (
+                "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+            with store.mutate("bot_chats/index", {}) as index:
+                entry = index.get(conv_id)
+                if isinstance(entry, dict):
+                    entry["context_tokens"] = context
+                    if message.get("model"):
+                        entry["context_model"] = message["model"]
+    elif kind == "message_delta" and open_calls.get(parent):
+        usage = inner.get("usage") or {}
+        details = usage.get("output_tokens_details") or {}
+        log.write(json.dumps({
+            "type": "call-usage", "message_id": open_calls[parent],
+            "parent_tool_use_id": parent,
+            "output_tokens": usage.get("output_tokens"),
+            "thinking_tokens": details.get("thinking_tokens"),
+            "ts": _now()}) + "\n")
+        log.flush()
+
+
+def _turn_companion(proc, conv_id, log_path, turn_input, done):
+    """The thread that runs beside a turn: mailbox, interrupts, live SQL,
+    and the echo backstop. Never lets an error of its own touch the turn."""
+    last_ingest = 0.0
+    while not done.wait(_INBOX_POLL_SEC):
+        if proc.poll() is not None:
+            return
+        try:
+            if _deliver_midturn(proc, conv_id, log_path, turn_input):
+                return
+        except Exception as e:
+            print(f"mailbox check failed for {conv_id}: {e}", file=sys.stderr)
+        if time.monotonic() - last_ingest > _LIVE_INGEST_SEC:
+            last_ingest = time.monotonic()
+            try:
+                toolcallstore.live_ingest(log_path, conv_id)
+            except Exception as e:
+                print(f"live tool-call ingest failed for {conv_id}: {e}",
+                      file=sys.stderr)
+        if (turn_input.open and turn_input.result_at is not None
+                and time.monotonic() - turn_input.last_event_at > _ECHO_WAIT_SEC):
+            turn_input.close()
+
+
 def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
               live_path=None):
     """Own one turn end-to-end, detached from any HTTP connection: keep the
@@ -839,6 +1097,16 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
     # left behind is not this turn's typing.
     live_f = None
     last_flush = 0.0      # so the first delta flushes on sight — see below
+    # The agent's open input and the thread that hands it messages (see the
+    # "Handing messages to a running agent" block above).
+    turn_input = _TurnInput(proc)
+    # The model call in flight, per subagent (None = the main conversation) —
+    # see _note_model_call.
+    open_calls = {}
+    companion_done = threading.Event()
+    threading.Thread(target=_turn_companion,
+                     args=(proc, conv_id, log_path, turn_input, companion_done),
+                     daemon=True).start()
     if live_path:
         try:
             live_f = open(live_path, "w", encoding="utf-8")
@@ -854,6 +1122,19 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                     event = json.loads(line)
                 except ValueError:
                     continue  # non-JSON noise on stdout — skip, don't die
+                if not isinstance(event, dict):
+                    continue
+                turn_input.last_event_at = time.monotonic()
+                # The agent echoing a message it has just read. Not logged:
+                # the transcript already has that message, in the words she or
+                # the sending agent used, written when it was handed in.
+                if event.get("type") == "user" and event.get("isReplay"):
+                    content = (event.get("message") or {}).get("content")
+                    if isinstance(content, str):
+                        turn_input.saw_echo(content)
+                    continue
+                if event.get("type") == "result":
+                    turn_input.saw_result()
                 if isinstance(event, dict):
                     if event.get("session_id") and event["session_id"] != session_id:
                         # `--resume` forks a NEW session id each turn. Save it
@@ -871,6 +1152,11 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                         cost = event["total_cost_usd"]
                 # Token deltas (stream_event) are transport, not record — the
                 # assistant message events they build carry the same text.
+                if event.get("type") == "stream_event":
+                    try:
+                        _note_model_call(event, open_calls, log, conv_id)
+                    except Exception:
+                        pass    # accounting must never cost the turn
                 if event.get("type") != "stream_event":
                     log.write(json.dumps(event) + "\n")
                     log.flush()   # the log is what a re-attaching client reads
@@ -910,6 +1196,14 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                     live_q.put(ev)
     finally:
         beat_stop.set()   # before the index write below, so the two can't race
+        companion_done.set()
+        turn_input.close()
+        # One last fold into SQL, so the turn's final tool calls don't wait
+        # for the hourly pass.
+        try:
+            toolcallstore.live_ingest(log_path, conv_id)
+        except Exception:
+            pass
         _running_procs.pop(conv_id, None)
         _stop_requested.discard(conv_id)
         try:
@@ -1517,6 +1811,127 @@ def drain_all_followups():
         if _CONV_ID_RE.match(path.stem) and drain_followups(path.stem):
             started += 1
     return started
+
+
+# --- The mailbox: messages that start a turn of their own ---------------------
+# peermail.py keeps the messages; the running turn's companion hands in what
+# it can mid-turn (_deliver_midturn). Whatever is still waiting when the
+# session is idle — a message sent to an idle agent, anything marked `queue`,
+# or everything left when a turn ends or is interrupted — goes out HERE, all
+# of it together in one turn, each message labelled with who sent it.
+# Called at the same moments as drain_followups: right after a message is
+# sent, when a turn ends, and once a minute as the safety net.
+
+def after_turn(conv_id):
+    """What happens the moment a turn ends, before anything queued starts.
+
+    A session that handed off to a continuation is archived now that its last
+    reply is written (continuation.hand_off flags it). Otherwise, a Coding
+    session past its context cap is asked for its handoff (continuation.check),
+    which queues a System follow-up — so it has to run BEFORE the drains below
+    it in the turn host, or a waiting message would take the turn first. And
+    if the session is in a swarm, its helper is nudged to update."""
+    import continuation
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if isinstance(entry, dict) and entry.pop("archive_after_turn", None):
+            entry["archived"] = True
+            return
+    continuation.check(conv_id)
+    # A member of a swarm just did something: its helper updates its
+    # summaries (debounced — see swarm_helper.poke).
+    try:
+        import swarm_helper
+        import swarms
+        swarm_id = swarms.swarm_of(conv_id)
+        if swarm_id is not None:
+            swarm_helper.poke(swarm_id, "turn")
+    except Exception as e:
+        print(f"swarm helper poke failed for {conv_id}: {e}", file=sys.stderr)
+
+
+def drain_inbox(conv_id, fallback=False):
+    """Start a turn with everything waiting for this session, if it's idle.
+    Returns True if a turn started."""
+    rows = peermail.waiting(conv_id)
+    if not rows:
+        return False
+    entry = store.read("bot_chats/index", {}).get(conv_id)
+    if not isinstance(entry, dict) or _effective_running(conv_id, entry):
+        return False
+    # A swarm helper's mail is answered by a helper run, not a chat turn —
+    # each run starts fresh from the summaries (swarm_helper.py).
+    if entry.get("role") == "swarm_helper":
+        import swarm_helper
+        return swarm_helper.answer_mail(conv_id)
+    won = peermail.claim(rows, "batched")
+    if not won:
+        return False            # someone else is delivering them
+    result = begin_turn(conv_id, None, batch=won, fallback=fallback)
+    if result["ok"]:
+        peermail.note_delivered(conv_id, won)
+        return True
+    # Busy after all, low on memory, or the turn wouldn't launch: back to
+    # waiting, for the next end-of-turn or the minute tick.
+    peermail.unclaim(won)
+    return False
+
+
+def drain_all_inbox():
+    """The once-a-minute safety net for the mailbox. Returns turns started."""
+    started = 0
+    for conv_id in peermail.any_waiting():
+        if _CONV_ID_RE.match(conv_id) and drain_inbox(conv_id):
+            started += 1
+    return started
+
+
+def peer_send(from_conv, to_conv, text, mode="inject"):
+    """One agent messages another — the door scripts/peers.py uses. Stores the
+    message, draws it as a card in the sender's own chat so the owner sees
+    what was sent, and wakes the recipient if it's idle. Raises ValueError /
+    KeyError from peermail.send."""
+    if from_conv is not None and not isinstance(
+            store.read("bot_chats/index", {}).get(from_conv), dict):
+        raise KeyError(from_conv)
+    row = peermail.send(to_conv, text, from_conv=from_conv, kind="A", mode=mode)
+    if from_conv:
+        peermail.append_line(_chats_dir() / f"{from_conv}.jsonl",
+                             peermail.peer_line(row, "out"))
+    # This message may have made (or grown) a swarm. A new swarm gets its
+    # helper, which names it straight away.
+    try:
+        import swarm_helper
+        import swarms
+        swarms.sync()
+        swarm_id = swarms.swarm_of(row["to_conv"])
+        if swarm_id is not None:
+            conn = sqlstore.open_db()
+            try:
+                named = conn.execute("SELECT helper_conv FROM swarms WHERE id = ?",
+                                     (swarm_id,)).fetchone()
+            finally:
+                conn.close()
+            if named and not named[0]:
+                swarm_helper.poke(swarm_id, "formed")
+    except Exception as e:
+        print(f"swarm update failed after a message: {e}", file=sys.stderr)
+    started = row["status"] == "waiting" and drain_inbox(row["to_conv"])
+    return {**row, "started": bool(started)}
+
+
+def release_peer_message(message_id):
+    """The owner lets a held message through: mark it on the sender's card,
+    then deliver it like any other. None if it wasn't held."""
+    row = peermail.release(message_id)
+    if row is None:
+        return None
+    if row["from_conv"]:
+        peermail.append_line(_chats_dir() / f"{row['from_conv']}.jsonl",
+                             {"type": "peer-status", "id": row["id"],
+                              "status": "waiting", "ts": _now()})
+    drain_inbox(row["to_conv"])
+    return row
 
 
 # --- Fork-the-work: offload a bloated long-runner onto a fresh spinoff -------
@@ -2533,6 +2948,61 @@ def register(app):
                 entry["stop_requested"] = _now()
         return jsonify({"ok": True})
 
+    # --- The mailbox, from her side (peermail.py) ---------------------------
+    # What she types while a turn is running goes in the session's mailbox on
+    # the server — not a queue in her browser — so it's handed to the agent
+    # at its next step whether or not the page stays open, and it goes out
+    # together with anything other agents sent. Prompt that produced it:
+    # "change them to queue messages to the server so they can inject
+    # whenever it's ready."
+
+    @app.route("/api/observatory/conversation/<conv_id>/inbox", methods=["POST"])
+    def observatory_inbox_add(conv_id):
+        """Leave her a message in the mailbox. Starts a turn straight away if
+        the session is idle (`started`), otherwise it waits to be handed in."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        data = request.json or {}
+        try:
+            row = peermail.send(conv_id, data.get("text"), kind="B",
+                                record=data.get("record") is not False)
+        except KeyError:
+            return jsonify({"error": "not found"}), 404
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        started = drain_inbox(conv_id, fallback=True)
+        return jsonify({"ok": True, "id": row["id"], "started": started})
+
+    @app.route("/api/observatory/conversation/<conv_id>/inbox", methods=["GET"])
+    def observatory_inbox_list(conv_id):
+        """Her messages still waiting to be handed in — the rows the chat
+        shows above the composer, each one removable until it goes."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        rows = peermail.waiting(conv_id, kind="B")
+        return jsonify({"waiting": [
+            {"id": r["id"], "text": r["text"], "record": bool(r["record"])}
+            for r in rows]})
+
+    @app.route("/api/observatory/conversation/<conv_id>/inbox/<int:message_id>",
+               methods=["DELETE"])
+    def observatory_inbox_cancel(conv_id, message_id):
+        """Take back one of her waiting messages. 409 if it already went."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        if not peermail.cancel(message_id, conv_id):
+            return jsonify({"error": "already delivered"}), 409
+        return jsonify({"ok": True})
+
+    @app.route("/api/observatory/peer/<int:message_id>/release", methods=["POST"])
+    def observatory_peer_release(message_id):
+        """Let a HELD agent message through — one a brake stopped (too many
+        agent-to-agent steps in a row, or the daily cap)."""
+        row = release_peer_message(message_id)
+        if row is None:
+            return jsonify({"error": "not held"}), 409
+        return jsonify({"ok": True, "status": "waiting"})
+
     @app.route("/api/observatory/conversation/<conv_id>/fork", methods=["POST"])
     def bot_conv_fork(conv_id):
         """Fork-the-work: stage a fresh take-over spinoff seeded with what this
@@ -2794,7 +3264,7 @@ def register(app):
 
 
 def begin_turn(conv_id, text, record=True, decision=None, operator=False,
-               system=None, fallback=True):
+               system=None, fallback=True, batch=None):
     """Start one turn in an existing conversation. Callable with no web
     request, which is the point: the send route, the follow-up queue (an
     approval's retry cue, a timed reminder) and the turn process all start
@@ -2812,6 +3282,13 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
     card, never clears her pending approval or open question, and never
     becomes the roster card's "last prompt".
 
+    `batch` makes this a MAILBOX turn: a list of already-claimed peermail
+    rows (her waiting messages and other agents'), delivered together.
+    `text` is ignored — the agent gets them labelled (peermail.compose) — and
+    each one is written to the transcript and journal by _deliver_lines.
+    Only a batch that holds one of HER messages counts as her answering: an
+    agent's message alone leaves her open question and pending approval up.
+
     `fallback` = if the turn process can't launch, run the turn in a thread
     here instead. Right for a web worker (it stays alive); wrong for a
     short-lived process like the turn host or a cron script, whose threads die
@@ -2828,6 +3305,16 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
                 if last_error:
                     stale["last_error"] = last_error
         return {"ok": False, "status": status, "body": body}
+
+    # A mailbox turn: what the agent reads is the labelled batch, and what
+    # counts as "her ask" is her last on-the-record message in it, if any.
+    hers = [r for r in (batch or []) if r["kind"] == "B"]
+    if batch is not None:
+        text = peermail.compose(batch)
+        record = any(r["record"] for r in hers)
+        ask = next((r["text"] for r in reversed(hers) if r["record"]), None)
+    else:
+        ask = text
 
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
@@ -2859,7 +3346,7 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         # the session mid-turn.
         entry.pop("draft", None)
         entry.pop("autostart", None)
-        if system is None:
+        if system is None and (batch is None or hers):
             # Her answer to a request-for-input IS this send: clear the orange
             # "awaiting_input" flag so the Orchestra card stops glowing the
             # moment she replies. (S2 request-for-input — see request_input().)
@@ -2889,8 +3376,8 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         # A send that fails a gate leaves the previous value alone
         # rather than clearing it: the last real ask is still the truest
         # thing the card can say about what this session is doing.
-        if record and system is None and entry.get("journal") is not True:
-            card_prompt = _card_prompt(text)
+        if record and system is None and ask and entry.get("journal") is not True:
+            card_prompt = _card_prompt(ask)
             if card_prompt:
                 entry["last_prompt"] = card_prompt
         resume_sid = entry.get("claude_session_id")
@@ -2909,6 +3396,8 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         conv_journals = entry.get("journal") is True
         config = _conv_config(entry)
         config["conv_id"] = conv_id   # so the turn's env carries EXOCORTEX_CONV_ID (_spawn)
+        # Keep the agent's input open for mid-turn messages (_TurnInput).
+        config["stream_input"] = app_config.TURN_STREAM_INPUT
         bot_id = entry.get("bot")
 
     # Refuse to start another ~400MB claude process below the memory
@@ -2951,7 +3440,9 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
     # terminal chat session uses). Slash commands are operator control,
     # not journal content — same rule as terminal_send().
     journaled = False
-    if system is not None:
+    if batch is not None:
+        pass    # journaled per message, with the transcript lines below
+    elif system is not None:
         # A system reminder is journaled as an S card — neither hers nor the
         # keeper's — carrying who set it. The text the model receives still
         # lands in Claude Code's transcript, so it gets the off-record
@@ -2978,8 +3469,13 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         terminal._note_off_record(text)
 
     log_path = _chats_dir() / f"{conv_id}.jsonl"
+    if batch is not None:
+        _deliver_lines(conv_id, log_path, batch, conv_journals)
+        journaled = False
     with open(log_path, "a", encoding="utf-8") as log:
-        if system is not None:
+        if batch is not None:
+            pass    # _deliver_lines wrote one line per message, just above
+        elif system is not None:
             # A reminder the app sent: its own line type, so the chat can draw
             # it as a System bubble rather than as her words.
             log.write(json.dumps({"type": "reminder",
@@ -3050,7 +3546,9 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         def _turn_then_follow_up():
             _run_turn(proc, stderr_f, conv_id, log_path, resume_sid,
                       live_path=_live_path(conv_id))
+            after_turn(conv_id)
             drain_followups(conv_id)
+            drain_inbox(conv_id)
 
         threading.Thread(target=_turn_then_follow_up, daemon=True).start()
 

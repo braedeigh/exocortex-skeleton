@@ -413,10 +413,11 @@
         "worktrees.py",
         "procmem.py",
         "activityfeed.py",
-        "lanes.py"
+        "lanes.py", "peermail.py", "swarms.py", "swarm_helper.py", "continuation.py"
       ],
       "routes": [
         "observatory.py",
+        "swarms.py",
         "spinoff.py",
         "nightcrew.py",
         "branches.py",
@@ -450,12 +451,12 @@
         "spinoff_runner.py",
         "backfill_spawned_from.py",
         "spark_morning.py",
-        "sort_bot_chats.py"
+        "sort_bot_chats.py", "peers.py"
       ],
       "tables": [
         "notes",
         "note_judgments",
-        "job_runs"
+        "job_runs", "agent_messages", "swarms", "swarm_members", "swarm_helper_runs"
       ],
       "collections": [
         "dev_notes",
@@ -530,6 +531,7 @@
         "trace_spans",
         "tool_calls",
         "tool_call_sources",
+        "model_calls",
         "turn_results",
         "ui_events",
         "requests"

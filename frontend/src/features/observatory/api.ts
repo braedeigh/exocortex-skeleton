@@ -707,3 +707,36 @@ export function goSpinoffOffer(convId: string): Promise<SpinoffGoResult> {
 export function dismissSpinoffOffer(convId: string): Promise<{ ok: true }> {
   return api.post(`/api/spinoff/offer/${encodeURIComponent(convId)}/dismiss`, {});
 }
+
+// --- The mailbox (peermail.py) ------------------------------------------------
+// What she types while a turn is running goes to the session's mailbox on the
+// server, which hands it to the agent at its next step — or starts a turn with
+// it if the session is idle. Held agent messages are released from here too.
+
+/** One of her messages still waiting to be handed in. */
+export interface InboxMessage {
+  id: number;
+  text: string;
+  record: boolean;
+}
+
+export function sendToInbox(
+  convId: string,
+  text: string,
+  record: boolean,
+): Promise<{ ok: boolean; id: number; started: boolean }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/inbox`, { text, record });
+}
+
+export function fetchInbox(convId: string, signal?: AbortSignal): Promise<{ waiting: InboxMessage[] }> {
+  return api.get(`/api/observatory/conversation/${encodeURIComponent(convId)}/inbox`, signal);
+}
+
+export function cancelInboxMessage(convId: string, id: number): Promise<{ ok: boolean }> {
+  return api.delete(`/api/observatory/conversation/${encodeURIComponent(convId)}/inbox/${id}`);
+}
+
+/** Let a held agent message through (a brake stopped it). */
+export function releasePeerMessage(id: number): Promise<{ ok: boolean; status: string }> {
+  return api.post(`/api/observatory/peer/${id}/release`);
+}

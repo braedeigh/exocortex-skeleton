@@ -1077,6 +1077,216 @@
       }
     }
   },
+  "agent_messages": {
+    "holds": "Every message sent into an agent session's mailbox: one agent writing to another (kind A), or the owner typing while a turn was running (kind B). Who sent it, to which session, the text, how hard the sender knocked (inject, queue or interrupt), and whether it's still waiting, was held by a brake, delivered (mid-turn or as its own turn) or taken back.",
+    "source": "Written by peermail.py when a message is sent (scripts/peers.py for agents, the chat's send box for the owner) and updated as it's delivered. This is the record — a waiting message exists nowhere else.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "The message's number."
+      },
+      "at": {
+        "holds": "When it was sent."
+      },
+      "kind": {
+        "holds": "Who sent it.",
+        "values": {
+          "A": "another agent",
+          "B": "the owner"
+        }
+      },
+      "from_conv": {
+        "holds": "The sending session's id. Empty when the owner sent it."
+      },
+      "to_conv": {
+        "holds": "The session it was sent to."
+      },
+      "text": {
+        "holds": "The message itself."
+      },
+      "mode": {
+        "holds": "How the sender asked for it to be delivered.",
+        "values": {
+          "inject": "handed in between the recipient's steps; it decides",
+          "queue": "waits until the recipient's turn ends",
+          "interrupt": "stops the recipient's turn and restarts it with this"
+        }
+      },
+      "hops": {
+        "holds": "How many agent-wakes-agent steps in a row led to this message with no owner message in between. The loop brake reads it."
+      },
+      "status": {
+        "holds": "Where the message is.",
+        "values": {
+          "waiting": "not delivered yet",
+          "held": "stopped by a brake until the owner releases it",
+          "delivered": "the recipient has it",
+          "cancelled": "the owner took it back"
+        }
+      },
+      "held_reason": {
+        "holds": "Which brake held it, in words."
+      },
+      "delivered_at": {
+        "holds": "When it reached the recipient."
+      },
+      "delivered_how": {
+        "holds": "How it arrived.",
+        "values": {
+          "injected": "handed in mid-turn",
+          "batched": "started a turn of its own, with anything else waiting"
+        }
+      },
+      "record": {
+        "holds": "Owner messages only: 1 if said on the record (journaled), 0 if off it.",
+        "values": {
+          "1": "on the record",
+          "0": "off the record"
+        }
+      }
+    }
+  },
+  "model_calls": {
+    "holds": "Every call an agent made to the model: when, which model, how many tokens it read (fresh, written to cache, read from cache — together, the session's context size at that moment), how many it wrote and how many of those were thinking, and which tool calls it asked for. The per-call view of token use; a tool call's cost is derived from the call that asked for it.",
+    "source": "Built by toolcallstore.py from the Observatory's conversation logs (and Claude Code's own transcripts): input and cache counts from the assistant lines, the final output count from the call-usage line the turn loop writes when each call finishes. Re-readable, so it can be dropped and rebuilt with scripts/usage_events.py --rebuild.",
+    "kind": "mirror",
+    "time_column": "at",
+    "columns": {
+      "message_id": {
+        "holds": "The model call's own id. A call written over several lines is still one row."
+      },
+      "conv": {
+        "holds": "The Observatory session it belongs to."
+      },
+      "session_id": {
+        "holds": "Claude Code's session id."
+      },
+      "parent_tool_use_id": {
+        "holds": "When a subagent made the call: the tool call that started the subagent. Empty for the main conversation."
+      },
+      "at": {
+        "holds": "When the call's first line was written."
+      },
+      "day": {
+        "holds": "The day, for counting by day."
+      },
+      "model": {
+        "holds": "Which model answered."
+      },
+      "input_tokens": {
+        "holds": "Tokens read fresh, not from cache."
+      },
+      "cache_creation_tokens": {
+        "holds": "Tokens read and written to the cache on this call."
+      },
+      "cache_read_tokens": {
+        "holds": "Tokens read back from the cache."
+      },
+      "context_tokens": {
+        "holds": "Everything the model read on this call — the session's context size at that moment."
+      },
+      "output_tokens": {
+        "holds": "Tokens the model wrote, thinking included. Empty until the call's final count has been read."
+      },
+      "thinking_tokens": {
+        "holds": "How many of the output tokens were thinking."
+      },
+      "tool_use_ids": {
+        "holds": "The tool calls this model call asked for, as a JSON list — joins to tool_calls."
+      }
+    }
+  },
+  "swarms": {
+    "holds": "Groups of agent sessions that have messaged each other. Each has a number that stays the same as it grows, a name its helper gives it, the room its card sits in, its helper's session, and the helper's current summary of the whole group.",
+    "source": "Rows are made by swarms.py when it finds two or more linked sessions in agent_messages; names and summaries are written by the swarm's helper. The record for those.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The swarm's number."
+      },
+      "name": {
+        "holds": "What the helper calls it. Empty until the helper has named it."
+      },
+      "lane": {
+        "holds": "The room most of its members are in — where its card shows."
+      },
+      "helper_conv": {
+        "holds": "The helper's own session."
+      },
+      "summary": {
+        "holds": "The helper's current summary of the swarm — replaced each time, never added to."
+      },
+      "summary_at": {
+        "holds": "When that summary was written."
+      },
+      "created_at": {
+        "holds": "When the swarm formed."
+      },
+      "updated_at": {
+        "holds": "When its membership or summary last changed."
+      },
+      "merged_into": {
+        "holds": "Set when another swarm absorbed this one — the number of the swarm it joined."
+      }
+    }
+  },
+  "swarm_members": {
+    "holds": "Which sessions belong to which swarm, when each joined, and the helper's current summary of what that session is doing.",
+    "source": "Membership by swarms.py from who has messaged whom (and which session continued which); only ever grows. Summaries by the helper.",
+    "kind": "mixed",
+    "time_column": "joined_at",
+    "columns": {
+      "swarm_id": {
+        "holds": "The swarm."
+      },
+      "conv": {
+        "holds": "The member session."
+      },
+      "joined_at": {
+        "holds": "When it joined."
+      },
+      "summary": {
+        "holds": "The helper's current summary of this member — replaced each time."
+      },
+      "summary_at": {
+        "holds": "When that summary was written."
+      }
+    }
+  },
+  "swarm_helper_runs": {
+    "holds": "Every time a swarm's helper ran: what started it, the exact input it was given, what it wrote back, what it cost, and any error — so what the helper used is always visible.",
+    "source": "Written by the helper runner each time it runs.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "The run's number."
+      },
+      "swarm_id": {
+        "holds": "Which swarm."
+      },
+      "at": {
+        "holds": "When it ran."
+      },
+      "trigger": {
+        "holds": "What woke it — a member's turn ending, a message to it, a manual refresh."
+      },
+      "input": {
+        "holds": "Everything the helper was given, verbatim."
+      },
+      "output": {
+        "holds": "What it wrote back, verbatim."
+      },
+      "cost_usd": {
+        "holds": "What the run cost."
+      },
+      "error": {
+        "holds": "What went wrong, if it failed."
+      }
+    }
+  },
   "tool_calls": {
     "holds": "Every tool an agent ran: when, which tool, what it was pointed at (the file, the command, the search pattern), the full input as JSON (capped), and once the result came back, how long it took, how big the result was and whether it errored. Subagent calls carry the call that spawned them.",
     "source": "Built by toolcallstore.py by reading the Observatory's conversation logs under the data folder's bot_chats/ and Claude Code's own transcripts under ~/.claude/projects. Re-readable at any time, so it can be dropped and rebuilt with scripts/usage_events.py --rebuild.",

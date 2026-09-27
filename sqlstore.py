@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 28
+_SCHEMA_VERSION = 31
 
 
 def _db_path():
@@ -192,6 +192,8 @@ _EXPECTED_TABLES = (
     "research_annotations", "claim_sources", "claim_values",
     "hazards", "hazard_names", "hazard_parents", "hazard_measures",
     "food_judgments", "judgment_grounds", "hazard_history", "research_tables",
+    # The agents' mailbox, token accounting per model call, and swarms.
+    "agent_messages", "model_calls", "swarms", "swarm_members", "swarm_helper_runs",
 )
 
 
@@ -2275,6 +2277,134 @@ def _run_ladder(conn):
         # rung 14 uses, so a replayed ladder doesn't fail on it.
         try:
             conn.execute("ALTER TABLE sessions ADD COLUMN is_keeper INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
+    if version < 29:
+        # Rung 29: the agents' mailbox (peermail.py). One row per message sent
+        # INTO a session — by another agent (kind 'A'), or by the owner while a
+        # turn was running (kind 'B'). This is the record, not a mirror: the
+        # transcripts only hold a message once it has been delivered, so a
+        # message still waiting exists nowhere else.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_messages ("
+            "  id INTEGER PRIMARY KEY,"
+            "  at TEXT NOT NULL,"
+            "  kind TEXT NOT NULL CHECK (kind IN ('A','B')),"
+            # The sending session; NULL when the owner sent it.
+            "  from_conv TEXT,"
+            "  to_conv TEXT NOT NULL,"
+            "  text TEXT NOT NULL,"
+            # What the SENDER asked for. The recipient's accept policy can
+            # soften it at delivery time (peermail.effective_mode).
+            "  mode TEXT NOT NULL DEFAULT 'inject'"
+            "    CHECK (mode IN ('inject','queue','interrupt')),"
+            # How many agent-to-agent wakes led here with no owner message in
+            # between — the loop guard reads it.
+            "  hops INTEGER NOT NULL DEFAULT 0,"
+            # waiting -> delivered, or held (loop guard / daily cap, until the
+            # owner releases it), or cancelled (the owner took it back).
+            "  status TEXT NOT NULL DEFAULT 'waiting'"
+            "    CHECK (status IN ('waiting','held','delivered','cancelled')),"
+            "  held_reason TEXT,"
+            "  delivered_at TEXT,"
+            # 'injected' (mid-turn) or 'batched' (started a turn of its own).
+            "  delivered_how TEXT,"
+            # Owner messages only: journaled or said off the record.
+            "  record INTEGER NOT NULL DEFAULT 1"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS agent_messages_waiting"
+                     " ON agent_messages (to_conv, status, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS agent_messages_by_day"
+                     " ON agent_messages (kind, at)")
+    if version < 30:
+        # Rung 30: token accounting per model call, and swarms (docs/swarms.md).
+        #
+        # One row per call to the model (toolcallstore.py). DERIVED from the
+        # Observatory logs, like tool_calls: input and cache tokens come from
+        # the `assistant` lines, the final output count from the `call-usage`
+        # line the turn loop writes when the call finishes. `context_tokens` is
+        # everything the model read on that call — the session's context size
+        # at that moment, which is what the self-continuing cap watches.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS model_calls ("
+            "  message_id TEXT PRIMARY KEY,"
+            "  conv TEXT,"
+            "  session_id TEXT,"
+            # The Agent call a subagent made this under; NULL at top level.
+            "  parent_tool_use_id TEXT,"
+            "  at TEXT,"
+            "  day TEXT,"
+            "  model TEXT,"
+            "  input_tokens INTEGER,"
+            "  cache_creation_tokens INTEGER,"
+            "  cache_read_tokens INTEGER,"
+            "  context_tokens INTEGER,"
+            # NULL until the call's call-usage line is read; the partial count
+            # in the assistant line is never stored.
+            "  output_tokens INTEGER,"
+            # JSON list of the tool_use ids this call asked for — the join to
+            # tool_calls.
+            "  tool_use_ids TEXT NOT NULL DEFAULT '[]'"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS model_calls_by_conv ON model_calls (conv, at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS model_calls_by_day ON model_calls (day)")
+        # Swarms (swarms.py): sessions linked by having messaged each other.
+        # The RECORD for names, helpers and summaries; membership is re-derived
+        # from agent_messages but kept, because it only ever grows.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarms ("
+            "  id INTEGER PRIMARY KEY,"
+            # The helper names it; NULL until then.
+            "  name TEXT,"
+            "  lane TEXT,"
+            # The helper's own Observatory session, once it has one.
+            "  helper_conv TEXT,"
+            # The helper's current summary of the whole swarm — replaced on
+            # every update, never appended.
+            "  summary TEXT,"
+            "  summary_at TEXT,"
+            "  created_at TEXT NOT NULL,"
+            "  updated_at TEXT NOT NULL,"
+            # Set when a link joined this swarm into an older one.
+            "  merged_into INTEGER REFERENCES swarms(id)"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarm_members ("
+            "  swarm_id INTEGER NOT NULL REFERENCES swarms(id),"
+            "  conv TEXT NOT NULL,"
+            "  joined_at TEXT NOT NULL,"
+            # The helper's current summary of this member, replaced each time.
+            "  summary TEXT,"
+            "  summary_at TEXT,"
+            "  PRIMARY KEY (swarm_id, conv)"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS swarm_members_by_conv ON swarm_members (conv)")
+        # Every time a helper ran: what it was given and what it wrote back, so
+        # the owner can see exactly what information it used.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarm_helper_runs ("
+            "  id INTEGER PRIMARY KEY,"
+            "  swarm_id INTEGER NOT NULL REFERENCES swarms(id),"
+            "  at TEXT NOT NULL,"
+            "  trigger TEXT,"
+            "  input TEXT,"
+            "  output TEXT,"
+            "  cost_usd REAL,"
+            "  error TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS swarm_helper_runs_by_swarm"
+                     " ON swarm_helper_runs (swarm_id, at)")
+    if version < 31:
+        # Rung 31: how much of a model call's output was thinking — the final
+        # count arrives with its output total in the call-usage line.
+        try:
+            conn.execute("ALTER TABLE model_calls ADD COLUMN thinking_tokens INTEGER")
         except sqlite3.OperationalError as e:
             if "duplicate column" not in str(e):
                 raise

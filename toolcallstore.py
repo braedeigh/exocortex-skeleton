@@ -35,6 +35,13 @@ the last scan stopped; one that shrank was rewritten and is read from the
 top. A cheap substring test skips the lines that can't hold a tool call
 before any JSON parsing happens.
 
+**Live for Observatory turns.** A running turn calls `live_ingest` on its own
+log every few seconds (routes/observatory.py), so its tool calls are in the
+table within seconds — that's what lets one agent see what another is doing
+right now. The hourly cron still walks everything, and is the only path for
+sessions outside the Observatory (tmux, a plain terminal). Both stop at the
+last whole line, so a line still being written is never half-read.
+
 **The clock.** Both sources stamp lines in UTC with a trailing Z. Rows are
 stored in LOCAL naive ISO with milliseconds — the clock attention_segments
 keeps, with the fraction kept because calls land several to a second. The
@@ -51,8 +58,8 @@ whole file, and the logs already hold it.
 
 Touches: `sqlstore.py` (owns the schema — rung 19), `store.py` (DATA_DIR for
 bot_chats), `commandstore.projects_dir` (the harness transcript root),
-`scripts/usage_events.py` (the cron entry point), and `routes/sqlab.py`
-(lists the tables).
+`scripts/usage_events.py` (the cron entry point), `routes/observatory.py`
+(the live path), and `routes/sqlab.py` (lists the tables).
 
 Prompt that produced this file: "I'm trying to figure out how to record my
 usage as granularly as possible and then give my tools the ability and
@@ -73,7 +80,7 @@ _INPUT_CAP = 4000
 _TARGET_CAP = 300
 # Lines that can't hold a tool call or a turn result are skipped before any
 # JSON parsing — that is what keeps a walk over gigabytes I/O-bound.
-_MARKERS = ('"tool_use"', '"tool_result"', '"result"')
+_MARKERS = ('"tool_use"', '"tool_result"', '"result"', '"usage"', '"call-usage"')
 
 
 def bot_chats_dir():
@@ -172,6 +179,16 @@ def parse_line(line, source, conv=None):
     if kind == "result":
         out.append(_turn_row(d, conv))
         return out
+    if kind == "call-usage":
+        # A model call's FINAL output count, written by the turn loop when the
+        # call finished (routes/observatory.py) — the assistant lines only
+        # carry a partial one.
+        if d.get("message_id"):
+            out.append({"kind": "call_usage", "message_id": d["message_id"],
+                        "conv": conv, "parent_tool_use_id": d.get("parent_tool_use_id"),
+                        "output_tokens": d.get("output_tokens"),
+                        "thinking_tokens": d.get("thinking_tokens")})
+        return out
     if kind not in ("assistant", "user"):
         return []
     at = _local(d.get("timestamp"))
@@ -185,6 +202,31 @@ def parse_line(line, source, conv=None):
         return out
     session_id = d.get("session_id") or d.get("sessionId")
     parent = d.get("parent_tool_use_id")
+    # One model call, from its usage. A call that writes several blocks
+    # appears as several assistant lines with the same message id; each one
+    # yields this row, and the upsert merges their tool ids.
+    usage = message.get("usage")
+    if kind == "assistant" and message.get("id") and isinstance(usage, dict):
+        fresh = usage.get("input_tokens") or 0
+        created = usage.get("cache_creation_input_tokens") or 0
+        read = usage.get("cache_read_input_tokens") or 0
+        out.append({
+            "kind": "model_call",
+            "message_id": message["id"],
+            "conv": conv,
+            "session_id": session_id,
+            "parent_tool_use_id": parent,
+            "at": at,
+            "day": at[:10] if at else None,
+            "model": message.get("model"),
+            "input_tokens": fresh,
+            "cache_creation_tokens": created,
+            "cache_read_tokens": read,
+            "context_tokens": fresh + created + read,
+            "tool_use_ids": json.dumps([b.get("id") for b in content
+                                        if isinstance(b, dict) and b.get("type") == "tool_use"
+                                        and b.get("id")]),
+        })
     for block in content:
         if not isinstance(block, dict):
             continue
@@ -268,12 +310,22 @@ def scan_file(path, start=0, source="claude", conv=None, last_at=None):
 
     Turn rows come out already dated with the last clock seen (`last_at`
     seeds it for a resumed scan). The final yielded item is
-    {"kind": "end", "last_at": ...} so the caller can store the clock."""
+    {"kind": "end", "last_at": ..., "offset": ...} so the caller can store the
+    clock and where reading stopped.
+
+    Stop at the last WHOLE line. A log is read while its turn is still writing
+    it (live_ingest), and a long line lands in more than one write, so the
+    tail may be half a line; reading it now would lose it for good. `offset`
+    is where the next scan picks up."""
+    offset = start
     try:
         with open(path, "rb") as fh:
             if start:
                 fh.seek(start)
             for raw in fh:
+                if not raw.endswith(b"\n"):
+                    break
+                offset += len(raw)
                 for row in parse_line(raw.decode("utf-8", "replace"), source, conv):
                     if row["kind"] == "clock":
                         last_at = row["at"]
@@ -284,7 +336,7 @@ def scan_file(path, start=0, source="claude", conv=None, last_at=None):
                     yield row
     except OSError:
         pass
-    yield {"kind": "end", "last_at": last_at}
+    yield {"kind": "end", "last_at": last_at, "offset": offset}
 
 
 def _files(root, pattern):
@@ -292,6 +344,132 @@ def _files(root, pattern):
         return sorted(p for p in Path(root).glob(pattern) if p.is_file())
     except OSError:
         return []
+
+
+def _ingest_path(conn, path, source, conv, seen, conv_of, now, stats):
+    """Fold whatever is new in one log into the tables — the per-file step
+    both the hourly ingest and a live turn's live_ingest run."""
+    key = str(path)
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return
+    before, last_at, seq = seen.get(key, (None, None, 0))
+    if before is not None and before == size:
+        stats["skipped"] += 1
+        return
+    # Grew -> resume where we stopped, clock in hand. Shrank -> it
+    # was rewritten, so start over with no memory of it.
+    if before is not None and before < size:
+        start = before
+    else:
+        start, last_at, seq = 0, None, 0
+        if before is not None:
+            conn.execute("DELETE FROM turn_results WHERE conv = ?", (conv,))
+    stats["files"] += 1
+    sqlstore.begin_immediate(conn)
+    try:
+        for row in scan_file(path, start, source, conv, last_at):
+            kind = row.pop("kind")
+            if kind == "call":
+                if row["conv"] is None and row["session_id"] in conv_of:
+                    row["conv"] = conv_of[row["session_id"]]
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO tool_calls"
+                    " (tool_use_id, source, conv, session_id,"
+                    "  parent_tool_use_id, at, day, hour, name, target,"
+                    "  input, input_truncated, cwd, model)"
+                    " VALUES (:tool_use_id, :source, :conv, :session_id,"
+                    "  :parent_tool_use_id, :at, :day, :hour, :name,"
+                    "  :target, :input, :input_truncated, :cwd, :model)",
+                    row)
+                stats["calls"] += cur.rowcount
+            elif kind == "result":
+                # Duration is computed against the stored call, and
+                # only the first result for a call counts.
+                cur = conn.execute(
+                    "UPDATE tool_calls SET result_at = :result_at,"
+                    "  result_chars = :result_chars, is_error = :is_error,"
+                    "  duration_ms = CAST((julianday(:result_at)"
+                    "    - julianday(at)) * 86400000 AS INTEGER)"
+                    " WHERE tool_use_id = :tool_use_id"
+                    "   AND result_at IS NULL",
+                    row)
+                stats["results"] += cur.rowcount
+            elif kind == "model_call":
+                if row["conv"] is None and row["session_id"] in conv_of:
+                    row["conv"] = conv_of[row["session_id"]]
+                # Merge this line's tool ids into the call's list; keep any
+                # output count a call-usage line already stored.
+                conn.execute(
+                    "INSERT INTO model_calls (message_id, conv, session_id,"
+                    "  parent_tool_use_id, at, day, model, input_tokens,"
+                    "  cache_creation_tokens, cache_read_tokens, context_tokens,"
+                    "  tool_use_ids)"
+                    " VALUES (:message_id, :conv, :session_id, :parent_tool_use_id,"
+                    "  :at, :day, :model, :input_tokens, :cache_creation_tokens,"
+                    "  :cache_read_tokens, :context_tokens, :tool_use_ids)"
+                    " ON CONFLICT(message_id) DO UPDATE SET"
+                    "  conv = COALESCE(model_calls.conv, excluded.conv),"
+                    "  session_id = COALESCE(model_calls.session_id, excluded.session_id),"
+                    "  at = COALESCE(model_calls.at, excluded.at),"
+                    "  day = COALESCE(model_calls.day, excluded.day),"
+                    "  model = COALESCE(model_calls.model, excluded.model),"
+                    "  input_tokens = excluded.input_tokens,"
+                    "  cache_creation_tokens = excluded.cache_creation_tokens,"
+                    "  cache_read_tokens = excluded.cache_read_tokens,"
+                    "  context_tokens = excluded.context_tokens,"
+                    "  tool_use_ids = (SELECT json_group_array(value) FROM ("
+                    "    SELECT value FROM json_each(model_calls.tool_use_ids)"
+                    "    UNION SELECT value FROM json_each(excluded.tool_use_ids)))",
+                    row)
+                stats["model_calls"] = stats.get("model_calls", 0) + 1
+            elif kind == "call_usage":
+                conn.execute(
+                    "INSERT INTO model_calls (message_id, conv, parent_tool_use_id,"
+                    "  output_tokens, thinking_tokens)"
+                    " VALUES (:message_id, :conv, :parent_tool_use_id,"
+                    "  :output_tokens, :thinking_tokens)"
+                    " ON CONFLICT(message_id) DO UPDATE SET"
+                    "  output_tokens = excluded.output_tokens,"
+                    "  thinking_tokens = excluded.thinking_tokens",
+                    row)
+            elif kind == "turn" and conv is not None:
+                seq += 1
+                row["seq"] = seq
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO turn_results"
+                    " (conv, seq, session_id, at, day, subtype,"
+                    "  stop_reason, is_error, duration_ms,"
+                    "  duration_api_ms, num_turns, cost_usd,"
+                    "  input_tokens, cache_creation_tokens,"
+                    "  cache_read_tokens, output_tokens,"
+                    "  thinking_tokens, model)"
+                    " VALUES (:conv, :seq, :session_id, :at, :day,"
+                    "  :subtype, :stop_reason, :is_error,"
+                    "  :duration_ms, :duration_api_ms, :num_turns,"
+                    "  :cost_usd, :input_tokens,"
+                    "  :cache_creation_tokens, :cache_read_tokens,"
+                    "  :output_tokens, :thinking_tokens, :model)",
+                    row)
+                stats["turns"] += cur.rowcount
+            elif kind == "end":
+                last_at = row["last_at"]
+                # Store where reading stopped, not the file's size: a half
+                # line at the tail is picked up whole next time.
+                size = row["offset"]
+        conn.execute(
+            "INSERT INTO tool_call_sources"
+            " (path, size, scanned_at, last_at, results)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT(path) DO UPDATE SET size = excluded.size,"
+            "  scanned_at = excluded.scanned_at,"
+            "  last_at = excluded.last_at, results = excluded.results",
+            (key, size, now, last_at, seq))
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
 
 
 def ingest(bot_chats=None, projects=None):
@@ -318,86 +496,28 @@ def ingest(bot_chats=None, projects=None):
             "SELECT path, size, last_at, results FROM tool_call_sources")}
         now = datetime.now().isoformat(timespec="seconds")
         for path, source, conv in plan:
-            key = str(path)
-            try:
-                size = path.stat().st_size
-            except OSError:
-                continue
-            before, last_at, seq = seen.get(key, (None, None, 0))
-            if before is not None and before == size:
-                stats["skipped"] += 1
-                continue
-            # Grew -> resume where we stopped, clock in hand. Shrank -> it
-            # was rewritten, so start over with no memory of it.
-            if before is not None and before < size:
-                start = before
-            else:
-                start, last_at, seq = 0, None, 0
-                if before is not None:
-                    conn.execute("DELETE FROM turn_results WHERE conv = ?", (conv,))
-            stats["files"] += 1
-            sqlstore.begin_immediate(conn)
-            try:
-                for row in scan_file(path, start, source, conv, last_at):
-                    kind = row.pop("kind")
-                    if kind == "call":
-                        if row["conv"] is None and row["session_id"] in conv_of:
-                            row["conv"] = conv_of[row["session_id"]]
-                        cur = conn.execute(
-                            "INSERT OR IGNORE INTO tool_calls"
-                            " (tool_use_id, source, conv, session_id,"
-                            "  parent_tool_use_id, at, day, hour, name, target,"
-                            "  input, input_truncated, cwd, model)"
-                            " VALUES (:tool_use_id, :source, :conv, :session_id,"
-                            "  :parent_tool_use_id, :at, :day, :hour, :name,"
-                            "  :target, :input, :input_truncated, :cwd, :model)",
-                            row)
-                        stats["calls"] += cur.rowcount
-                    elif kind == "result":
-                        # Duration is computed against the stored call, and
-                        # only the first result for a call counts.
-                        cur = conn.execute(
-                            "UPDATE tool_calls SET result_at = :result_at,"
-                            "  result_chars = :result_chars, is_error = :is_error,"
-                            "  duration_ms = CAST((julianday(:result_at)"
-                            "    - julianday(at)) * 86400000 AS INTEGER)"
-                            " WHERE tool_use_id = :tool_use_id"
-                            "   AND result_at IS NULL",
-                            row)
-                        stats["results"] += cur.rowcount
-                    elif kind == "turn" and conv is not None:
-                        seq += 1
-                        row["seq"] = seq
-                        cur = conn.execute(
-                            "INSERT OR IGNORE INTO turn_results"
-                            " (conv, seq, session_id, at, day, subtype,"
-                            "  stop_reason, is_error, duration_ms,"
-                            "  duration_api_ms, num_turns, cost_usd,"
-                            "  input_tokens, cache_creation_tokens,"
-                            "  cache_read_tokens, output_tokens,"
-                            "  thinking_tokens, model)"
-                            " VALUES (:conv, :seq, :session_id, :at, :day,"
-                            "  :subtype, :stop_reason, :is_error,"
-                            "  :duration_ms, :duration_api_ms, :num_turns,"
-                            "  :cost_usd, :input_tokens,"
-                            "  :cache_creation_tokens, :cache_read_tokens,"
-                            "  :output_tokens, :thinking_tokens, :model)",
-                            row)
-                        stats["turns"] += cur.rowcount
-                    elif kind == "end":
-                        last_at = row["last_at"]
-                conn.execute(
-                    "INSERT INTO tool_call_sources"
-                    " (path, size, scanned_at, last_at, results)"
-                    " VALUES (?, ?, ?, ?, ?)"
-                    " ON CONFLICT(path) DO UPDATE SET size = excluded.size,"
-                    "  scanned_at = excluded.scanned_at,"
-                    "  last_at = excluded.last_at, results = excluded.results",
-                    (key, size, now, last_at, seq))
-                conn.execute("COMMIT")
-            except BaseException:
-                conn.execute("ROLLBACK")
-                raise
+            _ingest_path(conn, path, source, conv, seen, conv_of, now, stats)
+        return stats
+    finally:
+        conn.close()
+
+
+def live_ingest(path, conv):
+    """Fold what's new in ONE Observatory log into the tables, now — called
+    every few seconds by a running turn (routes/observatory.py), so tool calls
+    land in SQL as they happen instead of at the next hourly ingest. Same
+    watermark as the hourly pass, so the two never count a call twice and
+    either one can pick up where the other stopped."""
+    path = Path(path)
+    stats = {"files": 0, "skipped": 0, "calls": 0, "results": 0, "turns": 0}
+    conn = sqlstore.open_db()
+    try:
+        row = conn.execute(
+            "SELECT size, last_at, results FROM tool_call_sources WHERE path = ?",
+            (str(path),)).fetchone()
+        seen = {str(path): tuple(row)} if row else {}
+        now = datetime.now().isoformat(timespec="seconds")
+        _ingest_path(conn, path, "observatory", conv, seen, {}, now, stats)
         return stats
     finally:
         conn.close()
@@ -410,6 +530,7 @@ def rebuild(bot_chats=None, projects=None):
     try:
         sqlstore.begin_immediate(conn)
         conn.execute("DELETE FROM tool_calls")
+        conn.execute("DELETE FROM model_calls")
         conn.execute("DELETE FROM turn_results")
         conn.execute("DELETE FROM tool_call_sources")
         conn.execute("COMMIT")

@@ -3,6 +3,8 @@ import { type SessionMeta } from './api';
 import { orchestraRows } from './orchestra';
 import { ApprovalCard, AwaitingCard, SessionCard } from './SessionCard';
 import { LaneHead, useLaneOpen } from './LaneHead';
+import { SwarmCard } from './SwarmCard';
+import { swarmState, useSwarms } from './swarmApi';
 import type { TerrainData } from '../terrain/api';
 import styles from './SessionLane.module.css';
 
@@ -51,7 +53,18 @@ import styles from './SessionLane.module.css';
  *
  * Terrain is polled ONCE by the page and passed in, not fetched per lane —
  * several lanes must not mean several pollers hitting the same endpoint.
+ *
+ * SWARMS FOLD. Sessions that have messaged each other form a swarm
+ * (swarms.py); in the room the swarm lives in, its members and its helper
+ * leave the list and one SwarmCard stands for them, first in the room. The
+ * swarm's own page reuses this same component for its members with
+ * `swarmId` set, which shows them as ordinary cards instead of folding them.
+ * The room's census still counts swarm members, so a shut room says so when
+ * one of them needs her. Swarms come from one shared poll (swarmApi.useSwarms)
+ * however many rooms are showing.
  */
+const STATE_RANK = { needs_input: 0, working: 1, silent: 2 } as const;
+
 export function SessionLane({
   laneKey,
   heading,
@@ -67,6 +80,7 @@ export function SessionLane({
   onRename,
   onChanged,
   onClose,
+  swarmId,
 }: {
   /** Which room this is — the key its open/shut state is remembered under, so
    * collapsing Coding doesn't also collapse Personal. */
@@ -98,6 +112,9 @@ export function SessionLane({
   onRename: (session: SessionMeta) => void;
   onChanged?: () => void;
   onClose: (convId: string) => void;
+  /** Set on a swarm's own page: this lane IS the swarm, so its members show
+   * as ordinary cards rather than folding into a swarm card. */
+  swarmId?: number;
 }) {
   const navigate = useNavigate();
   // The Keeper's slot is never shut — it has no chevron to shut it with. The
@@ -106,7 +123,22 @@ export function SessionLane({
   // hide.
   const [laneOpen, toggleOpen] = useLaneOpen(laneKey);
   const open = keeper || laneOpen;
-  const rows = orchestraRows(sessions, terrain);
+  // Swarms sit in this room as one card each, and their members (and their
+  // helper) leave the room's own list — they're shown inside the swarm. One
+  // shared poll for every room (swarmApi.useSwarms). The Keeper's slot never
+  // folds: it's the one card that must not hide.
+  const { data: allSwarms } = useSwarms();
+  const folding = !keeper && swarmId === undefined;
+  const swarmsHere = folding ? (allSwarms ?? []).filter((s) => s.lane === laneKey) : [];
+  const inASwarm = new Set(
+    !folding
+      ? []
+      : (allSwarms ?? []).flatMap((s) => [...s.members.map((m) => m.conv), ...(s.helper_conv ? [s.helper_conv] : [])]),
+  );
+  const rows = orchestraRows(
+    sessions.filter((s) => !inASwarm.has(s.id)),
+    terrain,
+  );
   const byId = new Map(sessions.map((s) => [s.id, s]));
 
   // Urgency order, top to bottom: a gated command needing her OK (nothing moves
@@ -115,8 +147,11 @@ export function SessionLane({
   const waiting = rows.filter((r) => !r.pendingApproval && r.awaiting);
   const rest = rows.filter((r) => !r.pendingApproval && !r.awaiting);
 
-  const needing = approvals.length + waiting.length;
-  const running = rest.filter((r) => r.running).length;
+  // The census counts swarm members too, so a shut room still says a swarm
+  // member needs her.
+  const needing =
+    approvals.length + waiting.length + swarmsHere.reduce((n, s) => n + s.counts.needs_input, 0);
+  const running = rest.filter((r) => r.running).length + swarmsHere.reduce((n, s) => n + s.counts.working, 0);
   // Drives the memory poll's cadence: quick while a turn is moving so a start
   // is caught in a couple of seconds, slow when the room is at rest.
   const anyRunning = rows.some((r) => r.running);
@@ -170,7 +205,18 @@ export function SessionLane({
       {head}
       {keeper ? null : <p className={styles.blurb}>{blurb}</p>}
 
-      {rows.length === 0 ? (
+      {swarmsHere.length > 0 ? (
+        <div className={styles.rows}>
+          {/* Swarms needing her first, then working, then resting. */}
+          {[...swarmsHere]
+            .sort((a, b) => STATE_RANK[swarmState(a)] - STATE_RANK[swarmState(b)])
+            .map((s) => (
+              <SwarmCard key={s.id} swarm={s} />
+            ))}
+        </div>
+      ) : null}
+
+      {rows.length === 0 && swarmsHere.length > 0 ? null : rows.length === 0 ? (
         <div className={styles.idle}>
           <span className={styles.idleDot} aria-hidden="true" />
           {emptyNote ?? 'Nothing here yet — tap + beside the heading to start one.'}
@@ -210,9 +256,10 @@ export function SessionLane({
           it belongs to the room, so it goes when the room shuts.
           Not offered in the Keeper slot: that's one standing session, and
           "past Keepers" are rolled-over days that live in Personal's record.
+          Nor on a swarm's page: a swarm isn't a room with an archive.
           [prompt: "be able to see past sessions like, within a certain room
           underneath that room ... not within each chat session"] */}
-      {keeper ? null : (
+      {keeper || swarmId !== undefined ? null : (
         <button
           type="button"
           className={styles.pastLink}

@@ -25,7 +25,9 @@ Rules, in order:
     again next minute.
 
 Then, as a safety net, it starts any follow-up that's still waiting on an
-idle conversation — e.g. an approval whose turn process was killed.
+idle conversation — e.g. an approval whose turn process was killed — and
+does the same for the agents' mailbox (peermail.py): a message waiting for a
+session that's idle starts its turn here if nothing else did.
 
 Run by cron (the owner wires the crontab):
 
@@ -34,7 +36,7 @@ Run by cron (the owner wires the crontab):
         /opt/exocortex/skeleton/scripts/coming_up_dispatcher.py >> ...log 2>&1
 
 Touches: `comingup.py` (what's due, marking it), `routes/observatory.py`
-(queue_followup / drain_all_followups), `scripts/keeper_rollover.py` (finding
+(queue_followup / drain_all_followups / drain_all_inbox), `scripts/keeper_rollover.py` (finding
 the pinned Keeper, the rollover lock), `tests/test_coming_up_dispatcher.py`.
 
 Prompt that produced this: "I'm also wanting something that can inject a
@@ -126,6 +128,23 @@ def main():
     if not store.DATA_DIR.exists():
         _log(f"ERROR: DATA_DIR {store.DATA_DIR} missing — is EXOCORTEX_DATA_DIR set?")
         return 1
+    # The agents' mailbox safety net (peermail.py) rides this minute tick too,
+    # and ahead of the Coming up switch: a message waiting for an idle
+    # session has nothing to do with whether reminders are on.
+    try:
+        woke = rr.drain_all_inbox()
+        if woke:
+            _log(f"mailbox safety net started {woke} turn(s)")
+    except Exception as e:
+        _log(f"mailbox drain failed: {e}")
+    # Swarm helpers with an update waiting out their interval (swarm_helper.py).
+    try:
+        import swarm_helper
+        ran = swarm_helper.tick()
+        if ran:
+            _log(f"started {ran} swarm helper run(s)")
+    except Exception as e:
+        _log(f"swarm helper tick failed: {e}")
     if not _is_enabled():
         return 0
     if keeper_rollover.rollover_running():

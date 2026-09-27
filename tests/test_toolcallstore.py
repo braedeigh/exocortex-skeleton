@@ -189,3 +189,47 @@ def test_rebuild_and_summary(roots):
     summary = {r["name"]: r for r in toolcallstore.summary()}
     assert summary["Bash"]["errors"] == 1
     assert summary["Read"]["unanswered"] == 1
+
+
+# --- model calls: token accounting per call to the model (docs/swarms.md) ----
+
+def _assistant(message_id, blocks, usage, ts="2026-09-24T16:56:29.403Z"):
+    return json.dumps({"type": "assistant", "timestamp": ts, "session_id": "s1",
+                       "parent_tool_use_id": None,
+                       "message": {"id": message_id, "model": "claude-opus-5-5",
+                                   "content": blocks, "usage": usage}})
+
+
+USAGE = {"input_tokens": 2, "cache_creation_input_tokens": 100,
+         "cache_read_input_tokens": 5000, "output_tokens": 7}   # 7 = partial
+
+
+def test_one_model_call_split_over_lines_is_one_row_with_final_output(roots):
+    chats, _ = roots
+    write(chats / "2026-09-24.115556.jsonl", [
+        _assistant("msg_1", [{"type": "tool_use", "id": "toolu_a", "name": "Read",
+                              "input": {"file_path": "/x"}}], USAGE),
+        _assistant("msg_1", [{"type": "tool_use", "id": "toolu_b", "name": "Read",
+                              "input": {"file_path": "/y"}}], USAGE),
+        json.dumps({"type": "call-usage", "message_id": "msg_1",
+                    "output_tokens": 640, "thinking_tokens": 500}),
+    ])
+    toolcallstore.ingest()
+    [(conv, context, output, thinking, tools)] = rows(
+        "SELECT conv, context_tokens, output_tokens, thinking_tokens, tool_use_ids"
+        " FROM model_calls")
+    assert conv == "2026-09-24.115556"
+    assert context == 5102
+    # the partial 7 in the assistant lines is never kept
+    assert (output, thinking) == (640, 500)
+    assert sorted(json.loads(tools)) == ["toolu_a", "toolu_b"]
+
+
+def test_final_usage_read_before_the_call_still_lands(roots):
+    chats, _ = roots
+    write(chats / "2026-09-24.115556.jsonl", [
+        json.dumps({"type": "call-usage", "message_id": "msg_2", "output_tokens": 9}),
+        _assistant("msg_2", [{"type": "text", "text": "hi"}], USAGE),
+    ])
+    toolcallstore.ingest()
+    assert rows("SELECT output_tokens, context_tokens FROM model_calls") == [(9, 5102)]

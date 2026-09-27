@@ -21,8 +21,7 @@
  * keep, so only those are saved.
  *
  * A session that is both open and live appears ONCE, in the live group — two
- * tabs for one conversation would be two mounted views of it, which is exactly
- * the thing queueOwner.ts had to be written for.
+ * tabs for one conversation would be two mounted views of the same chat.
  *
  * Everything here is pure and returns the SAME array when nothing changed, so
  * a poll that finds no news can't cause a re-render (panelTabs.test.ts).

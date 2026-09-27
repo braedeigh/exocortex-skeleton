@@ -1,0 +1,110 @@
+/* A swarm card sits among session cards and takes its state colours from
+   SessionLane.module.css; this only lays out what's inside it. The double
+   left rule is what says "several sessions" at a glance. */
+.swarm {
+  border-left-style: double;
+  border-left-width: 6px;
+}
+
+/* The whole card opens the swarm — one generous tap target. */
+.open {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+}
+
+.badge {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.size {
+  flex: none;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.needing {
+  color: var(--orange);
+  font-weight: 600;
+}
+
+.working {
+  color: var(--accent);
+}
+
+.silent {
+  color: var(--text-secondary);
+}
+
+.summary,
+.summaryPending {
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.summaryPending {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* One chip per member, edged in its own state colour. */
+.member {
+  max-width: 100%;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memberWorking {
+  border-left-color: var(--accent);
+}
+
+.memberNeeds {
+  border-left-color: var(--orange);
+}
+
+.memberSilent {
+  border-left-color: var(--border);
+}

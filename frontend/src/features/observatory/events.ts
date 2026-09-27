@@ -21,6 +21,12 @@
  *                                              System, never as her words;
  *                                              source = who set it (manual =
  *                                              her, keeper = a Keeper)
+ * - {type:'peer', direction, id, from_conv,     a message between two agents —
+ *    from_title, to_conv, to_title, text,       'out' in the sender's chat, 'in'
+ *    mode, status, held_reason}                 in the recipient's; drawn as a
+ *                                              colored card
+ * - {type:'peer-status', id, status}           a held agent message she let
+ *                                              through — updates its card
  * - {type:'off-record-gap'}                    a cue the app fired for her (a
  *                                              red card's resume nudge), plus
  *                                              every off-record turn logged
@@ -39,7 +45,7 @@
  */
 
 export interface Turn {
-  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision' | 'reminder';
+  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision' | 'reminder' | 'peer';
   /** user/error: the text. assistant: committed markdown (authoritative).
    * decision: the exact command she approved/denied. reminder: what it says. */
   text: string;
@@ -59,12 +65,26 @@ export interface Turn {
   journaled: boolean;
   /** decision only: which way she called the gated command. */
   decision?: 'approve' | 'deny';
+  /** peer only: the agent message this card draws. */
+  peer?: PeerMessage;
   /** Spans of this turn she highlighted into the journal. Offsets are into the
    * turn's RENDERED text (what `textContent` reads), not its markdown source —
    * the selection that made them was a DOM selection, and re-lighting them is a
    * DOM walk (highlightMarks.ts). `quote` is what recovers the span when the
    * offsets drift; `card` is the journal card it minted. */
   highlights?: Highlight[];
+}
+
+/** A message between two agents (peermail.py), as its card needs it. */
+export interface PeerMessage {
+  id: number;
+  /** 'out' = this session sent it; 'in' = this session received it. */
+  direction: 'in' | 'out';
+  otherConv: string;
+  otherTitle: string;
+  mode: 'inject' | 'queue' | 'interrupt';
+  status: 'waiting' | 'held' | 'delivered' | 'cancelled';
+  heldReason: string;
 }
 
 export interface Highlight {
@@ -158,6 +178,37 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       t.source = e.source === 'keeper' ? 'keeper'
         : e.source === 'run_detached' ? 'job' : 'manual';
       turns.push(t);
+      return turns;
+    }
+    case 'peer': {
+      // A message between two agents. Its own card, colored, so she can see
+      // what her agents say to each other without it reading as her words or
+      // the agent's reply.
+      const out = e.direction === 'out';
+      const t = turn('peer', typeof e.text === 'string' ? e.text : '');
+      const mode = e.mode === 'queue' || e.mode === 'interrupt' ? e.mode : 'inject';
+      const status =
+        e.status === 'held' || e.status === 'delivered' || e.status === 'cancelled' ? e.status : 'waiting';
+      t.peer = {
+        id: typeof e.id === 'number' ? e.id : -1,
+        direction: out ? 'out' : 'in',
+        otherConv: String((out ? e.to_conv : e.from_conv) ?? ''),
+        otherTitle: String((out ? e.to_title : e.from_title) ?? ''),
+        mode,
+        // Arriving is delivery, whatever the row said when it was written.
+        status: out ? status : 'delivered',
+        heldReason: typeof e.held_reason === 'string' ? e.held_reason : '',
+      };
+      turns.push(t);
+      return turns;
+    }
+    case 'peer-status': {
+      // A held message she released — update the card it belongs to.
+      for (const t of turns) {
+        if (t.peer && t.peer.id === e.id && t.peer.direction === 'out') {
+          t.peer = { ...t.peer, status: 'waiting', heldReason: '' };
+        }
+      }
       return turns;
     }
     case 'stream_event': {

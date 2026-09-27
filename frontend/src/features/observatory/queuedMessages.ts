@@ -1,12 +1,12 @@
 /**
- * queuedMessages.ts — persistence for the observatory's queued sends.
- * A queued message is hers, typed and waiting its turn; the turn it waits on
- * survives the PWA closing (it runs detached server-side), so the queue has
- * to survive too. localStorage, one key per conversation.
- *
- * A conversation that doesn't know its id yet (very first turn of a blank
- * compose, still writing) stages under a per-bot `new-` key; once the id
- * arrives the staged messages migrate to the conversation's own key.
+ * queuedMessages.ts — the browser-side staging for her queued sends.
+ * Her queued messages live on the server now (the session's mailbox —
+ * useMessageQueue.ts). This is only the holding pen for the one case the
+ * server can't take yet: the very first turn of a blank compose, before the
+ * conversation has an id. Those stage under a per-bot `new-` key in
+ * localStorage and move to the server when the id arrives. It also reads the
+ * per-conversation keys the old browser-side queue left behind, so nothing
+ * typed under the old version is lost.
  */
 
 export interface QueuedMessage {
@@ -47,14 +47,4 @@ export function saveQueued(
   } catch {
     // storage disabled — nothing to do
   }
-}
-
-/** A fresh conversation just learned its id — messages staged under the
- * bot's `new-` key belong to it now (appended after anything already
- * queued there, oldest intent first). */
-export function migrateNewQueue(botId: string, convId: string): void {
-  const staged = loadQueued(botId);
-  if (staged.length === 0) return;
-  saveQueued(botId, convId, [...loadQueued(botId, convId), ...staged]);
-  saveQueued(botId, undefined, []);
 }

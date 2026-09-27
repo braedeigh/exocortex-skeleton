@@ -4,7 +4,7 @@
  * migration.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadQueued, migrateNewQueue, saveQueued } from './queuedMessages';
+import { loadQueued, saveQueued } from './queuedMessages';
 
 function fakeStorage(): Storage {
   const map = new Map<string, string>();
@@ -70,30 +70,5 @@ describe('corrupt or hostile storage', () => {
     vi.stubGlobal('localStorage', undefined);
     expect(loadQueued('keeper', 'conv-1')).toEqual([]);
     expect(() => saveQueued('keeper', 'conv-1', [{ text: 'hi', offRecord: false }])).not.toThrow();
-  });
-});
-
-describe('migrateNewQueue', () => {
-  it('moves staged messages to the conversation key and clears the stage', () => {
-    saveQueued('keeper', undefined, [{ text: 'staged', offRecord: false }]);
-    migrateNewQueue('keeper', 'conv-9');
-    expect(loadQueued('keeper', 'conv-9')).toEqual([{ text: 'staged', offRecord: false }]);
-    expect(loadQueued('keeper')).toEqual([]);
-  });
-
-  it('appends after anything already queued on the conversation', () => {
-    saveQueued('keeper', 'conv-9', [{ text: 'earlier', offRecord: false }]);
-    saveQueued('keeper', undefined, [{ text: 'staged', offRecord: true }]);
-    migrateNewQueue('keeper', 'conv-9');
-    expect(loadQueued('keeper', 'conv-9')).toEqual([
-      { text: 'earlier', offRecord: false },
-      { text: 'staged', offRecord: true },
-    ]);
-  });
-
-  it('is a no-op when nothing is staged', () => {
-    saveQueued('keeper', 'conv-9', [{ text: 'earlier', offRecord: false }]);
-    migrateNewQueue('keeper', 'conv-9');
-    expect(loadQueued('keeper', 'conv-9')).toEqual([{ text: 'earlier', offRecord: false }]);
   });
 });

@@ -103,3 +103,43 @@ SQL_AGENT_DENY_TABLES = frozenset(
     for name in os.environ.get("EXOCORTEX_SQL_AGENT_DENY_TABLES", "").split(",")
     if name.strip()
 )
+
+# Agents talking to each other (peermail.py, docs/peers.md). An agent-to-agent
+# message wakes the session it's sent to, so two agents could keep waking each
+# other with nobody watching. These are the two brakes, both env-overridable:
+#   PEER_MAX_HOPS — how many agent-wakes-agent steps in a row, with no owner
+#     message in between, before the next message is HELD for her to release.
+#   PEER_DAILY_CAP — how many agent-to-agent messages a day, across every
+#     session, before the rest are held the same way.
+PEER_MAX_HOPS = int(os.environ.get("EXOCORTEX_PEER_MAX_HOPS", "5"))
+PEER_DAILY_CAP = int(os.environ.get("EXOCORTEX_PEER_DAILY_CAP", "150"))
+
+# Keep each turn's input open so messages can be handed to an agent mid-turn
+# (Claude Code's `--input-format stream-json`). "0" turns it off: every turn
+# goes back to sending one prompt and closing, and waiting messages are
+# delivered only between turns.
+TURN_STREAM_INPUT = os.environ.get("EXOCORTEX_TURN_STREAM_INPUT", "1") != "0"
+
+# Self-continuing Coding sessions (continuation.py, docs/swarms.md). When a
+# Coding session's context passes its model's cap, it isn't interrupted: the
+# turn it's on finishes, then it writes a handoff and a fresh session picks the
+# work up from it. The caps are soft, in tokens of context, per model family.
+# EXOCORTEX_CONTEXT_CAPS overrides any of them as JSON, e.g. '{"opus": 150000}'.
+CONTEXT_CAPS = {"opus": 120000, "fable": 250000, "sonnet": 150000, "haiku": 100000}
+try:
+    import json as _json
+    CONTEXT_CAPS.update({str(k): int(v) for k, v in _json.loads(
+        os.environ.get("EXOCORTEX_CONTEXT_CAPS", "{}")).items()})
+except (ValueError, TypeError, AttributeError):
+    pass
+# The rooms whose sessions continue themselves with nobody watching.
+CONTINUE_LANES = frozenset(
+    lane.strip() for lane in os.environ.get("EXOCORTEX_CONTINUE_LANES", "coding").split(",")
+    if lane.strip())
+
+# The swarm helper (swarm_helper.py): which model it runs on, how often at most
+# it re-summarises a swarm after member turns (messages to it are answered
+# straight away regardless), and how long one run may take.
+SWARM_HELPER_MODEL = os.environ.get("EXOCORTEX_SWARM_HELPER_MODEL", "sonnet")
+SWARM_HELPER_MIN_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_MIN_SEC", "300"))
+SWARM_HELPER_TIMEOUT_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_TIMEOUT_SEC", "240"))

@@ -44,7 +44,8 @@ import sys
 # reads, git-reads, the test/build commands this repo actually uses, and the two
 # doors the agent needs (request_input to ASK; pytest/py_compile to verify).
 # NOTE: python/node/sed/awk are NOT blanket-safe (they run arbitrary code), so
-# python is allowed only for `-m pytest` / `-m py_compile` / request_input.py.
+# python is allowed only for `-m pytest` / `-m py_compile` / request_input.py
+# / peers.py.
 _ALLOW = [
     re.compile(p) for p in (
         r"^(ls|pwd|cd|pushd|popd|cat|head|tail|wc|echo|printf|grep|rg|egrep|fgrep"
@@ -67,6 +68,13 @@ _ALLOW = [
         r"^npx (vitest|tsc|oxlint|eslint|prettier)\b",
         r"^\S*python3? -m (pytest|py_compile)\b",
         r"^\S*python3? \S*scripts/request_input\.py\b",
+        # The agents' door to each other (scripts/peers.py). Looking is safe;
+        # so is a message that's handed in or queued, because the recipient
+        # decides what to do with it and the brakes in peermail.py hold a
+        # runaway chain. An --interrupt stops another agent's work, so that
+        # one still asks.
+        r"^\S*python3? \S*scripts/peers\.py (list|show|policy|swarm|handoff)\b",
+        r"^\S*python3? \S*scripts/peers\.py send\b(?!.*--interrupt)",
         # The journal engine's REVERSIBLE verbs (tools/stream/stream.py, usually
         # reached through a vault shim at another path — hence the loose prefix,
         # anchored at a path boundary so `mystream.py` doesn't sneak in).

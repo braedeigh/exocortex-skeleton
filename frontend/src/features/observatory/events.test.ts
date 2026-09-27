@@ -184,3 +184,37 @@ describe('turnsFromHistory', () => {
     expect(assistantText(turns[3])).toBe('half a rep');
   });
 });
+
+describe('peer', () => {
+  const out = {
+    type: 'peer',
+    direction: 'out',
+    id: 7,
+    from_conv: 'a',
+    from_title: 'Terrain',
+    to_conv: 'b',
+    to_title: 'Pond',
+    text: 'store.py changed',
+    mode: 'inject',
+    status: 'held',
+    held_reason: 'too many steps',
+  };
+
+  it('draws a sent message as a card addressed to the recipient', () => {
+    const [t] = turnsFromHistory([out]);
+    expect(t.role).toBe('peer');
+    expect(t.text).toBe('store.py changed');
+    expect(t.peer).toMatchObject({ direction: 'out', otherConv: 'b', otherTitle: 'Pond', status: 'held' });
+  });
+
+  it('shows a received message as from the sender, and delivered', () => {
+    const [t] = turnsFromHistory([{ ...out, direction: 'in', status: 'waiting' }]);
+    expect(t.peer).toMatchObject({ direction: 'in', otherConv: 'a', otherTitle: 'Terrain', status: 'delivered' });
+  });
+
+  it('releasing a held message updates its card', () => {
+    const [t] = turnsFromHistory([out, { type: 'peer-status', id: 7, status: 'waiting' }]);
+    expect(t.peer?.status).toBe('waiting');
+    expect(t.peer?.heldReason).toBe('');
+  });
+});

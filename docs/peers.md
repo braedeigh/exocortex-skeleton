@@ -1,0 +1,69 @@
+# Agents talking to each other
+
+Every Observatory session can see the others and message them. This is the
+map of how, across the files that do it.
+
+## The pieces
+
+| Piece | File | Job |
+|---|---|---|
+| The mailbox | `peermail.py`, table `agent_messages` (sqlstore rung 29) | Stores every message sent into a session; the rules (modes, accept policy, brakes, labels) |
+| The agents' door | `scripts/peers.py` | `list`, `show`, `send`, `policy` — what an agent runs |
+| Telling agents | `peermail.prompt`, added by `_build_cmd` in `routes/observatory.py` | One short paragraph in every Observatory turn's system prompt |
+| Delivery mid-turn | `_TurnInput`, `_turn_companion`, `_deliver_midturn` in `routes/observatory.py` | Keeps the agent's input open and hands messages in between its steps |
+| Delivery between turns | `drain_inbox` in `routes/observatory.py` | Starts one turn with everything waiting, labelled |
+| Her side | `/inbox` routes; `frontend/.../useMessageQueue.ts` | What she types while a turn runs goes to the same mailbox |
+| The card | `frontend/.../PeerCard.tsx`, `events.ts` (`peer`, `peer-status`) | A teal card in both chats; orange with "Let it through" when held |
+| Live tool calls | `toolcallstore.live_ingest`, called by the companion | `tool_calls` is seconds behind a running Observatory turn, not an hour |
+
+## How a message moves
+
+1. `peers.py send <id> "…"` → `observatory.peer_send` → a row in
+   `agent_messages` (`waiting`, or `held` if a brake caught it), plus a `peer`
+   card line in the sender's transcript.
+2. Recipient idle → `drain_inbox` starts a turn with it right away.
+3. Recipient mid-turn → its turn's companion thread sees the row within a
+   second. `inject` (the default) is written into the agent's open input and
+   read after its current step; `queue` waits; `interrupt` stops the turn
+   (marked deliberate, so no red card).
+4. When a turn ends (`scripts/turn_host.py`, and the in-worker fallback), the
+   approval/reminder follow-ups go first, then `drain_inbox` — everything
+   still waiting, hers and the agents', as ONE turn, each labelled
+   `[B · owner]` / `[A · "title" · lane · id]`. A lone message from her goes in
+   exactly as typed.
+5. `scripts/coming_up_dispatcher.py` runs `drain_all_inbox` every minute as
+   the safety net.
+
+## Who decides
+
+- The **sender** picks how hard to knock: `inject`, `--queue`, `--interrupt`.
+- The **recipient** picks what gets through mid-turn, with `peers.py policy`:
+  `open`, `no-interrupt` (interrupts arrive as injects), `queue-only`. It can
+  only soften a knock, never harden it.
+- An agent's message is a peer's request, never her instruction — the prompt
+  says so, and every agent message carries that reminder.
+
+## The brakes
+
+`config.PEER_MAX_HOPS` (default 5): each agent message that wakes another adds
+one to a chain; a message from her resets it. Past the limit, messages are
+held. `config.PEER_DAILY_CAP` (default 150) holds the rest of a day's agent
+messages the same way. A held message shows orange on the sender's card; "Let
+it through" releases it.
+
+## Why the input stays open
+
+Claude Code's `--input-format stream-json` accepts more messages while a turn
+runs; `--replay-user-messages` echoes each one back when the agent reads it.
+The turn closes its input at the final result only once every handed-in
+message has been echoed — otherwise the agent answers the late one in the
+same turn and emits another result. A 30-second backstop closes it anyway if
+an echo never comes. `EXOCORTEX_TURN_STREAM_INPUT=0` turns all of this off:
+turns go back to one prompt, and messages wait for turns to end.
+
+## Not yet
+
+- Coming up reminders and approval cues still use their own queue
+  (`drain_followups`), so they aren't batched with mailbox messages.
+- Sessions outside the Observatory (tmux, a plain terminal) can be read by
+  `peers.py` only through the hourly `tool_calls` ingest, and can't receive.

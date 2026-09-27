@@ -37,6 +37,10 @@ Touches:
     so there is exactly one turn loop and it cannot drift.
   - the session's `.jsonl` transcript and its `.live` delta sidecar.
   - data/bot_chats/index — clears `running`, records cost and any error.
+  - peermail.py, through observatory.drain_inbox — at the end of the turn,
+    starts the next one if messages are waiting for this session.
+  - continuation.py, through observatory.after_turn — a Coding session past
+    its context cap is asked for its handoff when its turn ends.
 """
 import json
 import sys
@@ -165,10 +169,25 @@ def main():
         # retry cue, a Coming up reminder. This is the moment the
         # conversation frees up, so this is where the queue moves; the next
         # turn gets its own host process, so this one can still exit.
+        # First the end-of-turn bookkeeping: archive a session that handed
+        # off, or ask one past its context cap for its handoff (continuation.py)
+        # — that ask is a follow-up, so it has to be queued before the drains.
+        try:
+            observatory.after_turn(conv_id)
+        except Exception as e:
+            print(f"after-turn check failed: {e}", file=sys.stderr)
         try:
             observatory.drain_followups(conv_id)
         except Exception as e:
             print(f"follow-up drain failed: {e}", file=sys.stderr)
+        # ...and whatever is in its mailbox (peermail.py): messages sent while
+        # it ran that couldn't be handed in, or the one that interrupted it.
+        # If the follow-up above already started a turn, this finds the
+        # session busy and leaves them for that turn to hand in.
+        try:
+            observatory.drain_inbox(conv_id)
+        except Exception as e:
+            print(f"mailbox drain failed: {e}", file=sys.stderr)
         # Write the last window down before the process goes. The sensor's
         # background thread is a daemon and dies with `main` returning, so a
         # turn shorter than one cycle would otherwise leave no trace of having

@@ -26,6 +26,7 @@ import { useTurnStats } from './useTurnStats';
 import { useWordFlow } from './useWordFlow';
 import { useScrollContract } from './useScrollContract';
 import { useStepBack, useStepBackDismiss } from './useStepBack';
+import { PeerCard } from './PeerCard';
 import { useMessageQueue } from './useMessageQueue';
 import { usePhotoAttach, AttachChips, DropVeil, UploadOverlay } from './photoAttach';
 import { useReattach } from './useReattach';
@@ -151,11 +152,8 @@ export function ObservatoryPage({
   const [shownExchanges, setShownExchanges] = useState(EXCHANGES_SHOWN);
   const firstShown = firstShownTurn(turns, shownExchanges);
   const [streaming, setStreaming] = useState(false);
-  // Messages sent while a turn is still writing — the Claude Code queued-
-  // prompt gesture: they wait as removable rows and fire when the turn ends.
-  // Gate for that firing: false until the history load tells us whether a
-  // turn is still running server-side (fire into a busy conversation and
-  // the server would refuse it).
+  // False until the history load tells us whether a turn is still running
+  // server-side — the spinoff auto-start waits on it (see canFire).
   const [histLoaded, setHistLoaded] = useState(false);
   const [offRecord, setOffRecord] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -565,10 +563,11 @@ export function ObservatoryPage({
   const photo = usePhotoAttach();
 
   // canFire: nothing running server-side, no turn actively streaming/
-  // pacing/reattaching, and no unresolved send error — see
-  // useMessageQueue.ts for why each of these gates the auto-fire.
+  // pacing/reattaching, and no unresolved send error — the gate for the
+  // spinoff auto-start below. (Her queued messages don't wait on it any more:
+  // the server's mailbox delivers them — see useMessageQueue.ts.)
   const canFire = histLoaded && !writing && !wordFlow.pacing && !sendError;
-  const messageQueue = useMessageQueue({ botId, convId, canFire, onFire: sendMessage });
+  const messageQueue = useMessageQueue({ botId, convId });
 
   // Auto-start a spun-off session: once history has loaded and nothing else is
   // running (canFire), fire the staged kickoff exactly once through the normal
@@ -592,9 +591,9 @@ export function ObservatoryPage({
       ? uploadedPathsMessage(paths) + (typed ? `\n${typed}` : '')
       : typed;
     if (writing) {
-      // A turn is still going — queue this one to fire the moment it ends
-      // (the Claude Code gesture). Each queued message keeps the record
-      // state it was written under.
+      // A turn is still going — send it to the session's mailbox, which
+      // hands it to the agent at its next step (useMessageQueue.ts). Each
+      // message keeps the record state it was written under.
       messageQueue.enqueue(text, offRecord);
       return;
     }
@@ -780,6 +779,9 @@ export function ObservatoryPage({
                     <span className={styles.reminderText}>{t.text}</span>
                   </div>
                 );
+              }
+              if (t.role === 'peer' && t.peer) {
+                return <PeerCard key={i} peer={t.peer} text={t.text} />;
               }
               if (t.role === 'error') {
                 return (

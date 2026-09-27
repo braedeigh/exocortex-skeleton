@@ -54,6 +54,13 @@ if _FIRST_PASS:
     os.environ["EXOCORTEX_DATA_DIR"] = os.path.join(_TEST_ROOT, "data")
     os.environ["EXOCORTEX_CONTENT_DIR"] = os.path.join(_TEST_ROOT, "content")
 
+# Turns take one prompt and close their input, the old way, for the whole suite
+# (set BEFORE config is imported). The test stubs standing in for the agent read
+# their input to the end before answering, so a turn that keeps its input open
+# for mid-turn messages would wait on them forever. tests/test_peer_turns.py
+# turns it back on with a stub that speaks the streaming format.
+os.environ["EXOCORTEX_TURN_STREAM_INPUT"] = "0"
+
 # Kill the store's op counters for the whole suite (set BEFORE store is
 # imported): tests hammer the store, and nothing may leak into any data dir —
 # not even at interpreter exit (store's atexit flush checks this env too).
