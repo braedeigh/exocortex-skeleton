@@ -370,6 +370,16 @@ def _session_settings(config, tools):
             "matcher": "Bash|Task|mcp__.*",
             "hooks": [{"type": "command", "command": _act_gate_hook_command()}],
         }]}
+    # Turn background Bash into a detached job that wakes this conversation.
+    # The harness's own background mode dies when the turn ends, and nothing is
+    # left to be told the result; scripts/run_detached.py --hook rewrites the
+    # call instead. Only for a turn with a conversation id — that's who it wakes.
+    if config.get("conv_id") and "Bash" in tools:
+        detach = Path(store.BUILD_DIR) / "scripts" / "run_detached.py"
+        settings.setdefault("hooks", {}).setdefault("PreToolUse", []).append({
+            "matcher": "Bash",
+            "hooks": [{"type": "command", "command": f"{sys.executable} {detach} --hook"}],
+        })
     return settings
 
 
