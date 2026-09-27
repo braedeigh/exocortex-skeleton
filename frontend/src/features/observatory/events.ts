@@ -43,8 +43,9 @@ export interface Turn {
   /** user/error: the text. assistant: committed markdown (authoritative).
    * decision: the exact command she approved/denied. reminder: what it says. */
   text: string;
-  /** reminder only: who set it — 'manual' (her) or 'keeper'. */
-  source?: 'manual' | 'keeper';
+  /** reminder only: who set it — 'manual' (her), 'keeper', or 'job' (a
+   * background job reporting back — scripts/run_detached.py). */
+  source?: 'manual' | 'keeper' | 'job';
   /** assistant only: in-flight delta text not yet confirmed by a message. */
   buffer: string;
   /** assistant only: still streaming. */
@@ -154,7 +155,8 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       // A reminder the app sent into the chat at its set time. Its own turn
       // kind so it's drawn as System — the keeper's reply follows as usual.
       const t = turn('reminder', typeof e.text === 'string' ? e.text : '');
-      t.source = e.source === 'keeper' ? 'keeper' : 'manual';
+      t.source = e.source === 'keeper' ? 'keeper'
+        : e.source === 'run_detached' ? 'job' : 'manual';
       turns.push(t);
       return turns;
     }
