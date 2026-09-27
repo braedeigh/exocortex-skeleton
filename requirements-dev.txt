@@ -1,3 +1,7 @@
 # Dev/test-only dependencies (not needed to run the app).
 #   ./venv/bin/pip install -r requirements-dev.txt
 pytest>=8
+# Reruns only the tests whose code changed: `pytest --testmon`. Its map of which
+# test touches which code lives in .testmondata (gitignored); the nightly full
+# run (scripts/nightly_tests.py) rebuilds it.
+pytest-testmon>=2.1

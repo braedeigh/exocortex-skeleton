@@ -23,6 +23,10 @@ import pytest
 import sqlstore
 import store
 
+# These tests are about opening a FRESH database (the WAL switch, the ladder race),
+# so they climb the real migration ladder instead of copying the test template.
+pytestmark = pytest.mark.fresh_db
+
 
 def test_busy_timeout_stays_short_enough_to_not_stall_the_worker():
     """The C-level wait is a floor for incidental contention, not the strategy.

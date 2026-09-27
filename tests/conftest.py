@@ -131,8 +131,66 @@ import codestore  # noqa: E402
 codestore.default_repos = lambda: ()
 
 
+# BUILD THE EMPTY DATABASE ONCE, COPY IT PER TEST — a template.
+#
+# Every store-backed test used to open a brand-new exo.db and climb the whole
+# migration ladder (hundreds of CREATEs, then a checkpoint on close): about
+# 0.15s, paid again by thousands of tests. Copying a finished file costs about
+# 0.003s. The ladder is pure schema — no rung reads the data dir — so a copy
+# of one migrated empty database is the same thing the ladder would have built.
+#
+# The copy happens only at the moment sqlstore would have CREATED the file, so
+# a test that builds its own exo.db by hand first (with its own tables) still
+# gets exactly what it built, and a test asserting that no database exists
+# still sees none. Tests that are about the ladder itself opt out with
+# `@pytest.mark.fresh_db` and climb it for real.
+import shutil  # noqa: E402
+
+import sqlstore  # noqa: E402
+
+_REAL_CONNECT = sqlstore._connect
+_TEMPLATE_DB = pathlib.Path(_TEST_ROOT) / "db-template" / "exo.db"
+
+
+def _template_db():
+    """The migrated empty database, built on first use in this process."""
+    if not _TEMPLATE_DB.exists():
+        _TEMPLATE_DB.parent.mkdir(parents=True, exist_ok=True)
+        saved = store.DATA_DIR
+        store.DATA_DIR = _TEMPLATE_DB.parent
+        try:
+            _REAL_CONNECT().close()     # the last close checkpoints the WAL into the file
+        finally:
+            store.DATA_DIR = saved
+    return _TEMPLATE_DB
+
+
+def _connect_from_template():
+    """sqlstore._connect, but a missing database starts as a copy of the template.
+
+    Copy to a side file, then hard-link it into place: the link fails if the
+    file already exists, so when several threads open a fresh database at once
+    exactly one copy lands and nobody ever sees a half-written file."""
+    path = sqlstore._db_path()
+    if not path.exists():
+        side = path.with_name(f".exo.db.{os.getpid()}.{id(object())}")
+        shutil.copyfile(_template_db(), side)
+        try:
+            os.link(side, path)
+        except FileExistsError:
+            pass
+        finally:
+            side.unlink()
+    return _REAL_CONNECT()
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "fresh_db: build exo.db through the real migration ladder, not the template")
+
+
 @pytest.fixture
-def data_dir(tmp_path, monkeypatch):
+def data_dir(tmp_path, monkeypatch, request):
     """Point the store at a fresh temp dir for this test only.
 
     The blob roots have to be re-pointed one by one: each is resolved from its
@@ -140,6 +198,8 @@ def data_dir(tmp_path, monkeypatch):
     the process-wide test root — shared by every test, and therefore a place
     where one test's uploaded file is still sitting when the next one runs.
     """
+    if request.node.get_closest_marker("fresh_db") is None:
+        monkeypatch.setattr(sqlstore, "_connect", _connect_from_template)
     monkeypatch.setattr(store, "DATA_DIR", tmp_path)
     monkeypatch.setattr(store, "UPLOAD_DIR", tmp_path / "uploads")
     # The uploads archive is the one root where a leak would be silent AND

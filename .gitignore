@@ -38,3 +38,6 @@ node_modules/
 # into a worktree's frontend/ during screenshots, unlinked in a finally; the
 # ignore is belt-and-braces so a crashed run can't leave a dirty tree.
 .nightcrew-shot.cjs
+
+# pytest-testmon's map of which test runs which code (see requirements-dev.txt)
+.testmondata*

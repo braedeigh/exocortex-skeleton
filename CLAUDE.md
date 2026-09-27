@@ -52,10 +52,14 @@ Build **touch-first and legible**. These are defaults, not suggestions:
 Tests live in `tests/` and run with **pytest** (a dev-only dep — `./venv/bin/pip install -r requirements-dev.txt`). Config is in `pytest.ini`.
 
 ```
-./venv/bin/python3 -m pytest          # run everything
+./venv/bin/python3 -m pytest --testmon -q   # the default: only tests whose code changed
 ./venv/bin/python3 -m pytest tests/test_todos_routes.py -q
 ./venv/bin/python3 -m pytest -k toggle      # by name
 ```
+
+**Don't run the whole suite during the day** — it's ~5,000 tests and many minutes. `--testmon` (pytest-testmon) reruns only the tests that executed code you've changed. It can't see changes to non-Python files (JSON, SQL text, templates) or code that only runs inside a subprocess a test launches — for those, run the relevant test files by name. The full suite runs nightly at 4am (`scripts/nightly_tests.py`, cron): it refreshes testmon's map, and if anything fails it opens a Coding session to fix it or hand it to the session that owns the work. If you truly need a full run, start it with `run_in_background` (it goes through `run_detached.py`) and end your turn. Don't add `-p no:cacheprovider` to a testmon run — testmon needs pytest's cache.
+
+Store-backed tests start from a **template database** (`tests/conftest.py`): the migrated empty `exo.db` is built once per run and copied in the moment a test would have created one. A test that's about the migration ladder itself marks `@pytest.mark.fresh_db` and climbs it for real.
 
 **Write a test whenever you touch behavior that can silently break** — a route's contract, a data migration, or the `store` layer. New `routes/` endpoint → add a route test. Bug fix → add a test that fails before the fix and passes after. Don't chase coverage of trivial rendering glue.
 
