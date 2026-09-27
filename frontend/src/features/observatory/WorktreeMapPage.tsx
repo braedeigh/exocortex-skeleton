@@ -21,13 +21,17 @@
  * Two agents writing in the same tree inside ten minutes raise an orange flag
  * on that plot: that's the collision separate worktrees exist to prevent.
  *
+ * Under the plots, every swarm (sessions that message each other) is drawn
+ * as a network — SwarmNetwork.tsx, the same rings joined by green lines.
+ *
  * Tap a ring to open it under its plot: the session's own roster card (the
  * same SessionLane card, so tapping it opens the conversation), what it did in
  * THIS tree — the files it edited, its latest calls here — and the other
  * trees it's working in, each a tap away.
  *
  * Touches: worktreeMapApi.ts (the data), worktreeMapMath.ts (recency, size,
- * footprint, collisions — tested), api.ts + SessionLane.tsx (the session
+ * footprint, collisions — tested), swarmApi.ts + SwarmNetwork.tsx (the
+ * swarm networks), api.ts + SessionLane.tsx (the session
  * card), readReceipts.ts + sessionLocation.ts (unread, and where a session
  * opens), ../terrain/terrainCanvas.ts (the heat hexes), NightCrewPage.module.css
  * (page chrome), WorktreeMapPage.module.css, routes/worktree_map.py (server).
@@ -46,6 +50,8 @@ import { isUnread, openedMap, setConversationRead } from './readReceipts';
 import { SessionLane } from './SessionLane';
 import { sessionLocation } from './sessionLocation';
 import styles from './WorktreeMapPage.module.css';
+import { SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
+import { useSwarms } from './swarmApi';
 import { useWorktreeMap, type Tree, type TreeAgent } from './worktreeMapApi';
 import { footprint, orbRadius, orderTrees, recencyOf, treeName, treesOf, writersNow } from './worktreeMapMath';
 import { useTerrain } from '../terrain/api';
@@ -98,6 +104,7 @@ export function WorktreeMapPage() {
   const [selected, setSelected] = useState<{ tree: string; conv: string } | null>(null);
   const [, bump] = useState(0);
   const { data, error } = useWorktreeMap(windowSeconds);
+  const { data: swarms } = useSwarms();
   const { data: roster, refetch: refetchRoster } = useSessionRoster(true);
   const anyRunning = (roster?.sessions ?? []).some((s) => s.running);
   const { data: terrain } = useTerrain(anyRunning, 350);
@@ -201,6 +208,30 @@ export function WorktreeMapPage() {
             </Plot>
           ))}
         </div>
+
+        {/* The swarms: sessions that talk to each other, drawn as networks —
+            purple rings joined by green lines where they've messaged. Tap a
+            ring to open that session, a swarm's name for its own page. */}
+        {swarms && swarms.length > 0 ? (
+          <section className={styles.swarms}>
+            <h2 className={styles.h2}>Who&rsquo;s talking to whom</h2>
+            <SwarmNetworkKey />
+            {swarms.map((swarm) => (
+              <div key={swarm.id} className={styles.swarm}>
+                <button
+                  type="button"
+                  className={styles.swarmName}
+                  onClick={() =>
+                    void navigate({ to: '/observatory/swarm/$swarmId', params: { swarmId: String(swarm.id) } })
+                  }
+                >
+                  {swarm.name} &rarr;
+                </button>
+                <SwarmNetwork swarm={swarm} onOpen={open} />
+              </div>
+            ))}
+          </section>
+        ) : null}
 
         {/* Nobody's here: shown small, as the fallow ground. A copy nobody has
             touched in a while is usually one that can be merged or cleared. */}

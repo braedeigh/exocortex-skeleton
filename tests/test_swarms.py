@@ -69,3 +69,11 @@ def test_overview_counts_members_by_state(data_dir):
     assert card["counts"] == {"working": 1, "silent": 1, "needs_input": 1}
     assert card["lane"] == "coding"
     assert {(link["from"], link["to"]) for link in card["links"]} == {("a", "b"), ("b", "c")}
+
+
+def test_overview_names_which_member_continued_which(data_dir):
+    _seed("a", "b")
+    _seed("a2", spawned_from="a", spawned_via="continue")
+    peermail.send("b", "hi", from_conv="a")
+    [card] = swarms.overview()
+    assert card["continues"] == [{"from": "a", "to": "a2"}]

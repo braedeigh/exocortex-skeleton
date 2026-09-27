@@ -39,6 +39,9 @@ export interface Swarm {
   counts: { working: number; silent: number; needs_input: number };
   members: SwarmMember[];
   links: { from: string; to: string; messages: number }[];
+  /** Which member took over from which (a continuation). Absent from an
+   * older server, so treat it as optional. */
+  continues?: { from: string; to: string }[];
 }
 
 export interface HelperRun {

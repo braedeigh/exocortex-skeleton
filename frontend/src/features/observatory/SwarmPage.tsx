@@ -8,6 +8,8 @@
  * collides (swarm_helper.py). This page shows, top to bottom:
  *
  *   - the swarm's name, the helper's summary, and where members' work differs;
+ *   - the swarm as a network: rings joined by green lines where members have
+ *     messaged each other (SwarmNetwork.tsx);
  *   - the member sessions as the usual session cards, same colours, same taps
  *     (SessionLane, told it's showing a swarm so it doesn't fold them again);
  *   - a box to talk to the helper, and a link to its own chat;
@@ -33,6 +35,7 @@ import { setConversationRead, openedMap } from './readReceipts';
 import { sessionLocation } from './sessionLocation';
 import { SessionLane } from './SessionLane';
 import styles from './SwarmPage.module.css';
+import { SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
 import { refreshSwarm, useSwarm } from './swarmApi';
 import { useTerrain } from '../terrain/api';
 
@@ -111,6 +114,13 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
                   </ul>
                 </div>
               ) : null}
+            </section>
+
+            {/* Who's talking to whom, as a network. */}
+            <section className={styles.section}>
+              <h2 className={styles.h2}>Who&rsquo;s talking to whom</h2>
+              <SwarmNetworkKey />
+              <SwarmNetwork swarm={swarm} onOpen={open} />
             </section>
 
             {/* The members, as the usual cards. */}

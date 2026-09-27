@@ -411,3 +411,32 @@
   color: var(--text-muted);
   font-size: var(--font-size-sm);
 }
+
+/* The swarm networks under the plots. */
+.swarms {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-6, 32px);
+}
+
+.swarm {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+}
+
+.swarmName {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.swarmName:hover {
+  color: var(--accent);
+}

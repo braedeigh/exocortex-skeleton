@@ -1,0 +1,165 @@
+/* SwarmNetwork — a swarm as rings and lines. Rings are Terrain's --accent
+   purple (orange sonar when waiting on her); talk lines are --green. */
+
+/* Wide enough that neighbouring names don't collide; a narrow phone scrolls
+   sideways rather than squeezing the labels together. */
+.scroller {
+  overflow-x: auto;
+}
+
+.canvas {
+  position: relative;
+  width: 100%;
+  min-width: 460px;
+}
+
+.lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.talk {
+  stroke: var(--green);
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+.handover {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+  opacity: 0.6;
+}
+
+/* The message count sits on the line's middle, on a chip so it reads. */
+.count {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  min-width: 24px;
+  padding: 1px 6px;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  background: var(--card-bg, var(--surface));
+  color: var(--green);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* One agent. The ring's centre sits exactly on its seat; the name hangs below. */
+.node {
+  position: absolute;
+  transform: translate(-50%, -20px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 132px;
+  min-height: var(--tap-target, 40px);
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.node:hover,
+.node:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.ringBox {
+  overflow: visible;
+  flex: none;
+}
+
+.ring {
+  fill: var(--card-bg, var(--surface));
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.halo {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  opacity: 0.25;
+}
+
+.name {
+  font-size: var(--font-size-sm);
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* WORKING: the ring breathes, as a running orb does on the map. */
+.state_working .ringBox {
+  animation: ringBreathe 2.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.state_working .halo {
+  opacity: 0.45;
+}
+
+/* SILENT: resting, a step back. */
+.state_silent .ringBox {
+  opacity: 0.6;
+}
+
+/* NEEDS HER: an orange sonar ring leaving the body. */
+.sonar {
+  fill: none;
+  stroke: var(--orange);
+  stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ringSonar 2.6s ease-out infinite;
+}
+
+@keyframes ringBreathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes ringSonar {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .state_working .ringBox,
+  .sonar {
+    animation: none;
+  }
+}
+
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.keyTalk,
+.keyHandover {
+  display: inline-block;
+  width: 28px;
+  height: 0;
+  border-top: 3px solid var(--green);
+}
+
+.keyHandover {
+  margin-left: var(--space-3);
+  border-top: 2px dashed var(--accent);
+}

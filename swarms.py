@@ -150,7 +150,8 @@ def _status(entry):
 
 def overview():
     """Every live swarm as a card needs it: name, room, summary, member
-    count by state, and the members with their own summaries."""
+    count by state, the members with their own summaries, and who is joined
+    to whom (messages sent, and continuations) for the network drawing."""
     sync()
     index = store.read("bot_chats/index", {})
     index = index if isinstance(index, dict) else {}
@@ -173,6 +174,15 @@ def overview():
                                 "lane": lanes.derive_lane(entry), "state": state,
                                 "joined_at": joined, "summary": msummary,
                                 "summary_at": msummary_at})
+            # Which member took over from which: a continuation remembers
+            # its parent (spawned_from), and both are members.
+            member_ids = {m["conv"] for m in members}
+            continues = []
+            for m in members:
+                entry = index.get(m["conv"]) or {}
+                if (entry.get("spawned_via") == "continue"
+                        and entry.get("spawned_from") in member_ids):
+                    continues.append({"from": entry["spawned_from"], "to": m["conv"]})
             talked = conn.execute(
                 "SELECT from_conv, to_conv, COUNT(*) FROM agent_messages"
                 " WHERE kind = 'A' AND status != 'cancelled'"
@@ -186,6 +196,7 @@ def overview():
                            "needs_input": counts["needs_input"]},
                 "members": members,
                 "links": [{"from": a, "to": b, "messages": n} for a, b, n in talked],
+                "continues": continues,
             })
         return out
     finally:
