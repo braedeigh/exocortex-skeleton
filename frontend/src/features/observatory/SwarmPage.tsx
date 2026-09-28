@@ -14,14 +14,17 @@
  *     swarm — a member from its first turn (swarms.join), told on waking
  *     which swarm it's in and who else is working;
  *   - the member sessions as the usual session cards, same colours, same taps
- *     (SessionLane, told it's showing a swarm so it doesn't fold them again);
+ *     and the same order — the ones waiting on her first, longest wait on
+ *     top (SessionLane, told it's showing a swarm so it doesn't fold them
+ *     again). Retired members (archived, or handed on) aren't among them, and
+ *     the counts at the top leave them out too (roomOrder.swarmView);
  *   - a box to talk to the helper, and a link to its own chat;
  *   - what the helper thinks each member is doing;
  *   - every message between members;
  *   - every helper run, each opening to show exactly what it was given and
  *     what it wrote back — the information it used, nothing hidden.
  *
- * Touches: swarmApi.ts (useSwarm, refreshSwarm), api.ts (the roster, sending
+ * Touches: swarmApi.ts (useSwarm, refreshSwarm), roomOrder.ts (swarmView), api.ts (the roster, sending
  * to the helper's mailbox, starting and closing a session), SessionDialog.tsx
  * (the new-session sheet), SessionLane.tsx (the member
  * cards), sessionLocation.ts, routes/observatory_.swarm.$swarmId.tsx (the
@@ -50,6 +53,7 @@ import { SessionLane } from './SessionLane';
 import styles from './SwarmPage.module.css';
 import { SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
 import { refreshSwarm, useSwarm } from './swarmApi';
+import { swarmView } from './roomOrder';
 import { useTerrain } from '../terrain/api';
 
 export function SwarmPage({ swarmId }: { swarmId: number }) {
@@ -98,7 +102,13 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
     );
   };
 
-  const memberConvs = new Set(swarm?.members.map((m) => m.conv) ?? []);
+  // The live members, read through the roster: their colours and counts by the
+  // session cards' own rule, retired members left out.
+  const opened = openedMap();
+  const view = swarm
+    ? swarmView(swarm, new Map((roster?.sessions ?? []).map((s) => [s.id, s])), opened)
+    : null;
+  const memberConvs = new Set(view?.members.map((m) => m.conv) ?? []);
   const memberSessions = (roster?.sessions ?? []).filter((s) => memberConvs.has(s.id));
 
   return (
@@ -112,16 +122,16 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
         </div>
 
         {error ? <p className={styles.empty}>Couldn&rsquo;t load this swarm.</p> : null}
-        {swarm ? (
+        {swarm && view ? (
           <>
             {/* What the swarm is, in the helper's words. */}
             <section className={styles.section}>
               <div className={styles.countsRow}>
                 <span className={styles.needing}>
-                  {swarm.counts.needs_input > 0 ? `${swarm.counts.needs_input} need you · ` : ''}
+                  {view.counts.needs_input > 0 ? `${view.counts.needs_input} need you · ` : ''}
                 </span>
                 <span>
-                  {swarm.counts.working} working · {swarm.counts.silent} silent · {swarm.members.length} sessions
+                  {view.counts.working} working · {view.counts.silent} silent · {view.members.length} sessions
                 </span>
                 <button
                   type="button"
@@ -162,7 +172,7 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
               sessions={memberSessions}
               terrain={terrain}
               onNew={() => setCreating(true)}
-              opened={openedMap()}
+              opened={opened}
               onOpen={open}
               onSetRead={(convId, read) => {
                 setConversationRead(convId, read);

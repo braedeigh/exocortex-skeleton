@@ -28,6 +28,8 @@ EPA_PAGE = """<table><tr><th>Common Name and Reference Document</th><th>CAS Numb
 <td>--</td><td>0.005</td><td>30</td><td>-</td></tr>
 <tr><td>Imidacloprid</td><td>138261-41-3</td><td>0.08</td><td>500</td><td>0.08</td><td>500</td>
 <td>-</td></tr>
+<tr><td>lambda-Cyhalothrin</td><td>91465-08-6</td><td>0.005</td><td>30</td><td>0.001</td><td>6</td>
+<td>-</td></tr>
 <tr><td>Thiabendazole + salt</td><td>148-79-8</td><td>0.5</td><td>3000</td><td>0.1</td><td>600</td>
 <td>-</td></tr></table>"""
 
@@ -183,3 +185,13 @@ def test_epa_name_with_its_salts_still_matches(commons_root):
         reference_loaders.load_benchmarks(conn, page)
         assert exposure._benchmark(conn, "Thiabendazole")["chronic_dose"] == 0.1 and \
             exposure._benchmark(conn, "Thiabendazole 5-hydroxy") is None
+
+
+def test_pdp_word_orders_still_match(commons_root):
+    page = commons_root / "epa.html"
+    page.parent.mkdir(parents=True)
+    page.write_text(EPA_PAGE)
+    with commonsdb.session(commons_root) as conn:
+        reference_loaders.load_benchmarks(conn, page)
+        assert exposure._benchmark(conn, "Cyhalothrin, Lambda")["chronic_dose"] == 0.001 and \
+            exposure._benchmark(conn, "Chlorpropham Total")["chronic_dose"] == 0.005

@@ -160,7 +160,14 @@ def _benchmark(commons_conn, name):
     wanted = _norm(name)
     # PDP sometimes adds a qualifier EPA doesn't ("Thiabendazole 5-hydroxy"
     # stays unmatched on purpose; "Pyrethrins (total)" matches "Pyrethrins").
-    plain = _norm(re.sub(r"\(.*?\)", "", name))
+    bare = re.sub(r"\(.*?\)", "", name).strip()
+    plain = _norm(bare)
+    # PDP's own word orders: "Permethrin Total" is permethrin, and
+    # "Cyhalothrin, Lambda" is EPA's "lambda-Cyhalothrin".
+    untotalled = _norm(re.sub(r"\s+total$", "", bare, flags=re.IGNORECASE))
+    parts = [part.strip() for part in bare.split(",")]
+    swapped = _norm(parts[1] + parts[0]) if len(parts) == 2 else plain
+    candidates = {wanted, plain, untotalled, swapped}
     # EPA sometimes adds the forms its figure covers ("Thiabendazole + salt",
     # "2,4-D + salts & esters"); the part before the "+" is the pesticide.
     # A metabolite ("Clethodim sulfoxide") is never matched to its parent:
@@ -168,7 +175,7 @@ def _benchmark(commons_conn, name):
     for row in commons_conn.execute(
             "SELECT name, cas, acute_dose, chronic_dose, cancer_slope, memo_url FROM epa_benchmarks"):
         epa_name = re.sub(r"\s*\+.*$", "", row[0])
-        if {_norm(row[0]), _norm(epa_name)} & {wanted, plain}:
+        if {_norm(row[0]), _norm(epa_name)} & candidates:
             return dict(zip(("name", "cas", "acute_dose", "chronic_dose", "cancer_slope",
                              "memo_url"), row))
     return None

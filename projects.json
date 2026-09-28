@@ -301,7 +301,8 @@
         "research_sources.py",
         "research_tables.py",
         "research_text.py",
-        "ideas.py"
+        "ideas.py",
+        "exposure.py"
       ],
       "frontend": [
         "research",

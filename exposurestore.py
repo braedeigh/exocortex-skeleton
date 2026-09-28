@@ -458,3 +458,93 @@ def passage_page(annotation_id):
     finally:
         conn.close()
     return row[0] if row else None
+
+
+# --- the two pages: a food's contaminants, and one contaminant ---------------
+
+_MEASURE_SQL = (
+    "SELECT m.id, m.food_id, f.name, m.hazard_id, h.name, m.measure, m.amount, m.unit,"
+    " m.sample_size, m.basis, m.year, m.source_id, e.text, e.url, m.review"
+    " FROM hazard_measures m JOIN hazards h ON h.id = m.hazard_id JOIN foods f ON f.id = m.food_id"
+    " LEFT JOIN research_entries e ON e.id = m.source_id")
+_MEASURE_KEYS = ("id", "food_id", "food", "hazard_id", "hazard", "measure", "amount", "unit",
+                 "sample_size", "basis", "year", "source_id", "source", "source_url", "review")
+
+
+def food_exposure(food):
+    """Everything the food page shows about contaminants in one food.
+
+    {food_id, name, codes, scores (every stored score, no working),
+    headline {conventional, organic} (the latest year's scores WITH working),
+    years (every data year scored), measures (study numbers from
+    hazard_measures)}. None when the food isn't in the catalog.
+    """
+    with hazardstore._Read() as conn:
+        try:
+            food_id = hazardstore._food_id(conn, food)
+        except ValueError:
+            return None
+        name = conn.execute("SELECT name FROM foods WHERE id = ?", (food_id,)).fetchone()[0]
+        codes = [list(row) for row in conn.execute(
+            "SELECT commodity, commtype FROM food_pdp_codes WHERE food_id = ? ORDER BY 1, 2",
+            (food_id,))]
+        measures = [dict(zip(_MEASURE_KEYS, row)) for row in conn.execute(
+            _MEASURE_SQL + " WHERE m.food_id = ? ORDER BY h.name, m.year DESC", (food_id,))]
+    scores = scores_for(food_id)
+    single_years = sorted({score["years"] for score in scores if "," not in score["years"]},
+                          reverse=True)
+    headline = {}
+    if single_years:
+        for score in scores:
+            if score["years"] == single_years[0]:
+                headline[score["claim"]] = score_detail(score["id"])
+    return {"food_id": food_id, "name": name, "codes": codes, "scores": scores,
+            "headline": headline, "years": single_years, "measures": measures}
+
+
+def contaminant(hazard_id):
+    """Everything the contaminant page shows: what it is, its facts, and every
+    food it was found in (stored scores' working) or measured in (studies).
+    None for an unknown id."""
+    with hazardstore._Read() as conn:
+        row = conn.execute("SELECT id, name, note FROM hazards WHERE id = ?", (hazard_id,)).fetchone()
+        if not row:
+            return None
+        parents = [name for (name,) in conn.execute(
+            "SELECT h.name FROM hazard_parents p JOIN hazards h ON h.id = p.parent_id"
+            " WHERE p.hazard_id = ? ORDER BY h.name", (hazard_id,))]
+        names = [name for (name,) in conn.execute(
+            "SELECT name FROM hazard_names WHERE hazard_id = ? ORDER BY name", (hazard_id,))]
+        found = conn.execute(
+            "SELECT s.id, s.food_id, f.name, s.claim, s.years, s.sample_count, t.samples_tested,"
+            " t.samples_detected, t.mean_ppb, t.max_ppb, t.dose, t.dri, s.method"
+            " FROM exposure_terms t JOIN exposure_scores s ON s.id = t.score_id"
+            " JOIN foods f ON f.id = s.food_id WHERE t.hazard_id = ?"
+            " ORDER BY f.name, s.years DESC, s.claim", (hazard_id,)).fetchall()
+        measures = [dict(zip(_MEASURE_KEYS, row)) for row in conn.execute(
+            _MEASURE_SQL + " WHERE m.hazard_id = ? ORDER BY f.name, m.year DESC", (hazard_id,))]
+    keys = ("score_id", "food_id", "food", "claim", "years", "sample_count", "samples_tested",
+            "samples_detected", "mean_ppb", "max_ppb", "dose", "dri", "method")
+    return {"id": row[0], "name": row[1], "note": row[2], "parents": parents,
+            "names": names, "facts": facts_for(hazard_id),
+            "found_in": [dict(zip(keys, each)) for each in found], "measures": measures}
+
+
+def contaminant_index():
+    """Every contaminant with a fact or a computed finding, for the list page:
+    [{id, name, parents, foods (how many foods it was found in), facts}]."""
+    with hazardstore._Read() as conn:
+        rows = conn.execute(
+            "SELECT h.id, h.name,"
+            " (SELECT GROUP_CONCAT(p.name, ', ') FROM hazard_parents hp"
+            "   JOIN hazards p ON p.id = hp.parent_id WHERE hp.hazard_id = h.id),"
+            " (SELECT COUNT(DISTINCT s.food_id) FROM exposure_terms t"
+            "   JOIN exposure_scores s ON s.id = t.score_id"
+            "   WHERE t.hazard_id = h.id AND t.samples_detected > 0),"
+            " (SELECT COUNT(*) FROM hazard_facts WHERE hazard_id = h.id),"
+            " (SELECT MAX(t.dri) FROM exposure_terms t WHERE t.hazard_id = h.id)"
+            " FROM hazards h WHERE EXISTS (SELECT 1 FROM hazard_facts WHERE hazard_id = h.id)"
+            "   OR EXISTS (SELECT 1 FROM exposure_terms WHERE hazard_id = h.id)"
+            "   OR EXISTS (SELECT 1 FROM hazard_measures WHERE hazard_id = h.id)"
+            " ORDER BY h.name").fetchall()
+    return [dict(zip(("id", "name", "parents", "foods", "facts", "max_dri"), row)) for row in rows]
