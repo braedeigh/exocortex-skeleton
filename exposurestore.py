@@ -101,6 +101,28 @@ def add_fact(hazard, fact, value, *, amount=None, unit=None, basis=None, source_
         return cursor.lastrowid
 
 
+def _put_code_fact(conn, hazard_id, fact, value, url, amount=None, unit=None, basis=None,
+                   note=None):
+    """put_code_fact's work, inside a write transaction the caller holds."""
+    row = conn.execute(
+        "SELECT id, value, amount, unit, basis FROM hazard_facts"
+        " WHERE hazard_id = ? AND fact = ? AND author = 'code' AND url = ?",
+        (hazard_id, fact, url)).fetchone()
+    if row is None:
+        cursor = conn.execute(
+            "INSERT INTO hazard_facts (hazard_id, fact, value, amount, unit, basis, url,"
+            " note, author) VALUES (?,?,?,?,?,?,?,?, 'code')",
+            (hazard_id, fact, str(value), amount, unit, basis, url, note))
+        return cursor.lastrowid, "added"
+    if (row[1], row[2], row[3], row[4]) == (str(value), amount, unit, basis):
+        return row[0], "same"
+    conn.execute(
+        "UPDATE hazard_facts SET value = ?, amount = ?, unit = ?, basis = ?, note = ?,"
+        f" review = 'unreviewed', reviewed_at = NULL, updated_at = {_NOW} WHERE id = ?",
+        (str(value), amount, unit, basis, note, row[0]))
+    return row[0], "changed"
+
+
 def put_code_fact(hazard, fact, value, *, url, amount=None, unit=None, basis=None, note=None):
     """A loader's fact, written so re-running the loader is safe.
 
@@ -111,23 +133,43 @@ def put_code_fact(hazard, fact, value, *, url, amount=None, unit=None, basis=Non
     _check_fact(fact, "code", None, url)
     with hazardstore._Write() as conn:
         hazard_id = hazardstore._hazard_id(conn, hazard)
-        row = conn.execute(
-            "SELECT id, value, amount, unit, basis FROM hazard_facts"
-            " WHERE hazard_id = ? AND fact = ? AND author = 'code' AND url = ?",
-            (hazard_id, fact, url)).fetchone()
-        if row is None:
-            cursor = conn.execute(
-                "INSERT INTO hazard_facts (hazard_id, fact, value, amount, unit, basis, url,"
-                " note, author) VALUES (?,?,?,?,?,?,?,?, 'code')",
-                (hazard_id, fact, str(value), amount, unit, basis, url, note))
-            return cursor.lastrowid, "added"
-        if (row[1], row[2], row[3], row[4]) == (str(value), amount, unit, basis):
-            return row[0], "same"
-        conn.execute(
-            "UPDATE hazard_facts SET value = ?, amount = ?, unit = ?, basis = ?, note = ?,"
-            f" review = 'unreviewed', reviewed_at = NULL, updated_at = {_NOW} WHERE id = ?",
-            (str(value), amount, unit, basis, note, row[0]))
-        return row[0], "changed"
+        return _put_code_fact(conn, hazard_id, fact, value, url, amount, unit, basis, note)
+
+
+def put_found_contaminants(found):
+    """Put many found contaminants on the map with their loader facts, in ONE
+    write — a score finds dozens, and a write each (with its backup) crawls.
+
+    `found` is a list of {"name", "parent", "aliases", "facts": [{fact, value,
+    url, amount?, unit?, basis?, note?}]}. A contaminant already on the map
+    (by any of its names) keeps its place; a new one goes under `parent`.
+    Returns {name: hazard id}.
+    """
+    ids = {}
+    with hazardstore._Write() as conn:
+        for item in found:
+            names = [item["name"], *item.get("aliases", ())]
+            row = None
+            for name in names:
+                row = conn.execute("SELECT hazard_id FROM hazard_names WHERE name = ?",
+                                   (hazardstore._norm(name),)).fetchone()
+                if row:
+                    break
+            if row:
+                hazard_id = row[0]
+            else:
+                hazard_id = conn.execute("INSERT INTO hazards (name) VALUES (?)",
+                                         (" ".join(item["name"].split()),)).lastrowid
+                for name in names:
+                    hazardstore._file_name(conn, hazard_id, name)
+                hazardstore._set_parents(conn, hazard_id, [item["parent"]])
+            for fact in item.get("facts", ()):
+                _check_fact(fact["fact"], "code", None, fact["url"])
+                _put_code_fact(conn, hazard_id, fact["fact"], fact["value"], fact["url"],
+                               fact.get("amount"), fact.get("unit"), fact.get("basis"),
+                               fact.get("note"))
+            ids[item["name"]] = hazard_id
+    return ids
 
 
 def review_fact(fact_id, review):
@@ -173,6 +215,15 @@ def chronic_dose(conn, hazard_id):
         " ORDER BY author = 'owner' DESC, review = 'confirmed' DESC, updated_at DESC LIMIT 1",
         (hazard_id,)).fetchone()
     return (row[0], row[1]) if row else (None, None)
+
+
+def chronic_doses(hazard_ids):
+    """chronic_dose for many contaminants at once: {hazard id: (dose, fact id)}."""
+    conn = sqlstore.open_db()
+    try:
+        return {hazard_id: chronic_dose(conn, hazard_id) for hazard_id in hazard_ids}
+    finally:
+        conn.close()
 
 
 # --- which USDA PDP commodity a food is ----------------------------------------

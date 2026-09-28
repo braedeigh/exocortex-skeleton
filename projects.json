@@ -288,7 +288,9 @@
         "embeddings.py",
         "filerstore.py",
         "exposurestore.py",
-        "commonsdb.py"
+        "commonsdb.py",
+        "exposure.py",
+        "reference_loaders.py"
       ],
       "routes": [
         "research.py",
@@ -312,7 +314,8 @@
         "research_dispatcher.py",
         "research_doctor.py",
         "research_tables.py",
-        "exo_query.py"
+        "exo_query.py",
+        "reference_data.py"
       ],
       "tables": [
         "research_topics",

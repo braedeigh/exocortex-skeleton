@@ -15,3 +15,7 @@ cryptography==49.0.0
 # Journal photo thumbnails (routes/photos.py): shrinks uploaded photos to small
 # cached JPEGs. Pinned to the version installed on 2026-09-24.
 Pillow==12.3.0
+# USDA PDP reference workbooks (reference_loaders.py): .xls up to 2023 (xlrd),
+# .xlsx from 2024 (openpyxl). Pinned to the versions installed on 2026-09-27.
+xlrd==2.0.2
+openpyxl==3.1.5
