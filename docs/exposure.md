@@ -84,6 +84,13 @@ number, when the commons holds that study's PDF.
   office sets only a steady-state dose (ssPAD — diazinon, chlorpyrifos, which take the lowest
   population's), or where only another agency has a figure (ATSDR's MRL for p,p'-DDE), the fact
   says so in its basis and its note carries the quote and URL — it's a judgment, not EPA's cPAD.
+- **Agency figures aren't taken on trust.** Where EPA says it sets no chronic limit (the acute
+  dose already covers it: lambda-cyhalothrin, deltamethrin, esfenvalerate; or no endpoints at all:
+  ametoctradin), that goes in as a `no_chronic_limit` fact carrying EPA's own sentence. The food
+  page shows it beside the pesticide, but it is never a dose: the verdict stays open. Every
+  contaminant page says **Needs more research** until a study from outside the agencies (in vitro,
+  animal, human) is on file as an `independent_evidence` fact
+  (`exposurestore.research_state`). Nothing has been combed yet — that's research still to do.
 - **Metabolites are never matched to their parent** (clethodim sulfoxide ≠ clethodim): whether
   the parent's dose covers them is a judgment, recorded as a fact.
 - **Serving sizes** use the general FDA categories (85 g vegetables, 140 g fruit); a food with no

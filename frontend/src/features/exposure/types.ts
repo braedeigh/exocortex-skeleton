@@ -18,6 +18,8 @@ export interface ExposureTerm {
   dose: number | null;
   dose_fact_id: number | null;
   dri: number | null;
+  /** EPA's own words where it sets no chronic limit — shown, never used as a dose. */
+  no_chronic_limit?: { value: string; url: string | null; fact_id: number } | null;
 }
 
 export interface OrganicLine {
@@ -132,6 +134,8 @@ export interface Contaminant {
   parents: string[];
   names: string[];
   facts: ContaminantFact[];
+  /** How far past the agencies' word it has been checked: independent findings on file. */
+  research: { independent: number; needs_research: boolean };
   found_in: ContaminantFinding[];
   measures: StudyMeasure[];
 }
@@ -143,4 +147,6 @@ export interface ContaminantListItem {
   foods: number;
   facts: number;
   max_dri: number | null;
+  /** Independent (non-agency) findings on file; 0 means it still needs research. */
+  independent: number;
 }

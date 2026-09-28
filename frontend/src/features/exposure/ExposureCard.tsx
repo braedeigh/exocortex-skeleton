@@ -10,7 +10,8 @@
  * (conventional, organic, all) and which years to combine — a new choice is
  * computed on the server there and then. Below: every pesticide found, each
  * with how often, how much, and its share of the safe dose, linking to its
- * contaminant page; the ones with no EPA dose; the ones tested and never
+ * contaminant page; the ones with no EPA dose (with EPA's own words where it
+ * says no chronic limit is needed — shown, but still open); the ones tested and never
  * found; and any numbers her studies hold about this food (hazard_measures).
  * The method and its honest limit close the card.
  *
@@ -228,6 +229,22 @@ function TermRow({ term, method }: { term: ExposureTerm; method: ExposureMethod 
         {residueWords(term.max_ppb)}
         {term.dose !== null ? ` · EPA safe dose ${term.dose} mg/kg/day` : ''}
       </div>
+      {/* EPA's own words where it sets no chronic limit: shown, but the verdict
+          stays open until independent studies say the same. */}
+      {term.no_chronic_limit ? (
+        <div className={styles.termDetail}>
+          EPA sets no chronic limit: &ldquo;{term.no_chronic_limit.value}&rdquo;
+          {term.no_chronic_limit.url ? (
+            <>
+              {' '}
+              <a href={term.no_chronic_limit.url} target="_blank" rel="noreferrer">
+                source
+              </a>
+            </>
+          ) : null}{' '}
+          — not taken on trust: still open until independent studies are checked.
+        </div>
+      ) : null}
     </li>
   );
 }

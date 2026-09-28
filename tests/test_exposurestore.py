@@ -108,6 +108,33 @@ def test_owner_dose_wins_over_loader_dose(world):
         conn.close()
 
 
+def test_no_chronic_limit_shows_epa_words_but_scores_as_no_dose(world):
+    exposurestore.add_fact("Chlorpropham", "no_chronic_limit", "none - acute protective",
+                           url=EPA_URL)
+    food_id = rows("SELECT food_id FROM food_names WHERE name = ?", ("potatoes",))[0][0]
+    hazard_id = rows("SELECT hazard_id FROM hazard_names WHERE name = 'chlorpropham'")[0][0]
+    conn = sqlstore.open_db()
+    try:
+        assert exposurestore.chronic_dose(conn, hazard_id) == (None, None)
+    finally:
+        conn.close()
+    term = dict(pesticide_code="036", pesticide="Chlorpropham", hazard_id=hazard_id,
+                samples_tested=10, samples_detected=5, mean_ppb=100.0, max_ppb=900.0)
+    score_id = exposurestore.save_score(food_id, "dri-v1", "conventional", "2023", _summary(), [term])
+    shown = exposurestore.score_detail(score_id)["terms"][0]["no_chronic_limit"]
+    assert shown["value"] == "none - acute protective"
+
+
+def test_contaminant_needs_research_until_independent_evidence(world):
+    hazard_id = rows("SELECT hazard_id FROM hazard_names WHERE name = 'chlorpropham'")[0][0]
+    exposurestore.add_fact("Chlorpropham", "chronic_dose", "0.05", amount=0.05, url=EPA_URL)
+    assert exposurestore.contaminant(hazard_id)["research"]["needs_research"]
+    exposurestore.add_fact("Chlorpropham", "independent_evidence", "no cytotoxicity in vitro",
+                           source_id=SOURCE)
+    assert exposurestore.contaminant(hazard_id)["research"] == {
+        "independent": 1, "needs_research": False}
+
+
 def test_pdp_codes_are_replaced_not_added(world):
     exposurestore.set_pdp_codes("potatoes", [("PO", "FR"), ("po", "fr")])
     food_id = exposurestore.set_pdp_codes("potatoes", [("po", "")])

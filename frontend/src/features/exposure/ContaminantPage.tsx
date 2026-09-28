@@ -8,7 +8,9 @@
  * (EPA's chronic and acute safe doses, cancer figures, health effects), each
  * saying where it was read, who wrote it (a loader reading a published table,
  * an agent, or her) and her review, with Confirm and Dispute. A disputed safe
- * dose is never used to score. Then every food it was found in, with how
+ * dose is never used to score. Then whether anything beyond the agencies
+ * (independent studies) is on file — until it is, the page says it needs more
+ * research. Then every food it was found in, with how
  * often, how much and its share of the safe dose per serving, and the study
  * numbers about it. ContaminantsIndex (/food/contaminants) lists every
  * contaminant with facts or findings, the most concerning first.
@@ -32,7 +34,15 @@ import type { ContaminantFact, ContaminantFinding, ExposureMethod } from './type
 import styles from './Exposure.module.css';
 
 // Harm first: the facts that say how dangerous it is lead the list.
-const HARM_FACTS = ['chronic_dose', 'acute_dose', 'cancer_rating', 'cancer_slope', 'reference_level', 'health_effect'];
+const HARM_FACTS = [
+  'chronic_dose',
+  'no_chronic_limit',
+  'acute_dose',
+  'cancer_rating',
+  'cancer_slope',
+  'reference_level',
+  'health_effect',
+];
 
 const AUTHOR_WORDS: Record<ContaminantFact['author'], string> = {
   code: 'read from a published table',
@@ -56,7 +66,10 @@ export function ContaminantPage({ id }: { id: number }) {
   const contaminant = query.data?.contaminant;
   const method = query.data?.method;
   const harm = contaminant?.facts.filter((fact) => HARM_FACTS.includes(fact.fact)) ?? [];
-  const other = contaminant?.facts.filter((fact) => !HARM_FACTS.includes(fact.fact)) ?? [];
+  const independent = contaminant?.facts.filter((fact) => fact.fact === 'independent_evidence') ?? [];
+  const other =
+    contaminant?.facts.filter((fact) => !HARM_FACTS.includes(fact.fact) && fact.fact !== 'independent_evidence') ??
+    [];
 
   return (
     <div className={pageStyles.page}>
@@ -79,6 +92,21 @@ export function ContaminantPage({ id }: { id: number }) {
             ) : (
               <p className={styles.muted}>
                 No safe dose or health fact on file yet. Until one is, any food it’s found in is an open question.
+              </p>
+            )}
+          </section>
+          {/* Checked past the agencies: every contaminant needs research until
+              a study outside EPA/IRIS/ATSDR is on file. */}
+          <section className={styles.card}>
+            <div className={styles.cardHead}>
+              {contaminant.research.needs_research ? 'Needs more research' : 'Checked beyond the agencies'}
+            </div>
+            {independent.length ? (
+              <FactList facts={independent} contaminantId={id} />
+            ) : (
+              <p className={styles.muted}>
+                Only agency figures so far. Independent studies — in vitro, animal, human — haven’t been combed
+                through yet, so nothing above is taken as settled.
               </p>
             )}
           </section>
@@ -271,7 +299,8 @@ export function ContaminantsIndex() {
               </div>
               <div className={styles.termDetail}>
                 {item.parents ?? 'contaminant'} · found in {item.foods} food{item.foods === 1 ? '' : 's'} · {item.facts}{' '}
-                fact{item.facts === 1 ? '' : 's'}
+                fact{item.facts === 1 ? '' : 's'} ·{' '}
+                {item.independent ? `${item.independent} independent finding${item.independent === 1 ? '' : 's'}` : 'needs research'}
               </div>
             </li>
           ))}

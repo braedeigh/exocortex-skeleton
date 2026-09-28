@@ -49,6 +49,7 @@ FACTS = {
     "use": "used as",
     "pdp_code": "USDA PDP code",
     "chronic_dose": "EPA chronic safe daily dose",
+    "no_chronic_limit": "EPA sets no chronic limit",
     "acute_dose": "EPA acute safe dose",
     "cancer_rating": "cancer rating",
     "cancer_slope": "cancer slope factor",
@@ -56,7 +57,13 @@ FACTS = {
     "health_effect": "health effect",
     "status": "regulatory status",
     "summary": "in plain words",
+    "independent_evidence": "independent evidence",
 }
+# Agency figures are not taken on trust. A contaminant counts as researched
+# only once a study outside the agencies (in vitro, animal, human) is on file
+# as an `independent_evidence` fact; until then its page says it needs more
+# research. A `no_chronic_limit` fact shows EPA's own words but never counts as
+# a dose, so a food where one is found stays an open question.
 AUTHORS = ("llm", "owner", "code")
 CLAIMS = ("conventional", "organic", "all")
 
@@ -405,7 +412,40 @@ def score_detail(score_id):
         conn.close()
     score = _score_dict(row)
     score["terms"] = [dict(zip(_TERM_COLUMNS, term)) for term in terms]
+    # EPA's own words, beside a pesticide it sets no chronic limit for.
+    # Read now rather than stored with the score, so a fact added later shows
+    # without a rescore; it never changes the verdict.
+    said = agency_no_limit([term["hazard_id"] for term in score["terms"]
+                            if term["hazard_id"] is not None and term["dose"] is None])
+    for term in score["terms"]:
+        term["no_chronic_limit"] = said.get(term["hazard_id"])
     return score
+
+
+def agency_no_limit(hazard_ids):
+    """{hazard id: {value, url, fact_id}} — the newest undisputed
+    `no_chronic_limit` fact for each contaminant that has one."""
+    if not hazard_ids:
+        return {}
+    conn = sqlstore.open_db()
+    try:
+        rows = conn.execute(
+            "SELECT hazard_id, value, url, id FROM hazard_facts WHERE fact = 'no_chronic_limit'"
+            f" AND review != 'disputed' AND hazard_id IN ({','.join('?' * len(hazard_ids))})"
+            " ORDER BY updated_at, id", list(hazard_ids)).fetchall()
+    finally:
+        conn.close()
+    return {hazard_id: {"value": value, "url": url, "fact_id": fact_id}
+            for hazard_id, value, url, fact_id in rows}
+
+
+def research_state(facts):
+    """How far past the agencies' word a contaminant has been checked:
+    {independent: how many independent findings, needs_research: True until
+    there is at least one}."""
+    independent = sum(1 for fact in facts
+                      if fact["fact"] == "independent_evidence" and fact["review"] != "disputed")
+    return {"independent": independent, "needs_research": independent == 0}
 
 
 # --- a source's own file, and the page each passage is on ----------------------
@@ -537,14 +577,16 @@ def contaminant(hazard_id):
             _MEASURE_SQL + " WHERE m.hazard_id = ? ORDER BY f.name, m.year DESC", (hazard_id,))]
     keys = ("score_id", "food_id", "food", "claim", "years", "sample_count", "samples_tested",
             "samples_detected", "mean_ppb", "max_ppb", "dose", "dri", "method")
+    facts = facts_for(hazard_id)
     return {"id": row[0], "name": row[1], "note": row[2], "parents": parents,
-            "names": names, "facts": facts_for(hazard_id),
+            "names": names, "facts": facts, "research": research_state(facts),
             "found_in": [dict(zip(keys, each)) for each in found], "measures": measures}
 
 
 def contaminant_index():
     """Every contaminant with a fact or a computed finding, for the list page:
-    [{id, name, parents, foods (how many foods it was found in), facts}]."""
+    [{id, name, parents, foods (how many foods it was found in), facts, max_dri,
+    independent (how many independent findings — 0 means it needs research)}]."""
     with hazardstore._Read() as conn:
         rows = conn.execute(
             "SELECT h.id, h.name,"
@@ -554,9 +596,12 @@ def contaminant_index():
             "   JOIN exposure_scores s ON s.id = t.score_id"
             "   WHERE t.hazard_id = h.id AND t.samples_detected > 0),"
             " (SELECT COUNT(*) FROM hazard_facts WHERE hazard_id = h.id),"
-            " (SELECT MAX(t.dri) FROM exposure_terms t WHERE t.hazard_id = h.id)"
+            " (SELECT MAX(t.dri) FROM exposure_terms t WHERE t.hazard_id = h.id),"
+            " (SELECT COUNT(*) FROM hazard_facts WHERE hazard_id = h.id"
+            "   AND fact = 'independent_evidence' AND review != 'disputed')"
             " FROM hazards h WHERE EXISTS (SELECT 1 FROM hazard_facts WHERE hazard_id = h.id)"
             "   OR EXISTS (SELECT 1 FROM exposure_terms WHERE hazard_id = h.id)"
             "   OR EXISTS (SELECT 1 FROM hazard_measures WHERE hazard_id = h.id)"
             " ORDER BY h.name").fetchall()
-    return [dict(zip(("id", "name", "parents", "foods", "facts", "max_dri"), row)) for row in rows]
+    return [dict(zip(("id", "name", "parents", "foods", "facts", "max_dri", "independent"), row))
+            for row in rows]
