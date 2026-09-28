@@ -41,7 +41,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { makeStickyToggle } from '../terrain/codeHeatPref';
 import styles from './SwarmNetwork.module.css';
-import type { Swarm } from './swarmApi';
+import { setClosedSwarmsShown, useClosedSwarmsShown, type Swarm } from './swarmApi';
 import {
   layoutSwarm, lineWidth, nodeBoxes, NETWORK_WIDTH, placeCounts, shortTitle, type CountLine,
 } from './swarmNetworkMath';
@@ -241,5 +241,25 @@ export function SwarmNetworkKey() {
         {hideRetired ? 'Show retired agents' : 'Hide retired agents'}
       </button>
     </div>
+  );
+}
+
+/** The switch that shows or hides closed swarms (every member finished).
+ * Drawn only when there are closed swarms to show, beside the swarms it
+ * governs; the setting is shared by every page (swarmApi.shownSwarms). */
+export function ClosedSwarmsToggle({ closedCount }: { closedCount: number }) {
+  const showClosed = useClosedSwarmsShown();
+  if (closedCount === 0) return null;
+  return (
+    <button
+      type="button"
+      className={styles.retiredToggle}
+      aria-pressed={showClosed}
+      onClick={() => setClosedSwarmsShown(!showClosed)}
+    >
+      {showClosed
+        ? 'Hide closed swarms'
+        : `Show ${closedCount} closed ${closedCount === 1 ? 'swarm' : 'swarms'}`}
+    </button>
   );
 }

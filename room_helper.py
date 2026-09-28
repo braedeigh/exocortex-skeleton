@@ -8,7 +8,8 @@ unrelated clusters into one swarm for good, and two sessions doing the same
 work never find each other unless one happens to write. The room helper looks
 at the whole room from above and fixes that. It reads only summaries:
 
-  - each live swarm's summary and each of its members' summaries,
+  - each open swarm's summary and each of its members' summaries (a closed
+    swarm — every member finished — is left out; open_swarms),
   - the swarm's CLUSTERS, worked out here in code: the groups of members who
     messaged each other within config.ROOM_HELPER_QUIET_HOURS, each with the
     last time it messaged anyone in another cluster,
@@ -180,6 +181,14 @@ def _helper_convs(index):
             if isinstance(e, dict) and e.get("role") in swarms.HELPER_ROLES}
 
 
+def open_swarms(room):
+    """The swarms in this room it works with: live and not closed. A closed
+    swarm (every member finished, swarms.overview) is left out of what it
+    reads and can't be joined or split — there's no one left in it to
+    coordinate. It comes back here by itself if a member starts again."""
+    return [c for c in swarms.overview() if c["lane"] == room and not c.get("closed")]
+
+
 def solo_sessions(room, index, cards):
     """The live sessions in this room working alone: not archived, finished or
     handed on, not a helper, and in no swarm. Newest first."""
@@ -259,7 +268,7 @@ def room_overview(room, activity=False):
     seed leaves it out."""
     index = store.read("bot_chats/index", {})
     index = index if isinstance(index, dict) else {}
-    cards = [c for c in swarms.overview() if c["lane"] == room]
+    cards = open_swarms(room)
     since = (datetime.now() - timedelta(hours=config.ROOM_HELPER_QUIET_HOURS)
              ).isoformat(timespec="seconds")
     out = [f"# The {room} room, {_now()}", "", "## Swarms", ""]
@@ -350,7 +359,7 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
     for conv in convs:
         moved |= swarms.line_of_work(conv, index)
     moved = sorted(moved)
-    live = {c["id"]: c for c in swarms.overview() if c["lane"] == room}
+    live = {c["id"]: c for c in open_swarms(room)}
     current = {c: swarms.swarm_of(c) for c in moved}
     from_swarm = None
     # Check the move against the room as it is now.
@@ -361,7 +370,7 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
             raise MoveError("a swarm needs at least two lines of work")
     elif kind == "join":
         if swarm_id not in live:
-            raise MoveError(f"swarm {swarm_id} isn't a live swarm in the {room} room")
+            raise MoveError(f"swarm {swarm_id} isn't an open swarm in the {room} room")
         if all(current[c] == swarm_id for c in moved):
             raise MoveError(f"already in swarm {swarm_id}")
         from_swarm = next((s for s in current.values() if s), None)
@@ -370,7 +379,7 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
         if len({frozenset(swarms.line_of_work(c, index)) for c in convs}) < 2:
             return execute(room, "release", convs, None, reason, message, by)
         if swarm_id not in live:
-            raise MoveError(f"swarm {swarm_id} isn't a live swarm in the {room} room")
+            raise MoveError(f"swarm {swarm_id} isn't an open swarm in the {room} room")
         if any(current[c] != swarm_id for c in moved):
             raise MoveError(f"split moves members of swarm {swarm_id} only")
         if not set(swarms.overview_members(swarm_id)) - set(moved):

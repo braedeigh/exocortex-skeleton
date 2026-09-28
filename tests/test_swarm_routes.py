@@ -2,7 +2,7 @@
 
 What these pin: the list shows a live swarm with its counts; the detail
 carries the helper's runs verbatim and the messages between members;
-unknown swarms 404; refresh starts a helper run; the room view lists the
+unknown swarms 404; a card says whether it's closed; refresh starts a helper run; the room view lists the
 sessions working alone and the room helper's moves.
 """
 import json
@@ -35,6 +35,7 @@ def test_the_list_shows_a_swarm_with_its_counts(client):
     [card] = client.get("/api/swarms").get_json()["swarms"]
     assert card["counts"] == {"working": 1, "silent": 1, "needs_input": 0}
     assert {m["conv"] for m in card["members"]} == {"a", "b"}
+    assert card["closed"] is False
 
 
 def test_the_detail_shows_what_the_helper_used(client):

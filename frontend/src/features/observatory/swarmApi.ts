@@ -8,12 +8,16 @@
  * useSwarms(), and because they all use the same query key, the page makes
  * ONE request however many rooms are showing.
  *
- * Touches: routes/swarms.py (the endpoints), SwarmCard.tsx and SessionLane.tsx
+ * Closed swarms (every member finished) come with the rest, marked `closed`;
+ * pages draw them only when the shared "show closed swarms" switch is on.
+ *
+ * Touches: routes/swarms.py (the endpoints), terrain/codeHeatPref.ts (the sticky switch), SwarmCard.tsx and SessionLane.tsx
  * (the cards in each room), RoomMap.tsx (the room from above), SwarmPage.tsx (one swarm's page), and
  * terrain/TerrainPage.tsx (the outlines around swarm members on the map).
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
+import { makeStickyToggle } from '../terrain/codeHeatPref';
 
 export type MemberState = 'working' | 'silent' | 'needs_input';
 
@@ -42,6 +46,10 @@ export interface Swarm {
   created_at: string;
   counts: { working: number; silent: number; needs_input: number };
   members: SwarmMember[];
+  /** Every member has finished (done, archived or handed on) — swarms.py
+   * `all_retired`. Opens again by itself when one works again. Absent from
+   * an older server, so treat it as optional. */
+  closed?: boolean;
   links: { from: string; to: string; messages: number }[];
   /** Which member took over from which (a continuation). Absent from an
    * older server, so treat it as optional. */
@@ -134,4 +142,17 @@ export function swarmState(s: Pick<Swarm, 'counts'>): MemberState {
   if (s.counts.needs_input > 0) return 'needs_input';
   if (s.counts.working > 0) return 'working';
   return 'silent';
+}
+
+/* Closed swarms: hidden unless she asks. A swarm closes when every member
+   has finished (Swarm.closed). One sticky switch (localStorage) for every
+   page that draws swarms, so showing them once shows them everywhere. */
+const closedShownToggle = makeStickyToggle('swarms-closed-shown');
+export const useClosedSwarmsShown = closedShownToggle.useOn;
+export const setClosedSwarmsShown = closedShownToggle.set;
+
+/** The swarms a page should draw: the open ones, and the closed ones too
+ * when the switch is on. */
+export function shownSwarms<S extends Pick<Swarm, 'closed'>>(swarms: S[], showClosed: boolean): S[] {
+  return showClosed ? swarms : swarms.filter((s) => !s.closed);
 }

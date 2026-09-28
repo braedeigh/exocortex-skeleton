@@ -6,7 +6,8 @@ takes a cluster out into its own swarm, release puts a session back to work
 alone, and a continuation always moves with its session. Every move is
 recorded and can be undone, and a move she undid isn't made again. The
 moved sessions are told once, queued, never interrupted. A move that doesn't
-fit is refused and reported. Its chat never resumes and is never continued,
+fit is refused and reported. A closed swarm is left out of the room it reads
+and can't be joined. Its chat never resumes and is never continued,
 and its seed is the room.
 """
 import json
@@ -181,3 +182,24 @@ def test_its_chat_never_continues_and_seeds_from_the_room(room):
     seed = helper_chat.seed_text(helper, entry)
     assert "room helper" in seed and "Sessions working alone" in seed and "s1" in seed
     assert entry["allowed_tools"] == swarm_helper.HELPER_TOOLS
+
+
+def _closed_swarm():
+    """a and b talked, and both have finished."""
+    _seed("a", "b", done_at="2026-09-28T09:00:00")
+    peermail.send("b", "hi", from_conv="a")
+    [swarm_id] = swarms.sync()
+    return swarm_id
+
+
+def test_a_closed_swarm_is_left_out_of_the_room(room):
+    swarm_id = _closed_swarm()
+    text = room_helper.room_overview("coding")
+    assert f"Swarm {swarm_id}" not in text and "(no swarms)" in text
+
+
+def test_nobody_is_joined_into_a_closed_swarm(room):
+    swarm_id = _closed_swarm()
+    _seed("s1")
+    with pytest.raises(room_helper.MoveError):
+        room_helper.execute("coding", "join", ["s1"], swarm_id, "same work")

@@ -11,6 +11,9 @@ And placements (the room helper's, swarms.place): a placement overrides the
 messages sent before it, so it can split a swarm, release a session or move
 it between swarms; a message sent after it links again; unplace restores;
 a line of work is found whole; helpers' messages never link anyone.
+
+And closing: a swarm whose members have all finished is `closed`, and opens
+again when one works again or a new one joins.
 """
 import peermail
 import store
@@ -242,3 +245,32 @@ def test_a_room_helpers_messages_link_nobody(data_dir):
     peermail.send("a", "you two should talk", from_conv="room")
     peermail.send("b", "you two should talk", from_conv="room")
     assert swarms.sync() == {}
+
+
+def test_a_swarm_closes_when_every_member_has_finished(data_dir):
+    _seed("a", done_at="2026-09-28T09:00:00")
+    _seed("b", archived="2026-09-28T09:00:00")
+    _seed("h", role="swarm_helper", swarm_id=1)
+    peermail.send("b", "hi", from_conv="a")
+    [card] = swarms.overview()
+    assert card["closed"] is True
+
+
+def test_a_closed_swarm_opens_again_when_a_member_works_again(data_dir):
+    _seed("a", done_at="2026-09-28T09:00:00")
+    _seed("b", archived="2026-09-28T09:00:00")
+    peermail.send("b", "hi", from_conv="a")
+    with store.mutate("bot_chats/index", {}) as index:
+        index["a"]["running"] = True
+    [card] = swarms.overview()
+    assert card["closed"] is False
+
+
+def test_a_new_member_opens_a_closed_swarm(data_dir):
+    _seed("a", "b", done_at="2026-09-28T09:00:00")
+    _seed("c")
+    peermail.send("b", "hi", from_conv="a")
+    [swarm_id] = swarms.sync()
+    swarms.join(swarm_id, "c")
+    [card] = swarms.overview()
+    assert card["closed"] is False

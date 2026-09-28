@@ -42,6 +42,17 @@ lines say what exists *now*.
   were done, questions still waiting on her, detached jobs still running.
   Then it marks itself done; the usual two-hour countdown closes it. If a
   member starts working again, the helper comes back.
+- **A swarm closes when its work is over.** Her ask: "closes swarms on the
+  UI when all agents within it are closed." Closed is the retired rule above
+  (every member done, archived or handed on; the swarm's own helper doesn't
+  count as a member), worked out fresh on every read, never stored — so a
+  member working again, or a new session joining, opens it again by itself.
+  `swarms.overview` marks each card `closed`. The rooms, the room map,
+  Worktrees and Terrain hide closed swarms unless the shared "Show closed
+  swarms" switch is on (`swarmApi.shownSwarms`); a hidden closed swarm's
+  finished members stand in the room as ordinary done cards until they close.
+  The room helper reads only open swarms and can't join or split into a
+  closed one (`room_helper.open_swarms`).
 - **Visible everywhere.** A swarm card in its room on the Observatory (summary,
   counts of working / silent / needs input; tap in for the member cards in the
   usual orange / purple / grey), a swarm on the Terrain map, and a helper page

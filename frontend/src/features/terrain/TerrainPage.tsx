@@ -68,7 +68,7 @@ import { addTableNodes } from './tableNodes';
 import { callLinks, tableCodeLinks } from './tableMentions';
 import { lineageLinks } from './terrainLineage';
 import { swarmGroups } from './terrainSwarms';
-import { useSwarms } from '../observatory/swarmApi';
+import { shownSwarms, useClosedSwarmsShown, useSwarms } from '../observatory/swarmApi';
 import { tapStage } from './hoverSelection';
 import { TerrainTableWindow } from './TerrainTableWindow';
 import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
@@ -979,7 +979,13 @@ export function TerrainPage() {
   // hand-over as the spinoff arrows, ref included (terrainCanvas.ts setSwarms).
   // The owner's only — a visitor never asks.
   const swarmsQuery = useSwarms(!visitor);
-  const swarmList = useMemo(() => swarmGroups(swarmsQuery.data ?? []), [swarmsQuery.data]);
+  // Closed swarms (every member finished) are outlined only when the shared
+  // "show closed swarms" switch is on.
+  const showClosedSwarms = useClosedSwarmsShown();
+  const swarmList = useMemo(
+    () => swarmGroups(shownSwarms(swarmsQuery.data ?? [], showClosedSwarms)),
+    [swarmsQuery.data, showClosedSwarms],
+  );
   const swarmListRef = useRef(swarmList);
   swarmListRef.current = swarmList;
   useEffect(() => {

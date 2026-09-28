@@ -14,6 +14,8 @@
  *     (SwarmNetwork.tsx): purple rings for its sessions, green lines for who
  *     messaged whom, its helper in the middle. The swarm's name above the
  *     circle opens the swarm's page;
+ *   - a switch to show the CLOSED swarms (every member finished), hidden
+ *     otherwise — only there when some are closed;
  *   - every session WORKING ALONE (in no swarm) in rows beneath, as the same
  *     rings, so a glance says who's out on their own.
  *
@@ -36,7 +38,7 @@ import { CollapsibleCard } from '../body/CollapsibleCard';
 import type { SessionMeta } from './api';
 import styles from './RoomMap.module.css';
 import ring from './SwarmNetwork.module.css';
-import { SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
+import { ClosedSwarmsToggle, SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
 import type { MemberState, RoomView, Swarm } from './swarmApi';
 import { shortTitle } from './swarmNetworkMath';
 
@@ -74,13 +76,16 @@ export function RoomMap({
   room,
   view,
   swarms,
+  closedCount = 0,
   rosterById,
   onOpen,
 }: {
   room: string;
   view: RoomView;
-  /** The live swarms in this room. */
+  /** The swarms in this room to draw — closed ones only when she asked. */
   swarms: Swarm[];
+  /** How many swarms here are closed (every member finished), for the switch. */
+  closedCount?: number;
   /** Every session the page knows, for the rings' live state. */
   rosterById: Map<string, SessionMeta>;
   onOpen: (conv: string) => void;
@@ -144,6 +149,7 @@ export function RoomMap({
         ) : (
           <p className={styles.note}>No swarms in this room right now.</p>
         )}
+        <ClosedSwarmsToggle closedCount={closedCount} />
 
         {/* Everyone working alone, in rows underneath. */}
         <h4 className={styles.soloHead}>Working alone</h4>

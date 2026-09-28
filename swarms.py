@@ -23,6 +23,12 @@ exchanged at or before T; it belongs where it was placed (or nowhere, when
 released), and only messages sent after T can pull it anywhere else. That's
 how a swarm glued together by one old stray message comes apart.
 
+A swarm CLOSES when every member has finished — done, archived, or handed on
+(`all_retired`) — and opens again the moment one of them works again or a new
+session joins. Closed is worked out from the members each time, not stored;
+`overview` marks each card `closed`, and the pages hide closed swarms unless
+she asks to see them.
+
 She can also start a session straight into a swarm (the '+' on a swarm's
 page): `join` adds it as a member before it has messaged anyone, and
 `seed_text` is what it's told about the swarm it woke up in.
@@ -290,17 +296,27 @@ def retired(swarm_id, index=None):
         index = store.read("bot_chats/index", {})
     if not is_live(swarm_id):
         return False
-    members = overview_members(swarm_id)
-    if not members:
-        return False
-    return all(member_retired(index.get(m)) for m in members)
+    return all_retired(overview_members(swarm_id), index)
+
+
+def all_retired(members, index):
+    """Is every one of these members finished (member_retired)? False for no
+    members at all — an empty swarm never finished anything. The swarm's
+    helper isn't a member, so it can't hold a swarm open on its own."""
+    return bool(members) and all(member_retired(index.get(m)) for m in members)
 
 
 def overview():
     """Every live swarm as a card needs it: name, room, summary, member
     count by state, the members with their own summaries, and who is joined
     to whom (messages sent, continuations, and the helper's messages out to
-    members) for the network drawing."""
+    members) for the network drawing.
+
+    Each card says whether the swarm is `closed`: every member has finished
+    (the same rule as `retired`). That is read fresh from the members every
+    time, never stored, so a member starting again or a new one joining
+    opens the swarm again by itself. Closed swarms are still listed; the
+    pages and the room helper choose to leave them out."""
     sync()
     index = store.read("bot_chats/index", {})
     index = index if isinstance(index, dict) else {}
@@ -365,6 +381,7 @@ def overview():
                 "counts": {"working": counts["working"], "silent": counts["silent"],
                            "needs_input": counts["needs_input"]},
                 "members": members,
+                "closed": all_retired([m["conv"] for m in members], index),
                 "links": [{"from": a, "to": b, "messages": n} for a, b, n in talked],
                 "continues": continues,
                 "helper_links": [{"to": conv, "messages": n}

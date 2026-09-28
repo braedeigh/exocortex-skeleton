@@ -233,6 +233,8 @@ def cmd_swarm(args, me):
     print(f"Swarm {card['id']}: {card['name']}  [{card['lane']}]  "
           f"{counts['working']} working, {counts['silent']} silent, "
           f"{counts['needs_input']} need input")
+    if card.get("closed"):
+        print("closed: every member has finished — it opens again when one works again")
     if card.get("helper_conv"):
         print(f"helper: {card['helper_conv']} (message it with peers.py send)")
     if card.get("summary"):

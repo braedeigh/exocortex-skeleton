@@ -50,8 +50,8 @@ import { isUnread, openedMap, setConversationRead } from './readReceipts';
 import { SessionLane } from './SessionLane';
 import { sessionLocation } from './sessionLocation';
 import styles from './WorktreeMapPage.module.css';
-import { SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
-import { useSwarms } from './swarmApi';
+import { ClosedSwarmsToggle, SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
+import { shownSwarms, useClosedSwarmsShown, useSwarms } from './swarmApi';
 import { useWorktreeMap, type Tree, type TreeAgent } from './worktreeMapApi';
 import { footprint, orbRadius, orderTrees, recencyOf, treeName, treesOf, writersNow } from './worktreeMapMath';
 import { useTerrain } from '../terrain/api';
@@ -104,7 +104,11 @@ export function WorktreeMapPage() {
   const [selected, setSelected] = useState<{ tree: string; conv: string } | null>(null);
   const [, bump] = useState(0);
   const { data, error } = useWorktreeMap(windowSeconds);
-  const { data: swarms } = useSwarms();
+  const { data: allSwarms } = useSwarms();
+  // Closed swarms (every member finished) only when the shared switch says so.
+  const showClosed = useClosedSwarmsShown();
+  const swarms = allSwarms ? shownSwarms(allSwarms, showClosed) : undefined;
+  const closedCount = (allSwarms ?? []).filter((s) => s.closed).length;
   const { data: roster, refetch: refetchRoster } = useSessionRoster(true);
   const anyRunning = (roster?.sessions ?? []).some((s) => s.running);
   const { data: terrain } = useTerrain(anyRunning, 350);
@@ -213,11 +217,12 @@ export function WorktreeMapPage() {
         {/* The swarms: sessions that talk to each other, drawn as networks —
             purple rings joined by green lines where they've messaged. Tap a
             ring to open that session, a swarm's name for its own page. */}
-        {swarms && swarms.length > 0 ? (
+        {(swarms && swarms.length > 0) || closedCount > 0 ? (
           <section className={styles.swarms}>
             <h2 className={styles.h2}>Who&rsquo;s talking to whom</h2>
             <SwarmNetworkKey />
-            {swarms.map((swarm) => (
+            <ClosedSwarmsToggle closedCount={closedCount} />
+            {(swarms ?? []).map((swarm) => (
               <div key={swarm.id} className={styles.swarm}>
                 <button
                   type="button"

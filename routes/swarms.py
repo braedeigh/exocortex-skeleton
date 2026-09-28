@@ -5,8 +5,10 @@ swarm (swarms.py), and each swarm has a helper that names it and keeps
 summaries (swarm_helper.py). These routes hand that to the page:
 
     GET  /api/swarms              every live swarm — name, room, summary, member
-                                  counts by state, members, who messaged whom.
-                                  The swarm cards in each room read this.
+                                  counts by state, members, who messaged whom,
+                                  and `closed` (every member finished). The
+                                  swarm cards in each room read this, and hide
+                                  the closed ones unless she asks for them.
     GET  /api/swarms/<id>         one swarm in full, for its page: the above,
                                   plus the helper's recent runs (exactly what it
                                   was given and what it wrote back), the
@@ -76,7 +78,7 @@ def room(room_name):
     """The room from above: its helper, who's working alone, the recent moves."""
     index = store.read("bot_chats/index", {})
     index = index if isinstance(index, dict) else {}
-    cards = [c for c in swarms.overview() if c["lane"] == room_name]
+    cards = room_helper.open_swarms(room_name)
     solos = room_helper.solo_sessions(room_name, index, cards)
     summaries = room_helper._stored_summaries(solos)
     return {

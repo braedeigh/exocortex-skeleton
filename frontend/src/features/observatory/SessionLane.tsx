@@ -5,7 +5,7 @@ import { ApprovalCard, AwaitingCard, SessionCard } from './SessionCard';
 import { LaneHead, useLaneOpen } from './LaneHead';
 import { SwarmCard } from './SwarmCard';
 import { RoomMap } from './RoomMap';
-import { useRoomView, useSwarms } from './swarmApi';
+import { shownSwarms, useClosedSwarmsShown, useRoomView, useSwarms } from './swarmApi';
 import { orderRoom, sessionPlace, swarmPlace, swarmView, type RoomPlace, type SwarmView } from './roomOrder';
 import type { TerrainData } from '../terrain/api';
 import styles from './SessionLane.module.css';
@@ -69,6 +69,10 @@ import styles from './SessionLane.module.css';
  * a RoomMap: every swarm drawn in a circle, the helpers in the middle, the
  * sessions working alone in rows beneath. The room helper's own session
  * folds into that map instead of standing in the list.
+ *
+ * CLOSED SWARMS HIDE. A swarm whose every member has finished is closed
+ * (swarms.py); its card and its circle stay off the room unless the "show
+ * closed swarms" switch on the room map is on.
  *
  * WAITING, THEN RUNNING, THEN DONE. Every card in a room, session or swarm,
  * stands in one order: the ones waiting on her (orange first, then the ones
@@ -155,17 +159,26 @@ export function SessionLane({
   // Each swarm read through the roster, so its colour follows the same rule as
   // the session cards and its retired members drop out (roomOrder.swarmView).
   const rosterById = new Map((roster ?? sessions).map((s) => [s.id, s]));
-  const swarmsHere: SwarmView[] = folding
-    ? (allSwarms ?? []).filter((s) => s.lane === laneKey).map((s) => swarmView(s, rosterById, opened))
-    : [];
+  // Closed swarms (every member finished) are hidden unless the shared
+  // switch shows them (swarmApi.shownSwarms).
+  const showClosed = useClosedSwarmsShown();
+  const shown = shownSwarms(allSwarms ?? [], showClosed);
+  const roomSwarms = shown.filter((s) => s.lane === laneKey);
+  const closedHere = (allSwarms ?? []).filter((s) => s.lane === laneKey && s.closed).length;
+  const swarmsHere: SwarmView[] = folding ? roomSwarms.map((s) => swarmView(s, rosterById, opened)) : [];
   // The room from above, when this room has a room helper (RoomMap.tsx).
   const { data: roomView } = useRoomView(laneKey, folding);
   const hasRoomMap = folding && !!roomView?.helper_conv;
+  // Who leaves the room's own list: the members of every swarm drawn, and
+  // every swarm's helper. A hidden closed swarm's finished members stand in
+  // the room again as ordinary done cards until they close; its helper,
+  // finished too, stays out.
   const inASwarm = new Set(
     !folding
       ? []
       : [
-          ...(allSwarms ?? []).flatMap((s) => [...s.members.map((m) => m.conv), ...(s.helper_conv ? [s.helper_conv] : [])]),
+          ...shown.flatMap((s) => s.members.map((m) => m.conv)),
+          ...(allSwarms ?? []).flatMap((s) => (s.helper_conv ? [s.helper_conv] : [])),
           ...(hasRoomMap ? [roomView!.helper_conv!] : []),
         ],
   );
@@ -259,7 +272,8 @@ export function SessionLane({
         <RoomMap
           room={laneKey}
           view={roomView!}
-          swarms={(allSwarms ?? []).filter((s) => s.lane === laneKey)}
+          swarms={roomSwarms}
+          closedCount={closedHere}
           rosterById={rosterById}
           onOpen={onOpen}
         />
