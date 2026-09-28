@@ -22,6 +22,14 @@ Every run is written down in full (`swarm_helper_runs`: its exact input and
 output, cost, error) and into the helper's own chat, so the owner can see what
 information it used and what it did with it.
 
+Its chat is one conversation for the swarm's whole life. When the owner
+talks to it there, each turn starts fresh from a rolling seed (the summaries,
+its running notes, the last few exchanges — helper_chat.py), so it never
+fills its context and is never continued. When every member is finished
+(swarms.retired), it posts a closing check — what git says shipped, what's
+uncommitted or unfinished, questions and detached jobs still waiting — and
+marks itself done (close_out, at the minute tick).
+
 When it runs: when a member's turn ends (at most once every
 config.SWARM_HELPER_MIN_SEC per swarm — anything sooner waits for the minute
 tick), when the swarm forms, and straight away when someone messages it.
@@ -32,7 +40,9 @@ Touches: swarms.py (membership and the tables), peermail.py (its mailbox;
 agent messages it sends go through routes/observatory.peer_send), the session
 index (the helper's own entry — `role: "swarm_helper"`), config.py (model and
 pacing), scripts/coming_up_dispatcher.py (the minute tick), sqlstore.py
-(swarm_helper_runs), tests/test_swarm_helper.py. Design: docs/swarms.md.
+(swarm_helper_runs), helper_chat.py (its chat's rolling context; shares
+ask_model), tests/test_swarm_helper.py, tests/test_helper_chat.py. Design:
+docs/swarms.md.
 
 Prompt that produced this: "i want the helper to name the session and
 understand what all of them are doing and synthesize it automatically as it
@@ -42,6 +52,7 @@ be able to click into it and see what information is being used by it."
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -121,6 +132,17 @@ def ensure_helper(swarm_id):
     helper, name, lane = row
     index = store.read("bot_chats/index", {})
     if helper and helper in index:
+        # Undo a handoff. The helper's chat is one conversation for its
+        # swarm's whole life (helper_chat.py), but before that it could be
+        # continued like any Coding session — archived, with its mail and
+        # reminders forwarded to a successor. Bring it back as the one chat.
+        if isinstance(index[helper], dict) and index[helper].get("continued_by"):
+            with store.mutate("bot_chats/index", {}) as index:
+                entry = index.get(helper)
+                if isinstance(entry, dict):
+                    for field in ("continued_by", "continuation", "archive_after_turn",
+                                  "archived"):
+                        entry.pop(field, None)
         return helper
     with store.mutate("bot_chats/index", {}) as index:
         helper = observatory._new_conv_id(index)
@@ -221,13 +243,13 @@ def gather(swarm_id, questions=()):
 
 # --- One run ------------------------------------------------------------------------
 
-def _call_model(text):
+def ask_model(text, system_prompt, schema):
     """One tool-less, single-turn model call with a structured answer.
-    Returns (answer dict, cost)."""
+    Returns (answer dict, cost). Shared with helper_chat.rewrite_notes."""
     from routes import observatory
     cmd = [observatory.CLAUDE_BIN, "-p", "--model", config.SWARM_HELPER_MODEL,
            "--tools", "", "--no-session-persistence", "--output-format", "json",
-           "--system-prompt", SYSTEM_PROMPT, "--json-schema", json.dumps(SCHEMA)]
+           "--system-prompt", system_prompt, "--json-schema", json.dumps(schema)]
     proc = subprocess.run(cmd, input=text, capture_output=True, text=True,
                           timeout=config.SWARM_HELPER_TIMEOUT_SEC)
     try:
@@ -237,6 +259,11 @@ def _call_model(text):
     if reply.get("is_error") or not isinstance(reply.get("structured_output"), dict):
         raise RuntimeError(f"helper call failed: {str(reply.get('result'))[-400:]}")
     return reply["structured_output"], reply.get("total_cost_usd")
+
+
+def _call_model(text):
+    """A summarizer run's model call."""
+    return ask_model(text, SYSTEM_PROMPT, SCHEMA)
 
 
 def _render(answer):
@@ -296,9 +323,15 @@ def run(swarm_id, trigger="turn", question_ids=()):
                                             "journaled": False})
         else:
             peermail.append_line(log_path, peermail.peer_line(q, "in"))
+    # Marked as a run's post, so the chat's rolling context (helper_chat.py)
+    # can tell it from a chat reply: an answer to a question is kept as part
+    # of its exchange, an unprompted update is left to the swarm summary.
     if answer:
-        peermail.append_line(log_path, {"type": "assistant", "timestamp": now, "message": {
-            "role": "assistant", "content": [{"type": "text", "text": _render(answer)}]}})
+        peermail.append_line(log_path, {
+            "type": "assistant", "timestamp": now, "helper_run": True,
+            "helper_update": not questions,
+            "message": {"role": "assistant",
+                        "content": [{"type": "text", "text": _render(answer)}]}})
     else:
         peermail.append_line(log_path, {"type": "error", "error": error, "ts": now})
     peermail.append_line(log_path, {"type": "result", "subtype": "success" if answer else "error",
@@ -387,15 +420,188 @@ def answer_mail(helper_conv):
 
 
 def tick():
-    """The minute tick: run every helper that has something pending and is
-    past its interval. Returns how many started."""
+    """The minute tick: close out every swarm that has retired, then run every
+    helper that has something pending and is past its interval. Returns how
+    many runs started."""
     started = 0
     index = store.read("bot_chats/index", {})
     for conv, entry in list(index.items()):
-        if is_helper(entry) and entry.get("helper_pending"):
+        if not is_helper(entry):
+            continue
+        try:
+            if watch_retirement(conv, entry, index):
+                continue
+        except Exception as e:
+            print(f"{_now()} closing check for {conv} failed: {e}", file=sys.stderr)
+        if entry.get("helper_pending"):
             if poke(entry["swarm_id"], entry["helper_pending"]):
                 started += 1
     return started
+
+
+# --- When the swarm retires: the closing check --------------------------------
+# A swarm's helper stays for as long as the swarm does. When every member is
+# finished (swarms.retired: done, closed or archived), the helper posts one
+# last message — what shipped, what's left — and marks itself done, so its
+# card closes two hours later like any finished session's. The facts come from
+# git, the session index and the job folders, never from what the agents said
+# about themselves, so this is plain code, not a model call.
+#
+# Prompt: "when the swarm retires ... the helper runs a closing check: what
+# shipped (commit hashes from git, not agents' word), anything left uncommitted
+# or unfinished, open questions still waiting on her, and stray detached jobs.
+# It posts that as its final message, then closes itself."
+
+# A commit as git reports it when it's made: "[main a15f1a7] subject".
+_COMMIT_RE = re.compile(r"\[([\w./-]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\] ")
+
+
+def _git(cwd, *args):
+    """Run one git command in `cwd`. Its output, or None if it failed."""
+    try:
+        proc = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True,
+                              text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _commits_of(conv_id, entry):
+    """The commits a session made: every commit git announced in its tool
+    results, each checked against the repo it ran in. Returns a list of
+    (hash, subject, found) — found False when that repo doesn't know it."""
+    path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    hashes = []
+    for line in raw.splitlines():
+        if "tool_result" in line:
+            for _, commit in _COMMIT_RE.findall(line):
+                if commit not in hashes:
+                    hashes.append(commit)
+    cwd = entry.get("worktree") or entry.get("cwd") or str(store.BUILD_DIR)
+    out = []
+    for commit in hashes:
+        shown = _git(cwd, "log", "-1", "--format=%h\t%s", commit)
+        if shown and "\t" in shown:
+            short, subject = shown.strip().split("\t", 1)
+            out.append((short, subject, True))
+        else:
+            out.append((commit, "", False))
+    return out
+
+
+def _uncommitted_of(conv_id, entry):
+    """The files a session wrote that git still shows as changed or untracked."""
+    from scripts.extract_footprints import harvest_conversation
+    path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    try:
+        touched = harvest_conversation(path, entry.get("cwd"))
+    except Exception:
+        return []
+    written = [p for p, t in touched.items() if t.get("writes", 0) + t.get("creates", 0)]
+    by_repo = {}
+    for file_path in written:
+        folder = Path(file_path).parent
+        while not folder.is_dir() and folder != folder.parent:
+            folder = folder.parent
+        top = _git(folder, "rev-parse", "--show-toplevel")
+        if top:
+            by_repo.setdefault(top.strip(), []).append(file_path)
+    dirty = []
+    for top, files in by_repo.items():
+        status = _git(top, "status", "--porcelain", "--", *files) or ""
+        dirty += [f"{top}/{line[3:]}" for line in status.splitlines() if line.strip()]
+    return dirty
+
+
+def closing_report(swarm_id):
+    """The helper's last message for a retired swarm, as markdown."""
+    from routes import observatory
+    card = next((c for c in swarms.overview() if c["id"] == swarm_id), None)
+    name = card["name"] if card else f"Swarm {swarm_id}"
+    index = store.read("bot_chats/index", {})
+    members = swarms.overview_members(swarm_id)
+    shipped, dirty, unfinished, questions, jobs = [], [], [], [], []
+    seen = set()
+    for conv in members:
+        entry = index.get(conv) if isinstance(index.get(conv), dict) else {}
+        title = entry.get("title") or conv
+        for commit, subject, found in _commits_of(conv, entry):
+            if commit in seen:
+                continue
+            seen.add(commit)
+            shipped.append(f"- `{commit}` {subject} — {title}" if found else
+                           f"- `{commit}` — {title} (git reported it, but its repo no"
+                           " longer knows it: rewritten, or made elsewhere)")
+        dirty += [f"- `{p}` — {title}" for p in _uncommitted_of(conv, entry)]
+        if not entry:
+            unfinished.append(f"- `{conv}` — gone from the index")
+        elif not entry.get("done_at") and not entry.get("continued_by"):
+            unfinished.append(f"- {title} (`{conv}`) — closed without saying it was done")
+        questions += [f"- {title}: {q}" for q in observatory._open_questions(entry)]
+        jobs += [f"- {title}: {j}" for j in observatory._unfinished_jobs(conv)]
+    lines = [f"**Closing check — {name}**", "",
+             "Every member of this swarm is done, closed or archived, so this is my last"
+             " message. Checked against git and the session records, not the agents' own"
+             " accounts.", ""]
+    sections = [("What shipped", shipped, "No commits."),
+                ("Written but not committed", dirty, "Nothing — every file they wrote is committed."),
+                ("Not finished", unfinished, "Every member said it was done."),
+                ("Questions still waiting on you", questions, "None."),
+                ("Detached jobs still running", jobs, "None.")]
+    for heading, items, empty in sections:
+        lines += [f"**{heading}**"] + (items or [empty]) + [""]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def close_out(swarm_id, helper):
+    """Post the closing check in the helper's chat and mark the helper done."""
+    from routes import observatory
+    report = closing_report(swarm_id)
+    now = _now()
+    log_path = store.DATA_DIR / "bot_chats" / f"{helper}.jsonl"
+    peermail.append_line(log_path, {
+        "type": "assistant", "timestamp": now, "helper_run": True, "closing_check": True,
+        "message": {"role": "assistant", "content": [{"type": "text", "text": report}]}})
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(helper)
+        if isinstance(entry, dict):
+            entry["helper_closed_at"] = now
+            entry["last_at"] = now
+            entry.pop("helper_pending", None)
+    observatory.mark_done(helper, "Closing check posted: every member of the swarm is finished.")
+    return report
+
+
+def watch_retirement(helper, entry, index):
+    """At the minute tick: close out this helper's swarm the first time it's
+    found retired, and bring the helper back if the swarm comes back to life
+    (a member it closed out on starts working again). Returns True when the
+    helper is closed out and has nothing else to do."""
+    if entry.get("running"):
+        return False
+    swarm_id = entry.get("swarm_id")
+    if swarm_id is None:
+        return False
+    is_retired = swarms.retired(swarm_id, index)
+    if entry.get("helper_closed_at"):
+        # Still retired, or merged away / dissolved: nothing to come back to.
+        if is_retired or not swarms.is_live(swarm_id):
+            return True
+        with store.mutate("bot_chats/index", {}) as live_index:
+            live = live_index.get(helper)
+            if isinstance(live, dict):
+                for field in ("helper_closed_at", "archived", "done_at", "done_note",
+                              "closes_at", "final_at", "final_pending"):
+                    live.pop(field, None)
+        return False
+    if is_retired and not entry.get("archived"):
+        close_out(swarm_id, helper)
+        return True
+    return False
 
 
 def main(argv):

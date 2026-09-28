@@ -79,7 +79,8 @@ def links(conn, index):
         if row[0] not in helpers and row[1] not in helpers]
     continued = [(entry["spawned_from"], conv_id) for conv_id, entry in index.items()
                  if isinstance(entry, dict) and entry.get("spawned_via") == "continue"
-                 and entry.get("spawned_from")]
+                 and entry.get("spawned_from")
+                 and entry["spawned_from"] not in helpers and conv_id not in helpers]
     return talked, continued
 
 
@@ -190,6 +191,46 @@ def _status(entry):
     if entry.get("running"):
         return "working"
     return "silent"
+
+
+def member_retired(entry):
+    """Is this member finished with the swarm? True when it said it was done
+    (`done_at`, scripts/session_done.py), was closed or archived, handed its
+    work on to a continuation, or is gone from the index altogether — and it
+    isn't in the middle of a turn."""
+    if not isinstance(entry, dict):
+        return True
+    if entry.get("running"):
+        return False
+    return bool(entry.get("done_at") or entry.get("archived") or entry.get("continued_by"))
+
+
+def is_live(swarm_id):
+    """Does this swarm still stand on its own — stored, and not merged into
+    another?"""
+    conn = sqlstore.open_db()
+    try:
+        row = conn.execute("SELECT merged_into FROM swarms WHERE id = ?",
+                           (swarm_id,)).fetchone()
+    finally:
+        conn.close()
+    return row is not None and row[0] is None
+
+
+def retired(swarm_id, index=None):
+    """Has the whole swarm retired — is it a live swarm whose every member is
+    done, closed or archived (member_retired)? That's the moment its helper
+    runs its closing check (swarm_helper.close_out). A swarm that was merged
+    into another, dissolved, or has no members is not "retired": it never
+    finished, it stopped existing."""
+    if index is None:
+        index = store.read("bot_chats/index", {})
+    if not is_live(swarm_id):
+        return False
+    members = overview_members(swarm_id)
+    if not members:
+        return False
+    return all(member_retired(index.get(m)) for m in members)
 
 
 def overview():

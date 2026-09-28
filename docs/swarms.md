@@ -20,6 +20,23 @@ lines say what exists *now*.
   notices where members' work differs or collides, and coordinates. Its
   summaries are **replaced, not accumulated**: each update is a fresh call that
   sees only the latest summaries plus what's new, so its context never grows.
+- **One helper chat for the swarm's whole life.** The owner's chat with the
+  helper is never handed off or archived while the swarm is active. Each turn
+  in it is a fresh model session, seeded with the helper's instructions, the
+  swarm's current summaries, its **running notes** (her decisions word for
+  word, promises, open threads — rewritten after every turn, replaced not
+  appended) and the last `HELPER_CHAT_EXCHANGES` exchanges verbatim (default
+  10). Only what the model is handed rolls; the full transcript stays on
+  disk. The chat is exempt from the context cap.
+- **A closing check when the swarm retires.** A swarm is *retired* when every
+  member is done (`done_at`), archived, handed on to a continuation, or gone
+  from the index — and none is mid-turn (`swarms.retired`). The helper then
+  posts one last message built from git and the session records, not the
+  agents' word: commits it made (as git announced them, checked against the
+  repo), files written but not committed, members closed without saying they
+  were done, questions still waiting on her, detached jobs still running.
+  Then it marks itself done; the usual two-hour countdown closes it. If a
+  member starts working again, the helper comes back.
 - **Visible everywhere.** A swarm card in its room on the Observatory (summary,
   counts of working / silent / needs input; tap in for the member cards in the
   usual orange / purple / grey), a swarm on the Terrain map, and a helper page
@@ -56,10 +73,15 @@ lines say what exists *now*.
 | Continuation | `continuation.py`; `after_turn` in `routes/observatory.py` (called by `scripts/turn_host.py` when a turn ends); `peers.py handoff`; caps in `config.CONTEXT_CAPS`, rooms in `config.CONTINUE_LANES` |
 | Swarms | `swarms.py` (grouping, `swarms` / `swarm_members` tables); `routes/swarms.py`; `SwarmCard.tsx` in each room via `SessionLane.tsx`, coloured from the roster and ordered with the sessions (orange first, longest wait on top; retired members left off) by `roomOrder.ts`; `SwarmPage.tsx` at `/observatory/swarm/<id>`; the network of rings and talk-lines in `SwarmNetwork.tsx` (on the swarm page and under the Worktrees plots); the outline + name around member orbs on Terrain in `terrain/terrainSwarms.ts` (drawn by `terrainCanvas.ts`) |
 | Helper | `swarm_helper.py` (one tool-less Sonnet call per run, structured answer, every run in `swarm_helper_runs`); runs after member turns (debounced by `config.SWARM_HELPER_MIN_SEC`), on the minute tick, when a swarm forms, and straight away when messaged |
+| Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) and the running notes (`rewrite_notes`, called by `after_turn`; stored as `helper_notes` on the helper's index entry); `config.HELPER_CHAT_EXCHANGES`; exempt in `continuation.due` |
+| Closing check | `swarms.retired`; `swarm_helper.watch_retirement` / `close_out` / `closing_report`, run by `swarm_helper.tick` on the minute tick |
 
 ## Status
 
 - Mailbox, token accounting, continuation, swarms and the helper: built and
   tested.
+- The helper chat's rolling context and the closing check: built and tested
+  (`tests/test_helper_chat.py`). The swarm page doesn't show the running
+  notes yet; they're on the helper's index entry and in its seed file.
 - Swarms on the Terrain map: a faint accent outline around the member orbs
   that are on the map, with the swarm's name above it. Owner only.

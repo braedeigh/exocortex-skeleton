@@ -2243,6 +2243,16 @@ def after_turn(conv_id):
         move_system_followups(conv_id, successor)
         drain_inbox(successor)
         return
+    # A swarm helper's chat is never continued and belongs to no swarm as a
+    # member: its only end-of-turn job is rewriting its running notes
+    # (helper_chat.py).
+    if isinstance(entry, dict) and entry.get("role") == "swarm_helper":
+        try:
+            import helper_chat
+            helper_chat.rewrite_notes(conv_id)
+        except Exception as e:
+            print(f"helper notes failed for {conv_id}: {e}", file=sys.stderr)
+        return
     continuation.check(conv_id)
     # A member of a swarm just did something: its helper updates its
     # summaries (debounced — see swarm_helper.poke).
@@ -3813,6 +3823,12 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
             if card_prompt:
                 entry["last_prompt"] = card_prompt
         resume_sid = entry.get("claude_session_id")
+        # A swarm helper's chat never resumes: each turn starts fresh from a
+        # rolling seed (helper_chat.py), written just below, so its context
+        # can't outgrow the window however long the swarm runs.
+        helper_chat_entry = dict(entry) if entry.get("role") == "swarm_helper" else None
+        if helper_chat_entry is not None:
+            resume_sid = None
         # Attach the boot package when this send wakes a Keeper. Any chat
         # can be woken this way — the pinned one the 3 AM rollover makes
         # (which also attaches it, in scripts/keeper_rollover.py) or one
@@ -3899,6 +3915,16 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         # off-the-record turn a minute later. This breadcrumb is what tells
         # them apart — see terminal._note_off_record.
         terminal._note_off_record(text)
+
+    # The helper chat's seed: the swarm now, its running notes and the last
+    # exchanges. Written BEFORE this message goes in the log, so the seed's
+    # exchanges end where this new one begins.
+    if helper_chat_entry is not None:
+        import helper_chat
+        try:
+            config["system_prompt_file"] = helper_chat.write_seed(conv_id, helper_chat_entry)
+        except Exception as e:
+            print(f"helper seed failed for {conv_id}: {e}", file=sys.stderr)
 
     log_path = _chats_dir() / f"{conv_id}.jsonl"
     if batch is not None:
