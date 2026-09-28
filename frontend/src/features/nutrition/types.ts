@@ -37,7 +37,14 @@ export interface NutritionReport {
   age: number | null;
   sexes: Sex[];
   nutrients: NutrientRow[];
-  sources: { composition: string; targets: string; update_2019: string };
+  sources: {
+    composition: string;
+    composition_url: string;
+    targets: string;
+    targets_url: string | null;
+    update_2019: string;
+    update_2019_url: string;
+  };
 }
 
 export interface MealItem {

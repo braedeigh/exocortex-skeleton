@@ -85,6 +85,7 @@ UPDATES_2019 = {
     "citation": ("National Academies of Sciences, Engineering, and Medicine. 2019. Dietary "
                  "Reference Intakes for Sodium and Potassium. Washington, DC: The National "
                  "Academies Press. doi:10.17226/25353"),
+    "url": "https://doi.org/10.17226/25353",
     "how": "typed in from the report's summary, not read from a file in the commons",
     # (nutrient, sex, kind) -> (value, unit), for every adult band 19 and over.
     "values": {

@@ -15,6 +15,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getHighlights, setHighlight } from './api';
+import { fdcFoodUrl } from './nutrientMath';
 import type { HighlightedFood } from './types';
 import styles from './Nutrition.module.css';
 
@@ -64,7 +65,11 @@ export function StarredFoods() {
         <ul className={styles.results}>
           {foods.map((food: HighlightedFood) => (
             <li key={food.fdc_id} className={styles.rankRow}>
-              <span className={styles.rankName}>{food.description}</span>
+              <span className={styles.rankName}>
+                <a href={fdcFoodUrl(food.fdc_id)} target="_blank" rel="noreferrer">
+                  {food.description}
+                </a>
+              </span>
               <StarButton food={food} on onToggle={(picked) => toggle.mutate(picked)} />
             </li>
           ))}

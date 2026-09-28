@@ -93,6 +93,13 @@ def test_target_converts_to_the_totals_unit():
     assert nutrition._judge(0.45, "mg", target)["percent"] == 50
 
 
+def test_every_source_carries_a_link(conn):
+    commons.write_manifest({"files": [{"path": dri.TABLE_FILE, "url": "https://example.org/dri.pdf"}]})
+    cited = nutrition.sources()
+    assert (cited["targets_url"], cited["update_2019_url"], cited["composition_url"]) == (
+        "https://example.org/dri.pdf", "https://doi.org/10.17226/25353", nutrition.FDC_URL)
+
+
 @pytest.fixture
 def client(conn):
     app = Flask(__name__)

@@ -1,8 +1,8 @@
 /**
  * nutrientMath.ts — the small decisions the Nutrients page makes about each
  * row: which group it sits in, how its number is written, and how far along
- * its bar is. Kept apart from the page so they're tested
- * (nutrientMath.test.ts).
+ * its bar is, and where a food's USDA page is. Kept apart from the page so
+ * they're tested (nutrientMath.test.ts).
  *
  * Touches: ./types.ts; read by ./NutritionPage.tsx and ./NutrientPage.tsx.
  */
@@ -56,4 +56,9 @@ export function barShare(amount: number, judgement: Judgement | undefined): numb
   const target = judgement?.target?.value;
   if (!target) return null;
   return Math.min(amount / target, 1.5);
+}
+
+// Link a food to its source: its own page on USDA FoodData Central, by FDC id.
+export function fdcFoodUrl(fdcId: number): string {
+  return `https://fdc.nal.usda.gov/food-details/${fdcId}/nutrients`;
 }

@@ -35,7 +35,7 @@ import { type ReactElement, useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { getDay, getNutrient, rankFoods } from './api';
 import { StarButton, useHighlights } from './Highlights';
-import { DATASET_TAGS, formatAmount } from './nutrientMath';
+import { DATASET_TAGS, fdcFoodUrl, formatAmount } from './nutrientMath';
 import { DAY_KEY, NutrientAmount, NutrientBars } from './NutritionPage';
 import type { FactBlock, HistamineRating, HistamineSource, NutrientFacts, RankPer } from './types';
 import pageStyles from '../research/ResearchPage.module.css';
@@ -275,7 +275,9 @@ function FoodRanking({ nutrientKey, label, mine }: { nutrientKey: string; label:
               >
                 <span className={styles.rankNumber}>{index + 1}</span>
                 <span className={styles.rankName}>
-                  {food.description}
+                  <a href={fdcFoodUrl(food.fdc_id)} target="_blank" rel="noreferrer">
+                    {food.description}
+                  </a>
                   <span className={styles.resultTag}> · {DATASET_TAGS[food.data_type]}</span>
                   {mine.has(food.fdc_id) ? <span className={styles.rankMine}>in your day</span> : null}
                   <HistamineTag rating={food.histamine} />

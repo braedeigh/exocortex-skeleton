@@ -32,7 +32,11 @@ Where things live:
   `nutrition_highlights` (data dir, JSON) — {foods: [{fdc_id, description,
       added}]}, the USDA foods she's starred as ones she's interested in eating.
 
-Touches: `fdcdb.py` and `dri.py` (both in commons.db), `store.py`,
+Every source the page cites comes with a link (`sources()`), and every food
+links to its FoodData Central page by FDC id (built in the frontend).
+
+Touches: `fdcdb.py` and `dri.py` (both in commons.db), `commons.py` (the
+manifest the DRI table's address is read from), `store.py`,
 `routes/nutrition.py` (the HTTP seam), `tests/test_nutrition.py`.
 Design: docs/nutrition.md.
 
@@ -42,12 +46,16 @@ and 3 of the plan: gram weights on her meals, then her day against the DRIs.
 """
 import store
 
+import commons
 import dri
 import fdcdb
 
 MEALS = "nutrition_meals"
 SETTINGS = "nutrition_settings"
 HIGHLIGHTS = "nutrition_highlights"
+
+# FoodData Central's own site, where every food has a page under its FDC id.
+FDC_URL = "https://fdc.nal.usda.gov/"
 
 # The nutrients tracked: (key, label, FDC nutrient ids in order of preference).
 # The key matches dri.py's names, so a target lines up with its total.
@@ -218,8 +226,21 @@ def report(conn, items, sex=None, age=None):
             row["by_sex"][s] = _judge(entry["amount"], entry["unit"], target) if entry["unit"] else {"status": "no_data"}
         rows.append(row)
     return {"sex": sex, "age": age, "sexes": list(sexes), "nutrients": rows,
-            "sources": {"composition": "USDA FoodData Central (Foundation 2026-04, SR Legacy 2018-04, FNDDS 2021–2023)",
-                        "targets": dri.TABLE_FILE, "update_2019": dri.UPDATES_2019["citation"]}}
+            "sources": sources()}
+
+
+def sources():
+    """Where the page's numbers come from, each with a link to the original.
+
+    The DRI table's URL is read from the commons manifest (the address it was
+    fetched from), so it can't drift from the file actually used; the 2019
+    report and FoodData Central are cited by their own stable addresses.
+    """
+    fetched = {entry["path"]: entry.get("url") for entry in commons.read_manifest()["files"]}
+    return {"composition": "USDA FoodData Central (Foundation 2026-04, SR Legacy 2018-04, FNDDS 2021–2023)",
+            "composition_url": FDC_URL,
+            "targets": dri.TABLE_FILE, "targets_url": fetched.get(dri.TABLE_FILE),
+            "update_2019": dri.UPDATES_2019["citation"], "update_2019_url": dri.UPDATES_2019["url"]}
 
 
 def matrix(conn, items, sex="female", age=None):

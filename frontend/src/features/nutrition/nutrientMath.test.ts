@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barShare, formatAmount, groupOf, groupRows } from './nutrientMath';
+import { barShare, fdcFoodUrl, formatAmount, groupOf, groupRows } from './nutrientMath';
 import type { NutrientRow } from './types';
 
 function row(key: string, statuses: Record<string, string>): NutrientRow {
@@ -49,5 +49,11 @@ describe('barShare', () => {
 
   it('has no bar without a target', () => {
     expect(barShare(900, { status: 'no_target' })).toBeNull();
+  });
+});
+
+describe('fdcFoodUrl', () => {
+  it('points at the food’s own FoodData Central page', () => {
+    expect(fdcFoodUrl(168421)).toBe('https://fdc.nal.usda.gov/food-details/168421/nutrients');
   });
 });

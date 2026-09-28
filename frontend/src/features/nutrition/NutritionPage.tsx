@@ -30,12 +30,12 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
 import { deleteMeal, getDay, saveMeal, saveServings, saveSettings, searchFoods } from './api';
 import { StarredFoods } from './Highlights';
-import { barShare, DATASET_TAGS, formatAmount, GROUP_TITLES, groupRows } from './nutrientMath';
+import { barShare, DATASET_TAGS, fdcFoodUrl, formatAmount, GROUP_TITLES, groupRows } from './nutrientMath';
 import type { Meal, MealItem, NutrientRow, NutritionDay, Sex, SexSetting } from './types';
 import pageStyles from '../research/ResearchPage.module.css';
 import styles from './Nutrition.module.css';
@@ -74,13 +74,29 @@ export function NutritionPage() {
           <StarredFoods />
           <MealList day={data} />
           <p className={styles.sources}>
-            Food composition: {data.report.sources.composition}. Targets: Food and Nutrition Board DRI summary
-            tables ({data.report.sources.targets} in the commons); sodium and potassium from{' '}
-            {data.report.sources.update_2019}. Added salt, cooking oil and supplements aren’t counted.
+            Food composition:{' '}
+            <SourceLink href={data.report.sources.composition_url}>{data.report.sources.composition}</SourceLink>
+            ; each food’s name links to its own page there. Targets:{' '}
+            <SourceLink href={data.report.sources.targets_url}>
+              Food and Nutrition Board DRI summary tables
+            </SourceLink>{' '}
+            ({data.report.sources.targets} in the commons); sodium and potassium from{' '}
+            <SourceLink href={data.report.sources.update_2019_url}>{data.report.sources.update_2019}</SourceLink>.
+            Added salt, cooking oil and supplements aren’t counted.
           </p>
         </>
       )}
     </div>
+  );
+}
+
+// Link a cited source to the original; plain text when there's no address.
+function SourceLink({ href, children }: { href: string | null; children: ReactNode }) {
+  if (!href) return <>{children}</>;
+  return (
+    <a href={href} target="_blank" rel="noreferrer">
+      {children}
+    </a>
   );
 }
 
@@ -359,7 +375,14 @@ function MealEditor({ name, meal, servings }: { name: string; meal: Meal; servin
             {items.map((item, index) => (
               <li key={`${item.fdc_id}-${index}`} className={styles.item}>
                 <span className={styles.itemName}>
-                  {item.label}
+                  <a href={fdcFoodUrl(item.fdc_id)} target="_blank" rel="noreferrer">
+                    {item.label}
+                  </a>
+                  {item.fill_from ? (
+                    <a className={styles.fillLink} href={fdcFoodUrl(item.fill_from)} target="_blank" rel="noreferrer">
+                      gaps filled from
+                    </a>
+                  ) : null}
                   {item.grams_guessed ? <span className={styles.guess}>guess</span> : null}
                 </span>
                 <input
