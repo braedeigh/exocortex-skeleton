@@ -134,6 +134,14 @@ _RECORD_TABLES = (
         "review", "reviewed_at", "created_at", "updated_at")),
     ("judgment_grounds", ("judgment_id", "measure_id")),
     ("hazard_history", ("id", "kind", "row_id", "snapshot", "replaced_by", "replaced_at")),
+    # The contaminant facts and the food ↔ USDA PDP code map
+    # (exposurestore.py, rung 36) ride this same backup: both are her record,
+    # and a fact hangs off a hazard.
+    ("hazard_facts", (
+        "id", "hazard_id", "fact", "value", "amount", "unit", "basis", "source_id",
+        "annotation_id", "url", "note", "author", "review", "reviewed_at", "created_at",
+        "updated_at")),
+    ("food_pdp_codes", ("food_id", "commodity", "commtype")),
     ("research_tables", (
         "id", "name", "kind", "topic_id", "hazard_id", "measure", "foods", "note",
         "position", "created_at")),

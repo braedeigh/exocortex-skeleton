@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 35
+_SCHEMA_VERSION = 36
 
 
 def _db_path():
@@ -197,6 +197,9 @@ _EXPECTED_TABLES = (
     "food_judgments", "judgment_grounds", "hazard_history", "research_tables",
     # The agents' mailbox, token accounting per model call, and swarms.
     "agent_messages", "model_calls", "swarms", "swarm_members", "swarm_helper_runs",
+    # Verifiable exposure scores (rung 36).
+    "hazard_facts", "food_pdp_codes", "data_pulls", "exposure_scores", "exposure_terms",
+    "source_files", "passage_pages",
 )
 
 
@@ -2621,6 +2624,148 @@ def _run_ladder(conn):
         if "usda_commodity" not in columns:
             conn.execute("ALTER TABLE source_proposals"
                          " ADD COLUMN usda_commodity TEXT NOT NULL DEFAULT ''")
+    if version < 36:
+        # Rung 36: verifiable exposure scores (exposurestore.py). A buy-organic
+        # verdict here is a calculation anyone can redo from public data: USDA
+        # residue samples (parsed into commons.db, beside the files, not here)
+        # scored against EPA's chronic safe daily doses. What lives in exo.db
+        # is what the owner reviews, what was computed, and the memory of what
+        # has been pulled. See docs/exposure.md.
+        #
+        # One fact about one contaminant — its CAS number, what kind of
+        # pesticide it is, EPA's chronic safe dose, its cancer rating, a health
+        # effect — each with the source and passage it came from, and her
+        # review. A table of facts rather than a wide profile row, so every
+        # single fact carries its own source, and metals fit as well as
+        # pesticides. The fact vocabulary lives in exposurestore.FACTS.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazard_facts ("
+            "  id INTEGER PRIMARY KEY,"
+            "  hazard_id INTEGER NOT NULL REFERENCES hazards(id) ON DELETE CASCADE,"
+            "  fact TEXT NOT NULL,"
+            # The fact as words ('Group C: possible human carcinogen') and, when
+            # it is a number, the number and its unit (0.005, 'mg/kg/day').
+            "  value TEXT NOT NULL,"
+            "  amount REAL,"
+            "  unit TEXT,"
+            # What the number is ('cRfD', 'cPAD' — the FQPA-adjusted one).
+            "  basis TEXT,"
+            "  source_id TEXT REFERENCES research_entries(id) ON DELETE SET NULL,"
+            "  annotation_id TEXT REFERENCES research_annotations(id) ON DELETE SET NULL,"
+            # Where it was read when the source isn't in the pool yet — a
+            # table row on an agency page.
+            "  url TEXT,"
+            "  note TEXT,"
+            # 'code' = parsed from a published table by a loader, 'llm' = an
+            # agent wrote it, 'owner' = she did. Only hers is born confirmed.
+            "  author TEXT NOT NULL DEFAULT 'llm' CHECK (author IN ('llm','owner','code')),"
+            "  review TEXT NOT NULL DEFAULT 'unreviewed'"
+            "    CHECK (review IN ('unreviewed','confirmed','disputed')),"
+            "  reviewed_at TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS hazard_facts_by_hazard ON hazard_facts (hazard_id, fact)"
+        )
+        # Which USDA PDP commodity a food is, so the residue samples can be
+        # found for it. A food may be more than one ('ST' fresh and frozen);
+        # commtype '' means any form.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_pdp_codes ("
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,"
+            "  commodity TEXT NOT NULL,"
+            "  commtype TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (food_id, commodity, commtype)"
+            ")"
+        )
+        # The memory: every pull of public data, which file it came from (by
+        # checksum), what it held and which loader read it. Pulling the same
+        # thing again with the same loader finds its row here and does nothing.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS data_pulls ("
+            "  id INTEGER PRIMARY KEY,"
+            "  dataset TEXT NOT NULL,"
+            "  year INTEGER NOT NULL DEFAULT 0,"
+            # What part of the dataset: a PDP commodity code, or '' for all of it.
+            "  scope TEXT NOT NULL DEFAULT '',"
+            "  file_path TEXT NOT NULL,"
+            "  file_sha256 TEXT NOT NULL,"
+            "  rows INTEGER NOT NULL DEFAULT 0,"
+            # Counts worth seeing at a glance, as JSON ({"samples": 709, ...}).
+            "  detail TEXT NOT NULL DEFAULT '{}',"
+            "  loader_version INTEGER NOT NULL,"
+            "  pulled_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  UNIQUE (dataset, year, scope, loader_version)"
+            ")"
+        )
+        # One computed score: a food, which samples (organic, conventional or
+        # all; which years), which method — and the verdict the method's
+        # written bands give. Rebuilt whenever it is recomputed; the terms
+        # below show the working.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS exposure_scores ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,"
+            "  method TEXT NOT NULL,"
+            "  claim TEXT NOT NULL CHECK (claim IN ('conventional','organic','all')),"
+            # The data years as text: '2023', or '2017,2018' when combined.
+            "  years TEXT NOT NULL,"
+            "  sample_count INTEGER NOT NULL,"
+            "  pesticide_count INTEGER NOT NULL,"
+            "  detected_count INTEGER NOT NULL,"
+            # Pesticides found with no EPA chronic dose to score them against.
+            "  no_dose_count INTEGER NOT NULL,"
+            "  total_dri REAL NOT NULL,"
+            "  max_dri REAL NOT NULL,"
+            "  verdict TEXT NOT NULL CHECK (verdict IN ('organic','some','conventional','open')),"
+            # The reference person and serving the score assumed, as JSON.
+            "  reference TEXT NOT NULL DEFAULT '{}',"
+            "  computed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  UNIQUE (food_id, method, claim, years)"
+            ")"
+        )
+        # The working behind a score: one line per pesticide tested.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS exposure_terms ("
+            "  score_id INTEGER NOT NULL REFERENCES exposure_scores(id) ON DELETE CASCADE,"
+            "  pesticide_code TEXT NOT NULL,"
+            "  pesticide TEXT NOT NULL,"
+            "  hazard_id INTEGER REFERENCES hazards(id) ON DELETE SET NULL,"
+            "  samples_tested INTEGER NOT NULL,"
+            "  samples_detected INTEGER NOT NULL,"
+            # Mean over every sample tested, a non-detect counted as zero; and
+            # the highest single sample. Both in ppb.
+            "  mean_ppb REAL NOT NULL,"
+            "  max_ppb REAL,"
+            # The chronic safe dose used (mg/kg/day) and the fact it came from.
+            "  dose REAL,"
+            "  dose_fact_id INTEGER REFERENCES hazard_facts(id) ON DELETE SET NULL,"
+            "  dri REAL,"
+            "  PRIMARY KEY (score_id, pesticide_code)"
+            ")"
+        )
+        # A source's own file (a PDF) kept in the commons, so it can be shown
+        # beside its claims exactly as published.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_files ("
+            "  source_id TEXT PRIMARY KEY REFERENCES research_entries(id) ON DELETE CASCADE,"
+            "  commons_path TEXT NOT NULL,"
+            "  sha256 TEXT NOT NULL,"
+            "  pages INTEGER,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Which page of that file a highlighted passage falls on, so the PDF
+        # opens at it.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS passage_pages ("
+            "  annotation_id TEXT PRIMARY KEY"
+            "    REFERENCES research_annotations(id) ON DELETE CASCADE,"
+            "  page INTEGER NOT NULL"
+            ")"
+        )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

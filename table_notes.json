@@ -3043,5 +3043,265 @@
         "holds": "Why the checker ruled that way."
       }
     }
+  },
+  "hazard_facts": {
+    "holds": "One fact about one contaminant — its CAS number, what it is used as, EPA's chronic safe daily dose, its cancer rating, a health effect — with where it was read and the owner's review.",
+    "source": "Written only through exposurestore.py: EPA's benchmark table by the loader in reference_loaders.py (author 'code'), agents through scripts/reference_data.py, the owner through routes/exposure.py. Backed up to research_tables.json with the hazard tables.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The fact's number."
+      },
+      "hazard_id": {
+        "holds": "The contaminant. Points at hazards."
+      },
+      "fact": {
+        "holds": "What kind of fact it is; the list and the words shown for each live in exposurestore.FACTS (cas, use, pdp_code, chronic_dose, acute_dose, cancer_rating, cancer_slope, reference_level, health_effect, status, summary)."
+      },
+      "value": {
+        "holds": "The fact as words, exactly as it should be shown."
+      },
+      "amount": {
+        "holds": "The number, when the fact is a number (a safe dose)."
+      },
+      "unit": {
+        "holds": "The number's unit, e.g. mg/kg/day."
+      },
+      "basis": {
+        "holds": "What the number is, e.g. cRfD or cPAD (the one adjusted for children under the Food Quality Protection Act)."
+      },
+      "source_id": {
+        "holds": "The source in the research pool it came from. Points at research_entries."
+      },
+      "annotation_id": {
+        "holds": "The exact highlighted passage in that source. Points at research_annotations."
+      },
+      "url": {
+        "holds": "The page it was read from, when the source isn't in the research pool."
+      },
+      "note": {
+        "holds": "Anything worth knowing about the fact."
+      },
+      "author": {
+        "holds": "Who wrote its current version.",
+        "values": {
+          "code": "A loader parsed it from a published table.",
+          "llm": "An agent wrote it.",
+          "owner": "She wrote it herself."
+        }
+      },
+      "review": {
+        "holds": "Her review of it.",
+        "values": {
+          "unreviewed": "Nobody has checked it yet.",
+          "confirmed": "She checked it and it stands.",
+          "disputed": "She checked it and thinks it is wrong; it is never used to score."
+        }
+      },
+      "reviewed_at": {
+        "holds": "When she last reviewed it."
+      },
+      "created_at": {
+        "holds": "When it was first written."
+      },
+      "updated_at": {
+        "holds": "When its value last changed."
+      }
+    }
+  },
+  "food_pdp_codes": {
+    "holds": "Which USDA Pesticide Data Program commodity code each food is, so its residue samples can be found.",
+    "source": "Written through exposurestore.set_pdp_codes (scripts/reference_data.py). Backed up to research_tables.json.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "food_id": {
+        "holds": "The food. Points at foods."
+      },
+      "commodity": {
+        "holds": "PDP's two-letter commodity code, e.g. PO for potatoes."
+      },
+      "commtype": {
+        "holds": "PDP's commodity type (FR fresh, FZ frozen …), or empty for any form."
+      }
+    }
+  },
+  "data_pulls": {
+    "holds": "The memory of what public data has been pulled: one row per dataset, year and food, with the commons file it came from, how many rows it held, and which version of the loader read it.",
+    "source": "Written by reference_loaders.py through exposurestore.record_pull each time data is pulled into commons.db. Can be rebuilt by pulling again.",
+    "kind": "mirror",
+    "time_column": "pulled_at",
+    "columns": {
+      "id": {
+        "holds": "The pull's number."
+      },
+      "dataset": {
+        "holds": "Which dataset, e.g. usda-pdp or epa-hhbp."
+      },
+      "year": {
+        "holds": "The data year (0 when the dataset has no year)."
+      },
+      "scope": {
+        "holds": "Which part of it: a PDP commodity code, or empty for all of it."
+      },
+      "file_path": {
+        "holds": "The file in the commons it was read from."
+      },
+      "file_sha256": {
+        "holds": "That file's checksum, so anyone can check it's the same file."
+      },
+      "rows": {
+        "holds": "How many rows were loaded."
+      },
+      "detail": {
+        "holds": "Counts worth seeing at a glance, as JSON (samples, organic samples, results)."
+      },
+      "loader_version": {
+        "holds": "Which version of the loader read it; a new version pulls again."
+      },
+      "pulled_at": {
+        "holds": "When it was pulled."
+      }
+    }
+  },
+  "exposure_scores": {
+    "holds": "A computed exposure score for one food: which samples (organic, conventional or all, which years), how many, and the verdict the method's written bands give.",
+    "source": "Computed by exposure.py from the samples in commons.db and the safe doses in hazard_facts, saved through exposurestore.save_score. A re-score replaces it.",
+    "kind": "mirror",
+    "time_column": "computed_at",
+    "columns": {
+      "id": {
+        "holds": "The score's number."
+      },
+      "food_id": {
+        "holds": "The food. Points at foods."
+      },
+      "method": {
+        "holds": "Which method and version computed it, e.g. dri-v1."
+      },
+      "claim": {
+        "holds": "Which samples.",
+        "values": {
+          "conventional": "Samples with no organic claim.",
+          "organic": "Samples labelled organic.",
+          "all": "Every sample."
+        }
+      },
+      "years": {
+        "holds": "The data years, e.g. 2023 or 2017,2018 when combined."
+      },
+      "sample_count": {
+        "holds": "How many samples the score rests on."
+      },
+      "pesticide_count": {
+        "holds": "How many pesticides were tested for."
+      },
+      "detected_count": {
+        "holds": "How many of them were found in at least one sample."
+      },
+      "no_dose_count": {
+        "holds": "How many found pesticides have no EPA chronic safe dose to score against."
+      },
+      "total_dri": {
+        "holds": "The sum over pesticides of one serving's intake divided by the safe daily dose."
+      },
+      "max_dri": {
+        "holds": "The largest single pesticide's share."
+      },
+      "verdict": {
+        "holds": "What the method's bands say.",
+        "values": {
+          "organic": "A pesticide is over 0.1 of its safe dose: buy organic.",
+          "some": "The largest is between 0.01 and 0.1: organic helps some.",
+          "conventional": "All are at 0.01 or under: conventional is fine.",
+          "open": "A found pesticide with no safe dose could change the answer."
+        }
+      },
+      "reference": {
+        "holds": "The reference person and serving the score assumed, as JSON."
+      },
+      "computed_at": {
+        "holds": "When it was computed."
+      }
+    }
+  },
+  "exposure_terms": {
+    "holds": "The working behind a score: one line per pesticide tested, with how often it was found, the mean residue, the safe dose used, and its share of that dose.",
+    "source": "Written with its score by exposurestore.save_score.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "score_id": {
+        "holds": "The score. Points at exposure_scores."
+      },
+      "pesticide_code": {
+        "holds": "PDP's pesticide code."
+      },
+      "pesticide": {
+        "holds": "The pesticide's name as PDP gives it."
+      },
+      "hazard_id": {
+        "holds": "The contaminant it is on the hazard map, if it is there. Points at hazards."
+      },
+      "samples_tested": {
+        "holds": "How many samples were tested for it."
+      },
+      "samples_detected": {
+        "holds": "How many had it."
+      },
+      "mean_ppb": {
+        "holds": "Mean residue over every sample tested, a non-detect counted as zero, in ppb."
+      },
+      "max_ppb": {
+        "holds": "The highest single sample, in ppb."
+      },
+      "dose": {
+        "holds": "The chronic safe daily dose used, in mg/kg/day."
+      },
+      "dose_fact_id": {
+        "holds": "The fact the dose came from. Points at hazard_facts."
+      },
+      "dri": {
+        "holds": "One serving's intake divided by the safe dose; empty when there is no dose."
+      }
+    }
+  },
+  "source_files": {
+    "holds": "A research source's own file (a PDF) kept in the commons, so it can be shown beside its claims exactly as published.",
+    "source": "Written by scripts/reference_data.py when a source's PDF is fetched into the commons.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "source_id": {
+        "holds": "The source. Points at research_entries."
+      },
+      "commons_path": {
+        "holds": "Where the file is in the commons."
+      },
+      "sha256": {
+        "holds": "The file's checksum."
+      },
+      "pages": {
+        "holds": "How many pages it has."
+      },
+      "created_at": {
+        "holds": "When it was tied to the source."
+      }
+    }
+  },
+  "passage_pages": {
+    "holds": "Which page of a source's PDF each highlighted passage falls on, so the PDF opens at it.",
+    "source": "Worked out by scripts/reference_data.py from the PDF's own text. Rebuildable.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "annotation_id": {
+        "holds": "The passage. Points at research_annotations."
+      },
+      "page": {
+        "holds": "The page number, counting from 1."
+      }
+    }
   }
 }

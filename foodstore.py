@@ -524,6 +524,10 @@ def merge(keep, drop):
         # estimate wins, drop's is deleted with it below.
         conn.execute("UPDATE OR IGNORE food_estimates SET food_id = ? WHERE food_id = ?",
                      (keep_id, drop_id))
+        # Its USDA PDP codes (exposurestore.py) move the same way. Its computed
+        # exposure scores are deleted with it: they are rebuilt from the codes.
+        conn.execute("UPDATE OR IGNORE food_pdp_codes SET food_id = ? WHERE food_id = ?",
+                     (keep_id, drop_id))
         # Origin requests (sourcestore.py) move too. Only one request per food
         # may be open, so when both foods have one, drop's is withdrawn first.
         conn.execute(

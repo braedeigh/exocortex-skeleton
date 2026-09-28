@@ -286,7 +286,9 @@
         "docstore.py",
         "paperclients.py",
         "embeddings.py",
-        "filerstore.py"
+        "filerstore.py",
+        "exposurestore.py",
+        "commonsdb.py"
       ],
       "routes": [
         "research.py",
@@ -333,7 +335,14 @@
         "hazard_history",
         "research_tables",
         "filer_nominations",
-        "filer_verdicts"
+        "filer_verdicts",
+        "hazard_facts",
+        "food_pdp_codes",
+        "data_pulls",
+        "exposure_scores",
+        "exposure_terms",
+        "source_files",
+        "passage_pages"
       ],
       "collections": [
         "research",
