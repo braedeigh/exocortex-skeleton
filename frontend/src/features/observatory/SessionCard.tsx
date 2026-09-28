@@ -501,6 +501,8 @@ export function SessionCard({
             </span>
           ) : null}
           {meta.draft ? <span className={styles.badge}>staged</span> : null}
+          {/* Handed its work on to a continuation — why it sits at the bottom. */}
+          {meta.retired ? <span className={styles.badge}>handed on</span> : null}
           <ProposalBadge convId={row.id} />
           {row.running ? (
             <span className={styles.fileCount}>

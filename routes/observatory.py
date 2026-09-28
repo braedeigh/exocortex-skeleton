@@ -2506,6 +2506,15 @@ def register(app):
         # Pinned sessions surface first (the Keeper session lives at the
         # top); the sort above stays stable within each group.
         sessions.sort(key=lambda c: 0 if c.get("pinned") else 1)
+        # Mark the sessions that handed their work on to a continuation as
+        # retired, so the rooms and swarm pages can sink them to the bottom.
+        # Read off the WHOLE index, archived successors included — the same
+        # rule as swarms.overview's `retired`.
+        handed_on = {e.get("spawned_from") for e in index.values()
+                     if isinstance(e, dict) and e.get("spawned_via") == "continue"}
+        for c in sessions:
+            if c["id"] in handed_on:
+                c["retired"] = True
         # Resolved ONCE for the whole roster, not per card — it's one file read
         # and the answer is the same for every unpinned session.
         cli_model = _cli_default_model()

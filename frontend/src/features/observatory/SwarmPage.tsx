@@ -17,8 +17,8 @@
  *   - the member sessions as the usual session cards, same colours, same taps
  *     and the same order — the ones waiting on her first, longest wait on
  *     top (SessionLane, told it's showing a swarm so it doesn't fold them
- *     again). Retired members (archived, or handed on) aren't among them, and
- *     the counts at the top leave them out too (roomOrder.swarmView);
+ *     again). Retired members (handed on) sit at the very bottom, and the
+ *     counts at the top leave them out (roomOrder.swarmView);
  *   - what the helper thinks each member is doing;
  *   - every message between members;
  *   - every helper run, each opening to show exactly what it was given and
@@ -102,13 +102,15 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
     );
   };
 
-  // The live members, read through the roster: their colours and counts by the
-  // session cards' own rule, retired members left out.
+  // The live members, read through the roster: the counts at the top by the
+  // session cards' own rule, retired members left out of them.
   const opened = openedMap();
   const view = swarm
     ? swarmView(swarm, new Map((roster?.sessions ?? []).map((s) => [s.id, s])), opened)
     : null;
-  const memberConvs = new Set(view?.members.map((m) => m.conv) ?? []);
+  // Every member still on the roster, retired ones included: the lane sinks
+  // them to the bottom (roomOrder.ts) rather than this page hiding them.
+  const memberConvs = new Set(swarm?.members.map((m) => m.conv) ?? []);
   const memberSessions = (roster?.sessions ?? []).filter((s) => memberConvs.has(s.id));
   const helperWorking = !!roster?.sessions.find((s) => s.id === swarm?.helper_conv)?.running;
 
@@ -221,7 +223,10 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
             <section className={styles.section}>
               <h2 className={styles.h2}>What each session is doing</h2>
               <ul className={styles.list}>
-                {swarm.members.map((m) => (
+                {/* Retired members last, so the live work reads first. */}
+                {[...swarm.members]
+                  .sort((a, b) => Number(!!a.retired) - Number(!!b.retired))
+                  .map((m) => (
                   <li key={m.conv}>
                     <button type="button" className={styles.link} onClick={() => open(m.conv)}>
                       {m.title}

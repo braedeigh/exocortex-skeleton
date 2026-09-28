@@ -147,6 +147,10 @@ export interface SessionMeta {
   journal?: boolean;
   /** Pinned sessions sort first (the Keeper session lives at the top). */
   pinned?: boolean;
+  /** It handed its work on to a continuation that took over from it —
+   * marked server-side off the whole index (routes/observatory.py). Rooms and
+   * swarm pages sink it to the bottom, out of the way (roomOrder.ts). */
+  retired?: boolean;
   /** When it was closed. Archived sessions are off the roster but reachable
    * from the archive — and SENDING into one reopens it (routes/observatory.py
    * pops the flag on send, deliberately: talking to an old chat is the whole

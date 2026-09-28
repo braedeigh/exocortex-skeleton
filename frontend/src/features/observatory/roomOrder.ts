@@ -10,6 +10,8 @@
  *   broken   red     the last turn failed
  *   working  purple  running now, or used inside the last hour
  *   resting  grey    idle — including unread replies (grey, orange dot)
+ *   retired  grey    handed its work on to a continuation: at the very
+ *                    bottom, out of the way (unless it's still asking)
  *
  * Inside every tier but the orange one, cards keep the order the page handed
  * them (the rail's Oldest/Newest toggle). Swarm cards take part in the same
@@ -35,15 +37,16 @@
  * ones. then make the front page of the swarm also signal the orange ones and
  * put them in this same order. remove retired ones from the front page and
  * then make the inactive/done ones grey." · "i want the orange ones to only be
- * those that need input."
+ * those that need input." · "drop all of the retired sessions down to the
+ * bottom such that they are out of the way"
  */
 import type { SessionMeta } from './api';
 import { cardState, isAsking } from './sessionFilters';
 import { swarmState, type MemberState, type Swarm, type SwarmMember } from './swarmApi';
 
-export type RoomTier = 'asking' | 'broken' | 'working' | 'resting';
+export type RoomTier = 'asking' | 'broken' | 'working' | 'resting' | 'retired';
 
-const TIER_RANK: Record<RoomTier, number> = { asking: 0, broken: 1, working: 2, resting: 3 };
+const TIER_RANK: Record<RoomTier, number> = { asking: 0, broken: 1, working: 2, resting: 3, retired: 4 };
 
 /** Which tier a session stands in. Asking is checked first, ahead of the card's
  * own colour: a session can be running AND waiting on her, and the room draws
@@ -54,6 +57,7 @@ export function sessionTier(
   nowMs: number = Date.now(),
 ): RoomTier {
   if (isAsking(meta)) return 'asking';
+  if (meta.retired) return 'retired';
   const state = cardState(meta, openedAt, nowMs);
   if (state === 'error') return 'broken';
   if (state === 'running' || state === 'recent') return 'working';

@@ -447,6 +447,20 @@ def test_roster_orders_by_creation_not_activity(bot_client):
     assert ids.index(newer) < ids.index(older)
 
 
+def test_roster_marks_a_session_that_handed_on_as_retired(bot_client):
+    # A session a continuation took over from is retired — even once the
+    # successor itself is archived — so the rooms can sink it to the bottom.
+    parent = bot_client.post("/api/observatory/keeper/conversations",
+                             json={"title": "parent"}).get_json()["id"]
+    child = bot_client.post("/api/observatory/keeper/conversations",
+                            json={"title": "child"}).get_json()["id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index[child].update(spawned_from=parent, spawned_via="continue",
+                            archived="2026-09-27T20:00:00")
+    roster = {c["id"]: c for c in bot_client.get("/api/observatory").get_json()["sessions"]}
+    assert roster[parent].get("retired") is True
+
+
 def test_sending_into_an_archived_session_brings_it_back(bot_client):
     # Her ask: "I need a feature to open old chats." /atlas already lists
     # archived sessions and navigates into them, so the missing half was

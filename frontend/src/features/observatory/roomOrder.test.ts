@@ -74,6 +74,15 @@ describe('orderRoom', () => {
     expect(roomIds(sessions, opened)).toEqual(['broken', 'work1', 'work2', 'rest1', 'rest2']);
   });
 
+  it('sinks retired sessions below everything, even running or unread ones', () => {
+    const sessions = [
+      session('retiredBusy', { retired: true, running: true }),
+      session('rest', { last_at: ago(300 * MIN) }),
+      session('retiredAsk', { retired: true, awaiting_input: 'q' }),
+    ];
+    expect(roomIds(sessions, { rest: ago(0) })).toEqual(['retiredAsk', 'rest', 'retiredBusy']);
+  });
+
   it('leaves an unread reply among the grey ones rather than floating it', () => {
     // Unread and idle for hours: grey (with an orange dot), not orange.
     expect(sessionTier(session('a', { last_at: ago(300 * MIN) }), undefined, NOW)).toBe('resting');
