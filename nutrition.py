@@ -127,8 +127,10 @@ def totals(conn, items):
     filled: [labels]}} — amount is the sum of USDA's figures, low / high the
     sum of the sample min / max where given (the figure itself where not),
     `missing` the foods USDA has no figure for, so the total is a floor, not
-    the whole, and `filled` the foods whose figure came from their fill_from
-    entry instead of their own.
+    the whole, `filled` the foods whose figure came from their fill_from
+    entry instead of their own, and `by_food` each food's share of the
+    amount — [{fdc_id, label, meals, amount}], a food eaten in two meals
+    counted once, richest first.
     """
     foods = {}
     for item in items:
@@ -139,7 +141,7 @@ def totals(conn, items):
     out = {}
     for key, label, ids in TRACKED:
         entry = {"label": label, "unit": None, "amount": 0.0, "low": 0.0, "high": 0.0,
-                 "missing": [], "filled": []}
+                 "missing": [], "filled": [], "by_food": {}}
         for item in items:
             name = item.get("label") or str(item.get("fdc_id"))
 
@@ -161,8 +163,16 @@ def totals(conn, items):
             def add(value):
                 return convert(value, unit, entry["unit"]) * scale
             entry["amount"] += add(found["amount"])
+
+            # Where the amount comes from: this food's share, merged by USDA id.
+            share = entry["by_food"].setdefault(item.get("fdc_id"), {
+                "fdc_id": item.get("fdc_id"), "label": name, "meals": [], "amount": 0.0})
+            share["amount"] += add(found["amount"])
+            if item.get("meal") and item["meal"] not in share["meals"]:
+                share["meals"].append(item["meal"])
             entry["low"] += add(found["min"] if found["min"] is not None else found["amount"])
             entry["high"] += add(found["max"] if found["max"] is not None else found["amount"])
+        entry["by_food"] = sorted(entry["by_food"].values(), key=lambda share: -share["amount"])
         out[key] = entry
     return out
 
@@ -220,6 +230,7 @@ def report(conn, items, sex=None, age=None):
     rows = []
     for key, entry in totals(conn, items).items():
         row = dict(entry, key=key, amount=round(entry["amount"], 3),
+                   by_food=[dict(share, amount=round(share["amount"], 4)) for share in entry["by_food"]],
                    low=round(entry["low"], 3), high=round(entry["high"], 3), by_sex={})
         for s, table in targets.items():
             target = table.get(key)

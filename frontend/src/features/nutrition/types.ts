@@ -29,7 +29,17 @@ export interface NutrientRow {
   missing: string[];
   /** Foods whose figure came from their fill_from entry (USDA's survey data, partly estimated). */
   filled?: string[];
+  /** Each of her foods' share of the amount, richest first; a food in two meals counted once. */
+  by_food?: FoodShare[];
   by_sex: Partial<Record<Sex, Judgement>>;
+}
+
+export interface FoodShare {
+  fdc_id: number;
+  label: string;
+  /** The meals of her day it's eaten in. */
+  meals: string[];
+  amount: number;
 }
 
 export interface NutritionReport {

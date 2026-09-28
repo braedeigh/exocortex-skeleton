@@ -60,6 +60,14 @@ def test_fill_from_fills_a_gap_and_says_so(conn):
     assert (total["amount"], total["filled"], total["missing"]) == (150.0, ["baby kale"], [])
 
 
+def test_by_food_splits_the_total_and_merges_a_food_eaten_twice(conn):
+    total = _calcium(conn, [{"fdc_id": 1, "grams": 100, "label": "kale", "meal": "lunch"},
+                            {"fdc_id": 2, "grams": 100, "label": "baby kale", "fill_from": 50},
+                            {"fdc_id": 1, "grams": 50, "label": "kale", "meal": "dinner"}])
+    assert [(s["label"], s["amount"], s["meals"]) for s in total["by_food"]] == [
+        ("kale", pytest.approx(381.0), ["lunch", "dinner"]), ("baby kale", pytest.approx(150.0), [])]
+
+
 def test_fill_from_never_overrides_a_measured_figure(conn):
     total = _calcium(conn, [{"fdc_id": 1, "grams": 100, "label": "kale", "fill_from": 50}])
     assert (total["amount"], total["filled"]) == (254.0, [])

@@ -2,7 +2,8 @@
  * NutrientPage.tsx — /food/nutrients/<key>: one nutrient's own page.
  *
  * Top to bottom: her usual day's total for it against its targets (the same
- * bars and notes as the Nutrients list); what it does and what happens if
+ * bars and notes as the Nutrients list); which of her foods it comes from
+ * (./FoodShares.tsx); what it does and what happens if
  * you don't get enough, in the NIH Office of Dietary Supplements' own words
  * (their Health Professional Fact Sheet — Introduction, "<nutrient>
  * Deficiency", and, folded, "Groups at Risk"), with a link to the sheet; then
@@ -34,6 +35,7 @@ import { Link } from '@tanstack/react-router';
 import { type ReactElement, useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { getDay, getNutrient, rankFoods } from './api';
+import { NutrientSources } from './FoodShares';
 import { StarButton, useHighlights } from './Highlights';
 import { SingleFoodsChip, useSingleFoods } from './SingleFoods';
 import { DATASET_TAGS, fdcFoodUrl, formatAmount } from './nutrientMath';
@@ -79,6 +81,10 @@ export function NutrientPage({ nutrientKey }: { nutrientKey: string }) {
               <NutrientAmount row={detail.row} />
             </div>
             <NutrientBars row={detail.row} sexes={detail.sexes} />
+          </section>
+          <section className={styles.card}>
+            <div className={styles.cardHead}>Where yours comes from</div>
+            <NutrientSources row={detail.row} sexes={detail.sexes} />
           </section>
           <Facts facts={detail.facts} label={detail.row.label} />
           <section className={styles.card}>

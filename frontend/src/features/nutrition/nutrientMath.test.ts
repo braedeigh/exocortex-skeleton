@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barShare, fdcFoodUrl, formatAmount, groupOf, groupRows } from './nutrientMath';
+import { barShare, dayTarget, fdcFoodUrl, foodGifts, formatAmount, groupOf, groupRows } from './nutrientMath';
 import type { NutrientRow } from './types';
 
 function row(key: string, statuses: Record<string, string>): NutrientRow {
@@ -55,5 +55,48 @@ describe('barShare', () => {
 describe('fdcFoodUrl', () => {
   it('points at the food’s own FoodData Central page', () => {
     expect(fdcFoodUrl(168421)).toBe('https://fdc.nal.usda.gov/food-details/168421/nutrients');
+  });
+});
+
+// A day row with targets per sex and per-food shares, for the food-by-food view.
+function dayRow(key: string, amount: number, targets: Record<string, number>, shares: [number, string, number][]): NutrientRow {
+  return {
+    key,
+    label: key,
+    unit: 'mg',
+    amount,
+    low: amount,
+    high: amount,
+    missing: [],
+    by_food: shares.map(([fdc_id, label, share]) => ({ fdc_id, label, meals: [], amount: share })),
+    by_sex: Object.fromEntries(
+      Object.entries(targets).map(([sex, value]) => [sex, { status: 'under', target: { value, kind: 'rda', source: '' } }]),
+    ),
+  } as NutrientRow;
+}
+
+describe('dayTarget', () => {
+  it('takes the higher floor when both sexes are shown', () => {
+    expect(dayTarget(dayRow('iron', 10, { female: 18, male: 8 }, []), ['female', 'male'])).toBe(18);
+  });
+});
+
+describe('foodGifts', () => {
+  const rows = [
+    dayRow('calcium', 400, { female: 1000 }, [[1, 'kale', 100], [2, 'milk', 300]]),
+    dayRow('iron', 10, { female: 18 }, [[1, 'kale', 9], [2, 'milk', 1]]),
+  ];
+
+  it('turns the day into what each food gives, as share of day and of target', () => {
+    const kale = foodGifts(rows, ['female']).find((food) => food.fdc_id === 1)!;
+    expect(kale.gifts.map((gift) => [gift.key, gift.shareOfDay, gift.percentOfTarget])).toEqual([
+      ['iron', 0.9, 50],
+      ['calcium', 0.25, 10],
+    ]);
+  });
+
+  it('leaves out nutrients a food gives none of', () => {
+    const zero = [dayRow('zinc', 5, { female: 8 }, [[1, 'kale', 5], [2, 'milk', 0]])];
+    expect(foodGifts(zero, ['female']).map((food) => food.label)).toEqual(['kale']);
   });
 });

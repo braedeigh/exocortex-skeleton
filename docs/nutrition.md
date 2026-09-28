@@ -78,6 +78,12 @@ Every row shows the SIGHI entry it matched, so a wrong match can be seen. The "L
 histamine only" filter keeps SIGHI 0s and nothing else. Foods not on the list are left
 out, never assumed safe. Kale, for example, isn't on it.
 
+**Where each nutrient comes from** (`FoodShares.tsx`). `totals` also returns `by_food`: each food's
+share of a nutrient's amount. A food eaten in two meals is merged by FDC id. The Nutrients list shows
+each nutrient's top three sources. A nutrient's page lists every food that gives it, with its share of
+the day and of the target. The "What each food gives you" card turns the same numbers around, food by
+food (`foodGifts` in nutrientMath.ts). "Of target" uses the higher floor when both sexes are shown.
+
 **Single foods only** (`nutrition.is_single_food`). This switch is on the rankings and on
 the add-a-food search in Meals. It keeps foods you could buy as themselves, like milk,
 potatoes, rice and kale. A food passes when:

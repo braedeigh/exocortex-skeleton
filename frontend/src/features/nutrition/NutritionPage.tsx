@@ -7,8 +7,9 @@
  * with its total, the range USDA's samples allow, a bar per sex against its
  * target, and plain notes where the number is softer than it looks (an AI
  * target, foods with no figure, foods whose figure was filled in from USDA's
- * survey data, a UL that doesn't count food). Tapping a nutrient's name opens
- * its own page (./NutrientPage.tsx); then the foods she's starred
+ * survey data, a UL that doesn't count food), and its top three sources among
+ * her foods. Tapping a nutrient's name opens its own page (./NutrientPage.tsx);
+ * then what each of her foods gives her (./FoodShares.tsx); then the foods she's starred
  * (./Highlights.tsx); then her meals, where each food's grams can be fixed, a food removed, or a USDA food
  * added by search; each meal's servings a day set (0 = saved but not counted);
  * a meal started or deleted. A weight nobody has weighed yet is marked "guess".
@@ -34,6 +35,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
 import { deleteMeal, getDay, saveMeal, saveServings, saveSettings, searchFoods } from './api';
+import { FoodGiftsCard, TopSources } from './FoodShares';
 import { StarredFoods } from './Highlights';
 import { SingleFoodsChip, useSingleFoods } from './SingleFoods';
 import { barShare, DATASET_TAGS, fdcFoodUrl, formatAmount, GROUP_TITLES, groupRows } from './nutrientMath';
@@ -72,6 +74,7 @@ export function NutritionPage() {
           ) : null}
           <SettingsRow day={data} />
           <NutrientList day={data} />
+          <FoodGiftsCard rows={data.report.nutrients} sexes={data.report.sexes} />
           <StarredFoods />
           <MealList day={data} />
           <p className={styles.sources}>
@@ -177,6 +180,7 @@ function NutrientLine({ row, sexes }: { row: NutrientRow; sexes: Sex[] }) {
         <NutrientAmount row={row} />
       </div>
       <NutrientBars row={row} sexes={sexes} />
+      <TopSources row={row} />
     </li>
   );
 }

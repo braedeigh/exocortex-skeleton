@@ -531,3 +531,41 @@ a.rowNameBtn {
 .hist_none {
   color: var(--text-muted);
 }
+
+/* A food's name in a nutrient's "where it comes from" list: links to its USDA entry. */
+.shareName {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* What one food gives: nutrient, amount, share of the target, share of the day. */
+.giftTable {
+  width: 100%;
+  margin-top: 6px;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.giftTable th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: right;
+  padding: 4px 6px;
+}
+
+.giftTable td {
+  padding: 8px 6px;
+  border-top: 1px solid var(--border);
+  text-align: right;
+}
+
+.giftTable th:first-child,
+.giftTable td:first-child {
+  text-align: left;
+}
