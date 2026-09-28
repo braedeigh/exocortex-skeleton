@@ -9,8 +9,10 @@
  * product joins the meal at one label serving when the label gives it in
  * grams, else at 100 g; either way the weight is marked a guess until weighed.
  *
- * Shown by the add-a-food search in Meals (./NutritionPage.tsx `FoodSearch`)
- * when "Packaged" is on. Data: GET /api/nutrition/packaged (routes/nutrition.py).
+ * Shown in two places in Meals (./NutritionPage.tsx): the "Scan a barcode"
+ * button at the top (`PackagedAdder`, which saves into a chosen meal at once),
+ * and a meal's own add-a-food search when "Packaged" is on (`FoodSearch`).
+ * Data: GET /api/nutrition/packaged (routes/nutrition.py).
  * The camera is ./BarcodeScanner.tsx, loaded only when opened.
  *
  * Prompt: "no packaged or branded food support, and no barcode lookup" — "yeah sure".

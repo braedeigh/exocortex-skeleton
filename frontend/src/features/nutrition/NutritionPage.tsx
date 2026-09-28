@@ -15,7 +15,8 @@
  * (./Highlights.tsx); then her meals, where each food's amount can be fixed — in grams or a kitchen measure
  * like "1.5 cup" (./AmountInput.tsx) — a food removed, or a USDA food
  * added by search — a whole food, or, with "Packaged" on, a packaged product by name, brand, typed
- * barcode or camera scan (./PackagedSearch.tsx); each meal's servings a day set (0 = saved but not counted);
+ * barcode or camera scan (./PackagedSearch.tsx), which also has its own "Scan a barcode" button at the top
+ * of Meals that saves straight into a chosen meal; each meal's servings a day set (0 = saved but not counted);
  * a meal started or deleted. A weight nobody has weighed yet is marked "guess".
  * The Food search box (../ecosystem/foodSearch.ts) narrows which meals show;
  * the totals always count every meal.
@@ -336,6 +337,7 @@ function MealList({ day }: { day: NutritionDay }) {
           {names.length} of {allNames.length} meals have “{areaSearch.trim()}”; totals still count them all.
         </p>
       ) : null}
+      {allNames.length ? <PackagedAdder day={day} names={allNames} /> : null}
       {names.map((name) => (
         <MealEditor key={name} name={name} meal={day.meals[name]} servings={servings.get(name) ?? 0} />
       ))}
@@ -357,6 +359,55 @@ function MealList({ day }: { day: NutritionDay }) {
       </div>
       {create.isError ? <p className={styles.error}>{(create.error as Error).message}</p> : null}
     </FoldCard>
+  );
+}
+
+// Add a packaged food straight into a meal: the scan button sits at the top of Meals so it's found
+// without opening a meal first. The product is saved into the chosen meal at once.
+// Prompt: "i don't see a packaged chip" — "still no button there properly".
+function PackagedAdder({ day, names }: { day: NutritionDay; names: string[] }) {
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [target, setTarget] = useState(names[0]);
+  const [added, setAdded] = useState('');
+  const mealName = names.includes(target) ? target : names[0];
+  const add = useMutation({
+    mutationFn: (item: MealItem) => saveMeal(mealName, [...(day.meals[mealName]?.items ?? []), item]),
+    onSuccess: (_, item) => {
+      setAdded(`Added ${item.label} to ${mealName}.`);
+      client.invalidateQueries({ queryKey: DAY_KEY });
+    },
+  });
+
+  if (!open)
+    return (
+      <div className={styles.newMeal}>
+        <button type="button" className={styles.saveBtn} onClick={() => setOpen(true)}>
+          Scan a barcode or find a packaged food
+        </button>
+      </div>
+    );
+  return (
+    <div className={styles.packagedAdder}>
+      <div className={styles.newMeal}>
+        <label className={styles.adderLabel}>
+          Add to
+          <select className={styles.searchInput} value={mealName} onChange={(event) => setTarget(event.target.value)}>
+            {names.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className={styles.chip} onClick={() => setOpen(false)}>
+          Close
+        </button>
+      </div>
+      <PackagedSearch onPick={(item) => add.mutate(item)} />
+      {added ? <p className={styles.muted}>{added} Open the meal to set its amount.</p> : null}
+      {add.isError ? <p className={styles.error}>{(add.error as Error).message}</p> : null}
+    </div>
   );
 }
 

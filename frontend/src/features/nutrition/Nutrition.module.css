@@ -326,6 +326,22 @@
   margin-top: 12px;
 }
 
+/* The packaged-food adder at the top of Meals (NutritionPage.tsx PackagedAdder). */
+.packagedAdder {
+  margin: 12px 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.adderLabel {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
 .mealServings {
   margin-left: auto;
   font-size: 13px;
