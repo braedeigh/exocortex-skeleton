@@ -2963,3 +2963,45 @@ def test_pond_days_degrades_rather_than_500ing_without_a_journal_mirror(terrain_
     days = resp.get_json()["pond_days"]
     assert len(days) == terrain._POND_TILE_DAYS
     assert all(d["touches"] == [] for d in days)
+
+
+# ---- starting a session inside a swarm (the '+' on a swarm's page) ----
+
+def _a_swarm(monkeypatch):
+    """Two sessions that have messaged each other — one live swarm."""
+    import peermail
+    import swarm_helper
+    import swarms
+    monkeypatch.setattr(swarm_helper, "_spawn", lambda *a, **k: True)
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    with store.mutate("bot_chats/index", {}) as index:
+        index["a"] = {"title": "A", "lane": "coding"}
+        index["b"] = {"title": "B", "lane": "coding"}
+    peermail.send("b", "hello", from_conv="a")
+    [swarm_id] = swarms.sync()
+    return swarm_id
+
+
+def test_a_session_started_in_a_swarm_is_a_member_before_it_speaks(bot_client, monkeypatch):
+    import swarms
+    swarm_id = _a_swarm(monkeypatch)
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "new", "lane": "coding", "swarm": swarm_id}
+                              ).get_json()["id"]
+    swarms.sync()    # a later sync must keep it, message or no message
+    assert swarms.swarm_of(conv_id) == swarm_id
+
+
+def test_a_session_started_in_a_swarm_is_told_about_it(bot_client, monkeypatch):
+    swarm_id = _a_swarm(monkeypatch)
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "new", "lane": "coding", "swarm": swarm_id}
+                              ).get_json()["id"]
+    seed = pathlib.Path(store.read("bot_chats/index", {})[conv_id]["system_prompt_file"])
+    assert "`a` A" in seed.read_text() and "peers.py swarm" in seed.read_text()
+
+
+def test_starting_a_session_in_an_unknown_swarm_is_refused(bot_client):
+    resp = bot_client.post("/api/observatory/conversations",
+                           json={"title": "new", "lane": "coding", "swarm": 999})
+    assert resp.status_code == 400

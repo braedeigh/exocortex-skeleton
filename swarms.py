@@ -16,6 +16,10 @@ one absorbs the younger (its row is kept, marked `merged_into`), so nothing a
 helper wrote is lost. Membership only grows — a session that stops talking is
 still part of the swarm it worked in.
 
+She can also start a session straight into a swarm (the '+' on a swarm's
+page): `join` adds it as a member before it has messaged anyone, and
+`seed_text` is what it's told about the swarm it woke up in.
+
 This file only works out who belongs where and stores it. Naming the swarm and
 summarising its members is the helper's job (docs/swarms.md, stage 4).
 
@@ -268,3 +272,47 @@ def overview_members(swarm_id):
             "SELECT conv FROM swarm_members WHERE swarm_id = ?", (swarm_id,))]
     finally:
         conn.close()
+
+
+def join(swarm_id, conv_id):
+    """Put a session into a live swarm by hand — the '+' on a swarm's page
+    starts a session that belongs to the swarm before it has said a word.
+    Returns False if there's no such live swarm.
+
+    Nothing else has to change for it to stay: membership only grows, and
+    sync keeps every stored member of a swarm whose group still stands, so a
+    member added here is kept even though no message links it yet."""
+    if swarm_id not in sync():
+        return False
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        conn.execute("INSERT OR IGNORE INTO swarm_members (swarm_id, conv, joined_at)"
+                     " VALUES (?, ?, ?)", (swarm_id, conv_id, _now()))
+        conn.execute("UPDATE swarms SET updated_at = ? WHERE id = ?", (_now(), swarm_id))
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+    return True
+
+
+def seed_text(swarm_id):
+    """What a session started inside a swarm is told before its first turn:
+    which swarm, what the helper says it's about, and who's in it."""
+    card = next((c for c in overview() if c["id"] == swarm_id), None)
+    if card is None:
+        return ""
+    lines = [f"## Your swarm: {card['name']}", "",
+             "You were started inside this swarm by the owner, so you're a member"
+             " from your first turn. Run `./venv/bin/python3 scripts/peers.py swarm`"
+             " before you begin for its current state, and message the members"
+             " whose work touches yours.", ""]
+    if card.get("summary"):
+        lines += [card["summary"], ""]
+    lines += [f"- `{m['conv']}` {m['title']} ({m['state']})"
+              + (f" — {m['summary']}" if m.get("summary") else "")
+              for m in card["members"] if not m["retired"]]
+    return "\n".join(lines) + "\n"

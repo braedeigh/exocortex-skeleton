@@ -2789,7 +2789,8 @@ def register(app):
 
     @app.route("/api/observatory/conversations", methods=["POST"])
     def observatory_conv_create():
-        """Create a session in a LANE. Body: {title, journal, model, lane}.
+        """Create a session in a LANE. Body: {title, journal, model, lane},
+        and optionally `swarm` (a live swarm's id) to start it inside a swarm.
 
         The lane picks cwd and the two safety-net defaults (see _lane_profile):
         `orchestra` roots in the app checkout and asks before irreversible
@@ -2833,6 +2834,13 @@ def register(app):
                 return jsonify({"error": f"unknown front {front!r}"}), 400
             if data.get("seed") is not False:
                 brief_path = fronts_mod.write_front_brief(front)
+        # `swarm` — set when the session is started from a swarm's page. The
+        # swarm must be live; the session joins it once it exists, below.
+        swarm_id = data.get("swarm")
+        if swarm_id is not None:
+            import swarms
+            if not isinstance(swarm_id, int) or swarm_id not in swarms.sync():
+                return jsonify({"error": f"unknown swarm {swarm_id!r}"}), 400
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:
             conv_id = _new_conv_id(index)
@@ -2849,8 +2857,32 @@ def register(app):
             # leave the field absent so persona sessions keep owning it.
             if brief_path:
                 index[conv_id]["system_prompt_file"] = brief_path
+        # Join the swarm and tell the session where it woke up. It's a member
+        # before it has messaged anyone (swarms.join), and a seed file (added
+        # to a front brief when there is one) names the swarm, its summary and
+        # its members. The helper is poked so its summaries pick the newcomer up.
+        if swarm_id is not None:
+            import swarm_helper
+            swarms.join(swarm_id, conv_id)
+            seed = swarms.seed_text(swarm_id)
+            if seed:
+                if brief_path:
+                    seed_path = Path(brief_path)
+                    seed = seed_path.read_text(encoding="utf-8") + "\n" + seed
+                else:
+                    folder = _chats_dir() / "swarm_seed"
+                    folder.mkdir(parents=True, exist_ok=True)
+                    seed_path = folder / f"{conv_id}.md"
+                seed_path.write_text(seed, encoding="utf-8")
+                with store.mutate("bot_chats/index", {}) as index:
+                    index[conv_id]["system_prompt_file"] = str(seed_path)
+            try:
+                swarm_helper.poke(swarm_id, "joined")
+            except Exception as e:
+                print(f"swarm helper poke failed after a join: {e}", file=sys.stderr)
         return jsonify({"ok": True, "id": conv_id, "lane": lane,
-                        "front": front or None, "seeded": bool(brief_path)})
+                        "front": front or None, "seeded": bool(brief_path),
+                        "swarm": swarm_id})
 
     @app.route("/api/observatory/<bot_id>/conversations", methods=["POST"])
     @app.route("/api/bots/<bot_id>/conversations", methods=["POST"])
