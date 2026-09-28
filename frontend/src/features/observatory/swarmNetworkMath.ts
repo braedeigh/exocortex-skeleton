@@ -18,8 +18,10 @@
  *   - the helper's own threads: a straight line from its seat to each
  *     member it has sent messages to, carrying how many;
  *   - placing the message counts so none covers another count, a ring, or
- *     a name: each tries spots along its own line, then just beside it,
- *     and takes the first clear one (placeCounts);
+ *     a name: each tries every spot along its own line first, then just
+ *     beside it, and takes the first clear one; a count that ends up off
+ *     its line also gets the point on the line it belongs to, so the
+ *     drawing can tether it there (placeCounts);
  *   - a continuation (one session taking over from another) is its own kind
  *     of line, since it's a handover rather than talk;
  *   - hiding retired sessions without orphaning their successors: a hidden
@@ -303,21 +305,34 @@ export interface CountLine {
   prefer: number;
 }
 
+/** Where a count chip sits, and the point on its own line it belongs to.
+ * When the two differ, the drawing tethers the chip to its line. */
+export interface CountSpot {
+  x: number;
+  y: number;
+  anchor: { x: number; y: number };
+}
+
 /** Place every count chip so it covers no ring, name or other chip.
  * This is a greedy placement: lines are taken in order, and each tries
- * spots along its line — its preferred spot first, then stepping outward
- * both ways — then the same spots nudged to either side of the line. The
- * first spot that's clear (and inside the drawing) wins; if none is, the one
- * covering least. Each placed chip becomes something the next must avoid. */
+ * every spot along its line — its preferred spot first, then stepping
+ * outward both ways — before any spot off it, and then only one chip-height
+ * to either side. The first clear spot (inside the drawing) wins; if none
+ * is, the one covering least. Each placed chip becomes something the next
+ * must avoid. A chip that lands beside its line keeps its anchor — the
+ * point on the line it was nudged from — so it can be tethered back.
+ * Prompt that produced it: "What's up with the floating dots not connecting
+ * to any message" — counts pushed far aside read as loose dots. */
 export function placeCounts(
   lines: CountLine[],
   obstacles: Box[],
   pxPerUnit: number,
   bounds: { width: number; height: number },
-): Map<string, { x: number; y: number }> {
-  const placed = new Map<string, { x: number; y: number }>();
+): Map<string, CountSpot> {
+  const placed = new Map<string, CountSpot>();
   const taken = [...obstacles];
-  const steps = [0, 0.08, -0.08, 0.16, -0.16, 0.24, -0.24, 0.32, -0.32, 0.4, -0.4];
+  const steps = [0];
+  for (let step = 0.05; step <= 0.8; step += 0.05) steps.push(step, -step);
   for (const line of lines) {
     const chip = chipPx(line.text);
     const halfWidth = chip.width / pxPerUnit / 2;
@@ -328,29 +343,34 @@ export function placeCounts(
     // Sideways, square to the line, one chip-height per nudge.
     const side = { x: -dy / length, y: dx / length };
     const nudge = chip.height / pxPerUnit;
-    let best: { x: number; y: number } | null = null;
+    let best: CountSpot | null = null;
     let bestCover = Infinity;
-    search: for (const sideways of [0, 1, -1, 2, -2, 3, -3]) {
+    search: for (const sideways of [0, 1, -1]) {
       for (const step of steps) {
         const t = line.prefer + step;
         if (t < 0.1 || t > 0.9) continue;
+        const anchor = { x: line.from.x + dx * t, y: line.from.y + dy * t };
         const spot = {
-          x: line.from.x + dx * t + side.x * nudge * sideways,
-          y: line.from.y + dy * t + side.y * nudge * sideways,
+          x: anchor.x + side.x * nudge * sideways,
+          y: anchor.y + side.y * nudge * sideways,
         };
         const box = { left: spot.x - halfWidth, top: spot.y - halfHeight,
           right: spot.x + halfWidth, bottom: spot.y + halfHeight };
         const outside = box.left < 0 || box.top < 0 || box.right > bounds.width || box.bottom > bounds.height;
         const cover = taken.reduce((sum, other) => sum + overlapArea(box, other), 0) + (outside ? 1e6 : 0);
         if (cover < bestCover) {
-          best = spot;
+          best = { ...spot, anchor };
           bestCover = cover;
         }
         if (cover === 0) break search;
       }
     }
-    const spot = best ?? { x: line.from.x + dx * line.prefer, y: line.from.y + dy * line.prefer };
-    const rounded = { x: Math.round(spot.x), y: Math.round(spot.y) };
+    const fallback = { x: line.from.x + dx * line.prefer, y: line.from.y + dy * line.prefer };
+    const chosen = best ?? { ...fallback, anchor: fallback };
+    const rounded = {
+      x: Math.round(chosen.x), y: Math.round(chosen.y),
+      anchor: { x: Math.round(chosen.anchor.x), y: Math.round(chosen.anchor.y) },
+    };
     placed.set(line.key, rounded);
     taken.push({ left: rounded.x - halfWidth, top: rounded.y - halfHeight,
       right: rounded.x + halfWidth, bottom: rounded.y + halfHeight });

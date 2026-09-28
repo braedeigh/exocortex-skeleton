@@ -97,7 +97,7 @@ describe('placing the message counts', () => {
   it('keeps its preferred spot when nothing is in the way', () => {
     const spots = placeCounts(
       [{ key: 'a', from: { x: 100, y: 100 }, to: { x: 300, y: 100 }, text: '3', prefer: 0.5 }], [], 1, bounds);
-    expect(spots.get('a')).toEqual({ x: 200, y: 100 });
+    expect(spots.get('a')).toEqual({ x: 200, y: 100, anchor: { x: 200, y: 100 } });
   });
 
   it('moves a count off a name it would cover', () => {
@@ -106,6 +106,23 @@ describe('placing the message counts', () => {
       [{ key: 'a', from: { x: 200, y: 60 }, to: { x: 200, y: 260 }, text: '1', prefer: 0.2 }], name, 1, bounds).get('a')!;
     expect(name.every((box) => spot.y - 15 >= box.bottom || spot.y + 15 <= box.top
       || spot.x + 22 <= box.left || spot.x - 22 >= box.right)).toBe(true);
+  });
+
+  it('keeps a crowded count on its own line before moving it aside', () => {
+    const blocker = [{ left: 180, top: 80, right: 220, bottom: 120 }];
+    const spot = placeCounts(
+      [{ key: 'a', from: { x: 100, y: 100 }, to: { x: 500, y: 100 }, text: '1', prefer: 0.25 }], blocker, 1, bounds).get('a')!;
+    expect(spot.y).toBe(100);
+    expect(spot.anchor).toEqual({ x: spot.x, y: spot.y });
+  });
+
+  it('gives a count pushed off its line the point on the line it belongs to', () => {
+    const wall = [{ left: 0, top: 90, right: 640, bottom: 110 }];
+    const spot = placeCounts(
+      [{ key: 'a', from: { x: 100, y: 100 }, to: { x: 500, y: 100 }, text: '1', prefer: 0.5 }], wall, 1, bounds).get('a')!;
+    expect(spot.y).not.toBe(100);
+    expect(spot.anchor.y).toBe(100);
+    expect(Math.abs(spot.anchor.x - spot.x)).toBeLessThan(1);
   });
 
   it('never stacks two counts on one another', () => {
