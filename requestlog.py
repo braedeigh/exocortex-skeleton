@@ -24,7 +24,9 @@ keep, because this sits on every request:
 
 **Not derived.** Unlike tool_calls or ui_events there is no file underneath
 this table; the row is the only copy, which is why `requests` is kept off
-the SQL Lab's rebuild button. exo.db itself is in the vault's hourly commit.
+the SQL Lab's rebuild button. exo.db is too big for a git backup, so the
+backup job writes each finished day of this table out as a gzipped TSV
+beside it instead (the vault's `scripts/git_backup.sh`).
 
 Touches: `server.py` (installs the hooks), `sqlstore.py` (the schema).
 

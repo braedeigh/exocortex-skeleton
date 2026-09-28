@@ -907,7 +907,7 @@
   },
   "traces": {
     "holds": "One row per captured request followed through the code: a label, where it was taken, what was being done, when it started, how long it took, how many steps were recorded, whether the recording was cut short, and — when one request continued in another process — which trace it continues.",
-    "source": "Written by runtime_trace.py when a trace is armed from the Terrain map. A recording of a moment that has passed, so it can't be rebuilt; only the newest few are kept.",
+    "source": "Written by runtime_trace.py when a trace is armed from the Terrain map. A recording of a moment that has passed, so it can't be rebuilt; only the newest few are kept. Not backed up, on purpose: a rolling window of captures, thrown away by design.",
     "kind": "record",
     "time_column": "started_at",
     "columns": {
@@ -1465,7 +1465,7 @@
   },
   "requests": {
     "holds": "Every /api/ request the web app served: when, the method and path, which feature it belongs to, the status it returned, how long it took, and which worker served it.",
-    "source": "Written by requestlog.py from the request itself, in small batches. Nothing else holds these rows: the access log they replace rotates and drops lines across workers. Never rebuilt.",
+    "source": "Written by requestlog.py from the request itself, in small batches. Nothing else holds these rows: the access log they replace rotates and drops lines across workers. Never rebuilt. exo.db is too big for the hourly git backup, so the backup job copies each finished day of this table out as its own gzipped file instead.",
     "kind": "record",
     "time_column": "at",
     "columns": {
