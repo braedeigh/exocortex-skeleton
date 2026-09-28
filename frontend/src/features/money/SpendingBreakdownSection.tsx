@@ -1,6 +1,7 @@
 /**
  * SpendingBreakdownSection.tsx — the Money page's "Spending by month" card.
- * Each month opens to an earned-vs-spent gauge, then a split by kind
+ * Each month opens to an earned-vs-spent gauge (point at or tap a colour to
+ * see what it is), then a split by kind
  * (Recurring / Can cut back / One-time / Not sorted), then one bar per
  * category. Tapping a category bar drills into its transactions, where each
  * can be renamed, recategorized, or given a receipt photo. The category
@@ -187,9 +188,30 @@ function DrillTable({
   );
 }
 
+/** What a pointed-at piece of the gauge is: its name, amount and colour. */
+interface GaugeFocus {
+  label: string;
+  amount: number;
+  color: string;
+}
+
 function IncomeGaugeBar({ items, masked }: { items: Expense[]; masked: boolean }) {
+  const [focus, setFocus] = useState<GaugeFocus | null>(null);
   const g = incomeGauge(items);
   if (g.empty) return null;
+
+  // Name the colour under the pointer. Hovering a piece of the bar swaps the
+  // "Earned · Spent" line for that piece's colour, name and amount; a tap
+  // does the same on a phone (tap again to go back). Swapping the line rather
+  // than floating a tooltip keeps the card from jumping.
+  // Prompt: "when i hover over a color on the bar, it tells me what that is"
+  function pointAt(next: GaugeFocus) {
+    return {
+      onMouseEnter: () => setFocus(next),
+      onMouseLeave: () => setFocus(null),
+      onClick: () => setFocus((cur) => (cur && cur.label === next.label ? null : next)),
+    };
+  }
 
   let leftoverLabel: React.ReactNode;
   if (g.income === 0) {
@@ -203,9 +225,16 @@ function IncomeGaugeBar({ items, masked }: { items: Expense[]; masked: boolean }
   return (
     <div className={styles.gaugeWrap}>
       <div className={styles.gaugeLabels}>
-        <span className={styles.mutedText}>
-          Earned {formatMoney(g.income, masked)} &middot; Spent {formatMoney(g.spent, masked)}
-        </span>
+        {focus ? (
+          <span className={styles.gaugeFocus}>
+            <span className={styles.gaugeSwatch} style={{ background: focus.color }} />
+            <b>{focus.label}</b> {formatMoney(focus.amount, masked)}
+          </span>
+        ) : (
+          <span className={styles.mutedText}>
+            Earned {formatMoney(g.income, masked)} &middot; Spent {formatMoney(g.spent, masked)}
+          </span>
+        )}
         <span>
           <b>{leftoverLabel}</b>
         </span>
@@ -215,14 +244,14 @@ function IncomeGaugeBar({ items, masked }: { items: Expense[]; masked: boolean }
           <div
             key={seg.category}
             className={styles.gaugeSeg}
-            title={`${seg.category} — ${formatMoney(seg.amount, masked)}`}
             style={{ width: `${seg.pct}%`, background: seg.color }}
+            {...pointAt({ label: seg.category, amount: seg.amount, color: seg.color })}
           />
         ))}
         {g.unspentPct > 0 ? (
           <div
             className={styles.gaugeUnspent}
-            title={`Unspent — ${formatMoney(g.leftover, masked)}`}
+            {...pointAt({ label: 'Unspent', amount: g.leftover, color: 'color-mix(in srgb, #7f7f7f 18%, transparent)' })}
             style={{ width: `${g.unspentPct}%` }}
           />
         ) : null}
