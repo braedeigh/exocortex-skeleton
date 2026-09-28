@@ -437,6 +437,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             />
           ) : null}
 
+          {/* Which agents are working in which copy of the code — at the top,
+              just under the Keeper, so it's the first thing seen above the rooms. */}
+          <WorktreeMapDoor />
+
           {ROOMS.map((lane) => (
             <SessionLane
               key={lane}
@@ -455,10 +459,6 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               onClose={onCloseSession}
             />
           ))}
-
-          {/* Which agents are working in which copy of the code — right under
-              the rooms, since it's about the sessions just above it. */}
-          <WorktreeMapDoor />
 
           {/* Night crew is a PAGE now, and this is the way in — left exactly
               where its section used to sit, because that's where she already

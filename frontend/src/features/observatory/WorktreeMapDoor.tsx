@@ -4,7 +4,7 @@ import { writersNow } from './worktreeMapMath';
 import styles from './NightCrew.module.css';
 
 /**
- * WorktreeMapDoor — the roster row, just under the Coding room, that goes to
+ * WorktreeMapDoor — the roster row, just under the Keeper, that goes to
  * /observatory/worktrees: which agents are working in which copy of the code.
  * Same door shape as Night crew / Helpers (borrows NightCrew.module.css).
  *
