@@ -27,6 +27,8 @@ export interface NutrientRow {
   high: number;
   /** Foods USDA has no figure for — the total is a floor while this isn't empty. */
   missing: string[];
+  /** Foods whose figure came from their fill_from entry (USDA's survey data, partly estimated). */
+  filled?: string[];
   by_sex: Partial<Record<Sex, Judgement>>;
 }
 
@@ -43,6 +45,8 @@ export interface MealItem {
   fdc_id: number;
   grams: number;
   grams_guessed?: boolean;
+  /** A second USDA food used only for the nutrients this one lacks. */
+  fill_from?: number;
 }
 
 export interface Meal {
@@ -64,7 +68,7 @@ export interface NutritionDay {
 
 export interface FdcFood {
   fdc_id: number;
-  data_type: 'foundation_food' | 'sr_legacy_food';
+  data_type: 'foundation_food' | 'sr_legacy_food' | 'survey_fndds_food';
   description: string;
   category: string | null;
 }

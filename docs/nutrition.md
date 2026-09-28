@@ -13,19 +13,26 @@ in `projects.json`.
 1. **Food composition, offline.** USDA FoodData Central, downloaded whole into the commons.
 2. **Meals with gram weights.** Her meals as foods × grams.
 3. **Daily targets.** The Dietary Reference Intakes.
-4. **An optimizer** (linear programming: meet every target, stay under every limit, change
-   the fewest grams). **Not built — ask the owner first**; she may want to write it herself.
+4. **An optimizer**: a linear program that meets every target, stays under every limit and
+   changes the fewest grams. **It's being built together with the owner** as
+   linear-algebra practice. The data half exists (`nutrition.matrix`); the solving half is
+   hers to write with help. See "Step 4, together" below.
 
 ## Data sources
 
-All three come through `scripts/commons_fetch.py` into the commons, and are read into
+All four come through `scripts/commons_fetch.py` into the commons, and are read into
 `commons.db` (see `commonsdb.py`). Nothing is fetched at request time.
 
 | Source | Commons file | Table(s) | What it gives |
 |---|---|---|---|
 | FDC Foundation Foods (2026-04) | `usda-fdc/FoodData_Central_foundation_food_csv_2026-04-30.zip` | `fdc_*` | ~470 whole foods USDA analyzed itself, with sample count and min / max / median |
 | FDC SR Legacy (2018, frozen) | `usda-fdc/FoodData_Central_sr_legacy_food_csv_2018-04.zip` | `fdc_*` | ~7,800 foods, one number per nutrient, no spread |
+| FDC Survey Foods / FNDDS 2021–2023 (2024-10) | `usda-fdc/FoodData_Central_survey_food_csv_2024-10-31.zip` | `fdc_*` | ~5,400 foods "as eaten"; every food has all ~65 nutrients, with USDA **imputing** the ones nobody analyzed. No iodine |
 | IOM/NASEM DRI summary tables | `nasem-dri/vitaminintake.pdf` | `dri_values` | RDA / AI / UL by sex and age band |
+
+FNDDS's `food_nutrient.csv` names a nutrient by its old 3-digit number (301 = calcium), where
+the other two use the FDC id (1087). The loader translates the numbers through `nutrient.csv`,
+and takes FNDDS's categories from its WWEIA list.
 
 The DRI PDF is the four summary tables as reproduced by K-State. The primary hosts (NCBI
 Bookshelf, canada.ca, NIH ODS, National Academies) all turned away scripted downloads.
@@ -42,6 +49,12 @@ Reload with `./venv/bin/python3 scripts/nutrient_data.py load`.
   have no vitamin A, C, D or K figure. A total lists the foods it's `missing` instead of
   counting them as 0, and the page shows that. Some nutrients have a fallback id when the
   main one is absent: energy 1008 → 2048 → 2047 (Atwater variants), fiber 1079 → 2033.
+- **Gaps filled from a second USDA entry, and labelled.** A meal item may carry
+  `fill_from`, the FDC id of a second entry for the same food (usually FNDDS). That entry
+  is used only for the nutrients the item's own entry lacks, never over a measured figure.
+  The total lists those foods under `filled`, and the page says "filled in from USDA's
+  survey data (partly estimated)". Foundation oats + FNDDS "Oats, raw" is the typical
+  pair: the first gives a measured range, the second fills vitamins D/E/K and choline.
 - **A range where USDA gives one.** Foundation foods carry the min and max of their
   samples. A day's low / high is those added up. SR Legacy foods add the same number to
   both ends.
@@ -63,14 +76,14 @@ Reload with `./venv/bin/python3 scripts/nutrient_data.py load`.
   The page marks those, because the whole result is only as good as the weights.
 - **Added salt isn't counted.** Sodium reads low unless salt is added as an item.
 
-## Other sources (surveyed 2026-09, none loaded yet)
+## Other sources (surveyed 2026-09)
 
 Cronometer uses USDA plus NCCDB, CNF, NUTTAB/AFCD, CoFID, NEVO and IFCDB. The commons takes
 a source only if its licence allows redistribution.
 
 | Source | Licence | Redistributable? | What it adds |
 |---|---|---|---|
-| USDA FNDDS (Survey Foods) | US public domain | yes | A full ~65-nutrient profile for every food, no gaps. The gaps are **imputed**, so it has to be labelled that way |
+| USDA FNDDS (Survey Foods) | US public domain | yes | **Loaded.** A full ~65-nutrient profile for every food. The gaps are **imputed**, so it has to be labelled that way |
 | Canadian Nutrient File 2026 (May 2026) | Open Government Licence – Canada | yes | CSVs in the same shape as FDC. Much of it is derived from USDA SR, so it's a cross-check more than an independent source |
 | AFCD Release 3 (FSANZ, Australia) | CC BY-SA 3.0 AU + extra terms | yes, share-alike | ~1,588 foods, independent Australian analyses, updated vitamin D. Excel |
 | CoFID 2021 (UK, McCance & Widdowson) | Open Government Licence v3 | yes | ~2,900 foods, independent UK analyses. Excel |
@@ -81,14 +94,45 @@ a source only if its licence allows redistribution.
 No database is simply "more accurate". Most are averages of a few samples, and one food's
 real spread (variety, soil, storage) is often wider than the gap between two databases.
 Foundation's min/max already shows that. The useful gain is **coverage**: filling the
-`missing` gaps from a second source, with the source shown on each number.
+`missing` gaps from a second source, with the source shown on each number. The owner chose
+to stay with USDA ("USDA style"). The non-US sources are not loaded.
+
+## Step 4, together
+
+The diet problem as linear algebra. Say there are *n* foods and *m* nutrients.
+
+- **x** is a vector of *n* numbers: grams of each food in a day. These are the unknowns.
+- **A** is an *m × n* matrix: `A[i][j]` is nutrient *i* in one gram of food *j*.
+  `nutrition.matrix` builds it from her meals, and `scripts/nutrient_data.py matrix` prints
+  it. Each column is one food's nutrient profile. Each row is one nutrient across her foods.
+- **A·x** (matrix × vector) is the day's nutrient totals. Every row is a dot product: grams
+  × amount-per-gram, summed over foods. That is exactly what `totals` does in a loop.
+- The **constraints** are `lower ≤ A·x ≤ upper` (the RDA/AI floor, the food-counting UL
+  ceiling) and `x ≥ 0`. Each is a half-space. Together they cut out a convex polytope, the
+  set of every diet that meets every target.
+- The **objective** picks one point in that polytope. "USDA style" is the Thrifty Food Plan's
+  model: USDA solves for a diet that meets the nutrient targets while staying as close as
+  possible to what people already eat. Here that means minimizing Σ |x_j − current_j|: the
+  fewest grams changed from her usual day. The absolute value isn't linear. The standard
+  trick is to split each change into up/down parts, both ≥ 0, which keeps it an LP.
+  Cost (from receipts) or contaminant dose can be added as weights or caps later.
+- **Unknowns in A** (`None`, e.g. iodine for most foods) have to be decided before solving:
+  drop that nutrient's row, or treat the food as contributing nothing and say so. They are
+  never silently 0.
+
+A suggested learning path, each step runnable against her real matrix:
+1. Vectors and the dot product: compute one nutrient's total by hand from one row of A.
+2. Matrix × vector: compute the whole day at once and check it against the page's totals.
+3. Inequalities as half-spaces: with 2 foods and 2 nutrients, draw the feasible region.
+4. What an LP solver does (vertices, simplex) on that 2-D picture.
+5. Solve the full problem with `scipy.optimize.linprog`, then read the answer back as meals.
 
 ## Where her data lives
 
 JSON collections through `store.py` (not SQL-backed, so not in `projects.json`
 "collections"):
 
-- `nutrition_meals`: meals as `{label, fdc_id, grams, grams_guessed?}` items, plus her
+- `nutrition_meals`: meals as `{label, fdc_id, grams, grams_guessed?, fill_from?}` items, plus her
   usual day as `[{meal, servings}]`.
 - `nutrition_settings`: `{sex, age}`.
 
@@ -97,7 +141,7 @@ Personal facts (her age, why "both") stay in those vault files, never in this re
 ## HTTP
 
 - `GET /api/nutrition/day`: the usual day's totals against the targets.
-- `GET /api/nutrition/search?q=`: FDC food search.
+- `GET /api/nutrition/search?q=`: FDC food search (Foundation, then SR Legacy, then FNDDS).
 - `POST /api/nutrition/meals/<name>`: replace a meal's items.
 - `POST /api/nutrition/settings`: sex / age.
 

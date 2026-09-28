@@ -3,7 +3,8 @@
 Built on the tiny FDC zip from test_fdcdb.py (kale: calcium with a sample
 range, vitamin C without one; the baby kale has no figures at all). Checks
 the promises the page makes: an unknown nutrient lists the foods it's
-missing from instead of counting them as zero, the low/high range adds up
+missing from instead of counting them as zero, a fill_from entry fills only
+the gaps and is named in `filled`, the low/high range adds up
 the sample min/max, grams scale per 100 g, servings multiply, a UL that
 doesn't count food can't be gone over, and "both" shows each sex's target.
 """
@@ -16,7 +17,7 @@ import fdcdb
 import nutrition
 import store
 from routes import nutrition as nutrition_routes
-from tests.test_fdcdb import make_zip
+from tests.test_fdcdb import make_survey_zip, make_zip
 
 
 @pytest.fixture
@@ -25,6 +26,7 @@ def conn(tmp_path, data_dir, monkeypatch):
     monkeypatch.setenv("EXOCORTEX_COMMONS_DIR", str(root))
     with fdcdb.session(root) as connection:
         fdcdb.load_fdc(connection, make_zip(tmp_path / "f.zip"))
+        fdcdb.load_fdc(connection, make_survey_zip(tmp_path / "s.zip"))
         dri.ensure_schema(connection)
         for sex, calcium in (("female", 1000), ("male", 1200)):
             connection.execute("INSERT INTO dri_values VALUES ('calcium', ?, '19-30', 'rda', ?, 'mg', '', 'test', NULL)",
@@ -50,6 +52,16 @@ def test_unknown_is_listed_not_counted_as_zero(conn):
     total = _calcium(conn, [{"fdc_id": 1, "grams": 100, "label": "kale"},
                             {"fdc_id": 2, "grams": 100, "label": "baby kale"}])
     assert (total["amount"], total["missing"]) == (254.0, ["baby kale"])
+
+
+def test_fill_from_fills_a_gap_and_says_so(conn):
+    total = _calcium(conn, [{"fdc_id": 2, "grams": 100, "label": "baby kale", "fill_from": 50}])
+    assert (total["amount"], total["filled"], total["missing"]) == (150.0, ["baby kale"], [])
+
+
+def test_fill_from_never_overrides_a_measured_figure(conn):
+    total = _calcium(conn, [{"fdc_id": 1, "grams": 100, "label": "kale", "fill_from": 50}])
+    assert (total["amount"], total["filled"]) == (254.0, [])
 
 
 def test_servings_multiply_a_meals_grams():
@@ -95,6 +107,12 @@ def test_day_route_adds_up_the_usual_day(client):
     assert rows["calcium"]["amount"] == 254.0
 
 
+def test_saving_a_meal_keeps_fill_from(client):
+    client.post("/api/nutrition/meals/bowl",
+                json={"items": [{"label": "baby kale", "fdc_id": 2, "grams": 100, "fill_from": 50}]})
+    assert store.read(nutrition.MEALS)["meals"]["bowl"]["items"][0]["fill_from"] == 50
+
+
 def test_saving_a_meal_keeps_its_note(client):
     client.post("/api/nutrition/meals/bowl", json={"items": []})
     assert store.read(nutrition.MEALS)["meals"]["bowl"]["note"] == "kept"
@@ -116,3 +134,18 @@ def test_settings_saved_and_read_back(client):
 
 def test_search_route_finds_by_words(client):
     assert client.get("/api/nutrition/search?q=kale baby").get_json()["foods"][0]["fdc_id"] == 2
+
+
+def test_matrix_column_is_one_gram_of_the_food(conn):
+    built = nutrition.matrix(conn, [{"fdc_id": 1, "label": "kale", "grams": 500}], sex="female", age=29)
+    assert built["A"][built["nutrients"].index("calcium")] == [pytest.approx(2.54)]
+
+
+def test_matrix_leaves_unknown_as_none_not_zero(conn):
+    built = nutrition.matrix(conn, [{"fdc_id": 2, "label": "baby kale", "grams": 100}], sex="female", age=29)
+    assert built["A"][built["nutrients"].index("calcium")] == [None]
+
+
+def test_matrix_both_takes_the_higher_floor(conn):
+    built = nutrition.matrix(conn, [{"fdc_id": 1, "label": "kale", "grams": 100}], sex="both", age=29)
+    assert built["lower"][built["nutrients"].index("calcium")] == 1200

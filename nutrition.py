@@ -10,6 +10,11 @@ It is built to show how sure each number is, not just the number:
   - **Unknown is not zero.** When USDA has no figure for a nutrient in one of
     the foods, the total says which foods are missing it, instead of quietly
     counting them as 0.
+  - **Gaps filled from a second USDA entry, and labelled.** An item may name
+    `fill_from`: another FDC food (usually FNDDS, where every nutrient is
+    filled in) used only for the nutrients its own entry lacks. The total
+    lists those foods under `filled`, so an estimate never passes as a
+    measurement.
   - **A range where USDA gives one.** Foundation foods come with the min and
     max of the samples USDA measured; the day's low / high are those added up.
     SR Legacy foods have one number and add the same to both ends.
@@ -21,7 +26,7 @@ It is built to show how sure each number is, not just the number:
 
 Where things live:
   `nutrition_meals` (data dir, JSON via store.py) — her meals as items
-      {label, fdc_id, grams, grams_guessed?} and her usual day as
+      {label, fdc_id, grams, grams_guessed?, fill_from?} and her usual day as
       [{meal, servings}]. `grams_guessed` marks a weight nobody has weighed.
   `nutrition_settings` (data dir, JSON) — {sex: female|male|both, age}.
 
@@ -103,26 +108,35 @@ def settings():
 
 
 def totals(conn, items):
-    """Add up the tracked nutrients over [{fdc_id, grams, label?}].
+    """Add up the tracked nutrients over [{fdc_id, grams, label?, fill_from?}].
 
-    Returns {key: {label, unit, amount, low, high, missing: [labels]}} — amount
-    is the sum of USDA's figures, low / high the sum of the sample min / max
-    where given (the figure itself where not), and `missing` the foods USDA
-    has no figure for, so the total is a floor, not the whole.
+    Returns {key: {label, unit, amount, low, high, missing: [labels],
+    filled: [labels]}} — amount is the sum of USDA's figures, low / high the
+    sum of the sample min / max where given (the figure itself where not),
+    `missing` the foods USDA has no figure for, so the total is a floor, not
+    the whole, and `filled` the foods whose figure came from their fill_from
+    entry instead of their own.
     """
     foods = {}
     for item in items:
-        if item.get("fdc_id") and item["fdc_id"] not in foods:
-            foods[item["fdc_id"]] = fdcdb.food(conn, item["fdc_id"])
+        for fdc_id in (item.get("fdc_id"), item.get("fill_from")):
+            if fdc_id and fdc_id not in foods:
+                foods[fdc_id] = fdcdb.food(conn, fdc_id)
 
     out = {}
     for key, label, ids in TRACKED:
-        entry = {"label": label, "unit": None, "amount": 0.0, "low": 0.0, "high": 0.0, "missing": []}
+        entry = {"label": label, "unit": None, "amount": 0.0, "low": 0.0, "high": 0.0,
+                 "missing": [], "filled": []}
         for item in items:
             name = item.get("label") or str(item.get("fdc_id"))
-            food = foods.get(item.get("fdc_id"))
-            # Take the first FDC nutrient id this food has a figure for.
-            found = next((food["nutrients"][i] for i in ids if food and i in food["nutrients"]), None)
+
+            # Take the first FDC nutrient id this food has a figure for,
+            # then the same from its fill_from entry, then call it missing.
+            found = _first(foods.get(item.get("fdc_id")), ids)
+            if found is None:
+                found = _first(foods.get(item.get("fill_from")), ids)
+                if found is not None:
+                    entry["filled"].append(name)
             if found is None:
                 entry["missing"].append(name)
                 continue
@@ -138,6 +152,13 @@ def totals(conn, items):
             entry["high"] += add(found["max"] if found["max"] is not None else found["amount"])
         out[key] = entry
     return out
+
+
+def _first(food, ids):
+    """The food's figure for the first of these FDC nutrient ids it has, or None."""
+    if not food:
+        return None
+    return next((food["nutrients"][i] for i in ids if i in food["nutrients"]), None)
 
 
 def _judge(amount, unit, target):
@@ -194,8 +215,56 @@ def report(conn, items, sex=None, age=None):
             row["by_sex"][s] = _judge(entry["amount"], entry["unit"], target) if entry["unit"] else {"status": "no_data"}
         rows.append(row)
     return {"sex": sex, "age": age, "sexes": list(sexes), "nutrients": rows,
-            "sources": {"composition": "USDA FoodData Central (Foundation 2026-04, SR Legacy 2018-04)",
+            "sources": {"composition": "USDA FoodData Central (Foundation 2026-04, SR Legacy 2018-04, FNDDS 2021–2023)",
                         "targets": dri.TABLE_FILE, "update_2019": dri.UPDATES_2019["citation"]}}
+
+
+def matrix(conn, items, sex="female", age=None):
+    """Her foods and targets as the pieces of a linear program: A, lower, upper.
+
+    This is the data half of step 4 (the diet optimizer); the solving half is
+    left to be written together with the owner, as linear-algebra practice —
+    see docs/nutrition.md "Step 4, together".
+
+    A[n][f] is how much of nutrient n one gram of food f carries, in the unit
+    the day's total uses; None where USDA has no figure even after fill_from
+    (unknown is not zero — the solver has to be told what to do there).
+    With x the grams of each food, A·x is the day's nutrients, and the
+    program asks for lower ≤ A·x ≤ upper. `lower` is the RDA/AI and `upper`
+    the UL where it counts food (None where there's no bound). For sex
+    'both' each bound is the stricter of the two: the higher floor, the
+    lower ceiling.
+    """
+    config = settings()
+    age = age if age is not None else config["age"]
+    sexes = ("female", "male") if sex == "both" else (sex,)
+
+    # One column per food: its nutrients in one gram.
+    foods = [dict(item, grams=1.0) for item in items]
+    columns = [totals(conn, [food]) for food in foods]
+    keys = [key for key, _, _ in TRACKED]
+    units = {key: next((c[key]["unit"] for c in columns if c[key]["unit"]), None) for key in keys}
+    A = [[(convert(c[key]["amount"], c[key]["unit"], units[key]) if not c[key]["missing"] else None)
+          for c in columns] for key in keys]
+
+    # The bounds, in each row's unit, stricter of the sexes asked for.
+    tables = {s: dri.targets(conn, s, int(age)) for s in sexes} if age else {}
+    lower, upper = [], []
+    for key in keys:
+        floors, ceilings = [], []
+        for s, table in tables.items():
+            target = table.get(key)
+            judged = _judge(0.0, units[key], dict(target, _nutrient=key)) if target and units[key] else {}
+            if judged.get("target"):
+                floors.append(judged["target"]["value"])
+            if judged.get("limit") and not judged["limit"]["applies_to"]:
+                ceilings.append(judged["limit"]["value"])
+        lower.append(max(floors) if floors else None)
+        upper.append(min(ceilings) if ceilings else None)
+
+    return {"foods": [item.get("label") or str(item.get("fdc_id")) for item in items],
+            "nutrients": keys, "units": [units[k] for k in keys],
+            "A": A, "lower": lower, "upper": upper}
 
 
 def meals():

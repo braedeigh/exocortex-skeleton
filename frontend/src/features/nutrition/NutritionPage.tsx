@@ -6,7 +6,8 @@
  * the nutrients, grouped over a limit → below target → met → no target, each
  * with its total, the range USDA's samples allow, a bar per sex against its
  * target, and plain notes where the number is softer than it looks (an AI
- * target, foods with no figure, a UL that doesn't count food); then her
+ * target, foods with no figure, foods whose figure was filled in from USDA's
+ * survey data, a UL that doesn't count food); then her
  * meals, where each food's grams can be fixed, a food removed, or a USDA food
  * added by search. A weight nobody has weighed yet is marked "guess".
  *
@@ -23,7 +24,7 @@ import { useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { getDay, saveMeal, saveSettings, searchFoods } from './api';
 import { barShare, formatAmount, GROUP_TITLES, groupRows } from './nutrientMath';
-import type { Meal, MealItem, NutrientRow, NutritionDay, Sex, SexSetting } from './types';
+import type { FdcFood, Meal, MealItem, NutrientRow, NutritionDay, Sex, SexSetting } from './types';
 import pageStyles from '../research/ResearchPage.module.css';
 import styles from './Nutrition.module.css';
 
@@ -184,6 +185,11 @@ function NutrientLine({ row, sexes }: { row: NutrientRow; sexes: Sex[] }) {
       {row.missing.length ? (
         <div className={styles.note}>No USDA figure for: {row.missing.join(', ')} — the total is at least this.</div>
       ) : null}
+      {row.filled?.length ? (
+        <div className={styles.note}>
+          Filled in from USDA's survey data (partly estimated) for: {row.filled.join(', ')}.
+        </div>
+      ) : null}
       {isAi ? <div className={styles.note}>* An Adequate Intake — a softer target than an RDA.</div> : null}
       {limit ? (
         <div className={styles.note}>
@@ -283,6 +289,13 @@ function MealEditor({ name, meal, servings }: { name: string; meal: Meal; servin
   );
 }
 
+// The short tag each USDA dataset shows in search results.
+const DATASET_TAGS: Record<FdcFood['data_type'], string> = {
+  foundation_food: 'Foundation',
+  sr_legacy_food: 'SR',
+  survey_fndds_food: 'FNDDS',
+};
+
 // Add a USDA food by name: type, pick one, it joins the meal at 100 g (a guess).
 function FoodSearch({ onPick }: { onPick: (item: MealItem) => void }) {
   const [text, setText] = useState('');
@@ -319,7 +332,7 @@ function FoodSearch({ onPick }: { onPick: (item: MealItem) => void }) {
                 }}
               >
                 {food.description}
-                <span className={styles.resultTag}>{food.data_type === 'foundation_food' ? 'Foundation' : 'SR'}</span>
+                <span className={styles.resultTag}>{DATASET_TAGS[food.data_type]}</span>
               </button>
             </li>
           ))}

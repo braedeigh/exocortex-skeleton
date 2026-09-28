@@ -1,7 +1,7 @@
 """USDA FoodData Central in commons.db: what's in each food, per 100 grams.
 
 **What this is.** FoodData Central (FDC) is USDA's food-composition database —
-the numbers Cronometer and every nutrition app are built on. Two of its
+the numbers Cronometer and every nutrition app are built on. Three of its
 datasets are kept whole in the commons (`<commons>/usda-fdc/`, brought in by
 scripts/commons_fetch.py):
 
@@ -10,6 +10,10 @@ scripts/commons_fetch.py):
                     so a number comes with its own spread
   sr_legacy_food    ~7,800 foods from the old Standard Reference, frozen in
                     2018; wider coverage, one number per nutrient, no spread
+  survey_fndds_food ~5,400 foods "as eaten" from FNDDS 2021–2023 (the survey
+                    database behind USDA's own diet models); every food has
+                    all ~65 nutrients, because USDA estimates (imputes) the
+                    ones nobody analyzed — complete, but softer
 
 This module reads those zips into four tables in commons.db (the derived
 database beside the commons files — see commonsdb.py), so the app can look up
@@ -22,7 +26,7 @@ a food without the internet:
                  sample count and min / max / median where USDA gives them
   fdc_portions   household measures ("1 cup, chopped" = 67 g) per food
 
-Only these two datasets' own foods are kept. The Foundation zip also carries
+Only these datasets' own foods are kept. The Foundation zip also carries
 tens of thousands of per-sample sub-rows (one per store purchase); those are
 USDA's working, and the foundation row already summarizes them.
 
@@ -44,7 +48,7 @@ import commons
 import commonsdb
 
 # The datasets this loader reads, by FDC's own data_type name.
-DATASETS = ("foundation_food", "sr_legacy_food")
+DATASETS = ("foundation_food", "sr_legacy_food", "survey_fndds_food")
 
 _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS fdc_foods ("
@@ -135,6 +139,9 @@ def load_fdc(conn, zip_path):
     with zipfile.ZipFile(zip_path) as archive:
         # Read the small lookup tables first: categories and measure units.
         categories = {row["id"]: row["description"] for row in _rows(archive, "food_category.csv")}
+        # FNDDS names its categories in its own WWEIA list instead.
+        categories.update({row["wweia_food_category"]: row["wweia_food_category_description"]
+                           for row in _rows(archive, "wweia_food_category.csv")})
         units = {row["id"]: row["name"] for row in _rows(archive, "measure_unit.csv")}
 
         # Keep only the dataset's own foods, not the per-sample sub-rows.
@@ -143,7 +150,7 @@ def load_fdc(conn, zip_path):
             if row["data_type"] in DATASETS and _food_id(row) is not None:
                 foods[_food_id(row)] = row
         if not foods:
-            raise ValueError(f"{zip_path}: no foundation or SR Legacy foods in food.csv")
+            raise ValueError(f"{zip_path}: none of {DATASETS} in food.csv")
         dataset = next(iter(foods.values()))["data_type"]
 
         # Clear this dataset's earlier load, so a re-run replaces rather than piles up.
@@ -159,11 +166,21 @@ def load_fdc(conn, zip_path):
              for fdc_id, row in foods.items()])
 
         # Nutrient names: the newer file wins where both datasets list one.
+        nutrient_rows = list(_rows(archive, "nutrient.csv"))
         conn.executemany(
             "INSERT OR REPLACE INTO fdc_nutrients (id, name, unit, nutrient_nbr, rank)"
             " VALUES (?, ?, ?, ?, ?)",
             [(int(row["id"]), row["name"], row["unit_name"], row.get("nutrient_nbr") or None,
-              _number(row.get("rank"))) for row in _rows(archive, "nutrient.csv")])
+              _number(row.get("rank"))) for row in nutrient_rows])
+
+        # Translate FNDDS's nutrient numbers into FDC nutrient ids.
+        # FNDDS's food_nutrient.csv names a nutrient by its old 3-digit number
+        # (301 = calcium) where the other datasets use the id (1087); each
+        # number it uses belongs to exactly one id.
+        by_number = {}
+        if dataset == "survey_fndds_food":
+            by_number = {row["nutrient_nbr"]: int(row["id"]) for row in nutrient_rows
+                         if row.get("nutrient_nbr")}
 
         # The amounts, streamed: SR Legacy's file is 36 MB and 640k rows.
         amounts = 0
@@ -174,7 +191,8 @@ def load_fdc(conn, zip_path):
             if fdc_id not in foods or amount is None:
                 continue
             points = _number(row.get("data_points"))
-            batch.append((fdc_id, int(row["nutrient_id"]), amount,
+            nutrient_id = by_number.get(row["nutrient_id"]) or int(row["nutrient_id"])
+            batch.append((fdc_id, nutrient_id, amount,
                           int(points) if points is not None else None,
                           _number(row.get("min")), _number(row.get("max")), _number(row.get("median"))))
             if len(batch) >= 5000:
@@ -210,7 +228,7 @@ def _insert_amounts(conn, batch):
 
 
 def search(conn, text, limit=20):
-    """Foods whose name holds every word of `text`, Foundation foods first.
+    """Foods whose name holds every word of `text`: Foundation, then SR Legacy, then FNDDS.
 
     A plain word match (each word anywhere in the name, any case), then the
     shortest names first — "Kale, raw" before "Kale, frozen, cooked, boiled,
@@ -222,7 +240,8 @@ def search(conn, text, limit=20):
     where = " AND ".join("lower(description) LIKE ?" for _ in words)
     rows = conn.execute(
         f"SELECT fdc_id, data_type, description, category FROM fdc_foods WHERE {where}"
-        " ORDER BY data_type = 'foundation_food' DESC, length(description), description LIMIT ?",
+        " ORDER BY CASE data_type WHEN 'foundation_food' THEN 0 WHEN 'sr_legacy_food' THEN 1 ELSE 2 END,"
+        " length(description), description LIMIT ?",
         [f"%{w}%" for w in words] + [limit]).fetchall()
     return [{"fdc_id": r[0], "data_type": r[1], "description": r[2], "category": r[3]} for r in rows]
 

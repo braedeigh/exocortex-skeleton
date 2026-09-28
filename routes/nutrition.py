@@ -8,7 +8,7 @@ Bad input comes back as a 400 with the reason.
 
     GET  /api/nutrition/day            -> {report, meals, day, settings}
     GET  /api/nutrition/search?q=      -> USDA foods whose name holds every word
-    POST /api/nutrition/meals/<name>   {items: [{label, fdc_id, grams, grams_guessed?}]}
+    POST /api/nutrition/meals/<name>   {items: [{label, fdc_id, grams, grams_guessed?, fill_from?}]}
     POST /api/nutrition/settings       {sex?: female|male|both, age?: int}
 
 No feature gate: these are her own reads, and server.py's auth gate closes
@@ -29,7 +29,11 @@ def _refused(message):
 
 
 def _clean_items(raw):
-    """A meal's items, checked: each needs a label, a USDA food id, and grams ≥ 0."""
+    """A meal's items, checked: each needs a label, a USDA food id, and grams ≥ 0.
+
+    An optional fill_from (a second USDA food id, for the nutrients the first
+    lacks) is kept when it's a number.
+    """
     if not isinstance(raw, list):
         raise ValueError("items must be a list")
     items = []
@@ -44,8 +48,11 @@ def _clean_items(raw):
             raise ValueError(f"{label or 'an item'}: fdc_id and grams must be numbers")
         if not label or grams < 0:
             raise ValueError(f"{label or 'an item'}: needs a label and grams of 0 or more")
-        items.append({"label": label, "fdc_id": fdc_id, "grams": grams,
-                      "grams_guessed": bool(item.get("grams_guessed"))})
+        clean = {"label": label, "fdc_id": fdc_id, "grams": grams,
+                 "grams_guessed": bool(item.get("grams_guessed"))}
+        if str(item.get("fill_from") or "").isdigit():
+            clean["fill_from"] = int(item["fill_from"])
+        items.append(clean)
     return items
 
 

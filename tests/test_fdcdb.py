@@ -4,7 +4,8 @@ A tiny hand-built FDC zip stands in for USDA's: the loader keeps the
 dataset's own foods and drops per-sample sub-rows, keeps the Foundation
 min/max, skips rows with a blank food id, and a second load replaces the
 first rather than piling up. Search puts Foundation foods and short names
-first.
+first. An FNDDS zip names nutrients by their old number (301), which the
+loader turns into the FDC id (1087), and its categories come from WWEIA.
 """
 import zipfile
 
@@ -52,6 +53,28 @@ def make_zip(path, folder="FoodData_Central_foundation_food_csv_test"):
     return path
 
 
+def make_survey_zip(path):
+    """An FNDDS-shaped zip: one survey food whose nutrient is named by number, not id."""
+    files = {
+        "wweia_food_category.csv": _csv(("wweia_food_category", "wweia_food_category_description"),
+                                        [("6402", "Other vegetables")]),
+        "measure_unit.csv": _csv(("id", "name"), [("9999", "undetermined")]),
+        "food.csv": _csv(("fdc_id", "data_type", "description", "food_category_id", "publication_date"), [
+            ("50", "survey_fndds_food", "Kale, raw", "6402", "2024-10-31")]),
+        "nutrient.csv": _csv(("id", "name", "unit_name", "nutrient_nbr", "rank"), [
+            ("1087", "Calcium, Ca", "MG", "301", "5300"), ("1114", "Vitamin D (D2 + D3)", "UG", "328", "8700")]),
+        "food_nutrient.csv": _csv(
+            ("id", "fdc_id", "nutrient_id", "amount", "data_points", "derivation_id", "min", "max",
+             "median", "footnote", "min_year_acquired"), [
+                ("1", "50", "301", "150", "", "", "", "", "", "", ""),
+                ("2", "50", "328", "0", "", "", "", "", "", "", "")]),
+    }
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, text in files.items():
+            archive.writestr(f"FoodData_Central_survey_food_csv_test/{name}", text)
+    return path
+
+
 @pytest.fixture
 def conn(tmp_path, data_dir):
     with fdcdb.session(tmp_path / "commons") as connection:
@@ -85,3 +108,13 @@ def test_portion_carries_its_unit_and_grams(conn, tmp_path):
     fdcdb.load_fdc(conn, make_zip(tmp_path / "f.zip"))
     assert fdcdb.food(conn, 1)["portions"] == [
         {"amount": 1.0, "unit": "cup", "description": "chopped", "grams": 21.0}]
+
+
+def test_survey_nutrient_numbers_become_fdc_ids(conn, tmp_path):
+    fdcdb.load_fdc(conn, make_survey_zip(tmp_path / "s.zip"))
+    assert fdcdb.food(conn, 50)["nutrients"][1087]["amount"] == 150
+
+
+def test_survey_category_comes_from_wweia(conn, tmp_path):
+    fdcdb.load_fdc(conn, make_survey_zip(tmp_path / "s.zip"))
+    assert fdcdb.food(conn, 50)["category"] == "Other vegetables"
