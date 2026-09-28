@@ -44,6 +44,7 @@ import styles from './SwarmNetwork.module.css';
 import { setClosedSwarmsShown, useClosedSwarmsShown, type Swarm } from './swarmApi';
 import {
   layoutSwarm, lineWidth, nodeBoxes, NETWORK_WIDTH, placeCounts, shortTitle, type CountLine,
+  withoutRetired,
 } from './swarmNetworkMath';
 
 /** How wide the drawing is shown, in pixels, kept up to date as the page
@@ -77,12 +78,14 @@ export function SwarmNetwork({
   /** Whether the helper is mid-run, from the roster. */
   helperWorking?: boolean;
 }) {
-  // Leave retired members out when the switch is on. Their lines go with
-  // them: the layout only draws lines between members it was given.
+  // Leave retired members out when the switch is on. Their lines move onto
+  // the live session that took over from them (withoutRetired), so a
+  // continuation doesn't look unconnected.
   const hideRetired = retiredHiddenToggle.useOn();
-  const members = hideRetired ? swarm.members.filter((m) => !m.retired) : swarm.members;
+  const shownSwarm = hideRetired ? withoutRetired(swarm) : swarm;
+  const members = shownSwarm.members;
   const hiddenCount = swarm.members.length - members.length;
-  const layout = layoutSwarm({ ...swarm, members });
+  const layout = layoutSwarm(shownSwarm);
   // The helper's threads only show when its seat does.
   const threads = swarm.helper_conv ? layout.helperThreads : [];
   const [canvasRef, shownWidth] = useShownWidth();

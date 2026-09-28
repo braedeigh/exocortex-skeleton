@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SwarmMember } from './swarmApi';
-import { centreOf, foldLinks, nodeBoxes, placeCounts, layoutSwarm, lineWidth, NETWORK_WIDTH, placeRings, shortTitle } from './swarmNetworkMath';
+import { centreOf, foldLinks, nodeBoxes, placeCounts, layoutSwarm, lineWidth, NETWORK_WIDTH, placeRings, shortTitle, withoutRetired } from './swarmNetworkMath';
 
 function member(conv: string): SwarmMember {
   return { conv, title: `title ${conv}`, lane: 'coding', state: 'silent', joined_at: '', summary: null, summary_at: null };
@@ -115,5 +115,30 @@ describe('placing the message counts', () => {
     ];
     const spots = placeCounts(lines, [], 1, bounds);
     expect(overlaps(spots.get('talk')!, spots.get('helper')!)).toBe(false);
+  });
+});
+
+describe('withoutRetired', () => {
+  const retired = (conv: string) => ({ ...member(conv), retired: true });
+
+  it('moves a hidden session\'s lines onto the live session that took over from it', () => {
+    const shown = withoutRetired({
+      members: [retired('old'), member('next'), member('peer')],
+      links: [{ from: 'peer', to: 'old', messages: 3 }, { from: 'peer', to: 'next', messages: 1 }],
+      continues: [{ from: 'old', to: 'next' }],
+      helper_links: [{ to: 'old', messages: 4 }],
+    });
+    expect(shown.members.map((m) => m.conv)).toEqual(['next', 'peer']);
+    expect(shown.links).toEqual([{ from: 'peer', to: 'next', messages: 4 }]);
+    expect(shown.helper_links).toEqual([{ to: 'next', messages: 4 }]);
+  });
+
+  it('follows a chain of handovers and drops lines with no live successor', () => {
+    const shown = withoutRetired({
+      members: [retired('a'), retired('b'), member('c'), retired('gone'), member('peer')],
+      links: [{ from: 'a', to: 'peer', messages: 2 }, { from: 'gone', to: 'peer', messages: 5 }, { from: 'a', to: 'b', messages: 1 }],
+      continues: [{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }],
+    });
+    expect(shown.links).toEqual([{ from: 'c', to: 'peer', messages: 2 }]);
   });
 });

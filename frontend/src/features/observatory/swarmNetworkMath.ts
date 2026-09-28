@@ -21,7 +21,9 @@
  *     a name: each tries spots along its own line, then just beside it,
  *     and takes the first clear one (placeCounts);
  *   - a continuation (one session taking over from another) is its own kind
- *     of line, since it's a handover rather than talk.
+ *     of line, since it's a handover rather than talk;
+ *   - hiding retired sessions without orphaning their successors: a hidden
+ *     session's lines move onto the live session that took over (withoutRetired).
  *
  * Touches: swarmApi.ts (the Swarm shape), SwarmNetwork.tsx (the drawing).
  *
@@ -179,6 +181,56 @@ export function layoutSwarm(
     continues: (swarm.continues ?? []).filter((c) => members.has(c.from) && members.has(c.to)),
     centre,
     helperThreads: helperThreads(swarm.helper_links, nodes),
+  };
+}
+
+/** Leave retired members out, moving their lines onto whoever carries
+ * their work on. A retired session that handed over to a live one would
+ * otherwise vanish with all its lines, leaving the live one looking
+ * unconnected. Each hidden session's messages (to members and from the
+ * helper) are credited to its nearest shown successor, following the
+ * handover chain; a hidden session with no shown successor loses its lines.
+ * Prompt that produced it: "Figure out why there's no session attached to
+ * these in the view" — then "Build it". */
+export function withoutRetired<S extends Pick<Swarm, 'members' | 'links' | 'continues' | 'helper_links'>>(
+  swarm: S,
+): S {
+  const members = swarm.members.filter((m) => !m.retired);
+  const shown = new Set(members.map((m) => m.conv));
+  const nextOf = new Map((swarm.continues ?? []).map((c) => [c.from, c.to] as const));
+  // Walk the handover chain to the first shown session; the seen-set stops a loop.
+  const stand = (conv: string): string | null => {
+    const seen = new Set<string>();
+    let at: string | undefined = conv;
+    while (at !== undefined && !seen.has(at)) {
+      if (shown.has(at)) return at;
+      seen.add(at);
+      at = nextOf.get(at);
+    }
+    return null;
+  };
+  // Move each message count onto the shown stand-ins, adding up any that now share a pair.
+  const links = new Map<string, { from: string; to: string; messages: number }>();
+  for (const link of swarm.links) {
+    const from = stand(link.from);
+    const to = stand(link.to);
+    if (!from || !to || from === to) continue;
+    const key = `${from}\u0000${to}`;
+    const entry = links.get(key) ?? { from, to, messages: 0 };
+    entry.messages += link.messages;
+    links.set(key, entry);
+  }
+  const helperLinks = new Map<string, number>();
+  for (const link of swarm.helper_links ?? []) {
+    const to = stand(link.to);
+    if (to) helperLinks.set(to, (helperLinks.get(to) ?? 0) + link.messages);
+  }
+  return {
+    ...swarm,
+    members,
+    links: [...links.values()],
+    continues: (swarm.continues ?? []).filter((c) => shown.has(c.from) && shown.has(c.to)),
+    helper_links: [...helperLinks].map(([to, messages]) => ({ to, messages })),
   };
 }
 
