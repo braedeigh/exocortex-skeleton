@@ -104,7 +104,9 @@ def test_what_writes_or_streams_stays_closed(visitor):
     assert visitor.post("/api/observatory/terrain/trace/arm", json={}).status_code == 401
     assert visitor.get("/api/observatory/terrain/trace").status_code == 401
     assert visitor.get("/api/observatory/flow").status_code == 401
-    assert visitor.get("/api/creek?days=14").status_code == 401
+    # /api/creek itself is open (the map's threads, 2026-09-22); what it
+    # would say about a collection's contents is not.
+    assert visitor.get("/api/creek/collection/todos/now").status_code == 401
     assert visitor.get("/api/sessions").status_code == 401
     assert visitor.get("/api/observatory/terrain/growth").status_code == 401
 

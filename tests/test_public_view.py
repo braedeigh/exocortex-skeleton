@@ -103,20 +103,19 @@ def test_public_ecosystem_map_is_exposed():
     assert out["ecosystem"] == {"sources": [{"name": "Kale"}]}
 
 
-def test_ecosystem_tab_and_food_map_travel_together():
-    # The /ecosystem dashboard tab, the standalone /food-map and their data
-    # feed are one exhibit: whichever tier they sit in (closed since
-    # 2026-09-17, "only Terrain for now"), they sit there TOGETHER, so
-    # reopening one without the others — a tab that bounces to /login while
-    # its map is public, or the reverse — can't happen by accident.
+def test_food_map_and_its_data_feed_travel_together():
+    # The standalone /food-map and its data feed are one exhibit, reopened
+    # 2026-09-17 for the portfolio: whichever tier they sit in, they sit
+    # there TOGETHER, so a public map whose feed bounces to /login (or the
+    # reverse) can't happen by accident. The /ecosystem dashboard tab stayed
+    # closed with the rest of the dashboard.
     import public_config
     tiers = {"presentable": set(public_config.PRESENTABLE_PATHS),
              "closed": set(public_config._NOT_YET_PRESENTABLE)}
-    home = {name for name, paths in tiers.items() if "/ecosystem" in paths}
-    assert home, "/ecosystem must be in one of the tiers"
-    tier = tiers[home.pop()]
-    assert {"/ecosystem", "/food-map", "/api/data/ecosystem"} <= tier
-    assert is_public_path("/ecosystem") == is_public_path("/food-map") == is_public_path("/api/data/ecosystem")
+    home = {name for name, paths in tiers.items() if "/food-map" in paths}
+    assert home, "/food-map must be in one of the tiers"
+    assert "/api/data/ecosystem" in tiers[home.pop()]
+    assert is_public_path("/food-map") == is_public_path("/api/data/ecosystem")
 
 
 def test_ecosystem_write_endpoints_stay_gated():
