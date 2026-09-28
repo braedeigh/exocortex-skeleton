@@ -139,8 +139,8 @@ SWARM_HELPER_MODEL = os.environ.get("EXOCORTEX_SWARM_HELPER_MODEL", "sonnet")
 SWARM_HELPER_MIN_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_MIN_SEC", "300"))
 SWARM_HELPER_TIMEOUT_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_TIMEOUT_SEC", "240"))
 # The helper's chat (helper_chat.py) starts every turn fresh, seeded with the
-# swarm, its running notes, and this many of the latest exchanges word for word.
-HELPER_CHAT_EXCHANGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_EXCHANGES", "10"))
+# swarm, the chat summary, and this many of the owner's latest messages word for word.
+HELPER_CHAT_MESSAGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_MESSAGES", "10"))
 
 # The privileged commands an agent may ask the owner to run for it (sudo_requests.py,
 # routes/sudo.py). An agent names one of these KEYS, never a command line — the list

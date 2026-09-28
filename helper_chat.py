@@ -10,25 +10,31 @@ stops that. Each turn in the helper's chat is a FRESH model session (nothing
 is resumed — routes/observatory.begin_turn skips `--resume` for it), seeded
 with a document written here just before the turn starts:
 
-  1. the helper's standing instructions (CHAT_PROMPT);
-  2. the swarm as it is now — the latest swarm summary and member summaries
-     the summarizer runs wrote to SQL (swarms.overview);
-  3. its RUNNING NOTES — her decisions word for word, promises made, open
-     threads — which a small model call rewrites after every turn
-     (rewrite_notes). They replace the old notes, never pile up;
-  4. the last config.HELPER_CHAT_EXCHANGES exchanges, word for word.
+  1. the helper's standing instructions (CHAT_PROMPT), which tell it that its
+     view is shaped like this and where to search for anything older;
+  2. the swarm as it is now — the swarm summary and one summary per member,
+     all written by the Sonnet summarizer runs into SQL (swarms.overview);
+  3. the CHAT SUMMARY — one summary of the whole chat so far (her decisions
+     word for word, what the helper last told her, promises, open threads),
+     rewritten by a Sonnet call after every turn (rewrite_notes). The new one
+     replaces the old; only the latest is ever handed over;
+  4. her own last config.HELPER_CHAT_MESSAGES messages, word for word — hers
+     only. The helper's replies, agents' mail and system notices are not
+     replayed; the chat summary carries what mattered in them.
 
 So the seed stays about the same size however long the swarm runs, and to
 her it's one continuous chat: same card, same conversation id, the whole
-transcript still on disk. Only what the model is handed rolls. The seed of
-the latest turn is kept at bot_chats/helper_seed/<conv>.md, so what the
-helper was working from can always be opened and read.
+transcript still on disk for the helper to search. Only what the model is
+handed rolls. The seed of the latest turn is kept at
+bot_chats/helper_seed/<conv>.md, so what the helper was working from can
+always be opened and read.
 
 Touches: routes/observatory.py (begin_turn writes the seed and passes it as
 the turn's system prompt file; after_turn calls rewrite_notes), swarm_helper.py
 (ask_model — the same tool-less, structured model call its runs use),
 swarms.py (the summaries), the session index (`helper_notes`,
-`helper_notes_at` on the helper's entry), config.py (HELPER_CHAT_EXCHANGES),
+`helper_notes_at` on the helper's entry — the chat summary), config.py
+(HELPER_CHAT_MESSAGES),
 continuation.py (which never continues this chat),
 tests/test_helper_chat.py. Design: docs/swarms.md.
 
@@ -37,14 +43,23 @@ It might be a good idea to just have a rolling context window or something of
 a certain number of messages and summaries along with its system prompt." —
 and then: "I'm wondering if it could have a legit rolling context and never
 start a new one while the swarm is still active until the whole thing
-retires and then it does a closing check."
+retires and then it does a closing check." — and then: "Can I go deeper such
+that each turn just gets the last summary only, the summary of each agent as
+written by a sonnet, and then whatever messages I have sent, up to maybe like
+10 messages of mine? And its system prompt. It can search for past messages
+across the whole system if it wants and knows it's shaped like this."
 """
 import json
 import subprocess
 from datetime import datetime
 
+from pathlib import Path
+
 import config
 import store
+
+# The app checkout, for the search commands the helper is told about.
+_REPO = Path(__file__).resolve().parent
 
 # One message longer than this is cut, keeping its start. Verbatim is the
 # point, but one pasted log shouldn't crowd out the other exchanges.
@@ -55,27 +70,48 @@ app — the owner, who talks to you in this chat. The agents became a swarm by m
 other. You keep track of what all of them are doing, notice where their work overlaps or \
 collides, and answer the owner's questions about the swarm.
 
-How your memory works: every turn of this chat starts fresh. You are NOT resuming a \
-conversation. What you know is exactly what's below — the swarm as it is right now (written \
-by the swarm's summarizer), your running notes (her decisions, your promises, the open \
-threads), and the last few exchanges word for word. Anything older than that is gone from \
-your view unless the notes carry it, so trust the notes, and never claim to remember what \
-isn't here. The full transcript is on disk if you truly need to look something up.
+How your view is shaped: every turn of this chat starts fresh. You are NOT resuming a \
+conversation. You are handed exactly four things, and nothing else:
+1. these instructions;
+2. the swarm now — its summary and one summary per agent, written by a summarizer model;
+3. the chat summary — one summary of this whole chat so far (her decisions, what you last \
+told her, your promises, the open threads), rewritten after every turn;
+4. her own last few messages, word for word. Your replies to them, agents' mail to you and \
+system notices are NOT replayed — the chat summary carries what mattered in them.
+Then comes whatever just arrived: her new message, an agent's mail, or a system notice.
+
+So never claim to remember what isn't here. When the summaries aren't enough — what exactly \
+you told her, what an agent actually did, something from before — look it up. Everything is \
+searchable; run these from the app checkout, {repo}:
+- This chat's full transcript, every line ever: {chats}/{conv}.jsonl \
+(JSON lines; `grep -i` it for a word).
+- Every session's transcript: {chats}/<session id>.jsonl — `grep -il <word> {chats}/*.jsonl` \
+finds which sessions talked about something.
+- One session's recent asks, replies and tool calls: `./venv/bin/python3 scripts/peers.py show <id>`.
+- The database (read-only SQL): `EXOCORTEX_DATA_DIR={data} ./venv/bin/python3 scripts/exo_query.py \
+query "<select>"`. `agent_messages` holds every message between sessions (and hers sent \
+mid-turn); `tool_calls` every tool any agent ran; `swarms` the swarm summaries. \
+`exo_query.py schema <table>` lists a table's columns.
+- Git in {repo} is the truth about what shipped.
+Say when an answer comes from a search rather than from what you were handed.
 
 Plain words; the owner reads everything you write."""
 
-NOTES_PROMPT = """You keep the running notes for a swarm helper's chat with its owner. Every \
-turn of that chat starts from scratch, so these notes are the helper's only memory of \
-anything older than the last few exchanges.
+NOTES_PROMPT = """You keep the chat summary for a swarm helper's chat with its owner. Every \
+turn of that chat starts from scratch, and the helper is handed only this summary, the \
+swarm's status and the owner's last few messages — never its own past replies. So this \
+summary is its only memory of what it said, and of anything older.
 
-You get the current notes and the latest exchange. Return the complete new notes; they \
-REPLACE the old ones. Three sections, markdown bullets:
+You get the current summary and the latest exchange. Return the complete new summary; it \
+REPLACES the old one. Four sections, markdown bullets:
+## Where it stands — what the helper last told her, in brief, so her next message makes \
+sense against it (if she answers "yes, do that", this is what "that" is).
 ## Her decisions — what the owner decided, quoted word for word, with the date.
 ## Promises — what the helper said it would do, and for whom.
 ## Open threads — questions and asks not settled yet.
 Carry forward everything still true. Drop what's resolved; when she changes her mind, replace \
 the old decision with the new one. Never invent anything the exchange doesn't say. Keep it \
-under about 600 words."""
+under about 700 words."""
 
 NOTES_SCHEMA = {
     "type": "object",
@@ -162,6 +198,15 @@ def exchanges(conv_id, limit=None):
     return found[-limit:] if limit else found
 
 
+def her_messages(conv_id, limit=None):
+    """Her own messages in the chat, oldest first, as (timestamp, text) —
+    only what the owner typed; nothing the helper, an agent or the app said.
+    `limit` keeps only the last so many."""
+    found = [(x["at"], text) for x in exchanges(conv_id)
+             for who, text in x["in"] if who == "owner"]
+    return found[-limit:] if limit else found
+
+
 def _render_exchange(exchange):
     lines = [f"### {exchange['at'] or 'earlier'}"]
     for who, text in exchange["in"]:
@@ -191,14 +236,17 @@ def _swarm_now(swarm_id):
 def seed_text(conv_id, entry):
     """Everything one chat turn starts from, as one document (see the top of
     the file for the four parts)."""
-    recent = exchanges(conv_id, limit=config.HELPER_CHAT_EXCHANGES)
-    parts = [CHAT_PROMPT, "",
+    chats = store.DATA_DIR / "bot_chats"
+    prompt = CHAT_PROMPT.format(repo=_REPO, chats=chats, conv=conv_id, data=store.DATA_DIR)
+    mine = her_messages(conv_id, limit=config.HELPER_CHAT_MESSAGES)
+    parts = [prompt, "",
              f"# The swarm now (swarm {entry.get('swarm_id')})", "",
              _swarm_now(entry.get("swarm_id")), "",
-             f"# Your running notes (last rewritten {entry.get('helper_notes_at') or 'never'})", "",
+             f"# The chat summary (last rewritten {entry.get('helper_notes_at') or 'never'})", "",
              entry.get("helper_notes") or "(none yet)", "",
-             f"# The last {len(recent)} exchanges, word for word", ""]
-    parts += [_render_exchange(x) for x in recent] or ["(none yet — this is the first)"]
+             f"# Her last {len(mine)} messages, word for word", ""]
+    parts += [f"### {at or 'earlier'}\n{_cut(text)}\n" for at, text in mine] \
+        or ["(none yet — this is the first)"]
     return "\n".join(parts) + "\n"
 
 
@@ -213,29 +261,37 @@ def write_seed(conv_id, entry):
     return str(path)
 
 
-# --- The running notes ------------------------------------------------------------
+# --- The chat summary (stored as `helper_notes`) ------------------------------------------------------------
 
 def _call_notes(text):
-    """One small model call for the new notes. Returns (notes, cost)."""
+    """One Sonnet call for the new chat summary. Returns (summary, cost)."""
     import swarm_helper
     answer, cost = swarm_helper.ask_model(text, NOTES_PROMPT, NOTES_SCHEMA)
     return str(answer.get("notes") or "").strip(), cost
 
 
 def rewrite_notes(conv_id):
-    """After a chat turn: rewrite the running notes from the old notes and the
-    exchange that just happened. The new notes REPLACE the old — the same
+    """After a chat turn: rewrite the chat summary from the old one and the
+    exchange that just happened (her message AND the helper's reply — the
+    reply is kept only here). The new summary REPLACES the old — the same
     "replaced, not accumulated" rule the summaries follow. Returns the new
-    notes, or None when there was nothing to do or the call failed (the old
-    notes stay, and the failure is written on the entry)."""
+    summary, or None when there was nothing to do or the call failed (the old
+    one stays, and the failure is written on the entry)."""
     entry = store.read("bot_chats/index", {}).get(conv_id)
     if not isinstance(entry, dict) or entry.get("role") != "swarm_helper":
         return None
-    latest = exchanges(conv_id, limit=1)
-    if not latest or not latest[0]["out"]:
+    # The first summary reads further back. With no summary yet (a new chat,
+    # or one that ran before summaries existed), it's written from the last
+    # HELPER_CHAT_MESSAGES exchanges, so the helper's earlier replies aren't
+    # lost; after that, each rewrite needs only the latest exchange.
+    first = not entry.get("helper_notes")
+    latest = exchanges(conv_id, limit=config.HELPER_CHAT_MESSAGES if first else 1)
+    if not latest or not latest[-1]["out"]:
         return None
-    text = "\n".join(["# Current notes", "", entry.get("helper_notes") or "(none yet)", "",
-                      "# The latest exchange", "", _render_exchange(latest[0])])
+    text = "\n".join(["# Current summary", "", entry.get("helper_notes") or "(none yet)", "",
+                      "# The earlier exchanges" if first and len(latest) > 1
+                      else "# The latest exchange", ""]
+                     + [_render_exchange(x) for x in latest])
     try:
         notes, cost = _call_notes(text)
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as e:

@@ -24,7 +24,7 @@ information it used and what it did with it.
 
 Its chat is one conversation for the swarm's whole life. When the owner
 talks to it there, each turn starts fresh from a rolling seed (the summaries,
-its running notes, the last few exchanges — helper_chat.py), so it never
+the chat summary, her last few messages — helper_chat.py), so it never
 fills its context and is never continued. When every member is finished
 (swarms.retired), it posts a closing check — what git says shipped, what's
 uncommitted or unfinished, questions and detached jobs still waiting — and

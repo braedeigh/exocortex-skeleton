@@ -23,11 +23,16 @@ lines say what exists *now*.
 - **One helper chat for the swarm's whole life.** The owner's chat with the
   helper is never handed off or archived while the swarm is active. Each turn
   in it is a fresh model session, seeded with the helper's instructions, the
-  swarm's current summaries, its **running notes** (her decisions word for
-  word, promises, open threads — rewritten after every turn, replaced not
-  appended) and the last `HELPER_CHAT_EXCHANGES` exchanges verbatim (default
-  10). Only what the model is handed rolls; the full transcript stays on
-  disk. The chat is exempt from the context cap.
+  swarm's current summaries (the swarm's and each member's, written by the
+  Sonnet summarizer), the **chat summary** (what it last told her, her
+  decisions word for word, promises, open threads — rewritten by Sonnet after
+  every turn, replaced not appended) and her own last `HELPER_CHAT_MESSAGES`
+  messages verbatim (default 10). Its own replies, agents' mail and system
+  notices are not replayed. Its instructions say the view is shaped this way
+  and where to search the rest (every transcript, `peers.py show`,
+  `exo_query.py` over `agent_messages` / `tool_calls`, git). Only what the
+  model is handed rolls; the full transcript stays on disk. The chat is
+  exempt from the context cap.
 - **A closing check when the swarm retires.** A swarm is *retired* when every
   member is done (`done_at`), archived, handed on to a continuation, or gone
   from the index — and none is mid-turn (`swarms.retired`). The helper then
@@ -73,7 +78,7 @@ lines say what exists *now*.
 | Continuation | `continuation.py`; `after_turn` in `routes/observatory.py` (called by `scripts/turn_host.py` when a turn ends); `peers.py handoff`; caps in `config.CONTEXT_CAPS`, rooms in `config.CONTINUE_LANES` |
 | Swarms | `swarms.py` (grouping, `swarms` / `swarm_members` tables); `routes/swarms.py`; `SwarmCard.tsx` in each room via `SessionLane.tsx`, coloured from the roster and ordered with the sessions (orange first, longest wait on top; retired members left off) by `roomOrder.ts`; `SwarmPage.tsx` at `/observatory/swarm/<id>`; the network of rings and talk-lines in `SwarmNetwork.tsx` (on the swarm page and under the Worktrees plots); the outline + name around member orbs on Terrain in `terrain/terrainSwarms.ts` (drawn by `terrainCanvas.ts`) |
 | Helper | `swarm_helper.py` (one tool-less Sonnet call per run, structured answer, every run in `swarm_helper_runs`); runs after member turns (debounced by `config.SWARM_HELPER_MIN_SEC`), on the minute tick, when a swarm forms, and straight away when messaged |
-| Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) and the running notes (`rewrite_notes`, called by `after_turn`; stored as `helper_notes` on the helper's index entry); `config.HELPER_CHAT_EXCHANGES`; exempt in `continuation.due` |
+| Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) and the running notes (`rewrite_notes`, called by `after_turn`; the chat summary, stored as `helper_notes` on the helper's index entry); `config.HELPER_CHAT_MESSAGES`; exempt in `continuation.due` |
 | Closing check | `swarms.retired`; `swarm_helper.watch_retirement` / `close_out` / `closing_report`, run by `swarm_helper.tick` on the minute tick |
 
 ## Status
@@ -81,7 +86,7 @@ lines say what exists *now*.
 - Mailbox, token accounting, continuation, swarms and the helper: built and
   tested.
 - The helper chat's rolling context and the closing check: built and tested
-  (`tests/test_helper_chat.py`). The swarm page doesn't show the running
-  notes yet; they're on the helper's index entry and in its seed file.
+  (`tests/test_helper_chat.py`). The swarm page doesn't show the chat
+  summary yet; it's on the helper's index entry and in its seed file.
 - Swarms on the Terrain map: a faint accent outline around the member orbs
   that are on the map, with the swarm's name above it. Owner only.

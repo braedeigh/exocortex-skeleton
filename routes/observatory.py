@@ -2244,7 +2244,7 @@ def after_turn(conv_id):
         drain_inbox(successor)
         return
     # A swarm helper's chat is never continued and belongs to no swarm as a
-    # member: its only end-of-turn job is rewriting its running notes
+    # member: its only end-of-turn job is rewriting its chat summary
     # (helper_chat.py).
     if isinstance(entry, dict) and entry.get("role") == "swarm_helper":
         try:
@@ -3916,9 +3916,9 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         # them apart — see terminal._note_off_record.
         terminal._note_off_record(text)
 
-    # The helper chat's seed: the swarm now, its running notes and the last
-    # exchanges. Written BEFORE this message goes in the log, so the seed's
-    # exchanges end where this new one begins.
+    # The helper chat's seed: the swarm now, the chat summary and her last
+    # messages. Written BEFORE this message goes in the log, so the seed's
+    # messages end where this new one begins.
     if helper_chat_entry is not None:
         import helper_chat
         try:

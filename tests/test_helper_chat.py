@@ -61,18 +61,28 @@ def helper(data_dir, monkeypatch):
 
 # --- The rolling seed -------------------------------------------------------------
 
-def test_the_seed_holds_summaries_notes_and_only_the_last_exchanges(helper, monkeypatch):
-    monkeypatch.setattr(config, "HELPER_CHAT_EXCHANGES", 2)
+def test_the_seed_holds_summaries_and_only_her_last_messages(helper, monkeypatch):
+    monkeypatch.setattr(config, "HELPER_CHAT_MESSAGES", 2)
     with store.mutate("bot_chats/index", {}) as index:
         index[helper]["helper_notes"] = "## Her decisions\n- \"pond goes on the left\""
     for n in (1, 2, 3):
         _log(helper, {"type": "user", "text": f"question {n}", "ts": f"2026-09-27T12:0{n}:00"},
              _reply(f"answer {n}", f"msg_{n}"))
     seed = helper_chat.seed_text(helper, _entry(helper))
-    assert "pond goes on the left" in seed                     # the running notes
+    assert "pond goes on the left" in seed                     # the chat summary
     assert "Members:" in seed and A in seed                    # the swarm now
-    assert "question 3" in seed and "answer 2" in seed         # the last two, verbatim
-    assert "question 1" not in seed and "answer 1" not in seed  # older ones rolled off
+    assert "question 2" in seed and "question 3" in seed       # her last two, verbatim
+    assert "question 1" not in seed                            # older ones rolled off
+    assert "answer 3" not in seed                              # its replies never replayed
+    assert f"{helper}.jsonl" in seed                           # it's told where to search
+
+
+def test_only_her_messages_count_toward_the_ten(helper):
+    _log(helper, {"type": "user", "text": "hers", "ts": "2026-09-27T12:00:00"},
+         _reply("reply", "msg_1"),
+         {"type": "peer", "direction": "in", "from_conv": A, "text": "agent mail"},
+         {"type": "reminder", "text": "system notice"})
+    assert [text for _, text in helper_chat.her_messages(helper)] == ["hers"]
 
 
 def test_an_unprompted_summarizer_update_is_not_an_exchange(helper):
@@ -100,7 +110,7 @@ def test_a_helper_chat_turn_never_resumes_and_starts_from_the_seed(helper, monke
     [(turn_config, text, resume_sid)] = started
     assert resume_sid is None and text.startswith("new question")
     seed = open(turn_config["system_prompt_file"], encoding="utf-8").read()
-    assert "earlier answer" in seed and "new question" not in seed
+    assert "earlier question" in seed and "new question" not in seed
 
 
 def test_notes_are_replaced_not_appended(helper, monkeypatch):
@@ -113,6 +123,16 @@ def test_notes_are_replaced_not_appended(helper, monkeypatch):
     helper_chat.rewrite_notes(helper)
     assert "old notes" in seen[0] and "use sqlite, not json" in seen[0]
     assert _entry(helper)["helper_notes"] == "new notes"
+
+
+def test_the_first_summary_is_written_from_the_earlier_exchanges(helper, monkeypatch):
+    _log(helper, {"type": "user", "text": "first ask"}, _reply("first reply", "msg_1"),
+         {"type": "user", "text": "second ask"}, _reply("second reply", "msg_2"))
+    seen = []
+    monkeypatch.setattr(helper_chat, "_call_notes",
+                        lambda text: seen.append(text) or ("summary", 0.01))
+    helper_chat.rewrite_notes(helper)
+    assert "first reply" in seen[0] and "second reply" in seen[0]
 
 
 def test_after_a_helper_turn_it_rewrites_notes_and_never_asks_for_a_handoff(helper, monkeypatch):
