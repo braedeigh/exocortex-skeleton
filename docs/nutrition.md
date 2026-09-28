@@ -126,6 +126,11 @@ that barcode finds the copy and doesn't ask again. The route answers
 the page can tell "nobody has it" from "couldn't ask". Either way the label reader is
 still offered.
 
+If she later photographs the label of a product that already has an Open Food Facts copy,
+both stay under that barcode, and her own label read is listed first
+(`label_products.lookup_barcode`). The photo is read straight off the package, while the
+crowd copy can be missing figures.
+
 ## Nutrient pages: deficiency text and the low-histamine list
 
 Each nutrient's name on the Nutrients page opens `/food/nutrients/<key>`: the day's total,

@@ -72,6 +72,13 @@ def test_barcode_matches_with_or_without_leading_zeros(data_dir):
     assert [len(label_products.lookup_barcode(code)) for code in ("41220753772", "0041220753772")] == [1, 1]
 
 
+def test_barcode_puts_her_label_read_ahead_of_an_open_food_facts_copy(data_dir):
+    label_products.save_copy(MILK, {"1087": 100.0}, "open_food_facts", "Open Food Facts", "https://example.org")
+    label_products.save_product(MILK)
+    found = label_products.lookup_barcode(MILK["barcode"])
+    assert [f["data_type"] for f in found] == [label_products.LABEL_PHOTO, "open_food_facts"]
+
+
 def test_search_matches_word_starts_in_name_or_brand(data_dir):
     label_products.save_product(MILK)
     assert [len(label_products.search(text)) for text in ("whole mi", "h-e-b", "skim")] == [1, 1, 0]

@@ -333,10 +333,14 @@ def as_result(found):
 
 
 def lookup_barcode(code):
-    """Her label-photo products under one barcode, matched the way fdcdb matches USDA's."""
+    """Her label-photo products under one barcode, matched the way fdcdb matches USDA's.
+
+    Her own label reads come first, copies from Open Food Facts after them: a photo of the
+    package is read straight off it, while a crowd copy can have gaps (sorted() keeps order
+    within each kind)."""
     keys = set(fdcdb.barcode_keys(code))
-    return [as_result(p) for p in products()
-            if p.get("barcode") and set(fdcdb.barcode_keys(p["barcode"])) & keys]
+    matches = [p for p in products() if p.get("barcode") and set(fdcdb.barcode_keys(p["barcode"])) & keys]
+    return [as_result(p) for p in sorted(matches, key=lambda p: p.get("data_type", LABEL_PHOTO) != LABEL_PHOTO)]
 
 
 def search(text):
