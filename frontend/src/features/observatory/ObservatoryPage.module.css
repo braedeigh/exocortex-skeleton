@@ -595,6 +595,12 @@
   font-style: italic;
 }
 
+/* A queued message the server never took: the tag turns red and says so. */
+.queuedTagFailed {
+  color: var(--red, #b3423e);
+  font-style: normal;
+}
+
 .queuedText {
   flex: 1;
   min-width: 0;
@@ -956,6 +962,14 @@
   max-width: 68ch;
   margin: 0 auto var(--space-2);
   color: var(--red, #b3423e);
+  font-size: var(--font-size-sm);
+}
+
+/* News, not an error — same place and size as .sendError, in the quiet colour. */
+.sendNotice {
+  max-width: 68ch;
+  margin: 0 auto var(--space-2);
+  color: var(--text-secondary);
   font-size: var(--font-size-sm);
 }
 

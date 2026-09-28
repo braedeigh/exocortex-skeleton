@@ -1,3 +1,10 @@
+/**
+ * RosterPage.tsx — the Sessions page: every observatory session, in its room,
+ * with the Keeper hoisted above them and the colour rail to filter by state.
+ * The long note on RosterPage below is the page's design history. Touches
+ * api.ts (the shared roster query and the session calls), SessionLane.tsx (the
+ * cards), sessionFilters.ts (the rail), and the doors to the sub-rooms.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
@@ -7,10 +14,10 @@ import {
   createSession,
   getHelpers,
   getResearchRoom,
-  getSessions,
   isRoom,
   toLane,
   updateConversation,
+  useSessionRoster,
   type HelpersState,
   type ResearchRoomState,
   type Room,
@@ -55,6 +62,10 @@ function readStoredSort(): RosterSort {
  * makes the hoist safe if there's ever more than one pinned session: they'd
  * arrive in the Keeper slot in a fixed order rather than whatever order the
  * roster payload happened to have. */
+// Stable empties, so the memos below don't recompute while the roster loads.
+const NO_SESSIONS: SessionMeta[] = [];
+const NO_MODELS: string[] = [];
+
 function sortRoster(sessions: SessionMeta[], dir: RosterSort): SessionMeta[] {
   const sign = dir === 'oldest' ? 1 : -1;
   return [...sessions].sort((a, b) => {
@@ -202,11 +213,21 @@ const LANE_INTRO: Record<Room, string> = {
 export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convId: string) => void } = {}) {
   const navigate = useNavigate();
   const { toasts, push, dismiss } = useToasts();
-  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  // The roster itself: the shared roster query (api.ts useSessionRoster), live
+  // so a busy dot flips to ready on its own — a turn runs detached from any
+  // one HTTP connection, so nothing else here would notice it finishing. The
+  // tab bars ride the same query, so this page adds no second poller, and
+  // React Query stops polling while the tab is hidden.
+  const roster = useSessionRoster(true);
+  const sessions = roster.data?.sessions ?? NO_SESSIONS;
   // Model aliases the server will accept — it stays the authority on the
   // list; an empty one just hides the picker.
-  const [modelChoices, setModelChoices] = useState<string[]>([]);
-  const [failed, setFailed] = useState(false);
+  const modelChoices = roster.data?.model_choices ?? NO_MODELS;
+  // A create/edit/close that failed shows the same banner as a failed load,
+  // until the next successful read clears it.
+  const [actionFailed, setActionFailed] = useState(false);
+  useEffect(() => setActionFailed(false), [roster.dataUpdatedAt]);
+  const failed = roster.isError || actionFailed;
 
   const [sortDir, setSortDir] = useState<RosterSort>(readStoredSort);
   // Which colours of the floating rail are pressed. Any number at once, empty
@@ -226,25 +247,8 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   const [creating, setCreating] = useState<Room | 'unset' | null>(null);
   const [editTarget, setEditTarget] = useState<SessionMeta | null>(null);
 
-  const refresh = () => {
-    getSessions()
-      .then(({ sessions: list, model_choices }) => {
-        setSessions(list);
-        if (model_choices) setModelChoices(model_choices);
-        setFailed(false);
-      })
-      .catch(() => setFailed(true));
-  };
-
-  useEffect(() => {
-    refresh();
-    // Gentle poll so a busy dot flips to ready on its own — a turn runs
-    // detached from any one HTTP connection, so nothing else here would
-    // notice it finishing.
-    const id = setInterval(refresh, 5500);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Re-read the roster now, after she changes something on it.
+  const refresh = () => void roster.refetch();
 
 
   // The Helpers door's census — one fetch on mount, never polled; the page
@@ -366,7 +370,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         }
         open(id);
       })
-      .catch(() => setFailed(true));
+      .catch(() => setActionFailed(true));
   };
 
   const onEdit = (draft: SessionDraft) => {
@@ -383,13 +387,13 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         setEditTarget(null);
         refresh();
       })
-      .catch(() => setFailed(true));
+      .catch(() => setActionFailed(true));
   };
 
   const onCloseSession = (convId: string) => {
     closeConversation(convId)
       .then(refresh)
-      .catch(() => setFailed(true));
+      .catch(() => setActionFailed(true));
   };
 
   return (

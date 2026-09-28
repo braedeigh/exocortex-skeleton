@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { ObservatoryPage } from '../features/observatory/ObservatoryPage';
 import { getSessions } from '../features/observatory/api';
+import { useSessionMountKey } from '../features/observatory/sessionMountKey';
 import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
@@ -35,9 +36,21 @@ function ObservatoryChatRoute() {
   useDeactivateFrames();
   const { botId } = Route.useParams();
   const { conv, from } = Route.useSearch();
+  // Remount on bot OR conversation change so turn state never bleeds across —
+  // except when a blank compose's first send names the session it just
+  // created: that page adopts the id and keeps its mount, so the reply keeps
+  // streaming live (sessionMountKey.ts).
+  const mount = useSessionMountKey(conv);
   if (conv === 'latest') return <LatestConvResolver botId={botId} />;
-  // Remount on bot OR conversation change so turn state never bleeds across.
-  return <ObservatoryPage key={`${botId}:${conv ?? 'new'}`} botId={botId} convId={conv} cameFrom={from} />;
+  return (
+    <ObservatoryPage
+      key={`${botId}:${mount.key}`}
+      botId={botId}
+      convId={conv}
+      cameFrom={from}
+      onSessionCreated={mount.adopt}
+    />
+  );
 }
 
 /** Swap ?conv=latest for a real conversation id — the pinned Keeper session

@@ -11,7 +11,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import { parseSseChunk } from './sseFrames';
+import { flushSseRest, parseSseChunk } from './sseFrames';
 
 /** Cached facts about the nightly rollover job, updated after each run
  * (on-demand or the cron original) — surfaced so the on-demand trigger can
@@ -614,18 +614,24 @@ export async function streamSend(
   const decoder = new TextDecoder();
   // Frame-cutting is pure and tested on its own — see sseFrames.ts.
   let pending = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const { events, rest } = parseSseChunk(pending + decoder.decode(value, { stream: true }));
-    pending = rest;
+  const handle = (events: Record<string, unknown>[]) => {
     for (const event of events) {
       if (event.type === 'conv' && typeof event.conversation_id === 'string') {
         convIdOut = event.conversation_id;
       }
       onEvent(event);
     }
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const { events, rest } = parseSseChunk(pending + decoder.decode(value, { stream: true }));
+    pending = rest;
+    handle(events);
   }
+  // Flush the last frame: a stream that closes without a trailing blank line
+  // still sent it, and the decoder may be holding the tail of a character.
+  handle(flushSseRest(pending + decoder.decode()));
   return convIdOut;
 }
 

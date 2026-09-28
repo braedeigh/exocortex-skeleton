@@ -112,12 +112,19 @@ function firstShownTurn(turns: Turn[], exchanges: number): number {
  * ("the session I just created", "the fresh Keeper the rollover woke") hand
  * the id to the pane instead, and the app's route never moves. Everything
  * else about the page is identical in both homes.
+ *
+ * A SESSION IT JUST MADE STAYS THIS PAGE (09-28). Both homes key the page on
+ * the conversation id, so pointing them at the session a blank compose just
+ * created would remount it mid-reply and cut the live stream. `onSessionCreated`
+ * fires first, and the home keeps this mount (sessionMountKey.ts) — which is
+ * what lets the history load's same-mount fast path actually happen.
  */
 export function ObservatoryPage({
   botId,
   convId,
   cameFrom,
   onOpenConversation,
+  onSessionCreated,
   onTitleChange,
 }: {
   botId: string;
@@ -126,6 +133,10 @@ export function ObservatoryPage({
    * offers to close. See SpinoffOffer.tsx. */
   cameFrom?: string;
   onOpenConversation?: (convId: string) => void;
+  /** Told the id of a session this page just created, right before the page
+   * points its home at it — so the home keeps this mount instead of
+   * remounting (sessionMountKey.ts). */
+  onSessionCreated?: (convId: string) => void;
   /** Docked mode: report this session's title so the pane's tab can wear it
    * instead of a generic label. null while it's still unresolved. */
   onTitleChange?: (title: string | null) => void;
@@ -160,6 +171,10 @@ export function ObservatoryPage({
   const [histLoaded, setHistLoaded] = useState(false);
   const [offRecord, setOffRecord] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // A plain-news line in the composer ("Queued — it starts when there's
+  // room"). Kept apart from sendError because it isn't one: it isn't drawn
+  // red, and it doesn't hold back the spinoff auto-start the way an error does.
+  const [sendNotice, setSendNotice] = useState<string | null>(null);
   // The "not enough room" prompt. `pending` is the message she was trying to
   // send, held here so Cancel gives it back and Queue can hand it over — a
   // refusal must never eat what she typed. `bypass` is set by "Start anyway"
@@ -427,9 +442,34 @@ export function ObservatoryPage({
     [],
   );
 
+  // Point this page's home at a session it just created: the URL catches up
+  // as soon as the session exists, not once the reply finishes — a reload
+  // mid-turn lands back here instead of a blank compose that would try to
+  // create a second session. Docked in the split pane there's no URL to catch
+  // up; the pane takes the id instead. onSessionCreated goes first, so either
+  // home keeps this mount rather than remounting it mid-reply.
+  const pointAtNewSession = useCallback(
+    (conv: string) => {
+      onSessionCreated?.(conv);
+      if (onOpenConversation) onOpenConversation(conv);
+      else
+        void navigate({
+          to: '/observatory/$botId',
+          params: { botId },
+          search: { conv },
+          replace: true,
+        });
+    },
+    [botId, navigate, onOpenConversation, onSessionCreated],
+  );
+
   const sendMessage = useCallback(
     async (text: string, sendOffRecord: boolean) => {
+      // One send at a time. Claimed before the first await (the headroom
+      // check), so a second tap or the auto-start inside that gap can't slip
+      // a duplicate through.
       if (busyRef.current) return;
+      busyRef.current = true;
 
       // Ask BEFORE anything moves. The box holds about three sessions at once,
       // and the server only hard-refuses at its own floor — so without this the
@@ -438,16 +478,17 @@ export function ObservatoryPage({
       // first, while cancelling still costs nothing. A headroom call that fails
       // returns null and sends exactly as before.
       if (!bypassHeadroomRef.current) {
-        const headroom = await fetchHeadroom();
+        const headroom = await fetchHeadroom().catch(() => null);
         if (shouldPrompt(headroom)) {
+          busyRef.current = false;
           setMemPrompt({ headroom, serverRefused: false, pending: { text, offRecord: sendOffRecord } });
           return;
         }
       }
       bypassHeadroomRef.current = false;
 
-      busyRef.current = true;
       setSendError(null);
+      setSendNotice(null);
 
       // This send IS the un-archive (server-side), so the note goes with it.
       setSessionArchived(false);
@@ -480,19 +521,7 @@ export function ObservatoryPage({
           const created = await createSession(text.slice(0, 40), false);
           conv = created.id;
           convRef.current = conv;
-          // The URL catches up as soon as the session exists, not once the
-          // reply finishes — a reload mid-turn lands back here instead of a
-          // blank compose that would try to create a second session. Docked
-          // in the split pane there's no URL to catch up; the pane takes the
-          // id instead (same effect: a reload resolves back to this session).
-          if (onOpenConversation) onOpenConversation(conv);
-          else
-            void navigate({
-              to: '/observatory/$botId',
-              params: { botId },
-              search: { conv },
-              replace: true,
-            });
+          pointAtNewSession(conv);
         }
         await streamSend(
           conv,
@@ -555,9 +584,7 @@ export function ObservatoryPage({
     // The functions below are stable (useCallback, [] deps in their own hooks).
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
-      botId,
-      navigate,
-      onOpenConversation,
+      pointAtNewSession,
       reattachApi.reattach,
       wordFlow.begin,
       turnStats.start,
@@ -583,6 +610,9 @@ export function ObservatoryPage({
   // clears draft+autostart on that send so a reopen can't re-fire it.
   useEffect(() => {
     if (pendingAutostart == null || !canFire || autoStartFiredRef.current) return;
+    // A send she started is still in its headroom check — wait for it; the
+    // turn it starts flips canFire and brings this back round.
+    if (busyRef.current) return;
     autoStartFiredRef.current = true;
     const kickoff = pendingAutostart;
     setPendingAutostart(null);
@@ -598,10 +628,11 @@ export function ObservatoryPage({
     const text = paths.length
       ? uploadedPathsMessage(paths) + (typed ? `\n${typed}` : '')
       : typed;
-    if (writing) {
-      // A turn is still going — send it to the session's mailbox, which
-      // hands it to the agent at its next step (useMessageQueue.ts). Each
-      // message keeps the record state it was written under.
+    if (writing || busyRef.current) {
+      // A turn is still going (or a send is just starting one) — send it to
+      // the session's mailbox, which hands it to the agent at its next step
+      // (useMessageQueue.ts). Each message keeps the record state it was
+      // written under.
       messageQueue.enqueue(text, offRecord);
       return;
     }
@@ -644,8 +675,18 @@ export function ObservatoryPage({
   // else; with nothing running it does nothing at all. The handler is kept in
   // a ref that's refreshed every render, so the window listener binds once and
   // still always sees current state.
+  //
+  // Only the page she's looking at answers. Every mounted page listens on the
+  // window, and the docked one stays mounted while hidden behind the roster or
+  // the terminal — so a hidden page (display:none, no layout boxes) ignores the
+  // key, and when focus sits inside one chat page, the others ignore it too.
   const escapeRef = useRef<() => void>(() => {});
   escapeRef.current = () => {
+    const page = pageRef.current;
+    if (!page || page.getClientRects().length === 0) return;
+    const focused = document.activeElement instanceof Element ? document.activeElement : null;
+    const focusedPage = focused?.closest('[data-observatory-page]');
+    if (focusedPage && focusedPage !== page) return;
     if (panel) {
       setPanel(null);
       return;
@@ -707,6 +748,7 @@ export function ObservatoryPage({
   return (
     <div
       ref={pageRef}
+      data-observatory-page=""
       className={[styles.page, stepBack.active ? styles.pageStepBack : ''].filter(Boolean).join(' ')}
     >
       {/* The terrain map behind the conversation, and the step-back view that
@@ -848,15 +890,20 @@ export function ObservatoryPage({
           {/* The questions this session filed for her, floating at the bottom
               of the chat until she answers: features/observatory/QuestionsCard. */}
           {convId ? <QuestionsCard convId={convId} /> : null}
-          {messageQueue.queued.map((q, i) => (
-            <div key={i} className={styles.queuedRow}>
-              <span className={styles.queuedTag}>queued</span>
+          {/* Her messages waiting for the agent. One the server refused says
+              "not sent" instead of vanishing — the composer was already
+              cleared, so this row is the only copy (useMessageQueue.ts). */}
+          {messageQueue.queued.map((q) => (
+            <div key={q.key} className={styles.queuedRow}>
+              <span className={[styles.queuedTag, q.state === 'failed' ? styles.queuedTagFailed : ''].filter(Boolean).join(' ')}>
+                {q.state === 'failed' ? 'not sent' : 'queued'}
+              </span>
               <span className={styles.queuedText}>{q.text}</span>
               <button
                 type="button"
                 className={styles.queuedX}
                 aria-label="Remove queued message"
-                onClick={() => messageQueue.removeAt(i)}
+                onClick={() => messageQueue.remove(q)}
               >
                 ×
               </button>
@@ -946,6 +993,7 @@ export function ObservatoryPage({
 
       <div className={[styles.composer, offRecord ? styles.composerOff : ''].filter(Boolean).join(' ')}>
         {sendError ? <div className={styles.sendError}>{sendError}</div> : null}
+        {sendNotice ? <div className={styles.sendNotice}>{sendNotice}</div> : null}
         {/* Same rule as the off-the-record note below: say exactly what the
             machinery does. Reading a closed session is free; sending reopens
             it and starts spending — she should know that before she types,
@@ -1167,15 +1215,19 @@ export function ObservatoryPage({
             // A brand-new compose has no session yet, so queueing has to mint
             // one first — otherwise there'd be nothing for the dispatcher to
             // send into when a slot opens.
+            // The new session gets its URL like a sent one does, so a reload
+            // comes back to it rather than to a blank compose.
             let conv = convRef.current;
             if (!conv) {
               const created = await createSession(p.text.slice(0, 40), false);
               conv = created.id;
               convRef.current = conv;
+              pointAtNewSession(conv);
             }
             await enqueueConversation(conv, p.text);
             setMemPrompt(null);
-            setSendError('Queued — it starts when there’s room.');
+            setSendError(null);
+            setSendNotice('Queued — it starts when there’s room.');
           } catch (err) {
             setSendError(err instanceof Error ? err.message : 'Could not queue that.');
           }

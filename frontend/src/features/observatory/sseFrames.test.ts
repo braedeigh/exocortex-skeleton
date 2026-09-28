@@ -7,7 +7,7 @@
  * fetch stream would make invisible.
  */
 import { describe, expect, it } from 'vitest';
-import { parseSseChunk } from './sseFrames';
+import { flushSseRest, parseSseChunk } from './sseFrames';
 
 const frame = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`;
 
@@ -42,5 +42,17 @@ describe('parseSseChunk', () => {
   it('an empty or separator-only buffer yields nothing and no carry', () => {
     expect(parseSseChunk('')).toEqual({ events: [], rest: '' });
     expect(parseSseChunk('\n\n')).toEqual({ events: [], rest: '' });
+  });
+});
+
+describe('flushSseRest', () => {
+  it('parses a last frame the stream closed without a blank line after', () => {
+    const { rest } = parseSseChunk(frame({ type: 'a' }) + 'data: {"type":"done"}');
+    expect(flushSseRest(rest)).toEqual([{ type: 'done' }]);
+  });
+
+  it('yields nothing for an empty or whitespace carry', () => {
+    expect(flushSseRest('')).toEqual([]);
+    expect(flushSseRest('\n')).toEqual([]);
   });
 });
