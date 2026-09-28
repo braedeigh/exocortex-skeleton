@@ -4,9 +4,10 @@
  *
  * Each category has a planned amount, a type (variable / fixed / savings;
  * savings stays out of the monthly budget), and a kind: "Recurring" (a need
- * that comes back every month, like Rent) or "Can cut back" (like Eating Out).
- * The kind drives the recurring / cut-back / one-time split in Spending by
- * month (moneyMath.ts monthKindSplit). Saves go through useMoneyData.ts.
+ * that comes back every month, like Rent), "Can cut back" (like Eating Out),
+ * or "Not recurring" (like therapy for a stretch). The kind drives the
+ * recurring / cut-back / one-time split in Spending by month (moneyMath.ts
+ * monthKindSplit), and "Not recurring" can be left out of a month's total. Saves go through useMoneyData.ts.
  * Prompt: "kitty litter is a recurring spend category … coffee which is
  * something i can cut back on or beer".
  */
@@ -132,6 +133,7 @@ export function BudgetConfigSection({
                       <option value="">— not sorted —</option>
                       <option value="recurring">Recurring</option>
                       <option value="cut_back">Can cut back</option>
+                      <option value="one_time">Not recurring</option>
                     </select>
                   </td>
                   <td className={styles.tdComments}>{c.type || 'variable'}</td>

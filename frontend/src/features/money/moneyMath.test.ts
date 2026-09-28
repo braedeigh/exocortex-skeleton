@@ -9,6 +9,7 @@ import {
   expensesInMonth,
   formatMoney,
   monthKindSplit,
+  leaveOutNotRecurring,
   grandTotals,
   groupByMonth,
   incomeGauge,
@@ -349,5 +350,26 @@ describe('monthKindSplit', () => {
       categories,
     );
     expect(split.map((k) => k.kind)).toEqual(['recurring']);
+  });
+});
+
+describe('leaveOutNotRecurring', () => {
+  const categories = [
+    { name: 'Rent', planned: 0, kind: 'recurring' as const },
+    { name: 'Therapy', planned: 0, kind: 'one_time' as const },
+  ];
+
+  it('leaves out one-time things and not-recurring categories, keeping the rest', () => {
+    const { counted, leftOut } = leaveOutNotRecurring(
+      [
+        { id: 'rent', amount: 1000, category: 'Rent' },
+        { id: 'therapy', amount: 150, category: 'Therapy' },
+        { id: 'mattress', amount: 600, category: 'Home', one_time: true },
+        { id: 'pay', amount: 3000, category: 'Income' },
+      ],
+      categories,
+    );
+    expect(counted.map((e) => e.id)).toEqual(['rent', 'pay']);
+    expect(leftOut.map((e) => e.id)).toEqual(['therapy', 'mattress']);
   });
 });

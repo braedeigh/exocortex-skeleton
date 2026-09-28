@@ -528,6 +528,11 @@ def test_category_kind_is_set_and_validated(client):
     assert kinds == {"Eating Out": "cut_back", "Rent": "recurring"}
 
 
+def test_category_kind_can_be_not_recurring(client):
+    _post(client, "/api/budget/category/add", {"name": "Therapy", "kind": "one_time"})
+    assert read_budget()["categories"][0]["kind"] == "one_time"
+
+
 def _seed_expense(**extra):
     store.write("expenses", {"items": [{"id": "e1", "date": "2026-09-02", "amount": 499.0,
                                         "category": "Home", "comments": "FUTON SHOP", "title": "Futon Shop", **extra}]})

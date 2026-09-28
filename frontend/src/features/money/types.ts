@@ -13,12 +13,13 @@ export interface BudgetCategory {
   planned: number;
   /** variable | fixed | savings */
   type?: string;
-  /** What its spending is like: a need that comes back every month, or
-   * something she could spend less on. Missing / "" = not sorted yet. */
+  /** What its spending is like: a need that comes back every month,
+   * something she could spend less on, or not recurring (left out of the
+   * month's total in Spending by month). Missing / "" = not sorted yet. */
   kind?: CategoryKind;
 }
 
-export type CategoryKind = 'recurring' | 'cut_back' | '';
+export type CategoryKind = 'recurring' | 'cut_back' | 'one_time' | '';
 
 /** Which Inventory shelf a one-time purchase goes on: a thing she keeps
  * (archivals catalog) or a thing that gets used up (active inventory). */

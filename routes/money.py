@@ -11,10 +11,12 @@ import store
 from routes.inventory import file_purchase
 
 # What a budget category's spending is like, for the monthly split in Spending
-# by month: a need that comes back every month, or something she could spend
-# less on. "" = not sorted yet. Separate from `type` (variable/fixed/savings),
-# which decides whether a category counts against the monthly budget.
-CATEGORY_KINDS = {"recurring", "cut_back", ""}
+# by month: a need that comes back every month, something she could spend
+# less on, or spending that won't come back (therapy for a stretch, household
+# set-up), which Spending by month can leave out of the month's total.
+# "" = not sorted yet. Separate from `type` (variable/fixed/savings), which
+# decides whether a category counts against the monthly budget.
+CATEGORY_KINDS = {"recurring", "cut_back", "one_time", ""}
 
 
 def _apply_one_time(expense, one_time):
@@ -95,7 +97,7 @@ def register(app):
         store.write("budget.json", bdata)
         return jsonify({"ok": True})
 
-    # Set a category's kind: recurring need, can cut back, or unsorted ("").
+    # Set a category's kind: recurring need, can cut back, not recurring, or unsorted ("").
     @app.route("/api/budget/category/update", methods=["POST"])
     def update_category():
         data = request.json or {}

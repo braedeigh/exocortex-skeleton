@@ -8,11 +8,17 @@
  * dropdown ends with "+ New category…", which makes the category and files
  * the expense under it in one go (newCategory.ts).
  *
+ * Spending that won't come back — one-time things and "Not recurring"
+ * categories — is left out of each month's totals by default, with a line
+ * saying how much was left out and a button to count it back in (the choice
+ * is remembered on this device).
+ *
  * The math lives in moneyMath.ts (groupByMonth, incomeGauge, monthKindSplit,
- * monthBars). A category's kind is set in Budget setup (BudgetConfigSection.tsx);
+ * monthBars, leaveOutNotRecurring). A category's kind is set in Budget setup (BudgetConfigSection.tsx);
  * one-time things are marked in the statement preview or Recent expenses.
  */
 import { useState } from 'react';
+import { Button } from '../../ui';
 import type { AddCategoryPayload } from './api';
 import { NEW_CATEGORY_OPTION, promptNewCategory } from './newCategory';
 import { Section } from './Section';
@@ -22,6 +28,7 @@ import {
   grandTotals,
   groupByMonth,
   incomeGauge,
+  leaveOutNotRecurring,
   monthBars,
   monthKindSplit,
   monthLabel,
@@ -288,6 +295,49 @@ function KindSplit({ items, categories, masked }: { items: Expense[]; categories
   );
 }
 
+// Remember "leave out not-recurring" on this device. Missing = leave it out,
+// since that's what the card is for.
+const LEAVE_OUT_KEY = 'money.spending.leaveOutNotRecurring';
+
+function readLeaveOut(): boolean {
+  try {
+    return localStorage.getItem(LEAVE_OUT_KEY) !== 'no';
+  } catch {
+    return true;
+  }
+}
+
+/** The line under a month saying how much not-recurring spending there was
+ * and whether it's in the totals, with the button that flips it. */
+function LeftOutNote({
+  items,
+  leavingOut,
+  masked,
+  onToggle,
+}: {
+  items: Expense[];
+  leavingOut: boolean;
+  masked: boolean;
+  onToggle: () => void;
+}) {
+  if (!items.length) return null;
+  const amount = items.reduce((s, e) => s + (e.amount || 0), 0);
+  const names = items.map((e) => e.title || e.category || 'Uncategorized');
+  const shown = Array.from(new Set(names)).slice(0, 3).join(', ');
+  const more = new Set(names).size > 3 ? '…' : '';
+  return (
+    <div className={styles.leftOutNote}>
+      <span className={styles.mutedText}>
+        {leavingOut ? 'Left out' : 'Counting'} {formatMoney(amount, masked)} not recurring ({shown}
+        {more})
+      </span>
+      <Button variant="ghost" onClick={onToggle}>
+        {leavingOut ? 'Count it' : 'Leave it out'}
+      </Button>
+    </div>
+  );
+}
+
 /** "Spending by month" — per-month income gauge + category bars with
  * click-to-drill transaction tables (renderSpendingBreakdown & co). */
 export function SpendingBreakdownSection({
@@ -301,10 +351,33 @@ export function SpendingBreakdownSection({
   onAddCategory,
 }: SpendingBreakdownSectionProps) {
   const [drill, setDrill] = useState<Drill | null>(null);
+  const [leavingOut, setLeavingOut] = useState(readLeaveOut);
   if (!expenses.length) return null;
 
-  const months = groupByMonth(expenses);
-  const { grandSpent, grandIncome } = grandTotals(expenses);
+  // Leave not-recurring spending out of the totals. Everything below — the
+  // month totals, gauge, split and bars — works from `shown`; what was left
+  // out is grouped by month for each month's note.
+  const { counted, leftOut } = leaveOutNotRecurring(expenses, categories);
+  const shown = leavingOut ? counted : expenses;
+  const leftOutByMonth: Record<string, Expense[]> = {};
+  leftOut.forEach((e) => {
+    (leftOutByMonth[(e.date || '').substring(0, 7)] ||= []).push(e);
+  });
+  const leftOutTotal = leftOut.reduce((s, e) => s + (e.amount || 0), 0);
+
+  function toggleLeaveOut() {
+    setLeavingOut((cur) => {
+      try {
+        localStorage.setItem(LEAVE_OUT_KEY, cur ? 'no' : 'yes');
+      } catch {
+        /* private mode: just don't remember */
+      }
+      return !cur;
+    });
+  }
+
+  const months = groupByMonth(shown);
+  const { grandSpent, grandIncome } = grandTotals(shown);
 
   function toggleDrill(monthKey: string, category: string) {
     setDrill((cur) =>
@@ -321,6 +394,9 @@ export function SpendingBreakdownSection({
           {grandIncome > 0 ? <span className={styles.green}>+{formatMoney(grandIncome, masked)} in &middot; </span> : null}
           <span>−{formatMoney(grandSpent, masked)} out</span> across {months.length} month
           {months.length === 1 ? '' : 's'}
+          {leavingOut && leftOutTotal > 0 ? (
+            <span className={styles.mutedText}> &middot; {formatMoney(leftOutTotal, masked)} not recurring left out</span>
+          ) : null}
         </span>
       }
     >
@@ -337,6 +413,12 @@ export function SpendingBreakdownSection({
             </span>
           </summary>
           <div className={styles.monthBody}>
+            <LeftOutNote
+              items={leftOutByMonth[m.monthKey] || []}
+              leavingOut={leavingOut}
+              masked={masked}
+              onToggle={toggleLeaveOut}
+            />
             <IncomeGaugeBar items={m.items} masked={masked} />
             <KindSplit items={m.spendingOnly} categories={categories} masked={masked} />
             {monthBars(m.spendingOnly).map((bar) => {

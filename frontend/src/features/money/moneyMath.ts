@@ -252,19 +252,20 @@ export function incomeGauge(monthItems: Expense[]): IncomeGauge {
 }
 
 /** Where one expense sits in the month's split: a one-time thing wins over
- * its category; otherwise the category's kind; otherwise not sorted yet. */
+ * its category; otherwise the category's kind (a "Not recurring" category
+ * lands with the one-time things); otherwise not sorted yet. */
 export type SpendingKind = 'recurring' | 'cut_back' | 'one_time' | 'unsorted';
 
 export function spendingKindOf(e: Expense, kindByCategory: Record<string, string>): SpendingKind {
   if (e.one_time) return 'one_time';
   const kind = kindByCategory[e.category || ''];
-  return kind === 'recurring' || kind === 'cut_back' ? kind : 'unsorted';
+  return kind === 'recurring' || kind === 'cut_back' || kind === 'one_time' ? kind : 'unsorted';
 }
 
 export const SPENDING_KIND_LABELS: Record<SpendingKind, string> = {
   recurring: 'Recurring',
   cut_back: 'Can cut back',
-  one_time: 'One-time',
+  one_time: 'Not recurring',
   unsorted: 'Not sorted',
 };
 
@@ -283,10 +284,7 @@ export interface KindShare {
  * Prompt: "i want to know it was a 'one time purchase' vs. something that is
  * recurring. vs. coffee which is something i can cut back on". */
 export function monthKindSplit(spendingItems: Expense[], categories: BudgetCategory[]): KindShare[] {
-  const kindByCategory: Record<string, string> = {};
-  categories.forEach((c) => {
-    if (c.kind) kindByCategory[c.name] = c.kind;
-  });
+  const kindByCategory = kindsByName(categories);
   const totals: Record<SpendingKind, number> = { recurring: 0, cut_back: 0, one_time: 0, unsorted: 0 };
   spendingItems.forEach((e) => {
     totals[spendingKindOf(e, kindByCategory)] += e.amount || 0;
@@ -300,6 +298,34 @@ export function monthKindSplit(spendingItems: Expense[], categories: BudgetCateg
     amount: totals[kind],
     pct: sum > 0 ? (totals[kind] / sum) * 100 : 0,
   }));
+}
+
+/** Each category's kind by name, for spendingKindOf. */
+function kindsByName(categories: BudgetCategory[]): Record<string, string> {
+  const kindByCategory: Record<string, string> = {};
+  categories.forEach((c) => {
+    if (c.kind) kindByCategory[c.name] = c.kind;
+  });
+  return kindByCategory;
+}
+
+/** Split expenses into what counts toward the monthly totals and what's left
+ * out: spending that won't come back (one-time things, and categories marked
+ * "Not recurring"). Income and refunds of recurring spending always count.
+ * Prompt: "hide certain things from the monthly total like household items or
+ * therapy that will not be recurring". */
+export function leaveOutNotRecurring(
+  expenses: Expense[],
+  categories: BudgetCategory[],
+): { counted: Expense[]; leftOut: Expense[] } {
+  const kindByCategory = kindsByName(categories);
+  const counted: Expense[] = [];
+  const leftOut: Expense[] = [];
+  expenses.forEach((e) => {
+    const out = isSpendingExpense(e) && spendingKindOf(e, kindByCategory) === 'one_time';
+    (out ? leftOut : counted).push(e);
+  });
+  return { counted, leftOut };
 }
 
 export interface MonthGroup {
