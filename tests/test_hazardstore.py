@@ -289,3 +289,12 @@ def test_claim_values_that_do_not_fit_are_skipped_with_a_reason(world):
                                   amount=3.1, unit="ratio")
     report = hazardstore.import_claim_values()
     assert report["imported"] == [] and "hazard" in report["skipped"][0]["reason"]
+
+
+def test_repeat_claim_values_are_skipped_by_basis(world):
+    import researchstore
+    researchstore.link_claim_source(CLAIM, SOURCE)
+    researchstore.set_claim_value(CLAIM, subject="potatoes", measure="pesticide residue detected (1+)",
+                                  amount=92.7, unit="% of samples", basis="headline figure", year=2023)
+    report = hazardstore.import_claim_values(skip_basis=("headline figure",))
+    assert report["imported"] == [] and "repeat" in report["skipped"][0]["reason"]

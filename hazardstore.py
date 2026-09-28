@@ -1005,7 +1005,7 @@ def _measure_kind(measure_text, unit):
     return "concentration" if key in _TO_PPB else None
 
 
-def import_claim_values(topic_id=None):
+def import_claim_values(topic_id=None, skip_basis=()):
     """Turn the numbers claims already carry (claim_values) into measurements.
 
     For each claim with a value: the subject must be a name of a food, the
@@ -1014,7 +1014,9 @@ def import_claim_values(topic_id=None):
     claim, its first supporting source and that link's passage, as the claim's
     author wrote it and unreviewed. What doesn't is skipped with the reason —
     nothing is guessed. A claim already imported is left alone, so running this
-    twice does nothing the second time. Returns {"imported": [...], "skipped": [...]}.
+    twice does nothing the second time. A claim whose value's basis is one of
+    `skip_basis` (a repeat of a number another claim already carries) is
+    skipped and says so. Returns {"imported": [...], "skipped": [...]}.
     """
     with _Read() as conn:
         sql = ("SELECT v.claim_id, v.subject, v.measure, v.amount, v.unit, v.basis, v.year, v.tier,"
@@ -1030,6 +1032,9 @@ def import_claim_values(topic_id=None):
         plans, skipped = [], []
         for claim_id, subject, measure_text, amount, unit, basis, year, tier, author in values:
             if claim_id in done:
+                continue
+            if basis in skip_basis:
+                skipped.append({"claim_id": claim_id, "reason": f"basis {basis!r} is a repeat"})
                 continue
             food = conn.execute("SELECT food_id FROM food_names WHERE name = ?",
                                 (foodstore._norm(subject),)).fetchone()
