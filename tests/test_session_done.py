@@ -2,8 +2,10 @@
 
 A session marks itself done (scripts/session_done.py → mark_done), which
 stamps done_at and closes_at. The minute tick (close_done_sessions) closes it
-once closes_at has passed, unless a new turn started in it or she tapped
-Keep open. mark_done refuses while anything still waits on her.
+once closes_at has passed, unless she wrote to it or tapped Keep open. A turn
+someone else starts (a peer, a job waking it) leaves the stamp, unless that
+turn leaves it unable to close. mark_done refuses while anything still waits
+on her. `final_at` marks when its final output finished.
 """
 import json
 from datetime import datetime, timedelta
@@ -103,6 +105,37 @@ def test_a_new_turn_cancels_done(bot_client, conv):
     bot_client.post(f"/api/observatory/conversation/{conv}/send", json={"text": "one more"})
     assert "done_at" not in _entry()
     assert "closes_at" not in _entry()
+
+
+def test_a_peers_message_leaves_done_standing(bot_client, conv):
+    import time
+    import peermail
+    observatory.mark_done(conv)
+    peermail.send(conv, "fyi, all merged", from_conv="2026-09-27.110000")
+    assert observatory.drain_inbox(conv, fallback=True)
+    deadline = time.time() + 10
+    while _entry().get("running") and time.time() < deadline:
+        time.sleep(0.05)
+    assert _entry().get("done_at")
+    assert _entry().get("closes_at")
+
+
+def test_the_turn_that_marks_done_records_when_its_final_output_ended(conv):
+    with store.mutate("bot_chats/index", {}) as index:
+        index[CONV]["running"] = True
+    observatory.mark_done(conv)
+    assert "final_at" not in _entry()
+    with store.mutate("bot_chats/index", {}) as index:
+        observatory._end_turn_done(CONV, index[CONV])
+    assert _entry()["final_at"] >= _entry()["done_at"]
+
+
+def test_a_later_turn_that_asks_her_takes_done_off(conv):
+    observatory.mark_done(conv)
+    with store.mutate("bot_chats/index", {}) as index:
+        index[CONV]["awaiting_input"] = "one more thing?"
+        observatory._end_turn_done(CONV, index[CONV])
+    assert "done_at" not in _entry() and "final_at" not in _entry()
 
 
 def test_the_keep_route_cancels_done(bot_client, conv):

@@ -1233,6 +1233,7 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                 entry["last_at"] = _now()
                 entry["running"] = False
                 entry.pop("stop_requested", None)
+                _end_turn_done(conv_id, entry)
                 # How the turn ended, so the roster can show it. A clean turn
                 # clears any error the PREVIOUS one left — the flag means "the
                 # last thing this session did was fail", not "it failed once".
@@ -1566,9 +1567,17 @@ def _reopen_note(questions):
 # stamps `done_at` and `closes_at` on its entry; the card shows "done — closes
 # at …" with a Keep open button, and the minute tick
 # (scripts/coming_up_dispatcher.py) closes it once `closes_at` has passed,
-# DONE_GRACE_MINUTES after the stamp. Any turn starting in the session —
-# her reply, a peer's message, a finished job waking it — clears the stamp, so
-# "not done after all" needs no separate gesture. Closing is the same close her
+# DONE_GRACE_MINUTES after the stamp. Only HER turn clears the stamp — her
+# reply is "not done after all" without a separate gesture. A turn someone else
+# starts (a peer's message, a finished job waking it, a sudo answer) leaves it
+# standing: a done session answering "nothing more to do" is still done, and
+# wiping the stamp there is what left finished sessions with no Done notice.
+# If that turn leaves the session unable to close (it asked her, launched a
+# job), the stamp comes off when the turn ends (_end_turn_done).
+#
+# `final_at` is when its final output finished: the end of the turn that
+# stamped it done. The roster's unread dot on a done session keys on that, not
+# on last_at, so later housekeeping turns don't light the dot again. Closing is the same close her
 # × does (close_conversation), and sending into a closed session reopens it.
 #
 # Prompt: "also need to make sure that sessions that are completely done get
@@ -1630,6 +1639,13 @@ def mark_done(conv_id, note=""):
         entry["done_at"] = _now()
         entry["closes_at"] = (datetime.now() + timedelta(minutes=DONE_GRACE_MINUTES)
                               ).isoformat(timespec="seconds")
+        # Its final output is the rest of this turn (the closing report comes
+        # after the stamp), so final_at is written when the turn ends.
+        entry.pop("final_at", None)
+        if entry.get("running"):
+            entry["final_pending"] = True
+        else:
+            entry["final_at"] = entry["done_at"]
         note = (note or "").strip()[:_DONE_NOTE_MAX]
         if note:
             entry["done_note"] = note
@@ -1639,15 +1655,34 @@ def mark_done(conv_id, note=""):
             "closes_at": entry["closes_at"]}, 200
 
 
+_DONE_FIELDS = ("done_at", "done_note", "closes_at", "final_at", "final_pending")
+
+
+def _clear_done(entry):
+    """Take a session's done stamp off, countdown and all."""
+    for field in _DONE_FIELDS:
+        entry.pop(field, None)
+
+
+def _end_turn_done(conv_id, entry):
+    """At a turn's end, settle a done stamp: the turn that stamped it records
+    when its final output finished; a later turn that left the session unable
+    to close (asking her, a job running) takes the stamp off."""
+    if not entry.get("done_at"):
+        return
+    if entry.pop("final_pending", None):
+        entry["final_at"] = _now()
+    elif _why_not_done(conv_id, entry):
+        _clear_done(entry)
+
+
 def keep_open(conv_id):
     """Cancel a done countdown — her Keep open button. Returns (payload, status)."""
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
             return {"error": "not found"}, 404
-        entry.pop("done_at", None)
-        entry.pop("done_note", None)
-        entry.pop("closes_at", None)
+        _clear_done(entry)
     return {"ok": True}, 200
 
 
@@ -1670,9 +1705,7 @@ def close_conversation(conv_id):
         if not _kill_local_proc(conv_id) and entry.get("running"):
             entry["stop_requested"] = _now()
         entry["archived"] = _now()
-        entry.pop("done_at", None)
-        entry.pop("done_note", None)
-        entry.pop("closes_at", None)
+        _clear_done(entry)
         reap = entry.get("worktree")
         filed = entry.get("spinoff_slug")
     # Outside the lock (git is slow, every send wants this lock). Closing is
@@ -2526,11 +2559,15 @@ def register(app):
         # retired, so the rooms and swarm pages can sink them to the bottom.
         # Read off the WHOLE index, archived successors included — the same
         # rule as swarms.overview's `retired`.
-        handed_on = {e.get("spawned_from") for e in index.values()
+        # `retired_at` — when its successor started, which is when its final
+        # output (the handoff) finished; the unread dot keys on it.
+        handed_on = {e.get("spawned_from"): e.get("started") for e in index.values()
                      if isinstance(e, dict) and e.get("spawned_via") == "continue"}
         for c in sessions:
             if c["id"] in handed_on:
                 c["retired"] = True
+                if handed_on[c["id"]]:
+                    c["retired_at"] = handed_on[c["id"]]
         # Resolved ONCE for the whole roster, not per card — it's one file read
         # and the answer is the same for every unpinned session.
         cli_model = _cli_default_model()
@@ -3676,12 +3713,6 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         # /atlas already shows archived sessions and navigates into them,
         # so the only missing half was making them live again on contact.)
         entry.pop("archived", None)
-        # A turn starting means the session isn't done after all — her reply,
-        # a peer's message, a job waking it. The countdown to closing stops;
-        # the session can mark itself done again when it really is.
-        entry.pop("done_at", None)
-        entry.pop("done_note", None)
-        entry.pop("closes_at", None)
         # A staged kickoff (from /spinoff or a saved draft) is consumed
         # by the first send that fires it. `autostart` (set by /spinoff so
         # the Observatory auto-fires the kickoff on open) is cleared on the
@@ -3701,6 +3732,11 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
             entry.pop("awaiting_input", None)
             # ...and any unresolved gated-command card (see _dismiss_pending).
             _dismiss_pending(conv_id)
+            # Her turn also means the session isn't done after all: the
+            # countdown to closing stops, and the session marks itself done
+            # again when it really is. Anyone else's turn leaves the stamp
+            # (see the Done section).
+            _clear_done(entry)
         # A fresh attempt clears the red: whatever went wrong last time is
         # no longer the last thing this session did. If THIS turn fails too,
         # _run_turn writes the flag straight back.

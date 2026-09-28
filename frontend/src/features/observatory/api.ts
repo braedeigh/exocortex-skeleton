@@ -151,6 +151,9 @@ export interface SessionMeta {
    * marked server-side off the whole index (routes/observatory.py). Rooms and
    * swarm pages sink it to the bottom, out of the way (roomOrder.ts). */
   retired?: boolean;
+  /** When a retired session's successor started — the end of its final
+   * output (the handoff). The unread dot on a retired card keys on this. */
+  retired_at?: string;
   /** When it was closed. Archived sessions are off the roster but reachable
    * from the archive — and SENDING into one reopens it (routes/observatory.py
    * pops the flag on send, deliberately: talking to an old chat is the whole
@@ -187,11 +190,15 @@ export interface SessionMeta {
    * before questions came as a list; read both through openQuestions(). */
   awaiting_questions?: string[];
   /** The session said its work is finished (scripts/session_done.py) at this
-   * time. A new turn starting, or her Keep open, clears it along with
-   * closes_at and done_note (routes/observatory.py). */
+   * time. Her next message, or her Keep open, clears it along with
+   * closes_at and done_note; a peer's or a job's turn leaves it standing
+   * (routes/observatory.py). */
   done_at?: string;
   /** When the minute tick will close it, set with done_at. */
   closes_at?: string;
+  /** When its final output finished — the end of the turn that marked it
+   * done. The unread dot on a done card keys on this (sessionFilters). */
+  final_at?: string;
   /** Its one line about what was finished, when it gave one. */
   done_note?: string;
   /** Which model this session's next turn will actually run on — its own pin

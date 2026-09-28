@@ -8,7 +8,8 @@
  *   purple  RUNNING — a turn is in flight this second (the breathing one)
  *   purple  ACTIVE  — running, or it did anything in the last hour (steady)
  *   orange  UNREAD  — a session stopped to ask her (an orange card), or output
- *                     she hasn't opened (a grey card with an orange dot)
+ *                     she hasn't opened (a grey card with an orange dot) — for
+ *                     a done or retired session, only its final output counts
  *   red     ERROR   — the last turn ended in failure / was aborted
  *
  * RUNNING nests inside ACTIVE rather than competing with it — same colour, and
@@ -87,14 +88,33 @@ export function sessionIs(
       if (Number.isNaN(last)) return false;
       return nowMs - last <= ACTIVE_WINDOW_MS;
     }
-    case 'unread':
+    case 'unread': {
       // A session that stopped to ask counts as unread even if she has opened
       // it since: the ask is still standing there unanswered.
       if (isAsking(meta)) return true;
-      return isUnread(meta.last_at, openedAt);
+      // A done or retired session is unread only while its FINAL output is:
+      // the turn that marked it done, or the handoff before its successor
+      // started. Anything it did after — answering a peer's FYI, a job
+      // waking it — moves last_at but isn't something she has to read.
+      const finalAt = finalOutputAt(meta);
+      return isUnread(finalAt ?? meta.last_at, openedAt);
+    }
     case 'error':
       return typeof meta.last_error === 'string' && meta.last_error !== '';
   }
+}
+
+/** When a finished session's last output worth reading ended — a retired
+ * session's handoff (`retired_at`), or a done session's closing turn
+ * (`final_at`, falling back to `done_at` for a stamp still mid-turn).
+ * Undefined for a session still at work. [prompt: "I don't want an orange
+ * dot to display on the front card if the session is done/retired and I
+ * haven't opened it, just an orange dot if i didn't ever read its final
+ * output."] */
+export function finalOutputAt(meta: SessionMeta): string | undefined {
+  if (meta.retired) return meta.retired_at;
+  if (meta.done_at) return meta.final_at ?? meta.done_at;
+  return undefined;
 }
 
 /** What a card WEARS. Same three predicates as the buttons, read in precedence

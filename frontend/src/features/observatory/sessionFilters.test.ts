@@ -77,6 +77,20 @@ describe('unread', () => {
     });
     expect(matchesFilter(gated, ago(1 * MIN), 'unread', NOW)).toBe(true);
   });
+
+  it('reads a done session by its final output, not later housekeeping', () => {
+    // Marked done 30 min ago; a peer's FYI woke it 5 min ago.
+    const done = session('a', { done_at: ago(31 * MIN), final_at: ago(30 * MIN), last_at: ago(5 * MIN) });
+    expect(sessionIs(done, ago(20 * MIN), 'unread', NOW)).toBe(false);
+    expect(sessionIs(done, ago(40 * MIN), 'unread', NOW)).toBe(true);
+    expect(sessionIs(done, undefined, 'unread', NOW)).toBe(true);
+  });
+
+  it('reads a retired session by its handoff', () => {
+    const retired = session('a', { retired: true, retired_at: ago(30 * MIN), last_at: ago(5 * MIN) });
+    expect(sessionIs(retired, ago(20 * MIN), 'unread', NOW)).toBe(false);
+    expect(sessionIs(retired, ago(40 * MIN), 'unread', NOW)).toBe(true);
+  });
 });
 
 describe('error', () => {
