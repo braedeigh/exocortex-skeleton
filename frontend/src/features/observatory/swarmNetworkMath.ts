@@ -12,11 +12,15 @@
  *   - folding messages into lines: the server counts each direction apart
  *     (a→b and b→a); a line is one PAIR, carrying both counts, so a
  *     conversation is one line and not two laid on top of each other;
- *   - only member-to-member messages count — the helper talks to everyone,
- *     and a line to it would say nothing. It gets a seat of its own instead:
- *     the middle of the members (the centre of the circle, halfway between
- *     two, beside a lone one), and a line's message count slides off the
- *     middle when that middle is where the helper sits;
+ *   - the green talk lines are member-to-member messages only. The helper
+ *     gets a seat of its own instead: the middle of the members (the centre
+ *     of the circle, halfway between two, beside a lone one), and a line's
+ *     message count slides off the middle when that middle is where the
+ *     helper sits;
+ *   - the helper's own threads: a gently bowed line from its seat to each
+ *     member it has sent messages to, carrying how many. Bowed, so that
+ *     with two members (the helper halfway between them) its threads don't
+ *     lie on top of their talk line;
  *   - a continuation (one session taking over from another) is its own kind
  *     of line, since it's a handover rather than talk.
  *
@@ -24,7 +28,9 @@
  *
  * Prompt that produced it: "a tree or like network of agents ... representing
  * the swarm with green lines between the purple agent rings showing which are
- * talking to which within the swarm."
+ * talking to which within the swarm." Then: "make it such that the helper is
+ * connected to other agents in the swarm with the threads for messages it
+ * sends."
  */
 import type { Swarm, MemberState } from './swarmApi';
 
@@ -62,6 +68,18 @@ export interface NetworkLayout {
   continues: { from: string; to: string }[];
   /** Where the swarm's helper sits: the middle of the members. */
   centre: { x: number; y: number };
+  /** The helper's threads out to the members it has messaged. */
+  helperThreads: HelperThread[];
+}
+
+export interface HelperThread {
+  /** The member it goes to. */
+  conv: string;
+  messages: number;
+  /** The SVG path from the helper's seat to the member. */
+  path: string;
+  /** Where its message count sits: the middle of the bow. */
+  label: { x: number; y: number };
 }
 
 /** Place the rings: side by side for two, evenly round a circle for more. */
@@ -129,6 +147,42 @@ export function foldLinks(links: Swarm['links'], members: Set<string>): NetworkL
   return [...byPair.values()];
 }
 
+/** Draw the helper's threads: one bowed line from its seat to each member
+ * it has messaged. The bow is a quadratic curve whose control point sits off
+ * the straight line's middle, to its side, by a fifth of its length (at
+ * least 24 units) — enough to part it from a talk line running the same way. */
+export function helperThreads(
+  links: Swarm['helper_links'],
+  nodes: { conv: string; x: number; y: number }[],
+  centre: { x: number; y: number },
+): HelperThread[] {
+  const at = new Map(nodes.map((n) => [n.conv, n] as const));
+  const threads: HelperThread[] = [];
+  for (const link of links ?? []) {
+    const node = at.get(link.to);
+    if (!node || link.messages <= 0) continue;
+    const dx = node.x - centre.x;
+    const dy = node.y - centre.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const bow = Math.max(24, length / 5);
+    const control = {
+      x: Math.round((centre.x + node.x) / 2 - (dy / length) * bow),
+      y: Math.round((centre.y + node.y) / 2 + (dx / length) * bow),
+    };
+    threads.push({
+      conv: link.to,
+      messages: link.messages,
+      path: `M ${centre.x} ${centre.y} Q ${control.x} ${control.y} ${node.x} ${node.y}`,
+      // A quadratic curve's halfway point: a quarter each end, half the control.
+      label: {
+        x: Math.round(0.25 * centre.x + 0.5 * control.x + 0.25 * node.x),
+        y: Math.round(0.25 * centre.y + 0.5 * control.y + 0.25 * node.y),
+      },
+    });
+  }
+  return threads;
+}
+
 /** How thick a talk line is: thicker the more they've said, gently. */
 export function lineWidth(messages: number): number {
   return Math.min(6, 2 + Math.log2(Math.max(1, messages)));
@@ -136,20 +190,24 @@ export function lineWidth(messages: number): number {
 
 /** The whole drawing for one swarm. Members keep the server's order (who
  * joined first), so a ring doesn't jump seat as the swarm grows. */
-export function layoutSwarm(swarm: Pick<Swarm, 'members' | 'links' | 'continues'>): NetworkLayout {
+export function layoutSwarm(
+  swarm: Pick<Swarm, 'members' | 'links' | 'continues' | 'helper_links'>,
+): NetworkLayout {
   const seats = placeRings(swarm.members.length);
   const nodes = swarm.members.map((m, i) => ({
     conv: m.conv, title: m.title, state: m.state, retired: m.retired ?? false,
     x: seats[i].x, y: seats[i].y,
   }));
   const members = new Set(nodes.map((n) => n.conv));
+  const centre = centreOf(seats);
   return {
     width: NETWORK_WIDTH,
     height: seats[0]?.height ?? MARGIN_TOP + MARGIN_BOTTOM,
     nodes,
     talk: foldLinks(swarm.links, members),
     continues: (swarm.continues ?? []).filter((c) => members.has(c.from) && members.has(c.to)),
-    centre: centreOf(seats),
+    centre,
+    helperThreads: helperThreads(swarm.helper_links, nodes, centre),
   };
 }
 

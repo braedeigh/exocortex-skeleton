@@ -16,8 +16,9 @@
  *     other when its context filled (continuation.py).
  *
  * The swarm's helper (swarm_helper.py) sits in the middle of them all as a
- * bigger, filled dot with no lines of its own — it talks to everyone. It
- * glows while it's running; tap it to open its chat.
+ * bigger, filled dot. A TEAL bowed thread runs from it to each member it has
+ * sent messages to, with how many on it. It glows while it's running; tap it
+ * to open its chat.
  *
  * The lines are an SVG underneath; the rings, names and counts are ordinary
  * HTML placed on top by percentage, so they keep real, readable pixel sizes
@@ -34,7 +35,8 @@
  * in the center that glows in and out and has a teal outline spinning around
  * it. then instead of pinging orange, just an orange ring additionally. make
  * them all static. then make it such that i can hide retired agents from the
- * swarm display."
+ * swarm display." Then: "make it such that the helper is connected to other
+ * agents in the swarm with the threads for messages it sends."
  */
 import type { CSSProperties } from 'react';
 import { makeStickyToggle } from '../terrain/codeHeatPref';
@@ -52,7 +54,7 @@ export function SwarmNetwork({
   onOpen,
   helperWorking = false,
 }: {
-  swarm: Pick<Swarm, 'members' | 'links' | 'continues' | 'helper_conv'>;
+  swarm: Pick<Swarm, 'members' | 'links' | 'continues' | 'helper_conv' | 'helper_links'>;
   onOpen: (conv: string) => void;
   /** Whether the helper is mid-run, from the roster. */
   helperWorking?: boolean;
@@ -63,6 +65,8 @@ export function SwarmNetwork({
   const members = hideRetired ? swarm.members.filter((m) => !m.retired) : swarm.members;
   const hiddenCount = swarm.members.length - members.length;
   const layout = layoutSwarm({ ...swarm, members });
+  // The helper's threads only show when its seat does.
+  const threads = swarm.helper_conv ? layout.helperThreads : [];
   const at = new Map(layout.nodes.map((n) => [n.conv, n] as const));
   const titleOf = (conv: string) => at.get(conv)?.title ?? conv;
   // Place HTML over the drawing by percentage of its box.
@@ -85,6 +89,10 @@ export function SwarmNetwork({
           preserveAspectRatio="none"
           aria-hidden="true"
         >
+          {threads.map((t) => (
+            <path key={`h-${t.conv}`} d={t.path} className={styles.helperThread}
+              strokeWidth={lineWidth(t.messages) - 0.5} vectorEffect="non-scaling-stroke" />
+          ))}
           {layout.continues.map((c) => {
             const from = at.get(c.from)!;
             const to = at.get(c.to)!;
@@ -119,6 +127,18 @@ export function SwarmNetwork({
             </span>
           );
         })}
+
+        {/* How many messages the helper has sent along each thread. */}
+        {threads.map((t) => (
+          <span
+            key={`hn-${t.conv}`}
+            className={[styles.count, styles.helperCount].join(' ')}
+            style={place(t.label.x, t.label.y)}
+            title={`Helper → ${titleOf(t.conv)}: ${t.messages}`}
+          >
+            {t.messages}
+          </span>
+        ))}
 
         {/* The agents: a ring and its name, tap to open. */}
         {layout.nodes.map((n) => (
@@ -174,6 +194,7 @@ export function SwarmNetworkKey() {
     <div className={styles.key}>
       <span><span className={styles.keyTalk} aria-hidden="true" /> messages between them (the number is how many)</span>
       <span><span className={styles.keyHandover} aria-hidden="true" /> one took over from the other</span>
+      <span><span className={styles.keyHelper} aria-hidden="true" /> the helper's messages to them</span>
       {/* The retired switch lives with the key, so it shows once per page
           however many swarms are drawn below it. */}
       <button

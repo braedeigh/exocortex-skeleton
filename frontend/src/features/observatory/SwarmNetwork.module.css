@@ -1,6 +1,7 @@
 /* SwarmNetwork — a swarm as rings and lines. Rings are Terrain's --accent
    purple around a solid dot (glowing, with a spinning teal arc, while it
-   works; an extra orange ring when waiting on her); talk lines are --green. */
+   works; an extra orange ring when waiting on her); talk lines are --green,
+   the helper's threads out to members are teal. */
 
 /* Wide enough that neighbouring names don't collide; a narrow phone scrolls
    sideways rather than squeezing the labels together. */
@@ -28,6 +29,15 @@
   opacity: 0.85;
 }
 
+/* The helper's threads: teal, the same value as the working spinner (see
+   .spinner below), bowed and a touch fainter than talk. */
+.helperThread {
+  fill: none;
+  stroke: #2fa6a0;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+
 .handover {
   stroke: var(--accent);
   stroke-width: 2;
@@ -48,6 +58,12 @@
   font-size: var(--font-size-sm);
   font-weight: 600;
   text-align: center;
+}
+
+/* The helper thread's count: the same chip, in teal. */
+.helperCount {
+  border-color: #2fa6a0;
+  color: #2fa6a0;
 }
 
 /* One agent. The ring's centre sits exactly on its seat; the name hangs below. */
@@ -188,6 +204,14 @@
 
 .keyHandover {
   border-top: 2px dashed var(--accent);
+}
+
+.keyHelper {
+  display: inline-block;
+  width: 28px;
+  height: 0;
+  border-top: 3px solid #2fa6a0;
+  vertical-align: middle;
 }
 
 /* The hide/show-retired switch: a full-size tap target at the key's end. */

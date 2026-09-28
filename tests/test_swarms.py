@@ -135,6 +135,20 @@ def test_overview_names_which_member_continued_which(data_dir):
     assert card["continues"] == [{"from": "a", "to": "a2"}]
 
 
+def test_overview_counts_the_helpers_messages_to_each_member(data_dir):
+    _seed("a", "b", "c")
+    peermail.send("b", "hi", from_conv="a")
+    [sid] = swarms.sync()
+    _seed("h_old", role="swarm_helper", swarm_id=sid, archived="2026-09-27T19:00:00")
+    _seed("h", role="swarm_helper", swarm_id=sid)
+    peermail.send("a", "status?", from_conv="h_old")
+    peermail.send("a", "status?", from_conv="h")
+    peermail.send("b", "status?", from_conv="h")
+    peermail.send("c", "not a member", from_conv="h")
+    [card] = swarms.overview()
+    assert card["helper_links"] == [{"to": "a", "messages": 2}, {"to": "b", "messages": 1}]
+
+
 def test_overview_marks_handed_off_and_archived_members_retired(data_dir):
     _seed("a", "b")
     _seed("c", archived="2026-09-27T19:00:00")

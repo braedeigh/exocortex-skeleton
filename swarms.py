@@ -299,7 +299,8 @@ def retired(swarm_id, index=None):
 def overview():
     """Every live swarm as a card needs it: name, room, summary, member
     count by state, the members with their own summaries, and who is joined
-    to whom (messages sent, and continuations) for the network drawing."""
+    to whom (messages sent, continuations, and the helper's messages out to
+    members) for the network drawing."""
     sync()
     index = store.read("bot_chats/index", {})
     index = index if isinstance(index, dict) else {}
@@ -341,6 +342,22 @@ def overview():
                 " WHERE kind = 'A' AND status != 'cancelled'"
                 " AND from_conv IN (SELECT conv FROM swarm_members WHERE swarm_id = ?)"
                 " GROUP BY from_conv, to_conv", (sid,)).fetchall()
+            # What the helper has sent each member: its threads out to them.
+            # A swarm can have had more than one helper session (a retired
+            # one's successor), so all of its helpers' messages count, and
+            # they're drawn from the one helper seat.
+            helpers = {c for c, e in index.items()
+                       if isinstance(e, dict) and e.get("role") == "swarm_helper"
+                       and e.get("swarm_id") == sid} | ({helper} if helper else set())
+            helper_sent = Counter()
+            if helpers:
+                marks = ",".join("?" * len(helpers))
+                for to, n in conn.execute(
+                        "SELECT to_conv, COUNT(*) FROM agent_messages"
+                        " WHERE kind = 'A' AND status != 'cancelled'"
+                        f" AND from_conv IN ({marks}) GROUP BY to_conv", tuple(helpers)):
+                    if to in member_ids:
+                        helper_sent[to] += n
             out.append({
                 "id": sid, "name": name or f"Swarm {sid}", "named": bool(name),
                 "lane": lane, "helper_conv": helper, "summary": summary,
@@ -350,6 +367,8 @@ def overview():
                 "members": members,
                 "links": [{"from": a, "to": b, "messages": n} for a, b, n in talked],
                 "continues": continues,
+                "helper_links": [{"to": conv, "messages": n}
+                                 for conv, n in sorted(helper_sent.items())],
             })
         return out
     finally:

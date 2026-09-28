@@ -86,3 +86,22 @@ describe('the helper seat', () => {
     expect(spot).toEqual({ x: 50, y: 0 });
   });
 });
+
+describe('the helper threads', () => {
+  const members = [member('a'), member('b')];
+
+  it('runs one thread to each member the helper has messaged, with its count', () => {
+    const layout = layoutSwarm({
+      members, links: [], continues: [],
+      helper_links: [{ to: 'a', messages: 3 }, { to: 'gone', messages: 2 }],
+    });
+    expect(layout.helperThreads.map((t) => [t.conv, t.messages])).toEqual([['a', 3]]);
+  });
+
+  it('bows off the talk line when the helper sits halfway between two members', () => {
+    const layout = layoutSwarm({ members, links: [], continues: [], helper_links: [{ to: 'b', messages: 1 }] });
+    const [thread] = layout.helperThreads;
+    expect(thread.path.startsWith(`M ${layout.centre.x} ${layout.centre.y} `)).toBe(true);
+    expect(thread.label.y).not.toBe(layout.centre.y);
+  });
+});

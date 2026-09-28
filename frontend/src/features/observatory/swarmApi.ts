@@ -46,6 +46,9 @@ export interface Swarm {
   /** Which member took over from which (a continuation). Absent from an
    * older server, so treat it as optional. */
   continues?: { from: string; to: string }[];
+  /** How many messages the swarm's helper has sent each member. Absent
+   * from an older server, so treat it as optional. */
+  helper_links?: { to: string; messages: number }[];
 }
 
 export interface HelperRun {
