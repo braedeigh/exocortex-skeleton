@@ -6,7 +6,9 @@ a message are linked, and everything linked together — directly or through
 someone else — is one swarm. Not everyone in a swarm has to have talked to
 everyone; one conversation with one other member is enough to join. A session
 that continued itself (a fresh session taking over when the old one's context
-filled up) stays in its parent's swarm.
+filled up) stays in its parent's swarm — but a handoff is not a conversation:
+a session and its own continuation, with no message between them and anyone
+else, are one line of work, not a swarm, and get no swarm of their own.
 
 A swarm keeps its identity as it grows: the same number, the same name, the
 same helper, even as new members join. When two swarms get linked, the older
@@ -61,21 +63,28 @@ def groups(links):
 
 
 def links(conn, index):
-    """Who is linked to whom: every pair that exchanged an agent message
-    (delivered or not — sending is the interaction), plus every session and
-    the continuation that took over from it."""
+    """Who is linked to whom, as two lists: every pair that exchanged an
+    agent message (delivered or not — sending is the interaction), and every
+    session paired with the continuation that took over from it."""
     # A swarm's helper talks to every member but isn't one of them — linking
     # through it would make its own swarm out of nothing.
     helpers = {c for c, e in index.items() if isinstance(e, dict) and e.get("role") == "swarm_helper"}
-    pairs = [tuple(row) for row in conn.execute(
+    talked = [tuple(row) for row in conn.execute(
         "SELECT DISTINCT from_conv, to_conv FROM agent_messages"
         " WHERE kind = 'A' AND status != 'cancelled' AND from_conv IS NOT NULL")
         if row[0] not in helpers and row[1] not in helpers]
-    for conv_id, entry in index.items():
-        if (isinstance(entry, dict) and entry.get("spawned_via") == "continue"
-                and entry.get("spawned_from")):
-            pairs.append((entry["spawned_from"], conv_id))
-    return pairs
+    continued = [(entry["spawned_from"], conv_id) for conv_id, entry in index.items()
+                 if isinstance(entry, dict) and entry.get("spawned_via") == "continue"
+                 and entry.get("spawned_from")]
+    return talked, continued
+
+
+def found_groups(talked, continued):
+    """The swarms that should exist: groups joined by messages, with each
+    continuation chain riding along with its parent. A group held together
+    by handoffs alone is left out — nobody in it talked to anybody."""
+    talkers = {conv for pair in talked for conv in pair}
+    return [members for members in groups(talked + continued) if members & talkers]
 
 
 def _majority_lane(members, index):
@@ -93,7 +102,7 @@ def sync():
     index = index if isinstance(index, dict) else {}
     conn = sqlstore.open_db()
     try:
-        found = groups(links(conn, index))
+        found = found_groups(*links(conn, index))
         sqlstore.begin_immediate(conn)
         try:
             stored = {}
@@ -129,13 +138,44 @@ def sync():
                              (_majority_lane(members, index), now, keep))
                 stored[keep] = members
                 live[keep] = members
+            # Dissolve any stored swarm no group covers any more. That's a
+            # swarm formed by a handoff alone (before handoffs stopped making
+            # swarms), or one whose only message was cancelled: there was
+            # never a conversation, so its rows go, helper summaries with them.
+            for gone in set(stored) - set(live):
+                conn.execute("UPDATE swarms SET merged_into = NULL, updated_at = ?"
+                             " WHERE merged_into = ?", (now, gone))
+                conn.execute("DELETE FROM swarm_helper_runs WHERE swarm_id = ?", (gone,))
+                conn.execute("DELETE FROM swarm_members WHERE swarm_id = ?", (gone,))
+                conn.execute("DELETE FROM swarms WHERE id = ?", (gone,))
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")
             raise
-        return live
     finally:
         conn.close()
+    _archive_helpers(set(live))
+    return live
+
+
+def _archive_helpers(live_ids):
+    """Archive the helper session of every swarm that no longer stands on its
+    own — absorbed into another, or dissolved — so it stops sitting in the
+    room as if it still had a swarm to watch. A helper mid-run is left for
+    the next sync."""
+    index = store.read("bot_chats/index", {})
+    index = index if isinstance(index, dict) else {}
+    retire = {conv for conv, entry in index.items()
+              if isinstance(entry, dict) and entry.get("role") == "swarm_helper"
+              and entry.get("swarm_id") not in live_ids
+              and not entry.get("archived") and not entry.get("running")}
+    if not retire:
+        return
+    with store.mutate("bot_chats/index", {}) as index:
+        for conv in retire:
+            if isinstance(index.get(conv), dict):
+                index[conv]["archived"] = _now()
+                index[conv].pop("helper_pending", None)
 
 
 def _status(entry):

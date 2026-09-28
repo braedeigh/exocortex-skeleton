@@ -2,8 +2,10 @@
 
 What these pin: two sessions that exchanged one message are a swarm; a chain
 (a↔b, b↔c) is ONE swarm even though a and c never spoke; a continuation stays
-in its parent's swarm; a swarm keeps its number as it grows; two swarms that
-get linked become one, the older absorbing the younger.
+in its parent's swarm, but a handoff alone makes no swarm; a swarm keeps its
+number as it grows; two swarms that get linked become one, the older
+absorbing the younger; a swarm nothing holds together any more is dissolved
+and its helper archived, as is the helper of an absorbed swarm.
 """
 import peermail
 import store
@@ -57,6 +59,55 @@ def test_a_continuation_stays_in_its_parents_swarm(data_dir):
     peermail.send("b", "hi", from_conv="a")
     live = swarms.sync()
     assert list(live.values()) == [{"a", "b", "a2"}]
+
+
+def test_a_handoff_alone_makes_no_swarm(data_dir):
+    _seed("a")
+    _seed("a2", spawned_from="a", spawned_via="continue")
+    _seed("a3", spawned_from="a2", spawned_via="continue")
+    assert swarms.sync() == {}
+    assert swarms.swarm_of("a2") is None
+
+
+def test_a_chain_of_handoffs_rides_along_with_its_swarm(data_dir):
+    _seed("a", "b")
+    _seed("a2", spawned_from="a", spawned_via="continue")
+    _seed("a3", spawned_from="a2", spawned_via="continue")
+    peermail.send("b", "hi", from_conv="a3")
+    live = swarms.sync()
+    assert list(live.values()) == [{"a", "a2", "a3", "b"}]
+
+
+def test_a_stored_handoff_only_swarm_is_dissolved(data_dir):
+    import sqlstore
+    _seed("a")
+    _seed("a2", spawned_from="a", spawned_via="continue")
+    _seed("h", role="swarm_helper", swarm_id=1)
+    conn = sqlstore.open_db()
+    conn.execute("INSERT INTO swarms (id, created_at, updated_at, lane, helper_conv)"
+                 " VALUES (1, 'x', 'x', 'coding', 'h')")
+    conn.executemany("INSERT INTO swarm_members (swarm_id, conv, joined_at) VALUES (1, ?, 'x')",
+                     [("a",), ("a2",)])
+    conn.commit()
+    conn.close()
+    assert swarms.sync() == {}
+    assert swarms.swarm_of("a") is None
+    assert store.read("bot_chats/index", {})["h"].get("archived")
+
+
+def test_an_absorbed_swarms_helper_is_archived(data_dir):
+    _seed("a", "b", "x", "y")
+    peermail.send("b", "hi", from_conv="a")
+    [older] = swarms.sync()
+    peermail.send("y", "hi", from_conv="x")
+    younger = next(sid for sid in swarms.sync() if sid != older)
+    _seed("h_old", role="swarm_helper", swarm_id=older)
+    _seed("h_young", role="swarm_helper", swarm_id=younger)
+    peermail.send("x", "bridge", from_conv="b")
+    swarms.sync()
+    index = store.read("bot_chats/index", {})
+    assert not index["h_old"].get("archived")
+    assert index["h_young"].get("archived")
 
 
 def test_overview_counts_members_by_state(data_dir):
