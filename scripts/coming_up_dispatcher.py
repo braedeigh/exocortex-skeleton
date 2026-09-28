@@ -159,6 +159,15 @@ def main():
             _log(f"started {ran} room helper run(s)")
     except Exception as e:
         _log(f"room helper tick failed: {e}")
+    # Turns whose host process died mid-reply are marked failed here
+    # (routes/observatory.py mark_dead_turns), so a red card and an error line
+    # land even when nobody has the roster open.
+    try:
+        dead = rr.mark_dead_turns()
+        if dead:
+            _log(f"marked {len(dead)} turn(s) whose host died: {', '.join(dead)}")
+    except Exception as e:
+        _log(f"dead-turn check failed: {e}")
     # Finished sessions whose countdown has run out close here
     # (routes/observatory.py close_done_sessions). Ahead of the Coming up
     # switch for the same reason as the mailbox: it isn't a reminder.

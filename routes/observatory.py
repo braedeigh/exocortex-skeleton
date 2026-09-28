@@ -791,8 +791,9 @@ _running_procs = {}
 _stop_requested = set()
 
 # How stale a `running` flag can be before it's presumed dead (a worker that
-# crashed mid-turn never cleared it). Only consulted when the proc isn't in
-# THIS worker's registry — cross-worker we can't see it, so time decides.
+# crashed mid-turn never cleared it). The last resort: consulted only when the
+# proc isn't in THIS worker's registry and the turn carries no process record
+# (see "Which processes a turn is" below) that could say so outright.
 _RUNNING_STALE_SEC = 600
 
 # How often a live turn re-stamps `last_at` while it works (see the heartbeat
@@ -807,12 +808,180 @@ _HEARTBEAT_SEC = 30
 _LIVE_FLUSH_SEC = 0.1
 
 
+# --- Which processes a turn is, and killing all of them ----------------------
+# A running turn records the processes it is made of in its index entry, as
+# `turn_proc`: the machine's boot id, plus pid and kernel start time for the
+# turn host (scripts/turn_host.py writes that before it starts the agent) and
+# for `claude` itself (_run_turn writes that as the turn begins). It is cleared
+# in the same write that clears `running`.
+#
+# A pid alone can't be trusted — the kernel hands a dead one out again — so
+# a process only counts as "the same one" when its start time (field 22 of
+# /proc/<pid>/stat, in clock ticks since boot) matches what was written down
+# AND the boot id hasn't changed. That's a stricter version of the reuse check
+# scripts/run_detached.py makes with the command line.
+#
+# What the record buys:
+#   - A dead host is noticed at once, instead of after ten minutes of stale
+#     heartbeat: _effective_running stops calling it running, and
+#     mark_dead_turns turns the card red and says so in the transcript.
+#   - Close can kill the agent from whichever worker took the request, and
+#     wait until it's truly gone before removing the folder it stands in.
+#
+# Killing is by process TREE, not process group. Claude Code starts every
+# Bash command in a session of its own (setsid — visible in `ps -o sid`), so
+# a group kill of `claude` misses exactly the test run or dev server it
+# started; and `claude` shares the host's group, so it would take the host
+# with it. Instead the tree is walked through the kernel's child lists,
+# freezing each process with SIGSTOP before reading its children (so nothing
+# in it can start one the walk would miss), and then SIGKILLed. A run_detached watcher is left alone with everything under
+# it: it was put outside the turn on purpose, to outlive it.
+#
+# Prompt that produced it: "Stop and Close kill only claude, not what it
+# started ... A turn host that crashes still dies silently."
+
+def _boot_id():
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    except OSError:
+        return None
+
+
+def _proc_stat(pid):
+    """(state, parent pid, start time) from /proc/<pid>/stat, or None if the
+    process doesn't exist. Parsed from after the LAST ')': the command name
+    in parentheses may itself contain spaces and parentheses."""
+    try:
+        raw = Path(f"/proc/{int(pid)}/stat").read_text()
+    except (OSError, TypeError, ValueError):
+        return None
+    fields = raw[raw.rfind(")") + 2:].split()
+    try:
+        return fields[0], int(fields[1]), int(fields[19])
+    except (IndexError, ValueError):
+        return None
+
+
+def _proc_stamp(pid):
+    """What to write down about a live process so it can be recognised later."""
+    stat = _proc_stat(pid)
+    return {"pid": int(pid), "start": stat[2] if stat else None}
+
+
+def _same_proc(stamp, boot):
+    """Is the process in `stamp` still alive, and still the one recorded?
+    A zombie counts as dead: it has exited and is only waiting to be reaped."""
+    if not isinstance(stamp, dict) or not stamp.get("pid"):
+        return False
+    if boot and boot != _boot_id():
+        return False
+    stat = _proc_stat(stamp["pid"])
+    if stat is None or stat[0] == "Z":
+        return False
+    return stamp.get("start") is None or stat[2] == stamp["start"]
+
+
+def _record_turn_proc(conv_id, role, pid):
+    """Write `role` ("host" or "agent") into the turn's process record — only
+    while the index still calls the turn running, so a late write can never
+    pin a record onto a turn that has already ended."""
+    stamp = _proc_stamp(pid)
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if isinstance(entry, dict) and entry.get("running"):
+            record = entry.get("turn_proc")
+            if not isinstance(record, dict):
+                record = entry["turn_proc"] = {}
+            record["boot"] = _boot_id()
+            record[role] = stamp
+
+
+def _host_gone(entry):
+    """True when a turn's host is recorded and is verifiably no longer alive.
+    A turn with no host on record (the in-worker fallback, an older entry, a
+    helper run) is never judged by this — it falls to the heartbeat."""
+    record = entry.get("turn_proc")
+    if not (isinstance(record, dict) and isinstance(record.get("host"), dict)):
+        return False
+    return not _same_proc(record["host"], record.get("boot"))
+
+
+def _is_detached_watcher(pid):
+    try:
+        cmdline = Path(f"/proc/{int(pid)}/cmdline").read_bytes()
+    except (OSError, TypeError, ValueError):
+        return False
+    return b"run_detached.py" in cmdline and b"--watch" in cmdline
+
+
+def _children(pid):
+    """The processes `pid` started, from the kernel's own list of them
+    (/proc/<pid>/task/<thread>/children) — a handful of reads for a turn's
+    small tree, where scanning all of /proc is hundreds. That list is only
+    promised accurate while the process is stopped, which is why _kill_tree
+    freezes each process before asking. A kernel built without it falls back
+    to the full scan."""
+    try:
+        threads = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return []
+    found = []
+    for thread in threads:
+        try:
+            with open(f"/proc/{pid}/task/{thread}/children", "rb") as f:
+                found.extend(int(c) for c in f.read().split())
+        except FileNotFoundError:
+            return [int(e.name) for e in os.scandir("/proc") if e.name.isdigit()
+                    and (_proc_stat(e.name) or (None, None))[1] == pid]
+        except (OSError, ValueError):
+            continue
+    return found
+
+
+def _kill_tree(root):
+    """Freeze, then kill, `root` and everything under it. Each process is
+    stopped BEFORE its children are listed, so nothing can start a child the
+    walk would miss; then the whole frozen tree is killed at once. A
+    run_detached watcher and everything under it are skipped."""
+    import signal
+    frozen, stack = [], [root]
+    while stack:
+        pid = stack.pop()
+        if pid in frozen:
+            continue
+        try:
+            os.kill(pid, signal.SIGSTOP)
+        except OSError:
+            continue            # already gone
+        frozen.append(pid)
+        stack.extend(c for c in _children(pid) if not _is_detached_watcher(c))
+    for pid in frozen:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+def _kill_turn(proc):
+    """Kill a turn's agent and everything it started. The one kill every stop
+    path uses — Stop, Close, an interrupting message, the host's stop poll."""
+    pid = getattr(proc, "pid", None)
+    if isinstance(pid, int) and pid > 0:
+        _kill_tree(pid)
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
 def _effective_running(conv_id, entry):
     if not entry.get("running"):
         return False
     proc = _running_procs.get(conv_id)
     if proc is not None:
         return proc.poll() is None
+    if _host_gone(entry):
+        return False
     try:
         last = datetime.fromisoformat(entry.get("last_at", ""))
     except (TypeError, ValueError):
@@ -829,9 +998,96 @@ def _kill_local_proc(conv_id):
     proc = _running_procs.get(conv_id)
     if proc is not None and proc.poll() is None:
         _stop_requested.add(conv_id)
-        proc.kill()
+        _kill_turn(proc)
         return True
     return False
+
+
+def _kill_recorded_agent(entry):
+    """Kill a turn's agent tree from its process record — from any process,
+    not just the one that started it. Returns the agent's stamp if it was
+    alive and killed, else None. The caller must already have marked the turn
+    stop_requested in the index, so the host reads the death as deliberate."""
+    record = entry.get("turn_proc") if isinstance(entry, dict) else None
+    if not isinstance(record, dict):
+        return None
+    agent = record.get("agent")
+    if not _same_proc(agent, record.get("boot")):
+        return None
+    _kill_tree(agent["pid"])
+    return agent
+
+
+# How long Close waits for a killed turn to be gone before removing its
+# worktree. A direct kill lands in milliseconds; without a process record the
+# host's stop poll (turn_host._STOP_POLL_SEC, 2s) has to notice first.
+_CLOSE_WAIT_SEC = 10.0
+
+
+def _wait_turn_gone(conv_id, agent, boot, timeout=_CLOSE_WAIT_SEC):
+    """Wait until a stopped turn has actually ended. True if it did in time.
+    With the agent's stamp in hand, waits on the process itself; without one,
+    on the index's `running` flag, which the host clears as the turn ends."""
+    deadline = time.monotonic() + timeout
+    while True:
+        if agent is not None:
+            if not _same_proc(agent, boot):
+                return True
+        else:
+            entry = store.read("bot_chats/index", {}).get(conv_id)
+            if not (isinstance(entry, dict) and _effective_running(conv_id, entry)):
+                return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
+
+
+def mark_dead_turns(index=None):
+    """Put down every turn whose host has died mid-reply. Returns their ids.
+
+    A host that dies unexpectedly (OOM, a stray kill, a crash) never reaches
+    the end of _run_turn, so nothing clears `running` or writes an error — the
+    card read "running" for ten minutes and then went grey, as if the reply
+    had finished. This does the host's last job for it: clears the flag,
+    records the error so the card goes red, writes the error into the
+    transcript so the chat says where it stopped, and kills an agent the dead
+    host left orphaned (still thinking, still costing money, nobody reading).
+
+    Called from the roster read and the once-a-minute dispatcher tick. Reads
+    /proc only for turns with a host on record, so it costs nothing when no
+    turn is running."""
+    if index is None:
+        index = store.read("bot_chats/index", {})
+    suspects = [cid for cid, e in index.items()
+                if isinstance(e, dict) and e.get("running") and _host_gone(e)]
+    dead = []
+    for conv_id in suspects:
+        with store.mutate("bot_chats/index", {}) as live_index:
+            entry = live_index.get(conv_id)
+            # Re-checked under the lock: the host may have finished cleanly
+            # between the read above and here.
+            if not (isinstance(entry, dict) and entry.get("running") and _host_gone(entry)):
+                continue
+            record = entry.pop("turn_proc")
+            host_pid = (record.get("host") or {}).get("pid")
+            error = (f"the turn's host process (pid {host_pid}) died unexpectedly — "
+                     "the reply stopped here, and nothing after this point was recorded")
+            entry["running"] = False
+            entry["last_at"] = _now()
+            entry["last_error"] = error
+            entry.pop("stop_requested", None)
+        dead.append(conv_id)
+        _kill_recorded_agent({"turn_proc": record})
+        try:
+            with open(_chats_dir() / f"{conv_id}.jsonl", "a", encoding="utf-8") as log:
+                log.write(json.dumps({"type": "error", "error": error, "ts": _now()}) + "\n")
+        except OSError:
+            pass
+        try:
+            os.unlink(_live_path(conv_id))
+        except OSError:
+            pass
+    return dead
 
 
 def _stderr_tail(stderr_f):
@@ -982,10 +1238,7 @@ def _deliver_midturn(proc, conv_id, log_path, turn_input):
     if "interrupt" in modes.values():
         _stop_requested.add(conv_id)
         turn_input.close()
-        try:
-            proc.kill()
-        except OSError:
-            pass
+        _kill_turn(proc)
         return True
     handable = [r for r in rows if modes[r["id"]] == "inject"]
     if not handable:
@@ -1148,6 +1401,14 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                 continue                # a contended write is not a dead turn
 
     threading.Thread(target=_heartbeat, daemon=True).start()
+    # Write down which process the agent is, so any process can recognise it
+    # later — to kill it on Close, or to find it orphaned if the host dies
+    # (see "Which processes a turn is" above).
+    if isinstance(getattr(proc, "pid", None), int):
+        try:
+            _record_turn_proc(conv_id, "agent", proc.pid)
+        except Exception:
+            pass    # bookkeeping must never cost the turn
     # What killed this turn, if anything — hoisted out of the log-writing block
     # so the index update in `finally` can persist it. That's what puts a red
     # card on the roster: an error used to exist only as an event in the live
@@ -1246,9 +1507,16 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                     idx_entry = store.read("bot_chats/index", {}).get(conv_id)
                     if isinstance(idx_entry, dict) and idx_entry.get("stop_requested"):
                         _stop_requested.add(conv_id)
-                        proc.kill()
+                        _kill_turn(proc)
             proc.wait()
+            # Deliberate, not a crash, if this process asked for the kill —
+            # or if another one did: Close kills the agent directly from
+            # whichever worker took the request (_kill_recorded_agent), so
+            # the only sign of intent this process gets is the index flag.
             stopped = conv_id in _stop_requested
+            if not stopped and proc.returncode != 0:
+                idx_entry = store.read("bot_chats/index", {}).get(conv_id)
+                stopped = isinstance(idx_entry, dict) and bool(idx_entry.get("stop_requested"))
             if proc.returncode != 0 and not stopped:
                 err = _stderr_tail(stderr_f)
                 turn_error = err or f"claude exited {proc.returncode}"
@@ -1292,6 +1560,7 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                 entry["last_at"] = _now()
                 entry["running"] = False
                 entry.pop("stop_requested", None)
+                entry.pop("turn_proc", None)
                 _end_turn_done(conv_id, entry)
                 # How the turn ended, so the roster can show it. A clean turn
                 # clears any error the PREVIOUS one left — the flag means "the
@@ -1795,10 +2064,11 @@ def close_conversation(conv_id):
     Nothing is deleted — the jsonl log and index entry stay. The pinned Keeper
     session always stays open. Returns (payload, status).
 
-    Closing STOPS a running turn (same kill path as /stop): the subprocess is
-    killed if this worker owns it, else the owning worker is flagged via
-    stop_requested. Pinned is checked FIRST, so refusing to close the Keeper
-    never kills its turn."""
+    Closing STOPS a running turn, the agent and everything it started: killed
+    here if this worker owns the process, else killed from the turn's process
+    record (any worker can), with stop_requested set either way so the host
+    reads the death as deliberate. Pinned is checked FIRST, so refusing to
+    close the Keeper never kills its turn."""
     _chats_dir()
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
@@ -1806,18 +2076,33 @@ def close_conversation(conv_id):
             return {"error": "not found"}, 404
         if entry.get("pinned"):
             return {"error": "the pinned Keeper session stays open"}, 400
-        if not _kill_local_proc(conv_id) and entry.get("running"):
+        killed_here = _kill_local_proc(conv_id)
+        was_running = killed_here or _effective_running(conv_id, entry)
+        if not killed_here and entry.get("running"):
             entry["stop_requested"] = _now()
+        record = dict(entry.get("turn_proc") or {})
         entry["archived"] = _now()
         _clear_done(entry)
         reap = entry.get("worktree")
         filed = entry.get("spinoff_slug")
+    # Kill the agent directly rather than wait for its host's stop poll —
+    # AFTER the lock is released, so stop_requested is already on disk when
+    # the host sees its agent die.
+    agent = _kill_recorded_agent({"turn_proc": record}) if was_running else None
     # Outside the lock (git is slow, every send wants this lock). Closing is
     # the ONE moment a worktree can be removed safely: it's the session's
     # cwd, and a conversation can only ever be resumed from the directory it
     # was born in — so while the session is open, deleting the copy would
     # silently make it unresumable forever. The BRANCH survives; that's
     # where the work is until it's merged.
+    # Not while anything still stands in it: a turn being closed is waited
+    # out first, or an agent a few steps from noticing the stop would go on
+    # writing into a folder that's gone. One that won't die in time keeps its
+    # worktree — a leftover folder costs disk, a pulled one costs the work.
+    if reap and was_running and not _wait_turn_gone(conv_id, agent, record.get("boot")):
+        print(f"close {conv_id}: turn still alive after {_CLOSE_WAIT_SEC}s — "
+              f"leaving its worktree {reap}", file=sys.stderr)
+        reap = None
     if reap:
         worktrees.remove(reap)
     # Closing is also when the brief stops being live work and becomes a
@@ -2656,6 +2941,10 @@ def register(app):
         clients that still expect it."""
         chats = _chats_dir()
         index = store.read("bot_chats/index", {})
+        # A turn whose host died is put down before the roster is drawn, so
+        # its card is red the moment anyone looks rather than a minute later.
+        if mark_dead_turns(index):
+            index = store.read("bot_chats/index", {})
         # Ordered by CREATION time, newest first (her 07-27 call), NOT by
         # last activity: a card's spot is fixed the moment it's made, so the
         # roster never reshuffles under her when an agent replies. Recency
@@ -3819,6 +4108,9 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         entry["last_at"] = _now()
         entry["running"] = True
         entry.pop("stop_requested", None)
+        # A new turn starts with no process record; its host writes its own.
+        # One left behind by a turn that died must not be judged as this one's.
+        entry.pop("turn_proc", None)
         # Talking to an archived session brings it back. The roster hides
         # archived entries, so without this a resurrected conversation
         # would run INVISIBLY — off the list while burning tokens. Sending

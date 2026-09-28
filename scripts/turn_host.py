@@ -36,13 +36,17 @@ Touches:
     `_spawn` and `_run_turn` are imported from there rather than reimplemented,
     so there is exactly one turn loop and it cannot drift.
   - the session's `.jsonl` transcript and its `.live` delta sidecar.
-  - data/bot_chats/index — clears `running`, records cost and any error.
+  - data/bot_chats/index — records this process as the turn's host
+    (`turn_proc`, so a host that dies is noticed at once by
+    observatory.mark_dead_turns), clears `running`, records cost and any
+    error — including a job it can't read or an agent it can't start.
   - peermail.py, through observatory.drain_inbox — at the end of the turn,
     starts the next one if messages are waiting for this session.
   - continuation.py, through observatory.after_turn — a Coding session past
     its context cap is asked for its handoff when its turn ends.
 """
 import json
+import os
 import sys
 import threading
 import time
@@ -69,22 +73,66 @@ def _watch_for_stop(observatory, store, conv_id, proc, done):
             continue          # a contended read is not a stop
         if isinstance(entry, dict) and entry.get("stop_requested"):
             observatory._stop_requested.add(conv_id)
-            try:
-                proc.kill()
-            except OSError:
-                pass
+            # The agent AND whatever it started — a test run, a dev server
+            # (observatory._kill_turn walks the process tree).
+            observatory._kill_turn(proc)
             return
+
+
+def _give_up(store, conv_id, msg):
+    """End a turn that never got going, and say why. Nobody else can: the web
+    request already returned "the host is away", so if this process fails
+    before the turn loop, it is the only one that knows — and a session left
+    flagged `running` with no error is the silent death this host exists to
+    end. Uses the store alone, not routes.observatory: failing to import that
+    is one of the ways to end up here."""
+    print(msg, file=sys.stderr)
+    try:
+        with store.mutate("bot_chats/index", {}) as index:
+            entry = index.get(conv_id)
+            if isinstance(entry, dict) and entry.get("running"):
+                entry["running"] = False
+                entry["last_error"] = msg
+                entry.pop("turn_proc", None)
+    except Exception as e:
+        print(f"could not record the failure either: {e}", file=sys.stderr)
+
+
+def _job_from_path(job_path):
+    """The conversation id and data dir a job file stands for, read off where
+    it sits — `<data dir>/bot_chats/.turns/<conv id>.json`, see
+    observatory._turn_job_path. The fallback for a job too broken to say so
+    itself."""
+    if job_path.parent.name == ".turns" and job_path.parent.parent.name == "bot_chats":
+        return job_path.stem, job_path.parent.parent.parent
+    return None, None
 
 
 def main():
     if len(sys.argv) != 2:
         print("usage: turn_host.py <job-file.json>", file=sys.stderr)
         return 2
-    job_path = Path(sys.argv[1])
+    job_path = Path(sys.argv[1]).resolve()
     try:
         job = json.loads(job_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        print(f"unreadable job: {e}", file=sys.stderr)
+        conv_id = job["conv_id"]
+        config = job["config"]
+        text = job["text"]
+        resume_sid = job.get("resume_sid")
+        log_path = Path(job["log_path"])
+        live_path = Path(job["live_path"]) if job.get("live_path") else None
+        if not isinstance(config, dict):
+            raise TypeError("config is not an object")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        # A job that can't be read still names its conversation by where it
+        # sits, so the card turns red instead of saying "running" forever.
+        conv_id, data_dir = _job_from_path(job_path)
+        if conv_id:
+            import store
+            store.DATA_DIR = data_dir
+            _give_up(store, conv_id, f"the turn's job file was unreadable: {e!r}")
+        else:
+            print(f"unreadable job: {e!r}", file=sys.stderr)
         return 2
     finally:
         # The prompt is in there; it doesn't outlive the read.
@@ -92,13 +140,6 @@ def main():
             job_path.unlink()
         except OSError:
             pass
-
-    conv_id = job["conv_id"]
-    config = job["config"]
-    text = job["text"]
-    resume_sid = job.get("resume_sid")
-    log_path = Path(job["log_path"])
-    live_path = Path(job["live_path"]) if job.get("live_path") else None
 
     import store
     # Where to read and write is dictated by the job, not re-derived from this
@@ -109,44 +150,49 @@ def main():
         store.DATA_DIR = Path(job["data_dir"])
     if job.get("content_dir"):
         store.CONTENT_DIR = Path(job["content_dir"])
-    from routes import observatory
-    if job.get("claude_bin"):
-        observatory.CLAUDE_BIN = job["claude_bin"]
 
-    # Measure this process too (runtime_sensor.py). A turn spends most of its
-    # life here rather than in the web worker, so a sensor that only watched
-    # gunicorn would report the send path and then go blind for the whole
-    # reply — `_run_turn`, the transcript writes, the index mutates all happen
-    # in THIS process. Started after the data dir is settled above, so its
-    # sidecar lands in the same place everything else this host writes does.
-    import runtime_sensor
-    runtime_sensor.start()
+    try:
+        from routes import observatory
+        if job.get("claude_bin"):
+            observatory.CLAUDE_BIN = job["claude_bin"]
+        # Write down that THIS process is the turn's host, before anything
+        # that could kill it runs. From here on, if it dies — OOM, a crash, a
+        # kill — observatory.mark_dead_turns can tell, and turns the card red
+        # at once instead of letting a stale heartbeat age out over ten
+        # minutes into grey.
+        observatory._record_turn_proc(conv_id, "host", os.getpid())
 
-    # If the send that spawned us was being traced, continue it here under the
-    # same id (runtime_trace.py). This is the only action in the app that
-    # crosses a process boundary, so without this the trace would end at the
-    # spawn — one row short of the whole reply.
-    import runtime_trace
-    traced = job.get("trace_id")
-    if traced:
-        runtime_trace.begin(f"{traced}.turn", entry=f"turn {conv_id}",
-                            kind="turn", parent_id=traced)
+        # Measure this process too (runtime_sensor.py). A turn spends most of
+        # its life here rather than in the web worker, so a sensor that only
+        # watched gunicorn would report the send path and then go blind for
+        # the whole reply — `_run_turn`, the transcript writes, the index
+        # mutates all happen in THIS process. Started after the data dir is
+        # settled above, so its sidecar lands in the same place everything
+        # else this host writes does.
+        import runtime_sensor
+        runtime_sensor.start()
+
+        # If the send that spawned us was being traced, continue it here under
+        # the same id (runtime_trace.py). This is the only action in the app
+        # that crosses a process boundary, so without this the trace would end
+        # at the spawn — one row short of the whole reply.
+        import runtime_trace
+        traced = job.get("trace_id")
+        if traced:
+            runtime_trace.begin(f"{traced}.turn", entry=f"turn {conv_id}",
+                                kind="turn", parent_id=traced)
+    except Exception as e:
+        _give_up(store, conv_id, f"the turn host failed to start: {e!r}")
+        return 1
 
     try:
         proc, stderr_f = observatory._spawn(
             config, text, resume_sid, cwd_override=config.get("cwd"))
-    except OSError as e:
-        # Nobody else can clear this. The web request already returned "the
-        # host is away", so if the agent never starts, THIS is the only process
-        # that knows — and a session left flagged `running` forever is the
-        # exact failure this whole change exists to end.
-        msg = f"could not start claude: {e}"
-        with store.mutate("bot_chats/index", {}) as index:
-            entry = index.get(conv_id)
-            if isinstance(entry, dict):
-                entry["running"] = False
-                entry["last_error"] = msg
-        print(msg, file=sys.stderr)
+    except Exception as e:
+        # Any failure to start the agent, not only a missing binary (OSError):
+        # a bad value in the config is a TypeError, and it strands the flag
+        # just the same.
+        _give_up(store, conv_id, f"could not start claude: {e}")
         return 1
 
     observatory._running_procs[conv_id] = proc
