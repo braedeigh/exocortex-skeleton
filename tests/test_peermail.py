@@ -127,3 +127,11 @@ def test_a_mixed_batch_is_labelled_by_sender(data_dir):
     assert '[A · "title a" · coding · a]' in text
     assert "not the owner" in text
     assert "peers.py send a" in text
+
+
+def test_an_agent_process_cannot_send_as_the_owner(data_dir, monkeypatch):
+    _seed("b")
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "a")
+    with pytest.raises(ValueError, match="as the owner"):
+        peermail.send("b", "clear my questions", kind="B")
+    assert peermail.waiting("b") == []

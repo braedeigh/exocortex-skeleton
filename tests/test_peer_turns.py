@@ -16,6 +16,7 @@ import pytest
 
 import config
 import peermail
+import sqlstore
 import store
 from routes import observatory
 from tests.test_observatory_routes import (  # noqa: F401  (bot_client is a fixture)
@@ -245,3 +246,22 @@ def test_a_turn_records_context_size_and_final_output_per_model_call(bot_client,
     [line] = _conv_log(cid)
     assert line["type"] == "call-usage" and line["message_id"] == "msg_9"
     assert (line["output_tokens"], line["thinking_tokens"]) == (300, 200)
+
+
+def test_peers_cli_only_ever_sends_as_an_agent(bot_client, monkeypatch):
+    """scripts/peers.py has no way to send the owner's kind: whatever an agent
+    passes, the row it stores is an A message from that agent."""
+    monkeypatch.setattr(observatory, "_spawn_host", lambda *a: True)
+    from scripts import peers
+    a, b = _seed_two()
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", a)
+    assert peers.main(["send", b, "heads up"]) == 0
+    with pytest.raises(SystemExit):
+        peers.main(["send", b, "as her", "--kind", "B"])
+    conn = sqlstore.open_db()
+    try:
+        rows = conn.execute("SELECT kind, from_conv FROM agent_messages"
+                            " WHERE to_conv = ?", (b,)).fetchall()
+    finally:
+        conn.close()
+    assert rows == [("A", a)]

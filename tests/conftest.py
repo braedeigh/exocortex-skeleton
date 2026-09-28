@@ -54,6 +54,13 @@ if _FIRST_PASS:
     os.environ["EXOCORTEX_DATA_DIR"] = os.path.join(_TEST_ROOT, "data")
     os.environ["EXOCORTEX_CONTENT_DIR"] = os.path.join(_TEST_ROOT, "content")
 
+# No test runs as an agent session. EXOCORTEX_CONV_ID is set in every
+# Observatory turn, so a suite started from inside one would inherit that
+# session's identity — and peermail.send refuses the owner's messages from an
+# agent's process. Dropped so a run from a session behaves like the nightly
+# cron run; a test that wants an identity sets it with monkeypatch.setenv.
+os.environ.pop("EXOCORTEX_CONV_ID", None)
+
 # Turns take one prompt and close their input, the old way, for the whole suite
 # (set BEFORE config is imported). The test stubs standing in for the agent read
 # their input to the end before answering, so a turn that keeps its input open

@@ -149,6 +149,17 @@ def send(to_conv, text, *, from_conv=None, kind="A", mode="inject", record=True)
         raise ValueError(f"mode must be one of {', '.join(MODES)}")
     if kind not in ("A", "B"):
         raise ValueError("kind must be A or B")
+    # Refuse the owner's kind from inside an agent's process. A B message is
+    # her voice: it clears her open questions and resets the chain count, so
+    # an agent sending one — even by accident, from a quick script — would
+    # speak as her. Her real door is the /inbox route, which runs in the web
+    # server, where EXOCORTEX_CONV_ID is never set; every agent turn has it
+    # (routes/observatory.py _spawn). Advisory, not security: an agent could
+    # unset the variable or write exo.db directly (docs/peers.md, "How far an
+    # agent is trusted"). This stops the mistake, not a determined agent.
+    if kind == "B" and os.environ.get("EXOCORTEX_CONV_ID"):
+        raise ValueError("an agent session can't send as the owner (kind B) —"
+                         " only her own chat can")
     if _entry(to_conv) is None:
         raise KeyError(to_conv)
     # A session that handed off to a continuation (continuation.py) no longer

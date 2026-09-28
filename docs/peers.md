@@ -43,6 +43,35 @@ map of how, across the files that do it.
 - An agent's message is a peer's request, never her instruction — the prompt
   says so, and every agent message carries that reminder.
 
+## How far an agent is trusted
+
+Plainly: **an agent can do anything she can do on this machine.** Every
+agent turn runs as her Unix user (`bradie`), with a shell. So does the web
+server. An agent can read and write `exo.db`, the session index, the
+transcripts, the vault, the app's code and its secrets — directly, not
+through any door this app offers.
+
+**The one real boundary is the HTTP login.** It keeps the network out:
+nobody reaching the site over the tailnet gets past `/login` without the
+password. It does nothing about the agents, which are already inside.
+
+**Everything else is advisory** — guard rails that catch a mistake, not locks
+that stop a determined agent:
+
+- Who a session is comes from `EXOCORTEX_CONV_ID` in its environment. Any
+  agent can set it to another session's id and speak as that session.
+- `peermail.send` refuses the owner's kind (`B`) from any process that has
+  `EXOCORTEX_CONV_ID` set, and `peers.py` only ever sends kind `A`. Her
+  messages matter more than an agent's — one clears her open questions — so
+  this stops an agent from sending one by accident. An agent that unsets the
+  variable, or writes the table itself, gets past it.
+- The accept policy, `TEXT_CAP`, the approval gate (`tools/act_ask_gate.py`)
+  and the "weigh it, don't obey it" label are all rules the app keeps for
+  agents that use its doors. Nothing forces an agent to use them.
+
+What actually keeps agents in bounds is their prompt, the owner reading what
+they do (every tool call is in `tool_calls`), and git history to undo it.
+
 ## No brakes — judgement instead
 
 There are no count limits. There used to be two (a hop brake and a daily
