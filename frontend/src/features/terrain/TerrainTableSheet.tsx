@@ -278,6 +278,7 @@ export function TerrainTableSheet({
                           {mentions.length > 1
                             ? `${mentions.length} mentions, from line ${mentions[0]}`
                             : `line ${hit.line}`}
+                          {hit.collections ? ` · through the store: ${hit.collections.join(', ')}` : ''}
                         </span>
                       </button>
                     );
@@ -290,9 +291,10 @@ export function TerrainTableSheet({
           );
         })}
         <p className={styles.note}>
-          Found by searching the app's Python for SQL that names this table. Open one and it
-          lands on the first place it names this table, with a way to step through the rest. It
-          can't see code that reaches the table through another file's functions, or the tools
+          Found by searching the app's Python for SQL that names this table, and for store
+          calls whose collection is kept in it ("through the store"). Open one and it lands on
+          the first place it names this table, with a way to step through the rest. It can't see
+          a collection named by a variable, a mirror rebuilt later from a collection, or the tools
           that read every table (the SQL room, this map) — "where its rows come from" above
           covers the indirect path.
         </p>

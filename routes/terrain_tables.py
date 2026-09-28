@@ -197,20 +197,37 @@ def load_notes():
 
 # --- which code touches each table: a scan of the Python source ---------------
 #
-# The scan looks for SQL KEYWORDS IN CAPITALS followed by a table name —
+# Two searches in one walk, because code reaches a table two ways.
+#
+# BY SQL. The scan looks for SQL KEYWORDS IN CAPITALS followed by a table name —
 # `INSERT INTO todos`, `FROM cards`. Capitals on purpose: several tables are
 # ordinary English words (files, tags, docs, cards), and Python itself writes
 # `from files import …` in lowercase, so matching case is what keeps prose and
-# imports out of the answer. It is a text search, not a SQL parser, so it has
-# SQL quoted in `backticks` is skipped as prose. It has two known blind spots,
-# both of which UNDER-report rather than invent:
+# imports out of the answer. It is a text search, not a SQL parser, and SQL
+# quoted in `backticks` is skipped as prose.
+#
+# THROUGH THE STORE. Most pages never write SQL: they call
+# `store.read("todos")`, and store.py decides where that lands. So every
+# `store.read/write/mutate(<collection>)` call is found too (the creek's own
+# scanner, routes/creek.py scan_source) and followed to the table it really
+# reaches, by the same rule store.py uses:
+#   - an ordinary SQL-backed collection is one row of the `docs` table;
+#   - a TYPED collection (store.TYPED_COLLECTIONS) lives in the tables its
+#     module keeps — read here as the tables that module's own SQL creates or
+#     writes, so the answer comes from the code rather than a list;
+#   - a collection that isn't SQL-backed is a JSON file and reaches no table.
+# `store.read` counts as reading; `write` and `mutate` as writing. Hits found
+# this way carry `collections`, the names that led there.
+#
+# What neither search sees — both UNDER-report rather than invent:
 #   - SQL whose table name is a variable (`f'SELECT … FROM "{name}"'`) — the
 #     generic tools that read EVERY table (routes/sqlab.py, this file) are
 #     deliberately not listed against each one;
-#   - code that reaches a table only through another module's functions. The
-#     to-do page never names the `todos` table; it writes the todos collection
-#     and todostore.py mirrors it. The notes' `source` line is where that
-#     indirect path is written down.
+#   - a store call whose collection is a variable or another file's constant;
+#   - MIRROR tables rebuilt later from a collection. The to-do page writes the
+#     todos collection, which is still a JSON file; todostore.py rebuilds the
+#     `todos` table from it on a timer, not in the page's path. The notes'
+#     `source` line is where that indirect path is written down.
 
 # Folders the scan never walks: not the app's own code, or not code at all.
 _SCAN_SKIP_DIRS = {"venv", "node_modules", "tests", "shed", "__pycache__", "frontend",
@@ -232,13 +249,30 @@ _VERBS = (
 )
 
 
+def _store_landings(collection, table_names, sql_hits):
+    """Which tables a store call on this collection really reaches.
+
+    Follows store.py's own three-way choice (`_backend`): a JSON-file
+    collection reaches none, a typed one reaches the tables its module writes
+    or creates (read from `sql_hits`, the SQL half of this scan), and every
+    other SQL-backed one is a row of `docs`."""
+    if not store._sql_backed(collection):
+        return []
+    if collection in store.TYPED_COLLECTIONS:
+        module = store._TYPED_MODULES[collection].replace(".", "/") + ".py"
+        return sorted(name for name in table_names
+                      if module in sql_hits[name]["writes"] or module in sql_hits[name]["creates"])
+    return ["docs"] if "docs" in table_names else []
+
+
 def scan_code(table_names, root=None):
     """Find which Python files create, write to, and read each table.
 
     Returns {table: {"creates": [...], "writes": [...], "reads": [...]}}, each a
     sorted list of {"path": repo-relative path, "line": first matching line,
-    "lines": every matching line}. One pass over the app checkout's .py files;
-    see the block above for what the search can and can't see.
+    "lines": every matching line}, plus "collections" on a hit that came
+    through store calls. One pass over the app checkout's .py files; see the
+    block above for the two searches and what they can't see.
 
     EVERY line, not just the first, because the card's file buttons open the
     file at its mentions and step between them — one line per file would give
@@ -246,7 +280,11 @@ def scan_code(table_names, root=None):
 
     Prompt that produced this: "when i click those files in the popup for each
     data table, it highlights where the table was mentioned in the code file
-    when i open it up and i can hop between them if there are multiple"."""
+    when i open it up and i can hop between them if there are multiple" /
+    "show connections between my frontend UI to my SQL tables and backend
+    stuff in terrain"."""
+    from routes import creek   # the store-call scanner; imported late, it's a sibling route module
+
     root = Path(root or store.BUILD_DIR)
     names = sorted(table_names, key=len, reverse=True)   # longest first, so
     if not names:                                        # `todo_fronts` isn't
@@ -255,6 +293,7 @@ def scan_code(table_names, root=None):
     patterns = [(verb, re.compile(rf'(?:{keywords}){_GAP}["`]?({alternation})\b'))
                 for verb, keywords in _VERBS]
     found = {name: {"creates": {}, "writes": {}, "reads": {}} for name in names}
+    store_calls = []   # (relpath, call) for every store.read/write/mutate site
 
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in _SCAN_SKIP_DIRS and not d.startswith(".")]
@@ -278,16 +317,34 @@ def scan_code(table_names, root=None):
                         continue
                     line = text.count("\n", 0, match.start()) + 1
                     found[match.group(1)][verb].setdefault(relpath, []).append(line)
+            calls, _unresolved = creek.scan_source(text, relpath)
+            store_calls.extend((relpath, call) for call in calls)
+
+    # Follow each store call to the table it lands in. After the walk, not
+    # during it: a typed collection's tables are read off its module's SQL,
+    # which the walk may not have reached yet when the call was found.
+    via = {name: {"writes": {}, "reads": {}} for name in names}
+    for relpath, call in store_calls:
+        verb = "reads" if call["verb"] == "read" else "writes"
+        for name in _store_landings(call["collection"], names, found):
+            found[name][verb].setdefault(relpath, []).append(call["line"])
+            via[name][verb].setdefault(relpath, set()).add(call["collection"])
 
     # One entry per file, carrying every line it named the table on. Two
     # matches on one line (`FROM todos JOIN todos`) are one mention, so the
-    # lines are de-duplicated; they come out of finditer in order, and sorted()
-    # keeps that true after the set. Capped, so a file that names one table
-    # hundreds of times can't bloat the payload every table hangs off.
+    # lines are de-duplicated; sorted() puts them back in order after the set.
+    # Capped, so a file that names one table hundreds of times can't bloat the
+    # payload every table hangs off.
+    def entry(name, verb, path, lines):
+        hit = {"path": path, "line": min(lines),
+               "lines": sorted(set(lines))[:_MENTION_LINES_MAX]}
+        collections = via[name].get(verb, {}).get(path)
+        if collections:
+            hit["collections"] = sorted(collections)
+        return hit
+
     return {
-        name: {verb: [{"path": p, "line": min(lines),
-                       "lines": sorted(set(lines))[:_MENTION_LINES_MAX]}
-                      for p, lines in sorted(hits.items())]
+        name: {verb: [entry(name, verb, p, lines) for p, lines in sorted(hits.items())]
                for verb, hits in verbs.items()}
         for name, verbs in found.items()
     }

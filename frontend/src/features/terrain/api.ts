@@ -272,6 +272,10 @@ export interface TerrainTableCodeHit {
    * steps through (tableMentions.ts). Missing on a payload from a server that
    * predates it, which reads as "only `line` is known". */
   lines?: number[];
+  /** Present when the file reaches the table through store.read/write/mutate
+   * rather than SQL: the collection names that led here (the `docs` row, or a
+   * typed collection's tables). Absent on a hit found by SQL alone. */
+  collections?: string[];
 }
 
 export interface TerrainTable {
@@ -289,8 +293,9 @@ export interface TerrainTable {
    * payload from a server that predates the notes. */
   notes?: TerrainTableNotes | null;
   /** Which files create, write to, and read the table — found by the server
-   * scanning the app's Python for SQL that names it. A text search: it misses
-   * SQL built from variables and code that goes through another module. */
+   * scanning the app's Python for SQL that names it, and for store calls whose
+   * collection lands in it. A text search: it misses SQL built from variables,
+   * store calls on a variable collection, and mirrors rebuilt later. */
   code?: {
     creates: TerrainTableCodeHit[];
     writes: TerrainTableCodeHit[];

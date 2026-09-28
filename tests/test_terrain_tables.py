@@ -189,6 +189,52 @@ def test_scan_does_not_mistake_a_longer_table_name_for_a_shorter_one(tmp_path):
     assert [h["path"] for h in found["book_parts"]["reads"]] == ["parts.py"]
 
 
+def test_store_call_on_a_sql_collection_lands_on_the_docs_table(tmp_path, monkeypatch):
+    import store
+    monkeypatch.setattr(store, "SQL_COLLECTIONS", frozenset({"shelf"}))
+    found = _scan(tmp_path, {
+        "routes/shelf.py": 'import store\n'
+                           'with store.mutate("shelf", {}) as data:\n'
+                           '    pass\n'
+                           'rows = store.read("shelf.json")\n',
+    }, ["docs"])["docs"]
+    assert found["writes"] == [{"path": "routes/shelf.py", "line": 2, "lines": [2],
+                                "collections": ["shelf"]}]
+    assert [h["lines"] for h in found["reads"]] == [[4]]
+
+
+def test_store_call_on_a_json_file_collection_reaches_no_table(tmp_path, monkeypatch):
+    import store
+    monkeypatch.setattr(store, "SQL_COLLECTIONS", frozenset())
+    found = _scan(tmp_path, {
+        "routes/shelf.py": 'import store\nstore.write("shelf", {})\n',
+    }, ["docs"])["docs"]
+    assert found == {"creates": [], "writes": [], "reads": []}
+
+
+def test_store_call_on_a_typed_collection_lands_on_its_modules_tables(tmp_path, monkeypatch):
+    import store
+    monkeypatch.setattr(store, "SQL_COLLECTIONS", frozenset({"shelf"}))
+    monkeypatch.setattr(store, "TYPED_COLLECTIONS", frozenset({"shelf"}))
+    monkeypatch.setattr(store, "_TYPED_MODULES", {"shelf": "shelfstore"})
+    found = _scan(tmp_path, {
+        "shelfstore.py": 'conn.execute("INSERT INTO books (id) VALUES (1)")\n',
+        "routes/shelf.py": 'import store\nrows = store.read("shelf")\n',
+    }, ["books", "docs"])
+    assert [(h["path"], h["collections"]) for h in found["books"]["reads"]] == [
+        ("routes/shelf.py", ["shelf"])]
+    assert found["docs"]["reads"] == []
+
+
+def test_store_call_mentioned_in_a_comment_is_not_a_link(tmp_path, monkeypatch):
+    import store
+    monkeypatch.setattr(store, "SQL_COLLECTIONS", frozenset({"shelf"}))
+    found = _scan(tmp_path, {
+        "routes/shelf.py": '# this used to call store.write("shelf", data)\n',
+    }, ["docs"])["docs"]
+    assert found["writes"] == []
+
+
 def test_each_table_carries_its_note_and_its_code(client, database, monkeypatch):
     from routes import terrain_tables
     monkeypatch.setattr(terrain_tables, "load_notes",
