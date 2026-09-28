@@ -20,9 +20,11 @@ Bad input comes back as a 400 with the reason.
                                           the nutrients the body stores) that close her
                                           day's gaps (nutrition.plan_additions): cap = most grams of any
                                           one food (default 100), kcal = most calories to add (optional)
+    GET  /api/nutrition/measures?ids=  -> {measures: {fdc_id: [{unit, label, grams, kind, source, url}]}}:
+                                          grams in one cup / tbsp / egg… of each food (measures.py)
     GET  /api/nutrition/highlights     -> the foods she's starred as interested in eating
     POST /api/nutrition/highlights/<fdc_id> {on: bool, description} — star / unstar one
-    POST /api/nutrition/meals/<name>   {items: [{label, fdc_id, grams, grams_guessed?, fill_from?}]}
+    POST /api/nutrition/meals/<name>   {items: [{label, fdc_id, grams, grams_guessed?, fill_from?, measure?}]}
                                        (a new name makes a new meal)
     DELETE /api/nutrition/meals/<name> -> the meal gone, and out of her day
     POST /api/nutrition/servings/<name> {servings: n ≥ 0} — how many a day; 0 = not counted
@@ -40,6 +42,7 @@ from flask import jsonify, request
 
 import fdcdb
 import histamine
+import measures
 import nutrient_facts
 import nutrient_storage
 import nutrition
@@ -74,6 +77,10 @@ def _clean_items(raw):
                  "grams_guessed": bool(item.get("grams_guessed"))}
         if str(item.get("fill_from") or "").isdigit():
             clean["fill_from"] = int(item["fill_from"])
+        # Keep how she typed the amount ("1.5 cup"), so the page can show it back; grams stay the truth.
+        measure = str(item.get("measure") or "").strip()
+        if measure:
+            clean["measure"] = measure[:40]
         items.append(clean)
     return items
 
@@ -156,6 +163,17 @@ def register(app):
             except ValueError as exc:
                 return _refused(str(exc))
         return jsonify(plan)
+
+    @app.route("/api/nutrition/measures")
+    def nutrition_measures():
+        # Grams in a cup, tablespoon, egg… of each food, from USDA's portions (measures.py).
+        try:
+            ids = [int(part) for part in (request.args.get("ids") or "").split(",") if part.strip()][:100]
+        except ValueError:
+            return _refused("ids must be USDA food ids, comma-separated")
+        with fdcdb.session() as conn:
+            found = measures.for_foods(conn, ids)
+        return jsonify({"measures": {str(fdc_id): rows for fdc_id, rows in found.items()}})
 
     @app.route("/api/nutrition/highlights")
     def nutrition_highlights():

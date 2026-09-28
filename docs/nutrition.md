@@ -116,6 +116,25 @@ word rule, so it can be wrong at the edges. About 3,560 of the 13,700 foods pass
 interested in eating. They're listed on the Nutrients page and tinted in every ranking. A
 star doesn't add the food to a meal.
 
+## Cups and spoons: amounts by kitchen measure
+
+Her ask: type meal amounts as "1.5 cup" / "2 tbsp", and see What to add in cups and spoons
+too. `measures.py` turns USDA's portion rows (`fdc_portions`, from FDC's `food_portion.csv`,
+e.g. "0.5 cup = 107 g") into grams per one unit. A cup, tablespoon, teaspoon or fluid ounce
+USDA didn't list for a food is worked out from its nearest-sized USDA volume by NIST's
+kitchen volumes (1 cup = 240 mL, 1 tbsp = 15 mL, 1 tsp = 5 mL, 1 fl oz = 30 mL,
+[Metric Kitchen](https://www.nist.gov/pml/owm/metric-kitchen-cooking-measurement-equivalencies)),
+marked `derived`, and every food takes ounces by weight (1 oz = 28.35 g, NIST). A food with
+no USDA portion at all is grams (or ounces) only, and the box says so.
+
+The meal box (`AmountInput.tsx`, reading in `measureMath.ts`) takes grams, a cup / spoon, or
+one of USDA's counts ("2 large" eggs, "1 clove"); when a food has two cups ("cup, whole" and
+"cup, sliced"), extra words choose. Grams stay the number that's counted; what she typed is
+kept on the item as `measure`. What to add shows "≈ ¾ cup" beside each amount, rounded to
+the nearest quarter of the biggest unit that fits, each linked to its USDA or NIST source.
+A volume weight is the density of that food as USDA measured it, so a heaped or packed
+cup will differ.
+
 ## Rules the arithmetic keeps
 
 - **Unknown is not zero.** Foundation foods lack many nutrients. Rolled oats, for example,
@@ -241,6 +260,8 @@ Personal facts (her age, why "both") stay in those vault files, never in this re
   filtered before the limit.
 - `GET /api/nutrition/nutrient/<key>`: `{row, sexes, facts, storage}`, the day's row for one
   nutrient plus the ODS sections and the stored-or-steady reading.
+- `GET /api/nutrition/measures?ids=`: grams in one cup / tbsp / count of each food
+  (`measures.py`), each with its source and link.
 - `GET /api/nutrition/highlights`, `POST /api/nutrition/highlights/<fdc_id>` `{on, description}`:
   star / unstar.
 - `POST /api/nutrition/meals/<name>`: replace a meal's items (a new name makes a new meal).

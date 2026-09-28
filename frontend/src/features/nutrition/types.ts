@@ -64,6 +64,8 @@ export interface MealItem {
   grams_guessed?: boolean;
   /** A second USDA food used only for the nutrients this one lacks. */
   fill_from?: number;
+  /** How she typed the amount ("1.5 cup"); grams stay the number that's counted. */
+  measure?: string;
 }
 
 export interface Meal {
@@ -213,4 +215,15 @@ export interface NutritionPlan {
   already_over: string[];
   cap_grams: number;
   energy_cap: number | null;
+}
+
+/** Grams in one cup / tbsp / egg… of a food (measures.py): USDA's own weight, or worked out by NIST's volumes. */
+export interface Measure {
+  /** cup, tbsp, tsp, floz, oz, or a count word like large / clove. */
+  unit: string;
+  label: string;
+  grams: number;
+  kind: 'usda' | 'derived';
+  source: string;
+  url: string;
 }

@@ -680,3 +680,36 @@ a.rowNameBtn {
     transition: none;
   }
 }
+
+/* A meal amount box that takes grams or "1.5 cup" (AmountInput.tsx), with its reading under it. */
+.amount {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.amountRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.amountInput {
+  width: 96px;
+}
+
+.amountError {
+  max-width: 220px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--orange, #c77a2a);
+  text-align: right;
+}
+
+/* "≈ ¾ cup" beside a What to add amount (MealPrepPlan.tsx). */
+.household {
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}

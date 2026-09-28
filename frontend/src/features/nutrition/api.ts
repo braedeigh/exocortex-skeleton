@@ -6,6 +6,7 @@ import type {
   FdcFood,
   HighlightedFood,
   MealItem,
+  Measure,
   NutrientDetail,
   NutrientRanking,
   NutritionDay,
@@ -83,4 +84,9 @@ export function getPlan(capGrams: number, energyCap: number | null, signal?: Abo
   const query = new URLSearchParams({ cap: String(capGrams) });
   if (energyCap != null) query.set('kcal', String(energyCap));
   return api.get<NutritionPlan>(`/api/nutrition/plan?${query}`, signal);
+}
+
+/** Grams in a cup, tablespoon, egg… of each food (measures.py), keyed by USDA food id. */
+export function getMeasures(fdcIds: number[], signal?: AbortSignal) {
+  return api.get<{ measures: Record<string, Measure[]> }>(`/api/nutrition/measures?ids=${fdcIds.join(',')}`, signal);
 }

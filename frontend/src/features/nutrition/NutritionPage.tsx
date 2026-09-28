@@ -12,7 +12,8 @@
  * among her foods. Tapping a nutrient's name opens its own page (./NutrientPage.tsx);
  * then what each of her foods gives her (./FoodShares.tsx); then the foods she's starred,
  * and how much of them to add to meet her targets (./MealPrepPlan.tsx)
- * (./Highlights.tsx); then her meals, where each food's grams can be fixed, a food removed, or a USDA food
+ * (./Highlights.tsx); then her meals, where each food's amount can be fixed — in grams or a kitchen measure
+ * like "1.5 cup" (./AmountInput.tsx) — a food removed, or a USDA food
  * added by search; each meal's servings a day set (0 = saved but not counted);
  * a meal started or deleted. A weight nobody has weighed yet is marked "guess".
  * The Food search box (../ecosystem/foodSearch.ts) narrows which meals show;
@@ -43,6 +44,7 @@ import { Link } from '@tanstack/react-router';
 import { type ReactNode, useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
+import { AmountInput, useMeasures } from './AmountInput';
 import { deleteMeal, getDay, saveMeal, saveServings, saveSettings, searchFoods } from './api';
 import { FoldCard } from './FoldCard';
 import { FoodGiftsCard, TopSources } from './FoodShares';
@@ -379,11 +381,18 @@ function MealEditor({ name, meal, servings }: { name: string; meal: Meal; servin
     else if (value !== servings) servingsSave.mutate(value);
   };
 
-  // Change one food's grams; a typed weight is no longer a guess.
-  const setGrams = (index: number, text: string) =>
+  // Change one food's amount; a typed amount is no longer a guess. `measure` keeps "1.5 cup" as she wrote it.
+  const setAmount = (index: number, grams: number, measure: string | undefined) =>
     setItems((current) =>
-      current.map((item, i) => (i === index ? { ...item, grams: Number(text) || 0, grams_guessed: false } : item)),
+      current.map((item, i) => {
+        if (i !== index) return item;
+        const changed: MealItem = { ...item, grams, grams_guessed: false, measure };
+        if (!measure) delete changed.measure;
+        return changed;
+      }),
     );
+  // Each food's cups and spoons (measures.py), only once the meal is open.
+  const measures = useMeasures(open ? items.map((item) => item.fdc_id) : []);
 
   return (
     <div className={styles.meal}>
@@ -425,14 +434,11 @@ function MealEditor({ name, meal, servings }: { name: string; meal: Meal; servin
                   ) : null}
                   {item.grams_guessed ? <span className={styles.guess}>guess</span> : null}
                 </span>
-                <input
-                  className={styles.gramsInput}
-                  inputMode="decimal"
-                  aria-label={`${item.label} grams`}
-                  value={String(item.grams)}
-                  onChange={(event) => setGrams(index, event.target.value)}
+                <AmountInput
+                  item={item}
+                  measures={measures?.[String(item.fdc_id)]}
+                  onChange={(grams, measure) => setAmount(index, grams, measure)}
                 />
-                <span className={styles.gramsUnit}>g</span>
                 <button
                   type="button"
                   className={styles.removeBtn}

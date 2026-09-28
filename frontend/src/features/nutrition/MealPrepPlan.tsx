@@ -16,22 +16,28 @@
  * foods can't close gets as close as it can and says so; a food with no USDA
  * figure for a nutrient is counted as giving none, and named.
  *
+ * Beside each amount sits its kitchen measure ("≈ ¾ cup", ./measureMath.ts),
+ * from USDA's portion weight for that food (measures.py) and linked to it; a
+ * food USDA gives no cup, spoon or count for shows grams only.
+ *
  * Prompt that produced it: "Then I'll want to be able to calculate how much to
  * add to my weekly meal prep or meals to meet my nutrient needs." Her answers:
  * add only (never take away), only from the foods she's starred, and stored
  * nutrients judged on a weekly average.
  *
- * Touches: ./api.ts (getPlan), ./types.ts, ./nutrientMath.ts, ./Highlights.tsx
+ * Touches: ./api.ts (getPlan), ./AmountInput.tsx (useMeasures), ./types.ts, ./nutrientMath.ts, ./Highlights.tsx
  * (the starred list, so the plan reruns when it changes), ./Nutrition.module.css;
  * shown on ./NutritionPage.tsx. Design: docs/nutrition.md.
  */
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
+import { useMeasures } from './AmountInput';
 import { getPlan } from './api';
+import { toHousehold } from './measureMath';
 import { useHighlights } from './Highlights';
 import { fdcFoodUrl, formatAmount } from './nutrientMath';
-import type { NutritionDay } from './types';
+import type { Measure, NutritionDay } from './types';
 import { FoldCard } from './FoldCard';
 import styles from './Nutrition.module.css';
 
@@ -58,6 +64,8 @@ export function MealPrepPlan({ day }: { day: NutritionDay }) {
     enabled: starred.length > 0,
   });
   const plan = query.data;
+  // Each added food's cups and spoons (measures.py), for the "≈ ¾ cup" beside its grams.
+  const measures = useMeasures((plan?.foods ?? []).map((food) => food.fdc_id));
   const gaps = (plan?.nutrients ?? []).filter((row) => row.target && row.now < row.target);
 
   return (
@@ -117,11 +125,20 @@ export function MealPrepPlan({ day }: { day: NutritionDay }) {
                             {food.label}
                           </a>
                         </td>
-                        <td>{food.daily_grams ? `${formatAmount(food.daily_grams)} g` : '—'}</td>
                         <td>
-                          {food.times_a_week
-                            ? `${formatAmount(food.portion_grams)} g × ${food.times_a_week} a week`
-                            : '—'}
+                          {food.daily_grams ? `${formatAmount(food.daily_grams)} g` : '—'}
+                          <Household grams={food.daily_grams} measures={measures?.[String(food.fdc_id)]} />
+                        </td>
+                        <td>
+                          {food.times_a_week ? (
+                            <>
+                              {formatAmount(food.portion_grams)} g
+                              <Household grams={food.portion_grams} measures={measures?.[String(food.fdc_id)]} />
+                              {` × ${food.times_a_week} a week`}
+                            </>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                         <td>{formatAmount(food.daily_grams * 7 + food.weekly_grams)} g</td>
                       </tr>
@@ -186,5 +203,23 @@ export function MealPrepPlan({ day }: { day: NutritionDay }) {
         </>
       )}
     </FoldCard>
+  );
+}
+
+/** "≈ ¾ cup" for some grams of a food, linked to where the cup's weight comes from; nothing when USDA gives no measure. */
+function Household({ grams, measures }: { grams: number; measures: Measure[] | undefined }) {
+  const household = toHousehold(grams, measures);
+  if (!household) return null;
+  const { measure } = household;
+  return (
+    <a
+      className={styles.household}
+      href={measure.url}
+      target="_blank"
+      rel="noreferrer"
+      title={`${measure.label} = ${formatAmount(measure.grams)} g — ${measure.source}`}
+    >
+      ≈ {household.text}
+    </a>
   );
 }
