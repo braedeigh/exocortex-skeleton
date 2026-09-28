@@ -222,3 +222,13 @@ def test_a_swarm_that_comes_back_to_life_brings_its_helper_back(helper):
     swarm_helper.tick()
     entry = _entry(helper)
     assert not any(k in entry for k in ("helper_closed_at", "archived", "done_at"))
+
+
+def test_a_summarizer_run_never_reads_an_old_helpers_handoff(helper):
+    old = "2026-09-27.200000"
+    _seed(old, title="Swarm helper · old (cont.)", spawned_via="continue", spawned_from=helper)
+    swarm_id = _entry(helper)["swarm_id"]
+    swarms.join(swarm_id, old)
+    peermail.send(old, "old helper recap", from_conv=A)
+    text = swarm_helper.gather(swarm_id)
+    assert A in text and old not in text and "old helper recap" not in text

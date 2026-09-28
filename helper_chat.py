@@ -17,7 +17,8 @@ with a document written here just before the turn starts:
   2. the swarm as it is now — the swarm summary and one summary per member,
      all written by the Sonnet summarizer runs into SQL (swarms.overview) —
      minus members that finished over a day ago (swarms.in_helper_view),
-     which are named in one line so she can still ask about them;
+     which are named in one line so she can still ask about them, and minus
+     old helper sessions and their handoffs, which it isn't shown at all;
   3. the CHAT SUMMARY — one summary of the whole chat so far (her decisions
      word for word, what the helper last told her, promises, open threads),
      rewritten by a Sonnet call after every turn (rewrite_notes). The new one

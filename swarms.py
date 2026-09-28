@@ -285,18 +285,46 @@ def finished_at(entry):
     return max(stamps) if stamps else None
 
 
+def is_helper_session(conv_id, index):
+    """Is this a helper session — a swarm's or the room's (HELPER_ROLES) — or
+    a continuation of one? Helpers could once be handed off like any Coding
+    session, and the successor ("Swarm helper · … (cont.)") carries no role of
+    its own, so the handoff chain (spawned_from) is walked back to find one."""
+    seen = set()
+    while conv_id and conv_id not in seen:
+        seen.add(conv_id)
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return False
+        if entry.get("role") in HELPER_ROLES:
+            return True
+        if entry.get("spawned_via") != "continue":
+            return False
+        conv_id = entry.get("spawned_from")
+    return False
+
+
 def in_helper_view(members, index, now=None):
     """Which members the swarm helper still checks: everyone except the ones
     that finished (member_retired) more than config.SWARM_HELPER_FORGET_HOURS
-    ago. Returns (kept, dropped) — lists of the same member dicts or ids it was
-    given. The dropped are still members (the swarm's closing check and the
-    pages count them); the helper just stops rereading them every run."""
+    ago, and except old helper sessions (is_helper_session). Returns (kept,
+    dropped) — lists of the same member dicts or ids it was given. The dropped
+    are still members (the swarm's closing check and the pages count them);
+    the helper just stops rereading them every run. Old helpers are in
+    neither list: the helper never reads them at all, not even their names —
+    their summaries were only ever retellings of the swarm.
+
+    Prompt: "for the helper session, i don't want it to read and receive
+    summaries from the retired helpers anymore"."""
     import config
     cutoff = ((now or datetime.now()) - timedelta(hours=config.SWARM_HELPER_FORGET_HOURS)
               ).isoformat(timespec="seconds")
     kept, dropped = [], []
     for m in members:
-        entry = index.get(m["conv"] if isinstance(m, dict) else m)
+        conv = m["conv"] if isinstance(m, dict) else m
+        if is_helper_session(conv, index):
+            continue
+        entry = index.get(conv)
         stamp = finished_at(entry)
         if member_retired(entry) and (stamp is None or stamp < cutoff):
             dropped.append(m)

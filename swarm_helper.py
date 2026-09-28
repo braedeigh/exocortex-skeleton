@@ -244,7 +244,10 @@ def gather(swarm_id, questions=()):
                 _member_activity(m["conv"], m.get("summary_at")) or "(nothing new)", ""]
     conn = sqlstore.open_db()
     try:
-        members = [m["conv"] for m in card["members"]]
+        # Messages between members, leaving out old helper sessions: what
+        # they sent was their own retelling of the swarm, not the members' work.
+        members = [m["conv"] for m in card["members"]
+                   if not swarms.is_helper_session(m["conv"], index)]
         marks = ",".join("?" * len(members))
         since = card.get("summary_at") or ""
         talk = conn.execute(

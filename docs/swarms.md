@@ -40,6 +40,14 @@ lines say what exists *now*.
   out of the summarizer's runs and the chat seed (`swarms.in_helper_view`). It
   stays a member: the pages, the network drawing and the closing check still
   count it, and the chat seed names it in one line so it can still be looked up.
+- **Old helper sessions are out of the helper's view entirely.** Her ask: "for
+  the helper session, i don't want it to read and receive summaries from the
+  retired helpers anymore." A helper could once be handed off, and its
+  successor ("Swarm helper · … (cont.)") has no role, so an agent messaging it
+  made it a member. `swarms.is_helper_session` recognises a helper or any
+  continuation of one; `in_helper_view` leaves those out (not even named), and
+  the summarizer's "Messages between members" leaves out their messages. They
+  stay members for the pages and the closing check.
 - **A closing check when the swarm retires.** A swarm is *retired* when every
   member is done (`done_at`), archived, handed on to a continuation, or gone
   from the index — and none is mid-turn (`swarms.retired`). The helper then

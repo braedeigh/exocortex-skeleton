@@ -287,3 +287,17 @@ def test_the_helper_stops_checking_a_member_a_day_after_it_finished():
     }
     kept, dropped = swarms.in_helper_view(["old", "fresh", "working"], index, now=now)
     assert (kept, dropped) == (["fresh", "working"], ["old"])
+
+
+def test_the_helper_never_reads_old_helper_sessions_or_their_handoffs():
+    index = {
+        "helper": {"role": "swarm_helper", "swarm_id": 1},
+        "helper_cont": {"title": "Swarm helper · x (cont.)", "spawned_via": "continue",
+                        "spawned_from": "helper"},
+        "helper_cont2": {"spawned_via": "continue", "spawned_from": "helper_cont"},
+        "worker": {"last_at": "2026-09-28T11:00:00"},
+        "worker_cont": {"spawned_via": "continue", "spawned_from": "worker"},
+    }
+    members = ["helper_cont", "helper_cont2", "worker", "worker_cont"]
+    kept, dropped = swarms.in_helper_view(members, index, now=datetime(2026, 9, 28, 12))
+    assert (kept, dropped) == (["worker", "worker_cont"], [])
