@@ -16,7 +16,8 @@ Bad input comes back as a 400 with the reason.
     GET  /api/nutrition/nutrient/<key> -> {row, sexes, facts, storage}: her day's total for one nutrient,
                                           the NIH ODS fact sheet's own words (nutrient_facts.py), and
                                           what the sheet says about the body storing it (nutrient_storage.py)
-    GET  /api/nutrition/plan?cap=&kcal= -> the fewest grams a day of her starred foods that close her
+    GET  /api/nutrition/plan?cap=&kcal= -> the fewest grams of her starred foods (every day, or some days a week for
+                                          the nutrients the body stores) that close her
                                           day's gaps (nutrition.plan_additions): cap = most grams of any
                                           one food (default 100), kcal = most calories to add (optional)
     GET  /api/nutrition/highlights     -> the foods she's starred as interested in eating

@@ -443,38 +443,64 @@ def day_items(data=None):
     return items
 
 
-def plan_additions(conn, items, candidates, cap_grams=100.0, energy_cap=None, sex=None, age=None):
-    """The fewest grams of her candidate foods to add a day so her day meets its targets.
+def plan_additions(conn, items, candidates, cap_grams=100.0, energy_cap=None, sex=None, age=None,
+                   weekly_keys=None):
+    """The fewest grams of her candidate foods to add so her days meet their targets.
 
     This is the diet problem as a linear program, solved with scipy's linprog
-    (docs/nutrition.md "Step 4, together"). The unknowns x are grams a day of
-    each candidate, 0 ≤ x ≤ cap_grams. What she already eats stays as it is.
+    (docs/nutrition.md "Step 4, together"). What she already eats stays as it is.
 
-    The program runs twice (a lexicographic solve), so a gap her foods can't
-    close still gets as close as it can instead of making the whole thing fail:
+    **Daily and weekly.** Nutrients the body keeps a store of (`weekly_keys`;
+    by default those nutrient_storage.py reads as "stores" from the NIH
+    sheets) are judged on the week's average; every other nutrient must be
+    met every day. So each candidate f has three unknowns, all in grams:
+      d_f — eaten every day,
+      w_f — eaten over the week on top of that, in sittings of p_f,
+      p_f — one such sitting, with d_f + p_f ≤ cap_grams and w_f ≤ 7·p_f.
+    A daily nutrient counts only d (a weekly sitting doesn't help the other
+    days); a weekly one counts d + w/7, the average day. Every UL that counts
+    food is checked on the heaviest day, d + p, and the energy cap on the
+    average day.
+
+    The program runs three times (a lexicographic solve), each keeping the one before:
       1. Close the gaps as far as possible: minimize the total shortfall,
-         each nutrient's shortfall counted as a fraction of its target, so
-         micrograms and grams weigh the same.
-      2. Keeping that shortfall, use the fewest grams: minimize Σ x.
-    Every ceiling (a UL that counts food, the optional energy cap) holds in
-    both. A ceiling the day is already past can't be fixed by adding food, so
-    it's left out and listed in `already_over`.
+         each counted as a fraction of its target, so micrograms and grams
+         weigh the same. A gap her foods can't close still gets as close as
+         it can instead of making the whole thing fail.
+      2. Use the fewest grams: minimize the average day's grams, Σ(d + w/7).
+      3. Eat as little as possible every day: minimize Σd, which moves what
+         a stored nutrient needs into weekly sittings. Step 2's total doesn't
+         change — with nothing costing more per sitting, the week's average
+         can't be cheaper than the same plan every day, only less frequent.
+      4. Make each sitting as big as the cap and the ULs allow: maximize Σp,
+         so the weekly grams come in as few sittings as possible.
+    A ceiling the day is already past can't be fixed by adding food, so it's
+    left out and listed in `already_over`.
 
     An unknown figure (None) in a candidate counts as nothing, and that
     nutrient lists the food in `unknown_in`: the plan never leans on a number
     USDA doesn't have.
 
-    `candidates` are {fdc_id, label}. Returns {foods: [{fdc_id, label, grams}],
-    nutrients: [{key, unit, now, after, target, limit, closed, unknown_in}],
-    added_energy, already_over, cap_grams, energy_cap}.
+    `candidates` are {fdc_id, label}. Returns {foods: [{fdc_id, label, grams
+    (average a day), daily_grams, weekly_grams, portion_grams, times_a_week}],
+    nutrients: [{key, unit, judged: day|week, now, after, peak, target,
+    limit, closed, unknown_in}], added_energy, already_over, cap_grams,
+    energy_cap}. `after` is what the nutrient is judged on (the ordinary day,
+    or the week's average); `peak` is the heaviest day.
     """
+    import math
+
     import numpy as np
     from scipy.optimize import linprog
+
+    import nutrient_storage
 
     sex = sex or settings()["sex"]
     candidates = [dict(food, grams=1.0) for food in candidates]
     built = matrix(conn, list(items) + candidates, sex=sex, age=age)
     keys, units = built["nutrients"], built["units"]
+    if weekly_keys is None:
+        weekly_keys = {key for key in keys if nutrient_storage.kind(key) == "stores"}
     split = len(items)
     grams_now = [float(item.get("grams") or 0) for item in items]
 
@@ -487,60 +513,99 @@ def plan_additions(conn, items, candidates, cap_grams=100.0, energy_cap=None, se
     C = np.array(C) if candidates else np.zeros((len(keys), 0))
     n = len(candidates)
 
-    # The gaps: nutrients under their floor, each with a shortfall variable s in 0..1 of the target.
+    # The unknowns, in order: d (n), w (n), p (n), then one shortfall s per gap (m).
     gaps = [i for i, floor in enumerate(built["lower"]) if floor and now[i] < floor]
     m = len(gaps)
+    width = 3 * n + m
+    zeros = np.zeros(n)
+
+    def row(d=zeros, w=zeros, p=zeros, s=None):
+        return np.concatenate([d, w, p, s if s is not None else np.zeros(m)])
+
     upper_rows, upper_values, already_over = [], [], []
+
+    # The floors: C·d (daily) or C·(d + w/7) (weekly), plus floor·s, ≥ floor − now; written as ≤.
     for i in gaps:
         floor = built["lower"][i]
-        # C·x + floor·s ≥ floor − now, written as ≤ for linprog.
-        upper_rows.append(np.concatenate([-C[i], [-floor if k == i else 0.0 for k in gaps]]))
+        weekly = C[i] / 7 if keys[i] in weekly_keys else zeros
+        upper_rows.append(-row(d=C[i], w=weekly, s=np.array([floor if k == i else 0.0 for k in gaps])))
         upper_values.append(-(floor - now[i]))
 
-    # The ceilings: every UL that counts food, and the energy cap if one is set.
-    ceilings = [(i, value) for i, value in enumerate(built["upper"]) if value is not None]
-    if energy_cap is not None and "energy" in keys:
-        ceilings.append((keys.index("energy"), float(energy_cap) + now[keys.index("energy")]))
-    for i, value in ceilings:
+    # The ceilings: every UL that counts food, on the heaviest day, C·(d + p).
+    for i, value in enumerate(built["upper"]):
+        if value is None:
+            continue
         if now[i] >= value:
             already_over.append(keys[i])
             continue
-        upper_rows.append(np.concatenate([C[i], np.zeros(m)]))
+        upper_rows.append(row(d=C[i], p=C[i]))
         upper_values.append(value - now[i])
+    # The energy cap, on the average day, C·(d + w/7).
+    if energy_cap is not None and "energy" in keys:
+        energy = keys.index("energy")
+        upper_rows.append(row(d=C[energy], w=C[energy] / 7))
+        upper_values.append(float(energy_cap))
 
-    bounds = [(0, float(cap_grams))] * n + [(0, 1)] * m
-    A_ub = np.array(upper_rows) if upper_rows else None
-    b_ub = np.array(upper_values) if upper_values else None
+    # One sitting: d + p ≤ cap, and the week's extra is at most seven sittings, w ≤ 7p.
+    for f in range(n):
+        unit = np.eye(n)[f]
+        upper_rows.append(row(d=unit, p=unit))
+        upper_values.append(float(cap_grams))
+        upper_rows.append(row(w=unit, p=-7 * unit))
+        upper_values.append(0.0)
 
-    # Solve 1: the smallest total shortfall. Solve 2: the fewest grams that keep it.
-    x = np.zeros(n)
+    bounds = [(0, float(cap_grams))] * n + [(0, 7 * float(cap_grams))] * n + [(0, float(cap_grams))] * n \
+        + [(0, 1)] * m
+    A_ub, b_ub = np.array(upper_rows).reshape(-1, width), np.array(upper_values)
+
+    # Solve 1: the smallest shortfall. 2: the fewest grams. 3: the least eaten every day. 4: the fewest sittings.
+    shortfall = row(s=np.ones(m))
+    average_grams = row(d=np.ones(n), w=np.ones(n) / 7)
+    daily_grams = row(d=np.ones(n))
+    big_sittings = row(p=-np.ones(n))
+    solution = np.zeros(width)
     if m:
-        first = linprog(np.concatenate([np.zeros(n), np.ones(m)]), A_ub=A_ub, b_ub=b_ub, bounds=bounds,
-                        method="highs")
-        if first.status != 0:
-            raise ValueError(f"no plan: {first.message}")
-        keep = np.concatenate([np.zeros(n), np.ones(m)])
-        second = linprog(np.concatenate([np.ones(n), np.zeros(m)]),
-                         A_ub=np.vstack([A_ub, keep]), b_ub=np.append(b_ub, first.fun + 1e-7),
-                         bounds=bounds, method="highs")
-        if second.status != 0:
-            raise ValueError(f"no plan: {second.message}")
-        x = second.x[:n]
+        for objective in (shortfall, average_grams, daily_grams, big_sittings):
+            result = linprog(objective, A_ub=A_ub, b_ub=b_ub, bounds=bounds, method="highs")
+            if result.status != 0:
+                raise ValueError(f"no plan: {result.message}")
+            solution = result.x
+            A_ub = np.vstack([A_ub, objective])
+            # Keep this pass's best, give or take a millionth — tighter and HiGHS can call it infeasible.
+            b_ub = np.append(b_ub, result.fun + max(1e-6, 1e-6 * abs(result.fun)))
+    d, w, p = solution[:n], solution[n:2 * n], solution[2 * n:3 * n]
 
-    # Read the answer back: grams per food, and each nutrient before and after.
-    after = [now[i] + float(C[i] @ x) for i in range(len(keys))] if n else list(now)
-    foods = [{"fdc_id": food["fdc_id"], "label": food["label"], "grams": round(float(grams), 1)}
-             for food, grams in zip(candidates, x) if grams >= 0.05]
+    # Read the answer back: each food's daily grams and weekly sittings, split evenly.
+    foods, sitting = [], np.zeros(n)
+    for f, food in enumerate(candidates):
+        weekly = float(w[f]) if w[f] >= 0.05 else 0.0
+        portion = min(float(p[f]), weekly)
+        times = math.ceil(weekly / portion - 1e-6) if weekly else 0
+        # Seven sittings a week is every day: fold them into the daily grams.
+        if times >= 7:
+            d[f], w[f], weekly, times = d[f] + weekly / 7, 0.0, 0.0, 0
+        sitting[f] = weekly / times if times else 0.0
+        if d[f] >= 0.05 or weekly:
+            foods.append({"fdc_id": food["fdc_id"], "label": food["label"],
+                          "grams": round(float(d[f]) + weekly / 7, 1), "daily_grams": round(float(d[f]), 1),
+                          "weekly_grams": round(weekly, 1), "portion_grams": round(weekly / times, 1) if times else 0.0,
+                          "times_a_week": times})
+
+    # Each nutrient: judged on the ordinary day or the week's average, and its heaviest day.
     nutrients = []
     for i, key in enumerate(keys):
         floor = built["lower"][i]
         if not floor and built["upper"][i] is None:
             continue
-        nutrients.append({"key": key, "unit": units[i], "now": round(now[i], 3), "after": round(after[i], 3),
+        judged = "week" if key in weekly_keys else "day"
+        after = now[i] + float(C[i] @ d) + (float(C[i] @ w) / 7 if judged == "week" else 0.0)
+        nutrients.append({"key": key, "unit": units[i], "judged": judged, "now": round(now[i], 3),
+                          "after": round(after, 3), "peak": round(now[i] + float(C[i] @ (d + sitting)), 3),
                           "target": floor, "limit": built["upper"][i],
-                          "closed": bool(floor) and after[i] >= floor * (1 - 1e-6),
+                          "closed": bool(floor) and after >= floor * (1 - 1e-5),
                           "unknown_in": unknown_in[i]})
     energy = keys.index("energy") if "energy" in keys else None
+    added_energy = float(C[energy] @ (d + w / 7)) if energy is not None and n else 0.0
     return {"foods": sorted(foods, key=lambda food: -food["grams"]), "nutrients": nutrients,
-            "added_energy": round(after[energy] - now[energy], 1) if energy is not None else None,
+            "added_energy": round(added_energy, 1) if energy is not None else None,
             "already_over": already_over, "cap_grams": float(cap_grams), "energy_cap": energy_cap}

@@ -1,6 +1,13 @@
 /**
- * MealPrepPlan.tsx — "What to add": the fewest grams a day of her starred foods
- * that bring her usual day up to its targets, per day and for a week of meal prep.
+ * MealPrepPlan.tsx — "What to add": the fewest grams of her starred foods that
+ * bring her usual day up to its targets, split into what to eat every day and
+ * what can come in a few sittings a week.
+ *
+ * Nutrients the body keeps a store of (calcium, iron, vitamins A and D,
+ * folate, B12 — per the NIH sheets, ./StorageNote.tsx) are judged on the
+ * week's average, so what only they need can be eaten a few times a week;
+ * every other nutrient must be met every day. Upper limits are checked on the
+ * heaviest day, the one with a weekly sitting in it.
  *
  * The solving is on the server (nutrition.py `plan_additions`, a linear program
  * run through scipy): what she already eats stays as it is, each starred food
@@ -11,7 +18,8 @@
  *
  * Prompt that produced it: "Then I'll want to be able to calculate how much to
  * add to my weekly meal prep or meals to meet my nutrient needs." Her answers:
- * add only (never take away), and only from the foods she's starred.
+ * add only (never take away), only from the foods she's starred, and stored
+ * nutrients judged on a weekly average.
  *
  * Touches: ./api.ts (getPlan), ./types.ts, ./nutrientMath.ts, ./Highlights.tsx
  * (the starred list, so the plan reruns when it changes), ./Nutrition.module.css;
@@ -55,8 +63,9 @@ export function MealPrepPlan({ day }: { day: NutritionDay }) {
     <section className={styles.card}>
       <div className={styles.cardHead}>What to add</div>
       <p className={styles.muted}>
-        The fewest grams a day of your starred foods that bring each nutrient up to its target without passing an
-        upper limit. What you already eat stays the same.
+        The fewest grams of your starred foods that bring each nutrient up to its target without passing an upper
+        limit. What you already eat stays the same. Nutrients your body stores are judged on the week’s average, so
+        some of this can be a few times a week instead of every day.
       </p>
       {!starred.length ? (
         <p className={styles.muted}>Star some foods first (the ☆ on any nutrient’s page), and this works out how much of each to add.</p>
@@ -71,7 +80,7 @@ export function MealPrepPlan({ day }: { day: NutritionDay }) {
                 value={capText}
                 onChange={(event) => setCapText(event.target.value)}
               />
-              g of any one food a day
+              g of any one food in a day
             </label>
             <label className={styles.ageLabel}>
               Add at most
@@ -89,13 +98,14 @@ export function MealPrepPlan({ day }: { day: NutritionDay }) {
           {query.isError ? <p className={styles.error}>{(query.error as Error).message}</p> : null}
           {plan ? (
             <>
-              {/* The answer: grams a day of each food, and the same times seven for a week's prep. */}
+              {/* The answer: what to eat every day, what a few times a week, and the week's total to prep. */}
               {plan.foods.length ? (
                 <table className={styles.giftTable}>
                   <thead>
                     <tr>
                       <th>Add</th>
-                      <th>A day</th>
+                      <th>Every day</th>
+                      <th>Some days</th>
                       <th>A week</th>
                     </tr>
                   </thead>
@@ -107,8 +117,13 @@ export function MealPrepPlan({ day }: { day: NutritionDay }) {
                             {food.label}
                           </a>
                         </td>
-                        <td>{formatAmount(food.grams)} g</td>
-                        <td>{formatAmount(food.grams * 7)} g</td>
+                        <td>{food.daily_grams ? `${formatAmount(food.daily_grams)} g` : '—'}</td>
+                        <td>
+                          {food.times_a_week
+                            ? `${formatAmount(food.portion_grams)} g × ${food.times_a_week} a week`
+                            : '—'}
+                        </td>
+                        <td>{formatAmount(food.daily_grams * 7 + food.weekly_grams)} g</td>
                       </tr>
                     ))}
                   </tbody>
@@ -117,7 +132,7 @@ export function MealPrepPlan({ day }: { day: NutritionDay }) {
                 <p className={styles.muted}>Nothing to add: none of your starred foods can close a gap.</p>
               )}
               {plan.added_energy != null && plan.foods.length ? (
-                <div className={styles.note}>That adds {formatAmount(plan.added_energy)} kcal a day.</div>
+                <div className={styles.note}>That adds {formatAmount(plan.added_energy)} kcal a day, on average.</div>
               ) : null}
 
               {/* Each nutrient that was under its target: before, after, and whether it closes. */}
@@ -138,6 +153,7 @@ export function MealPrepPlan({ day }: { day: NutritionDay }) {
                           {labels.get(row.key) ?? row.key}
                         </Link>{' '}
                         {row.closed ? '✓' : ''}
+                        {row.judged === 'week' ? <span className={styles.muted}> · weekly avg</span> : null}
                       </td>
                       <td>{formatAmount(row.now)}</td>
                       <td>{formatAmount(row.after)}</td>

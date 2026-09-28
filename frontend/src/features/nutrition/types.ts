@@ -178,14 +178,30 @@ export interface FdcFood {
   category: string | null;
 }
 
-/** What to add a day, from her starred foods (nutrition.py `plan_additions`). */
+/** What to add, from her starred foods (nutrition.py `plan_additions`). */
 export interface NutritionPlan {
-  foods: { fdc_id: number; label: string; grams: number }[];
+  foods: {
+    fdc_id: number;
+    label: string;
+    /** The average day's grams: daily_grams + weekly_grams / 7. */
+    grams: number;
+    /** Eaten every day. */
+    daily_grams: number;
+    /** Eaten over the week on top of that, in times_a_week sittings of portion_grams. */
+    weekly_grams: number;
+    portion_grams: number;
+    times_a_week: number;
+  }[];
   nutrients: {
     key: string;
     unit: string | null;
+    /** 'week' for nutrients the body stores (judged on the week's average); 'day' for the rest. */
+    judged: 'day' | 'week';
     now: number;
+    /** What it's judged on: the ordinary day, or the week's average. */
     after: number;
+    /** The heaviest day, with a weekly sitting eaten. */
+    peak: number;
     target: number | null;
     limit: number | null;
     closed: boolean;

@@ -195,11 +195,18 @@ The diet problem as linear algebra. Say there are *n* foods and *m* nutrients.
 
 **The calculator** (`plan_additions`, `GET /api/nutrition/plan`, `MealPrepPlan.tsx`) is this
 problem, solved with `scipy.optimize.linprog` (HiGHS). Her choices: it only **adds** food (what she
-eats now stays fixed), and only her **starred** foods. Each food is capped at a most-grams-a-day (100 by
-default), with an optional cap on the calories added. It runs twice: first it minimizes the total shortfall
-(each gap counted as a fraction of its target, so a gap it can't close still gets as close as it can),
-then, keeping that, the fewest grams. ULs that count food are hard ceilings; one the day is already
-past is listed in `already_over`. An unknown figure counts as none, and the food is named in `unknown_in`.
+eats now stays fixed), and only her **starred** foods. Stored nutrients (those `nutrient_storage.py`
+reads as *Body stores it*: calcium, iron, vitamins A and D, folate, B12) are judged on the **week's
+average**; every other nutrient must be met every day (her answer, 2026-09-28). So each food has three
+unknowns: `d` grams every day, `w` grams a week on top, eaten in sittings of `p`
+(`d + p ≤ cap`, `w ≤ 7p`). A daily nutrient counts only `C·d`, and a weekly one counts `C·(d + w/7)`.
+ULs are checked on the heaviest day, `C·(d + p)`, and the calorie cap on the average day. It runs
+four times, each keeping the last: least total shortfall (each gap as a fraction of its target),
+fewest grams on the average day, least eaten every day (this pushes stored-only needs into weekly
+sittings), then the biggest sittings (the fewest times a week). Seven sittings a week are folded
+back into "every day". Worth knowing: weekly averaging never lowers the *total* grams. With no
+per-sitting cost, a plan spread over the week can't beat the same plan every day. It only makes
+some of it less frequent. A UL the day is already past is listed in `already_over`. An unknown figure counts as none, and the food is named in `unknown_in`.
 
 A suggested learning path, each step runnable against her real matrix:
 1. Vectors and the dot product: compute one nutrient's total by hand from one row of A.

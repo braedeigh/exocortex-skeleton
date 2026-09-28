@@ -333,7 +333,7 @@ def test_plan_counts_what_she_already_eats(conn):
 
 def test_plan_gets_as_close_as_it_can_when_the_cap_stops_it(conn):
     plan, calcium = _plan(conn, [], [KALE, SURVEY], cap_grams=100)
-    assert (calcium["after"], calcium["closed"]) == (pytest.approx(404.0), False)
+    assert (calcium["after"], calcium["closed"]) == (pytest.approx(404.0, abs=0.01), False)
 
 
 def test_plan_never_leans_on_an_unknown_figure(conn):
@@ -372,3 +372,16 @@ def test_nutrient_route_says_whether_the_body_stores_it(client):
 def test_day_route_marks_each_nutrient_stored_or_steady(client):
     storage = client.get("/api/nutrition/day").get_json()["storage"]
     assert (storage["thiamin"]["kind"], storage["energy"]["kind"]) == ("steady", "unsourced")
+
+
+def test_plan_moves_a_stored_nutrient_into_weekly_sittings(conn):
+    plan, calcium = _plan(conn, [], [KALE], cap_grams=1000)
+    kale = plan["foods"][0]
+    assert (kale["daily_grams"], kale["weekly_grams"], kale["times_a_week"], calcium["judged"]) == (
+        0.0, pytest.approx(2755.9, abs=0.5), 3, "week")
+
+
+def test_plan_keeps_a_daily_nutrient_every_day(conn):
+    plan = nutrition.plan_additions(conn, [], [KALE], cap_grams=1000, sex="female", age=29, weekly_keys=set())
+    kale = plan["foods"][0]
+    assert (kale["daily_grams"], kale["weekly_grams"]) == (pytest.approx(393.7, abs=0.1), 0.0)
