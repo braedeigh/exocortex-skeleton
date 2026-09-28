@@ -16,8 +16,8 @@
  *     other when its context filled (continuation.py).
  *
  * The swarm's helper (swarm_helper.py) sits in the middle of them all as a
- * bigger, filled dot. A TEAL bowed thread runs from it to each member it has
- * sent messages to, with how many on it. It glows while it's running; tap it
+ * bigger, filled dot. A BLUE line runs from it to each member it has sent
+ * messages to, with how many on it. It glows while it's running; tap it
  * to open its chat.
  *
  * The lines are an SVG underneath; the rings, names and counts are ordinary
@@ -90,8 +90,8 @@ export function SwarmNetwork({
           aria-hidden="true"
         >
           {threads.map((t) => (
-            <path key={`h-${t.conv}`} d={t.path} className={styles.helperThread}
-              strokeWidth={lineWidth(t.messages) - 0.5} vectorEffect="non-scaling-stroke" />
+            <line key={`h-${t.conv}`} x1={layout.centre.x} y1={layout.centre.y} x2={t.x} y2={t.y}
+              className={styles.helperThread} strokeWidth={lineWidth(t.messages) - 0.5} vectorEffect="non-scaling-stroke" />
           ))}
           {layout.continues.map((c) => {
             const from = at.get(c.from)!;

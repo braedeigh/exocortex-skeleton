@@ -98,10 +98,10 @@ describe('the helper threads', () => {
     expect(layout.helperThreads.map((t) => [t.conv, t.messages])).toEqual([['a', 3]]);
   });
 
-  it('bows off the talk line when the helper sits halfway between two members', () => {
+  it('puts the count two-thirds of the way from the helper to the member', () => {
     const layout = layoutSwarm({ members, links: [], continues: [], helper_links: [{ to: 'b', messages: 1 }] });
     const [thread] = layout.helperThreads;
-    expect(thread.path.startsWith(`M ${layout.centre.x} ${layout.centre.y} `)).toBe(true);
-    expect(thread.label.y).not.toBe(layout.centre.y);
+    const b = layout.nodes[1];
+    expect(thread.label.x).toBe(Math.round(layout.centre.x + ((b.x - layout.centre.x) * 2) / 3));
   });
 });

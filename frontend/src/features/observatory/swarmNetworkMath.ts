@@ -17,10 +17,10 @@
  *     of the circle, halfway between two, beside a lone one), and a line's
  *     message count slides off the middle when that middle is where the
  *     helper sits;
- *   - the helper's own threads: a gently bowed line from its seat to each
- *     member it has sent messages to, carrying how many. Bowed, so that
- *     with two members (the helper halfway between them) its threads don't
- *     lie on top of their talk line;
+ *   - the helper's own threads: a straight line from its seat to each
+ *     member it has sent messages to, carrying how many. The count sits
+ *     nearer the member than the helper, so the counts don't crowd the
+ *     middle;
  *   - a continuation (one session taking over from another) is its own kind
  *     of line, since it's a handover rather than talk.
  *
@@ -76,9 +76,10 @@ export interface HelperThread {
   /** The member it goes to. */
   conv: string;
   messages: number;
-  /** The SVG path from the helper's seat to the member. */
-  path: string;
-  /** Where its message count sits: the middle of the bow. */
+  /** Where the member sits — the line runs from the helper's seat to here. */
+  x: number;
+  y: number;
+  /** Where its message count sits: two-thirds of the way to the member. */
   label: { x: number; y: number };
 }
 
@@ -147,10 +148,10 @@ export function foldLinks(links: Swarm['links'], members: Set<string>): NetworkL
   return [...byPair.values()];
 }
 
-/** Draw the helper's threads: one bowed line from its seat to each member
- * it has messaged. The bow is a quadratic curve whose control point sits off
- * the straight line's middle, to its side, by a fifth of its length (at
- * least 24 units) — enough to part it from a talk line running the same way. */
+/** Draw the helper's threads: one straight line from its seat to each
+ * member it has messaged, with the count two-thirds of the way along —
+ * away from the crowded middle, and off the halfway point where a
+ * two-member swarm's talk count sits. */
 export function helperThreads(
   links: Swarm['helper_links'],
   nodes: { conv: string; x: number; y: number }[],
@@ -161,22 +162,14 @@ export function helperThreads(
   for (const link of links ?? []) {
     const node = at.get(link.to);
     if (!node || link.messages <= 0) continue;
-    const dx = node.x - centre.x;
-    const dy = node.y - centre.y;
-    const length = Math.hypot(dx, dy) || 1;
-    const bow = Math.max(24, length / 5);
-    const control = {
-      x: Math.round((centre.x + node.x) / 2 - (dy / length) * bow),
-      y: Math.round((centre.y + node.y) / 2 + (dx / length) * bow),
-    };
     threads.push({
       conv: link.to,
       messages: link.messages,
-      path: `M ${centre.x} ${centre.y} Q ${control.x} ${control.y} ${node.x} ${node.y}`,
-      // A quadratic curve's halfway point: a quarter each end, half the control.
+      x: node.x,
+      y: node.y,
       label: {
-        x: Math.round(0.25 * centre.x + 0.5 * control.x + 0.25 * node.x),
-        y: Math.round(0.25 * centre.y + 0.5 * control.y + 0.25 * node.y),
+        x: Math.round(centre.x + ((node.x - centre.x) * 2) / 3),
+        y: Math.round(centre.y + ((node.y - centre.y) * 2) / 3),
       },
     });
   }

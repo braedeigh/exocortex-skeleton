@@ -1,7 +1,7 @@
 /* SwarmNetwork — a swarm as rings and lines. Rings are Terrain's --accent
    purple around a solid dot (glowing, with a spinning teal arc, while it
    works; an extra orange ring when waiting on her); talk lines are --green,
-   the helper's threads out to members are teal. */
+   the helper's threads out to members are blue. */
 
 /* Wide enough that neighbouring names don't collide; a narrow phone scrolls
    sideways rather than squeezing the labels together. */
@@ -29,11 +29,11 @@
   opacity: 0.85;
 }
 
-/* The helper's threads: teal, the same value as the working spinner (see
-   .spinner below), bowed and a touch fainter than talk. */
+/* The helper's threads: blue, so they read apart from green talk. Blue
+   isn't in the theme palette; this one holds up on both the light and the
+   dark theme. A touch fainter than talk. */
 .helperThread {
-  fill: none;
-  stroke: #2fa6a0;
+  stroke: #4f8fe6;
   stroke-linecap: round;
   opacity: 0.7;
 }
@@ -60,10 +60,10 @@
   text-align: center;
 }
 
-/* The helper thread's count: the same chip, in teal. */
+/* The helper thread's count: the same chip, in blue. */
 .helperCount {
-  border-color: #2fa6a0;
-  color: #2fa6a0;
+  border-color: #4f8fe6;
+  color: #4f8fe6;
 }
 
 /* One agent. The ring's centre sits exactly on its seat; the name hangs below. */
@@ -210,7 +210,7 @@
   display: inline-block;
   width: 28px;
   height: 0;
-  border-top: 3px solid #2fa6a0;
+  border-top: 3px solid #4f8fe6;
   vertical-align: middle;
 }
 
