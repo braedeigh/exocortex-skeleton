@@ -149,10 +149,15 @@ def test_a_held_message_waits_for_her_release(bot_client, monkeypatch):
     started = []
     monkeypatch.setattr(observatory, "_spawn_host",
                         lambda config, text, *a: started.append(text) or True)
-    monkeypatch.setattr(config, "PEER_MAX_HOPS", 0)
+    # Nothing holds a message any more; an old held one is set up by hand.
+    monkeypatch.setattr(observatory, "_effective_running", lambda c, e: True)
     a, b = _seed_two()
     row = observatory.peer_send(a, b, "loop again")
-    assert row["status"] == "held" and started == []
+    from tests.test_peermail import _hold
+    _hold(row)
+    monkeypatch.setattr(observatory, "_effective_running",
+                        lambda c, e: bool(e.get("running")))
+    assert started == []
     resp = bot_client.post(f"/api/observatory/peer/{row['id']}/release")
     assert resp.status_code == 200
     assert started and "loop again" in started[0]

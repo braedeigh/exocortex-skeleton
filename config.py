@@ -104,15 +104,10 @@ SQL_AGENT_DENY_TABLES = frozenset(
     if name.strip()
 )
 
-# Agents talking to each other (peermail.py, docs/peers.md). An agent-to-agent
-# message wakes the session it's sent to, so two agents could keep waking each
-# other with nobody watching. These are the two brakes, both env-overridable:
-#   PEER_MAX_HOPS — how many agent-wakes-agent steps in a row, with no owner
-#     message in between, before the next message is HELD for her to release.
-#   PEER_DAILY_CAP — how many agent-to-agent messages a day, across every
-#     session, before the rest are held the same way.
-PEER_MAX_HOPS = int(os.environ.get("EXOCORTEX_PEER_MAX_HOPS", "5"))
-PEER_DAILY_CAP = int(os.environ.get("EXOCORTEX_PEER_DAILY_CAP", "150"))
+# Agents talking to each other (peermail.py, docs/peers.md) has no count
+# limits: no hop brake, no daily cap. The owner's call — agents are kept in
+# bounds by judgement (message only when it serves your own build), which the
+# prompt in peermail.prompt spells out, not by a number that holds messages.
 
 # Keep each turn's input open so messages can be handed to an agent mid-turn
 # (Claude Code's `--input-format stream-json`). "0" turns it off: every turn

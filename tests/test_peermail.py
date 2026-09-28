@@ -1,14 +1,15 @@
 """The agents' mailbox rules (peermail.py) — no turns, no processes.
 
 What these pin: a message is stored and delivered exactly once, the owner's
-messages are never held, the two brakes hold a runaway agent chain, the
+messages are never held, nothing holds an agent's message either (no count
+limits — the owner's call), an old held one can still be released, the
 recipient can only ever soften a sender's knock, and what the model reads is
 labelled by who sent it.
 """
 import pytest
 
-import config
 import peermail
+import sqlstore
 import store
 
 
@@ -38,17 +39,30 @@ def test_unclaim_puts_a_failed_delivery_back(data_dir):
     assert [r["id"] for r in peermail.waiting("b")] == [row["id"]]
 
 
-def test_the_hop_brake_holds_a_long_agent_chain(data_dir, monkeypatch):
-    monkeypatch.setattr(config, "PEER_MAX_HOPS", 2)
-    _seed("a", "b", peer_hops=2)
+def _hold(row):
+    """Mark a message held the way the old brakes did, for the release path."""
+    conn = sqlstore.open_db()
+    try:
+        conn.execute("UPDATE agent_messages SET status = 'held',"
+                     " held_reason = 'an old brake' WHERE id = ?", (row["id"],))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_a_long_agent_chain_is_never_held(data_dir):
+    _seed("a", "b", peer_hops=5000)
     row = peermail.send("b", "again", from_conv="a")
-    assert row["status"] == "held"
-    assert "in a row" in row["held_reason"]
-    assert peermail.waiting("b") == []
+    assert row["status"] == "waiting" and row["hops"] == 5001
 
 
-def test_the_owner_is_never_held_and_resets_the_chain(data_dir, monkeypatch):
-    monkeypatch.setattr(config, "PEER_MAX_HOPS", 0)
+def test_many_agent_messages_in_a_day_are_never_held(data_dir):
+    _seed("a", "b")
+    rows = [peermail.send("b", f"note {i}", from_conv="a") for i in range(200)]
+    assert {r["status"] for r in rows} == {"waiting"}
+
+
+def test_the_owner_resets_the_chain(data_dir):
     _seed("b", peer_hops=9)
     mine = peermail.send("b", "from her", kind="B")
     assert mine["status"] == "waiting"
@@ -56,17 +70,10 @@ def test_the_owner_is_never_held_and_resets_the_chain(data_dir, monkeypatch):
     assert store.read("bot_chats/index", {})["b"]["peer_hops"] == 0
 
 
-def test_the_daily_cap_holds_the_rest(data_dir, monkeypatch):
-    monkeypatch.setattr(config, "PEER_DAILY_CAP", 1)
-    _seed("a", "b")
-    assert peermail.send("b", "one", from_conv="a")["status"] == "waiting"
-    assert peermail.send("b", "two", from_conv="a")["status"] == "held"
-
-
-def test_release_lets_a_held_message_through(data_dir, monkeypatch):
-    monkeypatch.setattr(config, "PEER_MAX_HOPS", 0)
+def test_release_lets_a_held_message_through(data_dir):
     _seed("a", "b")
     row = peermail.send("b", "held one", from_conv="a")
+    _hold(row)
     assert peermail.release(row["id"])["status"] == "waiting"
     assert peermail.release(row["id"]) is None      # not held any more
 

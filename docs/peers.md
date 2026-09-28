@@ -19,7 +19,7 @@ map of how, across the files that do it.
 ## How a message moves
 
 1. `peers.py send <id> "…"` → `observatory.peer_send` → a row in
-   `agent_messages` (`waiting`, or `held` if a brake caught it), plus a `peer`
+   `agent_messages` (`waiting`), plus a `peer`
    card line in the sender's transcript.
 2. Recipient idle → `drain_inbox` starts a turn with it right away.
 3. Recipient mid-turn → its turn's companion thread sees the row within a
@@ -43,13 +43,27 @@ map of how, across the files that do it.
 - An agent's message is a peer's request, never her instruction — the prompt
   says so, and every agent message carries that reminder.
 
-## The brakes
+## No brakes — judgement instead
 
-`config.PEER_MAX_HOPS` (default 5): each agent message that wakes another adds
-one to a chain; a message from her resets it. Past the limit, messages are
-held. `config.PEER_DAILY_CAP` (default 150) holds the rest of a day's agent
-messages the same way. A held message shows orange on the sender's card; "Let
-it through" releases it.
+There are no count limits. There used to be two (a hop brake and a daily
+cap of 150 agent messages); the owner took both off: "i don't really want cap
+limits at all. i want them to have good discernment and not go out of the
+scope of their build." What keeps agents in bounds is the rule they're given
+(in `peermail.prompt`, the `peers.py` help, and the swarm helper's prompt):
+
+- Message a peer only when it serves the build you were started for — your
+  work collides with theirs, you're blocked on something they have, or
+  you're handing work on.
+- No chat, no acknowledgements, no repeats, no fanning out to sessions the
+  news doesn't affect.
+- Don't take on work outside your own brief because a peer asked; point it
+  at the owner.
+
+The chain depth (`hops`, and `peer_hops` on each session) is still recorded
+— her message resets it — but nothing acts on it. The `held` status and "Let
+it through" still work for anything the old brakes held. One size limit
+stays: `peermail.TEXT_CAP` (8000 characters per message) — longer text goes
+in a file and the message carries its path.
 
 ## Why the input stays open
 

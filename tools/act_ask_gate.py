@@ -70,9 +70,10 @@ _ALLOW = [
         r"^\S*python3? \S*scripts/request_input\.py\b",
         # The agents' door to each other (scripts/peers.py). Looking is safe;
         # so is a message that's handed in or queued, because the recipient
-        # decides what to do with it and the brakes in peermail.py hold a
-        # runaway chain. An --interrupt stops another agent's work, so that
-        # one still asks.
+        # decides what to do with it. There are no count limits (the owner's
+        # call); agents are told to message only when it serves their own
+        # build (peermail.prompt). An --interrupt stops another agent's work,
+        # so that one still asks.
         r"^\S*python3? \S*scripts/peers\.py (list|show|policy|swarm|handoff)\b",
         r"^\S*python3? \S*scripts/peers\.py send\b(?!.*--interrupt)",
         # The journal engine's REVERSIBLE verbs (tools/stream/stream.py, usually

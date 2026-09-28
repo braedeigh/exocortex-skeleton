@@ -3307,8 +3307,8 @@ def register(app):
 
     @app.route("/api/observatory/peer/<int:message_id>/release", methods=["POST"])
     def observatory_peer_release(message_id):
-        """Let a HELD agent message through — one a brake stopped (too many
-        agent-to-agent steps in a row, or the daily cap)."""
+        """Let a HELD agent message through. Nothing holds new messages any
+        more; this is for the ones the old count brakes held."""
         row = release_peer_message(message_id)
         if row is None:
             return jsonify({"error": "not held"}), 409

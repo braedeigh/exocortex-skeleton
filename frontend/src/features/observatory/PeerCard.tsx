@@ -6,8 +6,8 @@
  * small teal card — "→ sent to <session>" in the sender's, "← from <session>"
  * in the recipient's — so she can see what her agents say to each other
  * without it reading as her words or as a reply. The other session's name
- * opens it. A message a brake held (too many agent-to-agent steps in a row,
- * or the daily cap) says why, with a button to let it through.
+ * opens it. Nothing holds new messages any more; one the old count brakes
+ * held still says why, with a button to let it through.
  *
  * Touches: events.ts (the `peer` turn it draws), api.ts (releasePeerMessage),
  * sessionLocation.ts (opening the other session), ObservatoryPage.tsx (where

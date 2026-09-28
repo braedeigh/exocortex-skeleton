@@ -21,6 +21,11 @@ peermail.set_policy), never by writing session state directly.
         Message a session. Default is inject: handed in between its steps, and
         it decides what to do. --queue waits for its turn to end; --interrupt
         stops its turn and restarts it with your message.
+        Nothing counts or holds messages — your judgement is the limit. Send
+        only when it serves your own build: your work collides with theirs,
+        you're blocked on something they have, or you're handing work on.
+        No chat, no repeats, no fanning out to sessions it doesn't affect,
+        and no taking on work outside your own brief because a peer asked.
 
     ./venv/bin/python3 scripts/peers.py policy open|no-interrupt|queue-only
         What THIS session accepts mid-turn.
@@ -192,10 +197,7 @@ def cmd_send(args, me):
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 1
-    if row["status"] == "held":
-        print(f"held (message {row['id']}): {row['held_reason']}. The owner can"
-              " release it from your chat; don't resend it.")
-    elif row["started"]:
+    if row["started"]:
         print(f"sent (message {row['id']}) — {args.id} was idle and is now working on it")
     else:
         print(f"sent (message {row['id']}, {mode}) — {args.id} will get it"
@@ -275,7 +277,8 @@ def main(argv=None):
     p = sub.add_parser("show")
     p.add_argument("id")
     p.add_argument("--last", type=int, default=20)
-    p = sub.add_parser("send")
+    p = sub.add_parser("send", help="message a session — only when it serves your own build"
+                       " (a collision, a blocker, a handoff); no chat, no repeats")
     p.add_argument("id")
     p.add_argument("text")
     how = p.add_mutually_exclusive_group()
