@@ -65,7 +65,7 @@ import { markGuideDismissed, readGuideDismissed, shouldOpenGuideOnLoad } from '.
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import { coilWindowLabel, windowCoils } from './coilFolders';
 import { addTableNodes } from './tableNodes';
-import { tableCodeLinks } from './tableMentions';
+import { callLinks, tableCodeLinks } from './tableMentions';
 import { lineageLinks } from './terrainLineage';
 import { swarmGroups } from './terrainSwarms';
 import { useSwarms } from '../observatory/swarmApi';
@@ -950,6 +950,17 @@ export function TerrainPage() {
   useEffect(() => {
     engineRef.current?.setTableCodeLinks(codeLinks);
   }, [codeLinks]);
+
+  // The page-to-route ropes: which frontend files call which route modules —
+  // the leg before the table ropes, so a hover follows page -> route -> table
+  // (terrainCanvas.ts setCallLinks). Built against the drawn graph, the same way.
+  const pageLinks = useMemo(
+    () => callLinks(tables, new Set((graph?.nodes ?? []).map((n) => n.id))),
+    [tables, graph],
+  );
+  useEffect(() => {
+    engineRef.current?.setCallLinks(pageLinks);
+  }, [pageLinks]);
 
   // The spinoff arrows: which agent was spun off from which. Every pair goes
   // over; the canvas draws only those with both orbs on the map

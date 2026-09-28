@@ -22,6 +22,12 @@ import { tableNodeId } from './tableNodes';
  *                      numbers, which is what the open file highlights and
  *                      steps between (FileCodeBody's mention strip).
  *
+ *   PAGES TO ROUTES    callLinks() pairs each frontend file with the route
+ *                      modules it reaches (the payload's `calls`). With the
+ *                      table ropes that is a whole chain: a page's rope runs
+ *                      to its route file, and that file's ropes run on to its
+ *                      tables (terrainCanvas.ts setCallLinks).
+ *
  * Pure arithmetic over the payload — no fetch, no DOM — and tested in
  * tableMentions.test.ts. Read by TerrainPage.tsx (which owns both the graph
  * and the tables payload), TerrainTableSheet.tsx (the card's file buttons)
@@ -32,7 +38,8 @@ import { tableNodeId } from './tableNodes';
  * them to the files that created them and interact with them" / "when i click
  * those files in the popup for each data table, it highlights where the table
  * was mentioned in the code file when i open it up and i can hop between them
- * if there are multiple".
+ * if there are multiple" / "show connections between my frontend UI to my
+ * SQL tables and backend stuff in terrain".
  */
 
 /** What a file does to a table. Ordered weakest to strongest on purpose —
@@ -108,4 +115,33 @@ export function tableCodeLinks(
     }
   }
   return [...strongest.values()];
+}
+
+/** One rope from a frontend file to a route module it calls. */
+export interface CallLink {
+  pageId: string;
+  routeId: string;
+}
+
+/**
+ * Pair every frontend file with the route modules it reaches, as map node ids.
+ *
+ * Same rule as tableCodeLinks: a pair is only drawn when both dots are on the
+ * map. `known` is the set of node ids the graph actually built.
+ */
+export function callLinks(
+  tables: TerrainTables | undefined,
+  known: ReadonlySet<string>,
+): CallLink[] {
+  if (!tables?.calls) return [];
+  const links: CallLink[] = [];
+  for (const file of tables.calls) {
+    const pageId = `${tables.code_repo}:file:${file.path}`;
+    if (!known.has(pageId)) continue;
+    for (const route of file.routes) {
+      const routeId = `${tables.code_repo}:file:${route.path}`;
+      if (known.has(routeId)) links.push({ pageId, routeId });
+    }
+  }
+  return links;
 }

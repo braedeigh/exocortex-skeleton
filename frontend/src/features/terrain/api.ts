@@ -313,6 +313,18 @@ export interface TerrainTables {
   /** Which repo the `code` file paths belong to (the app-code repo). */
   code_repo: string;
   tables: TerrainTable[];
+  /** The leg before the tables: which frontend files reach which route
+   * modules, following the names each file imports (apiseam.py file_reach).
+   * Paths are in `code_repo`. Missing on a server that predates it. */
+  calls?: TerrainFrontendCall[];
+}
+
+/** One frontend file and the route modules it reaches, each with every `/api`
+ * path it names there. A static read of the source: what CAN be called, not a
+ * record of what ran. */
+export interface TerrainFrontendCall {
+  path: string;
+  routes: { path: string; calls: string[] }[];
 }
 
 /**

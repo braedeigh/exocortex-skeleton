@@ -155,6 +155,11 @@
  * file's other tables are roped in a greyer one, so the table she picked
  * doesn't read as just another end.
  *
+ * The ropes run one leg further, from the frontend: a dashed rope joins each
+ * page or component file to the route modules it calls (`setCallLinks`). A
+ * hover follows the CHAIN two legs — a page lights its routes and those
+ * routes' tables; a table lights its files and the pages that call them.
+ *
  * Prompt that produced it: "i want them to be sized by how much is in there
  * and learn more about the shapes of the tables through this exercise" / "a
  * little off in their own section of the personal vault and then more
@@ -196,7 +201,7 @@ import {
   type TerrainNode,
 } from './terrainGraph';
 import type { TerrainThread } from './terrainThreads';
-import type { TableCodeLink } from './tableMentions';
+import type { CallLink, TableCodeLink } from './tableMentions';
 import { lineageArrow, type LineageLink } from './terrainLineage';
 import { swarmHull, swarmNameAnchor, type SwarmGroup } from './terrainSwarms';
 import { homeChain, wiringTarget } from './hoverSelection';
@@ -1303,6 +1308,12 @@ export class TerrainCanvas {
    * handed to the physics: a spring from a pinned shelf to a file dot would
    * drag the file across the map. Empty until the page hands them over. */
   private tableCodeLinks: readonly TableCodeLink[] = [];
+  /** Page-to-route ropes: which frontend files call which route modules
+   * (tableMentions.ts callLinks). Same contract as the table ropes — drawn
+   * under a hover, never handed to the physics. */
+  private callLinks: readonly CallLink[] = [];
+  /** Either end of a page-to-route rope → the node ids at its other ends. */
+  private callKin = new Map<string, Set<string>>();
   /** Parent → child spinoff pairs, by conversation id (terrainLineage.ts).
    * Drawn as arrows between orbs, never handed to the physics — a spring
    * between two agents would drag each away from the files it works on. */
@@ -2180,6 +2191,49 @@ export class TerrainCanvas {
   }
 
   /**
+   * Hand over the page-to-route ropes: which frontend files call which route
+   * modules.
+   *
+   * The same contract as setTableCodeLinks — stored and drawn, never given to
+   * the physics, and anything already hovered has its kin rebuilt against the
+   * new ropes.
+   *
+   * Prompt that produced it: "show connections between my frontend UI to my
+   * SQL tables and backend stuff in terrain".
+   */
+  setCallLinks(links: readonly CallLink[]): void {
+    this.callLinks = links;
+    this.callKin = new Map();
+    for (const link of links) {
+      if (!this.callKin.has(link.pageId)) this.callKin.set(link.pageId, new Set());
+      if (!this.callKin.has(link.routeId)) this.callKin.set(link.routeId, new Set());
+      this.callKin.get(link.pageId)!.add(link.routeId);
+      this.callKin.get(link.routeId)!.add(link.pageId);
+    }
+    if (this.hoverFile !== null || this.heldFile !== null) this.recomputeHoverKin();
+    this.requestDraw();
+  }
+
+  /**
+   * The far leg of the chain from one body: the tables behind the routes a
+   * page calls, or the pages that call the files a table is touched by.
+   *
+   * Two hops, always crossing from one kind of rope to the other — page rope
+   * then table rope, or table rope then page rope — so it can't wander on
+   * into unrelated files. Empty for a body with no ropes of either kind.
+   */
+  private chainFarEnds(id: string): Set<string> {
+    const far = new Set<string>();
+    for (const route of this.callKin.get(id) ?? []) {
+      for (const table of this.codeLinkKin.get(route) ?? []) far.add(table);
+    }
+    for (const file of this.codeLinkKin.get(id) ?? []) {
+      for (const page of this.callKin.get(file) ?? []) far.add(page);
+    }
+    return far;
+  }
+
+  /**
    * Hand over the spinoff pairs: which agent was spun off from which.
    *
    * Same contract as setThreads — stored and drawn, never given to the
@@ -2253,6 +2307,11 @@ export class TerrainCanvas {
       // drawn below. Symmetric, so hovering one of those FILES lights the
       // tables it touches instead — the same question asked from either end.
       for (const other of this.codeLinkKin.get(id) ?? []) kin.add(other);
+      // ...and the whole chain from the frontend: a page's route files and the
+      // tables behind them, or a table's pages. See chainFarEnds for why it
+      // stops at two legs.
+      for (const other of this.callKin.get(id) ?? []) kin.add(other);
+      for (const other of this.chainFarEnds(id)) kin.add(other);
       // ...and the AGENTS that have touched it, which keep their colour and
       // their tether while the cursor is on one of their files. An agent
       // holding a file is as much a fact about the file as the folder it sits
@@ -4710,8 +4769,12 @@ export class TerrainCanvas {
     // happen to sit near each other vanishes under them, and several ropes
     // leaving one table for the same corner of the map would stack into one
     // smear.
-    if (this.hoverFile !== null && this.tableCodeLinks.length > 0) {
+    if (this.hoverFile !== null && (this.tableCodeLinks.length > 0 || this.callLinks.length > 0)) {
       const held = this.hoverFile;
+      // The chain's middle: the route files a hovered page calls. Their table
+      // ropes are drawn too, which is what carries the page on to its tables.
+      const pageRoutes = this.callKin.get(held);
+      const chainFar = this.chainFarEnds(held);
       // Two tones, once a table is PINNED. The rope running back to the pinned
       // table keeps the database blue; the ropes on to the OTHER tables this
       // file touches are drawn a shade greyer, so "this is the table I picked"
@@ -4728,7 +4791,11 @@ export class TerrainCanvas {
       // she moves onto one of its files, at which point the pin keeps its own.
       const pinKin = pinnedTable !== null ? this.codeLinkKin.get(pinnedTable) : undefined;
       const kin = this.codeLinkKin.get(held);
-      if ((kin !== undefined && kin.size > 0) || (pinKin !== undefined && pinKin.size > 0)) {
+      if (
+        (kin !== undefined && kin.size > 0) ||
+        (pinKin !== undefined && pinKin.size > 0) ||
+        (pageRoutes !== undefined && pageRoutes.size > 0)
+      ) {
         // One pass for the handful of nodes involved — the two subjects and
         // whatever is at the other end of their ropes. Cheaper than a map of
         // every node on the map, which this would otherwise rebuild on every
@@ -4739,7 +4806,9 @@ export class TerrainCanvas {
             n.id === held ||
             n.id === pinnedTable ||
             kin?.has(n.id) === true ||
-            pinKin?.has(n.id) === true
+            pinKin?.has(n.id) === true ||
+            pageRoutes?.has(n.id) === true ||
+            chainFar.has(n.id)
           ) {
             ends.set(n.id, n);
           }
@@ -4750,7 +4819,8 @@ export class TerrainCanvas {
           // the pinned table's remaining ropes are the standing one behind it.
           // A rope that is both reads as the hovered one, which is why the
           // hover test comes first.
-          const ofHover = link.tableId === held || link.fileId === held;
+          const ofHover =
+            link.tableId === held || link.fileId === held || pageRoutes?.has(link.fileId) === true;
           const ofPin = pinnedTable !== null && link.tableId === pinnedTable;
           if (!ofHover && !ofPin) continue;
           const tableNode = ends.get(link.tableId);
@@ -4793,6 +4863,54 @@ export class TerrainCanvas {
         }
         ctx.globalAlpha = 1;
       }
+
+      // Draw the page-to-route ropes: a frontend file to the route modules it
+      // calls. Dashed, because a request crosses here rather than an import
+      // or a query, and in a paler blue than the table ropes, so the two legs
+      // of one chain read as the same family and still tell apart. The dot
+      // marks the ROUTE end, the thing being called. Drawn for the hovered
+      // body's own ropes and, when it's a table, for the pages at the far end
+      // of its chain; bowed like the others so near neighbours stay visible.
+      const callInk = mixHex(theme.evening, theme.text, 0.4);
+      const callEnds = new Map<string, SimNode>();
+      if (this.callLinks.length > 0) {
+        for (const n of this.simNodes) {
+          if (n.id === held || this.callKin.get(held)?.has(n.id) || chainFar.has(n.id) || kin?.has(n.id)) {
+            callEnds.set(n.id, n);
+          }
+        }
+      }
+      ctx.setLineDash([5 / transform.k, 4 / transform.k]);
+      for (const link of this.callLinks) {
+        const own = link.pageId === held || link.routeId === held;
+        const farLeg = kin?.has(link.routeId) === true && chainFar.has(link.pageId);
+        if (!own && !farLeg) continue;
+        const pageNode = callEnds.get(link.pageId);
+        const routeNode = callEnds.get(link.routeId);
+        if (!pageNode || !routeNode) continue;
+        if (this.hiddenFiles.has(pageNode.id) || this.hiddenFiles.has(routeNode.id)) continue;
+        const px = pageNode.x ?? 0;
+        const py = pageNode.y ?? 0;
+        const rx = routeNode.x ?? 0;
+        const ry = routeNode.y ?? 0;
+        const dx = rx - px;
+        const dy = ry - py;
+        const len = Math.hypot(dx, dy) || 1;
+        const bow = Math.min(len * 0.16, 60);
+        ctx.globalAlpha = own ? 0.85 : 0.5;
+        ctx.strokeStyle = callInk;
+        ctx.lineWidth = 1.3 / transform.k;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.quadraticCurveTo((px + rx) / 2 - (dy / len) * bow, (py + ry) / 2 + (dx / len) * bow, rx, ry);
+        ctx.stroke();
+        ctx.fillStyle = callInk;
+        ctx.beginPath();
+        ctx.arc(rx, ry, 2 / transform.k + 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
     }
 
     // -- edges --

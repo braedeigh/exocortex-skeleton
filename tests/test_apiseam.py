@@ -109,3 +109,54 @@ def test_a_repo_with_no_frontend_draws_nothing(tmp_path):
     """The vault is walked by the same builder and simply has neither half."""
     write(tmp_path, "scripts/thing.py", "print('hi')\n")
     assert apiseam.seam_edges("personal", tmp_path) == []
+
+
+# --- the walk: a file reaches what the names it imports reach ------------------
+
+@pytest.fixture
+def hook_tree(app_tree):
+    """The pretend app plus a feature whose data hooks live in their own
+    module, the way most pages here are built: the page names no path itself."""
+    write(app_tree, "frontend/src/features/todos/api.ts",
+          "export function useTodos() { return api.get('/api/todos'); }\n"
+          "export function useHabitLog() { return logHabit(); }\n")
+    write(app_tree, "frontend/src/features/todos/TodosPage.tsx",
+          "import { useTodos } from './api';\n"
+          "export function TodosPage() { return useTodos(); }\n")
+    write(app_tree, "frontend/src/routes/todos.tsx",
+          "import { TodosPage as Page } from '../features/todos/TodosPage';\n"
+          "export const Route = createFileRoute('/todos')({ component: Page });\n")
+    return app_tree
+
+
+def test_a_page_reaches_the_routes_its_imported_hook_calls(hook_tree):
+    reach = apiseam.file_reach(hook_tree)
+    assert reach["frontend/src/features/todos/TodosPage.tsx"] == {"routes/todos.py": ["/api/todos"]}
+
+
+def test_only_the_imported_name_is_followed_not_its_whole_module(hook_tree):
+    reach = apiseam.file_reach(hook_tree)
+    assert "routes/habits.py" not in reach["frontend/src/features/todos/TodosPage.tsx"]
+
+
+def test_the_walk_keeps_going_through_a_chain_of_imports(hook_tree):
+    reach = apiseam.file_reach(hook_tree)
+    assert reach["frontend/src/routes/todos.tsx"] == {"routes/todos.py": ["/api/todos"]}
+
+
+def test_a_re_export_hands_on_what_the_original_reaches(hook_tree):
+    write(hook_tree, "frontend/src/features/todos/index.ts",
+          "export { useTodos } from './api';\n")
+    write(hook_tree, "frontend/src/features/Other.tsx",
+          "import { useTodos } from './todos';\nexport function Other() { return useTodos(); }\n")
+    reach = apiseam.file_reach(hook_tree)
+    assert reach["frontend/src/features/Other.tsx"] == {"routes/todos.py": ["/api/todos"]}
+
+
+def test_an_import_cycle_ends(hook_tree):
+    write(hook_tree, "frontend/src/features/a.ts",
+          "import { b } from './b';\nexport function a() { return b(); }\n")
+    write(hook_tree, "frontend/src/features/b.ts",
+          "import { a } from './a';\nexport function b() { a(); return api.get('/api/todos'); }\n")
+    reach = apiseam.file_reach(hook_tree)
+    assert reach["frontend/src/features/a.ts"] == {"routes/todos.py": ["/api/todos"]}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TerrainTable, TerrainTables } from './api';
-import { fileMentions, tableCodeLinks } from './tableMentions';
+import { callLinks, fileMentions, tableCodeLinks } from './tableMentions';
 import { tableNodeId } from './tableNodes';
 
 /**
@@ -92,5 +92,31 @@ describe('tableCodeLinks', () => {
   it('has nothing to draw when the database sits outside both repos', () => {
     const tables: TerrainTables = { ...payload([table('todos')]), repo: null, path: null };
     expect(tableCodeLinks(tables, new Set(['skeleton:file:sqlstore.py']))).toEqual([]);
+  });
+});
+
+describe('callLinks', () => {
+  const page = 'skeleton:file:frontend/src/features/todos/TodosPage.tsx';
+  const route = 'skeleton:file:routes/todos.py';
+  const withCalls: TerrainTables = {
+    ...payload([]),
+    calls: [
+      {
+        path: 'frontend/src/features/todos/TodosPage.tsx',
+        routes: [{ path: 'routes/todos.py', calls: ['/api/todos'] }],
+      },
+    ],
+  };
+
+  it('pairs a frontend file with the route module it calls', () => {
+    expect(callLinks(withCalls, new Set([page, route]))).toEqual([{ pageId: page, routeId: route }]);
+  });
+
+  it('draws no rope to a route the dials cut off the map', () => {
+    expect(callLinks(withCalls, new Set([page]))).toEqual([]);
+  });
+
+  it('has nothing to draw from a server that predates the calls', () => {
+    expect(callLinks(payload([]), new Set([page, route]))).toEqual([]);
   });
 });

@@ -28,6 +28,10 @@ read from the code as it is today and can't go stale. The frontend
 as wide as its columns and as tall as its rows, and draws the foreign keys as
 lines between them.
 
+It also carries the leg BEFORE the tables: which frontend files reach which
+route modules (`calls`, from apiseam.file_reach), so the map can follow a page
+to the routes it calls and on to the tables those routes touch.
+
 It also says WHERE on the map the tables belong: which repo holds the data
 directory, and the database file's path inside it, so the tables hang off the
 folder the database really lives in.
@@ -361,6 +365,26 @@ def _scan_code_cached(table_names):
     return _scan_cache["result"]
 
 
+_calls_cache = {"built_at": 0.0, "result": None}
+
+
+def frontend_calls():
+    """Which route modules each frontend file reaches, in the shape the map
+    draws: [{"path": frontend file, "routes": [{"path": route module,
+    "calls": [every `/api` path it names there]}]}]. The walk itself is
+    apiseam.file_reach, which follows imported names rather than whole files;
+    remembered for _SCAN_TTL_SEC, the same cache the table scan keeps."""
+    import apiseam
+    now = time.monotonic()
+    if _calls_cache["result"] is None or now - _calls_cache["built_at"] >= _SCAN_TTL_SEC:
+        reach = apiseam.file_reach(store.BUILD_DIR)
+        result = [{"path": path, "routes": [{"path": module, "calls": calls}
+                                            for module, calls in routes.items()]}
+                  for path, routes in reach.items()]
+        _calls_cache.update(built_at=now, result=result)
+    return _calls_cache["result"]
+
+
 def build_tables():
     """Build the whole answer. Any database trouble — no exo.db yet, a torn
     file — comes back as an empty table list rather than an error: the tables
@@ -393,7 +417,11 @@ def build_tables():
         # policy — sent to the owner too, so the map can say at a glance which
         # bodies are published and which are only shapes.
         table["visitor"] = public_config.TABLES.get(table["name"], "frosted")
-    return {"repo": repo, "path": relpath, "code_repo": "skeleton", "tables": tables}
+    # The first leg of the chain: which frontend files reach which route
+    # modules. With each table's `code` (the second leg), the map can walk
+    # page -> route -> table, and back.
+    return {"repo": repo, "path": relpath, "code_repo": "skeleton", "tables": tables,
+            "calls": frontend_calls()}
 
 
 # --- the rows themselves ------------------------------------------------------

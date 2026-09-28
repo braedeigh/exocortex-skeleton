@@ -235,6 +235,17 @@ def test_store_call_mentioned_in_a_comment_is_not_a_link(tmp_path, monkeypatch):
     assert found["writes"] == []
 
 
+def test_the_payload_carries_which_frontend_files_reach_which_routes(client, database, monkeypatch):
+    import apiseam
+    from routes import terrain_tables
+    monkeypatch.setattr(apiseam, "file_reach",
+                        lambda root: {"frontend/src/Page.tsx": {"routes/books.py": ["/api/books"]}})
+    monkeypatch.setitem(terrain_tables._calls_cache, "result", None)
+    body = client.get("/api/observatory/terrain/tables").get_json()
+    assert body["calls"] == [{"path": "frontend/src/Page.tsx",
+                              "routes": [{"path": "routes/books.py", "calls": ["/api/books"]}]}]
+
+
 def test_each_table_carries_its_note_and_its_code(client, database, monkeypatch):
     from routes import terrain_tables
     monkeypatch.setattr(terrain_tables, "load_notes",
