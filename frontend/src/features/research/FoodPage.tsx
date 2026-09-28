@@ -13,8 +13,10 @@
  * names, and her confirm/dispute; then every claim and measurement her
  * research tables hold about the food, each linking to the claim on the Claims
  * page and out to the original studies. FoodsIndex (/food/foods) lists every
- * food in the catalog with what's known, known ones first. Both wear the Food
- * area's row of doors (features/ecosystem/FoodNav.tsx). The grocery list's
+ * food in the catalog with what's known, known ones first, narrowed by the
+ * Food search box (features/ecosystem/foodSearch.ts — a food's name, or a
+ * recipe's name bringing its foods). Both wear the Food area's search box and
+ * row of doors (features/ecosystem/FoodNav.tsx). The grocery list's
  * popup (features/kitchen/OrganicVerdict.tsx) opens FoodPage; the old
  * /research/foods addresses redirect here.
  *
@@ -32,7 +34,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useMemo } from 'react';
 import { getFoodIndex, getFoodPage, reviewEstimate } from '../kitchen/api';
 import type {
   EvidenceClaim,
@@ -44,12 +46,15 @@ import type {
 } from '../kitchen/types';
 import { ECO_ORIGIN, geoSourceInfo, metaLabel, originOf, txInfo } from '../ecosystem/axes';
 import { FoodNav } from '../ecosystem/FoodNav';
+import { matchingFoodIds, normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
+import { useEcosystemData } from '../ecosystem/useEcosystemData';
 import { ProposalList } from '../ecosystem/ProposalList';
 import { ExposureCard } from '../exposure/ExposureCard';
 import { SourcePdf } from '../exposure/SourcePdf';
 import type { EcoProposal } from '../ecosystem/proposals';
 import pageStyles from './ResearchPage.module.css';
 import styles from './FoodPage.module.css';
+import foodAreaStyles from '../ecosystem/FoodArea.module.css';
 
 // The small map loads on demand, so Leaflet stays out of the page's bundle
 // until a food with sources is opened.
@@ -372,9 +377,19 @@ function SourceLinks({ sources }: { sources: EvidenceSource[] }) {
 /** Every food in the catalog, known ones first, with a filter box. */
 export function FoodsIndex() {
   const query = useQuery({ queryKey: ['research', 'food-index'], queryFn: ({ signal }) => getFoodIndex(signal) });
-  const [filter, setFilter] = useState('');
-  const needle = filter.trim().toLowerCase();
-  const foods = (query.data?.foods ?? []).filter((food) => !needle || food.name.toLowerCase().includes(needle));
+  // Narrow the list to the Food search's words: a food's own name, or any
+  // food in a recipe whose name matches (read off the map's data).
+  const [areaSearch] = useFoodSearch();
+  const needle = normalizeQuery(areaSearch);
+  const eco = useEcosystemData();
+  const recipeFoodNames = useMemo(() => {
+    const ids = matchingFoodIds(needle, eco.data?.eco_foods ?? [], eco.data?.eco_recipes ?? []);
+    return new Set((eco.data?.eco_foods ?? []).filter((food) => ids.has(food.id)).map((food) => food.name.toLowerCase()));
+  }, [needle, eco.data]);
+  const allFoods = query.data?.foods ?? [];
+  const foods = allFoods.filter(
+    (food) => !needle || textMatches(needle, food.name) || recipeFoodNames.has(food.name.toLowerCase()),
+  );
 
   return (
     <div className={pageStyles.page}>
@@ -386,13 +401,11 @@ export function FoodsIndex() {
         </Link>
       </div>
       <FoodNav current="foods" />
-      <input
-        className={styles.filter}
-        placeholder="Find a food"
-        value={filter}
-        onChange={(event) => setFilter(event.target.value)}
-        aria-label="Find a food"
-      />
+      {needle ? (
+        <p className={foodAreaStyles.searchNote}>
+          {foods.length ? `${foods.length} of ${allFoods.length} foods match “${areaSearch.trim()}”.` : `No food matches “${areaSearch.trim()}”.`}
+        </p>
+      ) : null}
       {query.isLoading ? (
         <div className={pageStyles.loading}>Loading&hellip;</div>
       ) : query.isError ? (

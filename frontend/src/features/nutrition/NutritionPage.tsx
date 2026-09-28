@@ -11,6 +11,8 @@
  * meals, where each food's grams can be fixed, a food removed, or a USDA food
  * added by search; each meal's servings a day set (0 = saved but not counted);
  * a meal started or deleted. A weight nobody has weighed yet is marked "guess".
+ * The Food search box (../ecosystem/foodSearch.ts) narrows which meals show;
+ * the totals always count every meal.
  *
  * Prompt for the meal editing: "make sure there's a UI to be able to edit things".
  *
@@ -25,6 +27,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
+import { normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
 import { deleteMeal, getDay, saveMeal, saveServings, saveSettings, searchFoods } from './api';
 import { barShare, formatAmount, GROUP_TITLES, groupRows } from './nutrientMath';
 import type { FdcFood, Meal, MealItem, NutrientRow, NutritionDay, Sex, SexSetting } from './types';
@@ -212,7 +215,14 @@ function MealList({ day }: { day: NutritionDay }) {
   const [newName, setNewName] = useState('');
   const servings = new Map(day.day.map((slot) => [slot.meal, slot.servings]));
   const counted = day.day.map((slot) => slot.meal).filter((name) => day.meals[name]);
-  const names = [...counted, ...Object.keys(day.meals).filter((name) => !servings.has(name))];
+  const allNames = [...counted, ...Object.keys(day.meals).filter((name) => !servings.has(name))];
+  // The Food search shows only meals whose name or any food in them matches;
+  // the day's totals above still count every meal.
+  const [areaSearch] = useFoodSearch();
+  const needle = normalizeQuery(areaSearch);
+  const names = allNames.filter(
+    (name) => textMatches(needle, name, ...(day.meals[name]?.items ?? []).map((item) => item.label)),
+  );
   const trimmed = newName.trim();
 
   // Start a new meal: saved empty, then counted once a day so it shows up in the totals.
@@ -230,6 +240,11 @@ function MealList({ day }: { day: NutritionDay }) {
   return (
     <section className={styles.card}>
       <div className={styles.cardHead}>Meals in your usual day</div>
+      {needle && names.length < allNames.length ? (
+        <p className={styles.muted}>
+          {names.length} of {allNames.length} meals have “{areaSearch.trim()}”; totals still count them all.
+        </p>
+      ) : null}
       {names.map((name) => (
         <MealEditor key={name} name={name} meal={day.meals[name]} servings={servings.get(name) ?? 0} />
       ))}

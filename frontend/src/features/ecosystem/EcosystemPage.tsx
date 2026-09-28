@@ -15,7 +15,9 @@
  * ("Details"), a food's chip, or a traced recipe line; a food shows only its
  * sources on the map. The open source and food ride in the address
  * (?source=<id>, ?food=<id>) so a view can be bookmarked or shared, and a
- * food's page (/food/foods/<name>) links straight here. A food with no
+ * food's page (/food/foods/<name>) links straight here. On /food the Food
+ * search box above the doors (foodSearch.ts) narrows the map, the Foods panel
+ * and the source list to what matches, and frames the matches. A food with no
  * source yet gets the shared "Request linking" button in its banner, which
  * queues it for research without linking anything.
  *
@@ -33,6 +35,7 @@ import { EcoLegend } from './EcoLegend';
 import { EcoMap } from './EcoMap';
 import type { EcoMapHandle } from './EcoMap';
 import { FoodNav } from './FoodNav';
+import { matchingFoodIds, matchingSourceIds, normalizeQuery, useFoodSearch } from './foodSearch';
 import { FoodsPanel } from './FoodsPanel';
 import type { FoodFilter } from './FoodsPanel';
 import { RecipePanel } from './RecipePanel';
@@ -49,6 +52,7 @@ import type { EcoDraft, EcoFood, EcoIngredient, EcoSource, Transparency } from '
 import { useEcosystemData, useSourceMutations } from './useEcosystemData';
 import { computeVisibleIds } from './visibility';
 import styles from './EcosystemPage.module.css';
+import foodAreaStyles from './FoodArea.module.css';
 
 /** Editing is owner-only. On the public standalone map (/food-map, a later
  * task that will reuse this module) VIEW_MODE is "public" — the Add button
@@ -139,10 +143,49 @@ export function EcosystemPage({
     () => recipes.find((r) => r.id === recipeId) || null,
     [recipes, recipeId],
   );
-  const visibleIds = useMemo(
-    () => computeVisibleIds(sources, txFilter, activeRecipe, soloId, foodId),
-    [sources, txFilter, activeRecipe, soloId, foodId],
+  // Narrow everything to the Food search's words — only on /food, where the
+  // box is; the public map never sees a search she typed elsewhere.
+  const [areaSearch] = useFoodSearch();
+  const needle = nav && canEdit ? normalizeQuery(areaSearch) : '';
+  const searchSourceIds = useMemo(
+    () => matchingSourceIds(needle, sources, foods, recipes),
+    [needle, sources, foods, recipes],
   );
+  const searchFoodIds = useMemo(() => matchingFoodIds(needle, foods, recipes), [needle, foods, recipes]);
+  const shownSources = useMemo(
+    () => (searchSourceIds ? sources.filter((s) => searchSourceIds.has(s.id)) : sources),
+    [sources, searchSourceIds],
+  );
+  const shownFoods = useMemo(
+    () => (needle ? foods.filter((f) => searchFoodIds.has(f.id)) : foods),
+    [needle, foods, searchFoodIds],
+  );
+
+  // The map's filters stack, and the search is one more layer on top.
+  const visibleIds = useMemo(() => {
+    const ids = computeVisibleIds(sources, txFilter, activeRecipe, soloId, foodId);
+    if (!searchSourceIds) return ids;
+    return ids ? new Set([...ids].filter((id) => searchSourceIds.has(id))) : searchSourceIds;
+  }, [sources, txFilter, activeRecipe, soloId, foodId, searchSourceIds]);
+
+  // Frame the matches once she stops typing — a debounce, so the map doesn't
+  // lurch on every letter. Clearing the search goes back to the home view.
+  const searchFitted = useRef('');
+  useEffect(() => {
+    if (!data || needle === searchFitted.current) return;
+    const t = setTimeout(() => {
+      searchFitted.current = needle;
+      if (!needle) {
+        mapRef.current?.fitHome();
+        return;
+      }
+      const pts = shownSources
+        .filter((s) => typeof s.lat === 'number' && typeof s.lng === 'number')
+        .map((s) => [s.lat as number, s.lng as number] as [number, number]);
+      if (pts.length) mapRef.current?.fitRecipePoints(pts);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [data, needle, shownSources]);
 
   useEffect(() => {
     if (!embed) syncAddress({ source: openSourceId, food: foodId, recipe: recipeId });
@@ -442,6 +485,13 @@ export function EcosystemPage({
         marks a rough region rather than an exact spot.
       </div>
       {nav && canEdit ? <FoodNav current="map" /> : null}
+      {needle ? (
+        <p className={foodAreaStyles.searchNote}>
+          {shownSources.length || shownFoods.length
+            ? `Showing ${shownSources.length} of ${sources.length} sources and ${shownFoods.length} of ${foods.length} foods that match “${areaSearch.trim()}”.`
+            : `Nothing on the map matches “${areaSearch.trim()}”.`}
+        </p>
+      ) : null}
 
       <EcoControls
         view={view}
@@ -564,7 +614,7 @@ export function EcosystemPage({
       ) : null}
 
       <FoodsPanel
-        foods={foods}
+        foods={shownFoods}
         sources={sources}
         filter={foodFilter}
         onFilter={setFoodFilter}
@@ -579,17 +629,20 @@ export function EcosystemPage({
         onPlace={placeFood}
       />
 
-      <SourceList
-        sources={sources}
-        search={search}
-        onSearch={setSearch}
-        txFilter={txFilter}
-        onTxFilter={setTxFilter}
-        soloId={soloId}
-        onToggleSolo={toggleSolo}
-        canEdit={canEdit}
-        onEdit={editOpen}
-      />
+      {/* While searching, an empty list would read as "no sources yet" — the note above says it instead. */}
+      {needle && !shownSources.length ? null : (
+        <SourceList
+          sources={shownSources}
+          search={search}
+          onSearch={setSearch}
+          txFilter={txFilter}
+          onTxFilter={setTxFilter}
+          soloId={soloId}
+          onToggleSolo={toggleSolo}
+          canEdit={canEdit}
+          onEdit={editOpen}
+        />
+      )}
 
       <Sheet open={editing} title="Edit source" onClose={cancelDraft}>
         {editing && draft ? (

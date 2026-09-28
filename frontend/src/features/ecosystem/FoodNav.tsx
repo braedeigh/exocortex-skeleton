@@ -1,5 +1,7 @@
 /**
- * FoodNav.tsx — the row of doors at the top of every Food-area page: the map
+ * FoodNav.tsx — the top of every Food-area page: the Food search box
+ * (./foodSearch.ts — its words narrow every page below it and stay put as she
+ * moves between them), then the row of doors: the map
  * (/food), every food (/food/foods), what her usual day adds up to
  * (/food/nutrients, features/nutrition/NutritionPage.tsx), every contaminant found in them
  * (/food/contaminants, features/exposure/ContaminantPage.tsx), and the review list of the machine's
@@ -9,12 +11,13 @@
  * query the map polls, so it costs nothing extra while the map is open. For
  * a public viewer the key is absent and the Review door is left off.
  *
- * Touches: ./useEcosystemData.ts, ./proposals.ts, ./FoodArea.module.css.
+ * Touches: ./useEcosystemData.ts, ./foodSearch.ts, ./FoodArea.module.css.
  *
  * Prompt that produced it: "remaking the frontend to be in one place" — the
  * ecosystem map, food profiles and research as one Food area.
  */
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { useFoodSearch } from './foodSearch';
 import { useEcosystemData } from './useEcosystemData';
 import styles from './FoodArea.module.css';
 
@@ -23,27 +26,58 @@ export type FoodNavPage = 'map' | 'foods' | 'review' | 'food' | 'contaminants' |
 export function FoodNav({ current }: { current: FoodNavPage }) {
   const { data } = useEcosystemData();
   const proposals = data?.eco_proposals;
+  const [search, setFoodSearch] = useFoodSearch();
+  const navigate = useNavigate();
+  // Searching from one food's own page has nothing there to narrow, so it
+  // carries the words over to the list of every food.
+  const setSearch = (value: string) => {
+    setFoodSearch(value);
+    if (current === 'food' && value.trim()) navigate({ to: '/food/foods' });
+  };
   const doorClass = (page: FoodNavPage) => `${styles.navLink} ${current === page ? styles.navActive : ''}`;
   return (
-    <nav className={styles.nav} aria-label="Food">
-      <Link to="/food" className={doorClass('map')}>
-        🗺 Map
-      </Link>
-      <Link to="/food/foods" className={doorClass('foods')}>
-        🥕 Foods
-      </Link>
-      <Link to="/food/nutrients" className={doorClass('nutrients')}>
-        🥗 Nutrients
-      </Link>
-      <Link to="/food/contaminants" className={doorClass('contaminants')}>
-        ☣ Contaminants
-      </Link>
-      {proposals ? (
-        <Link to="/food/review" search={{}} className={doorClass('review')}>
-          🔎 Review
-          {proposals.length ? <span className={styles.navCount}>{proposals.length} waiting</span> : null}
+    <>
+      {/* The Food search: one box whose words filter every Food page. */}
+      <div className={styles.searchRow}>
+        <input
+          type="search"
+          className={styles.searchBox}
+          placeholder="Search foods and recipes across Food…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          aria-label="Search foods and recipes across the Food area"
+        />
+        {search ? (
+          <button
+            type="button"
+            className={styles.searchClear}
+            onClick={() => setSearch('')}
+            aria-label="Clear the search"
+          >
+            ×
+          </button>
+        ) : null}
+      </div>
+      <nav className={styles.nav} aria-label="Food">
+        <Link to="/food" className={doorClass('map')}>
+          🗺 Map
         </Link>
-      ) : null}
-    </nav>
+        <Link to="/food/foods" className={doorClass('foods')}>
+          🥕 Foods
+        </Link>
+        <Link to="/food/nutrients" className={doorClass('nutrients')}>
+          🥗 Nutrients
+        </Link>
+        <Link to="/food/contaminants" className={doorClass('contaminants')}>
+          ☣ Contaminants
+        </Link>
+        {proposals ? (
+          <Link to="/food/review" search={{}} className={doorClass('review')}>
+            🔎 Review
+            {proposals.length ? <span className={styles.navCount}>{proposals.length} waiting</span> : null}
+          </Link>
+        ) : null}
+      </nav>
+    </>
   );
 }

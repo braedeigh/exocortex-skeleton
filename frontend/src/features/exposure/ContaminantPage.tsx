@@ -15,7 +15,8 @@
  * food it was found in, with how
  * often, how much and its share of the safe dose per serving, and the study
  * numbers about it. ContaminantsIndex (/food/contaminants) lists every
- * contaminant with facts or findings, the most concerning first.
+ * contaminant with facts or findings, the most concerning first; the Food
+ * search box (../ecosystem/foodSearch.ts) narrows it by a contaminant's name.
  *
  * Server: routes/exposure.py (GET /api/exposure/contaminants[/<id>], POST
  * /api/exposure/facts/<id>/review) → exposurestore.py. Shapes: ./types.ts.
@@ -29,6 +30,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { FoodNav } from '../ecosystem/FoodNav';
+import { normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
 import type { VerdictReview } from '../kitchen/types';
 import pageStyles from '../research/ResearchPage.module.css';
 import { getContaminant, getContaminants, reviewFact } from './api';
@@ -333,9 +335,14 @@ function FoundIn({ findings, method }: { findings: ContaminantFinding[]; method:
 
 export function ContaminantsIndex() {
   const query = useQuery({ queryKey: ['exposure', 'contaminants'], queryFn: ({ signal }) => getContaminants(signal) });
-  const items = [...(query.data?.contaminants ?? [])].sort(
-    (a, b) => (b.max_dri ?? -1) - (a.max_dri ?? -1) || b.foods - a.foods || a.name.localeCompare(b.name),
-  );
+  // The Food search narrows the list by a contaminant's own name or its family
+  // (this list doesn't carry which foods each was found in — a food's page does).
+  const [areaSearch] = useFoodSearch();
+  const needle = normalizeQuery(areaSearch);
+  const allItems = query.data?.contaminants ?? [];
+  const items = allItems
+    .filter((item) => textMatches(needle, item.name, item.parents))
+    .sort((a, b) => (b.max_dri ?? -1) - (a.max_dri ?? -1) || b.foods - a.foods || a.name.localeCompare(b.name));
   return (
     <div className={pageStyles.page}>
       <div className={pageStyles.pageHead}>
@@ -343,10 +350,16 @@ export function ContaminantsIndex() {
         <span className={pageStyles.pageSub}>what’s been found in your food, most concerning first</span>
       </div>
       <FoodNav current="contaminants" />
+      {needle && !query.isLoading ? (
+        <p className={styles.muted}>
+          {items.length} of {allItems.length} contaminants named like “{areaSearch.trim()}”. What’s found in one food is on
+          that food’s page.
+        </p>
+      ) : null}
       {query.isLoading ? (
         <div className={pageStyles.loading}>Loading&hellip;</div>
       ) : !items.length ? (
-        <p className={styles.muted}>Nothing scored yet.</p>
+        <p className={styles.muted}>{needle ? 'None match.' : 'Nothing scored yet.'}</p>
       ) : (
         <ul className={styles.termList}>
           {items.map((item) => (

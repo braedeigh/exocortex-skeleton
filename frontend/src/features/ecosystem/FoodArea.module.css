@@ -3,7 +3,52 @@
  * (ProposalList), and the small map on a food's page (FoodMiniMap).
  * Touch-first: every door and button is ~40px tall, no text under 12px. */
 
-/* The row of doors: Map · Foods · Review. */
+/* The Food search box above the doors, with its × to clear. */
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.searchBox {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 16px;
+}
+
+.searchBox:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.searchClear {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* "Showing N of M" under a page's heading while the search is on. */
+.searchNote {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* The row of doors: Map · Foods · Nutrients · Contaminants · Review. */
 .nav {
   display: flex;
   flex-wrap: wrap;
