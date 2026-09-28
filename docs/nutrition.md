@@ -63,6 +63,26 @@ Reload with `./venv/bin/python3 scripts/nutrient_data.py load`.
   The page marks those, because the whole result is only as good as the weights.
 - **Added salt isn't counted.** Sodium reads low unless salt is added as an item.
 
+## Other sources (surveyed 2026-09, none loaded yet)
+
+Cronometer uses USDA plus NCCDB, CNF, NUTTAB/AFCD, CoFID, NEVO and IFCDB. The commons takes
+a source only if its licence allows redistribution.
+
+| Source | Licence | Redistributable? | What it adds |
+|---|---|---|---|
+| USDA FNDDS (Survey Foods) | US public domain | yes | A full ~65-nutrient profile for every food, no gaps. The gaps are **imputed**, so it has to be labelled that way |
+| Canadian Nutrient File 2026 (May 2026) | Open Government Licence – Canada | yes | CSVs in the same shape as FDC. Much of it is derived from USDA SR, so it's a cross-check more than an independent source |
+| AFCD Release 3 (FSANZ, Australia) | CC BY-SA 3.0 AU + extra terms | yes, share-alike | ~1,588 foods, independent Australian analyses, updated vitamin D. Excel |
+| CoFID 2021 (UK, McCance & Widdowson) | Open Government Licence v3 | yes | ~2,900 foods, independent UK analyses. Excel |
+| NEVO 2025/9.0 (Netherlands, RIVM) | RIVM agreement: "only unchanged", cite version | doubtful | ~2,300 foods, ~130 nutrients |
+| Frida 5.5 (Denmark, DTU) | credit required, terms not confirmed | unconfirmed | ~1,000 foods, strong analytical detail |
+| NCCDB (Univ. of Minnesota) | paid licence (thousands of $) | no | What Cronometer calls its most complete source |
+
+No database is simply "more accurate". Most are averages of a few samples, and one food's
+real spread (variety, soil, storage) is often wider than the gap between two databases.
+Foundation's min/max already shows that. The useful gain is **coverage**: filling the
+`missing` gaps from a second source, with the source shown on each number.
+
 ## Where her data lives
 
 JSON collections through `store.py` (not SQL-backed, so not in `projects.json`
