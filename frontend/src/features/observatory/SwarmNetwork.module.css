@@ -45,16 +45,6 @@
   opacity: 0.6;
 }
 
-/* A thin dotted tether from a count moved aside back to its own line. */
-.talkTether,
-.helperTether {
-  stroke-width: 1.5;
-  stroke-dasharray: 2 3;
-  opacity: 0.9;
-}
-.talkTether { stroke: var(--green); }
-.helperTether { stroke: #4f8fe6; }
-
 /* The message count sits on the line's middle, on a chip so it reads. */
 .count {
   position: absolute;

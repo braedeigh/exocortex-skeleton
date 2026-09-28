@@ -141,16 +141,6 @@ export function SwarmNetwork({
                 className={styles.handover} vectorEffect="non-scaling-stroke" />
             );
           })}
-          {/* A count that had to sit beside its line gets a short tether back to it. */}
-          {countLines.map((line) => {
-            const spot = countAt.get(line.key)!;
-            if (spot.x === spot.anchor.x && spot.y === spot.anchor.y) return null;
-            return (
-              <line key={`tether-${line.key}`} x1={spot.anchor.x} y1={spot.anchor.y} x2={spot.x} y2={spot.y}
-                className={line.key.startsWith('h-') ? styles.helperTether : styles.talkTether}
-                vectorEffect="non-scaling-stroke" />
-            );
-          })}
           {layout.talk.map((t) => {
             const a = at.get(t.a)!;
             const b = at.get(t.b)!;

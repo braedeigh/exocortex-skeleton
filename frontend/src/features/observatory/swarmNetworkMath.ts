@@ -18,10 +18,8 @@
  *   - the helper's own threads: a straight line from its seat to each
  *     member it has sent messages to, carrying how many;
  *   - placing the message counts so none covers another count, a ring, or
- *     a name: each tries every spot along its own line first, then just
- *     beside it, and takes the first clear one; a count that ends up off
- *     its line also gets the point on the line it belongs to, so the
- *     drawing can tether it there (placeCounts);
+ *     a name: each slides along its own line to the first clear spot, and
+ *     never leaves the line (placeCounts);
  *   - a continuation (one session taking over from another) is its own kind
  *     of line, since it's a handover rather than talk;
  *   - hiding retired sessions without orphaning their successors: a hidden
@@ -305,72 +303,50 @@ export interface CountLine {
   prefer: number;
 }
 
-/** Where a count chip sits, and the point on its own line it belongs to.
- * When the two differ, the drawing tethers the chip to its line. */
-export interface CountSpot {
-  x: number;
-  y: number;
-  anchor: { x: number; y: number };
-}
-
-/** Place every count chip so it covers no ring, name or other chip.
- * This is a greedy placement: lines are taken in order, and each tries
- * every spot along its line — its preferred spot first, then stepping
- * outward both ways — before any spot off it, and then only one chip-height
- * to either side. The first clear spot (inside the drawing) wins; if none
- * is, the one covering least. Each placed chip becomes something the next
- * must avoid. A chip that lands beside its line keeps its anchor — the
- * point on the line it was nudged from — so it can be tethered back.
- * Prompt that produced it: "What's up with the floating dots not connecting
- * to any message" — counts pushed far aside read as loose dots. */
+/** Place every count chip on its own line, covering as little as it can.
+ * This is a greedy placement: lines are taken in order, and each slides
+ * along its line — its preferred spot first, then stepping outward both
+ * ways — and takes the first spot clear of every ring, name and chip
+ * already placed (inside the drawing). If no spot on the line is clear, it
+ * takes the one covering least: a chip may overlap something, but it never
+ * leaves its line, so every number visibly sits on the line it counts.
+ * Each placed chip becomes something the next must avoid.
+ * Prompt that produced it: "there's really no reason they should be
+ * floating" — counts nudged beside their line read as loose dots. */
 export function placeCounts(
   lines: CountLine[],
   obstacles: Box[],
   pxPerUnit: number,
   bounds: { width: number; height: number },
-): Map<string, CountSpot> {
-  const placed = new Map<string, CountSpot>();
+): Map<string, { x: number; y: number }> {
+  const placed = new Map<string, { x: number; y: number }>();
   const taken = [...obstacles];
   const steps = [0];
-  for (let step = 0.05; step <= 0.8; step += 0.05) steps.push(step, -step);
+  for (let step = 0.025; step <= 0.8; step += 0.025) steps.push(step, -step);
   for (const line of lines) {
     const chip = chipPx(line.text);
     const halfWidth = chip.width / pxPerUnit / 2;
     const halfHeight = chip.height / pxPerUnit / 2;
     const dx = line.to.x - line.from.x;
     const dy = line.to.y - line.from.y;
-    const length = Math.hypot(dx, dy) || 1;
-    // Sideways, square to the line, one chip-height per nudge.
-    const side = { x: -dy / length, y: dx / length };
-    const nudge = chip.height / pxPerUnit;
-    let best: CountSpot | null = null;
+    let best: { x: number; y: number } | null = null;
     let bestCover = Infinity;
-    search: for (const sideways of [0, 1, -1]) {
-      for (const step of steps) {
-        const t = line.prefer + step;
-        if (t < 0.1 || t > 0.9) continue;
-        const anchor = { x: line.from.x + dx * t, y: line.from.y + dy * t };
-        const spot = {
-          x: anchor.x + side.x * nudge * sideways,
-          y: anchor.y + side.y * nudge * sideways,
-        };
-        const box = { left: spot.x - halfWidth, top: spot.y - halfHeight,
-          right: spot.x + halfWidth, bottom: spot.y + halfHeight };
-        const outside = box.left < 0 || box.top < 0 || box.right > bounds.width || box.bottom > bounds.height;
-        const cover = taken.reduce((sum, other) => sum + overlapArea(box, other), 0) + (outside ? 1e6 : 0);
-        if (cover < bestCover) {
-          best = { ...spot, anchor };
-          bestCover = cover;
-        }
-        if (cover === 0) break search;
+    for (const step of steps) {
+      const t = line.prefer + step;
+      if (t < 0.1 || t > 0.9) continue;
+      const spot = { x: line.from.x + dx * t, y: line.from.y + dy * t };
+      const box = { left: spot.x - halfWidth, top: spot.y - halfHeight,
+        right: spot.x + halfWidth, bottom: spot.y + halfHeight };
+      const outside = box.left < 0 || box.top < 0 || box.right > bounds.width || box.bottom > bounds.height;
+      const cover = taken.reduce((sum, other) => sum + overlapArea(box, other), 0) + (outside ? 1e6 : 0);
+      if (cover < bestCover) {
+        best = spot;
+        bestCover = cover;
       }
+      if (cover === 0) break;
     }
-    const fallback = { x: line.from.x + dx * line.prefer, y: line.from.y + dy * line.prefer };
-    const chosen = best ?? { ...fallback, anchor: fallback };
-    const rounded = {
-      x: Math.round(chosen.x), y: Math.round(chosen.y),
-      anchor: { x: Math.round(chosen.anchor.x), y: Math.round(chosen.anchor.y) },
-    };
+    const spot = best ?? { x: line.from.x + dx * line.prefer, y: line.from.y + dy * line.prefer };
+    const rounded = { x: Math.round(spot.x), y: Math.round(spot.y) };
     placed.set(line.key, rounded);
     taken.push({ left: rounded.x - halfWidth, top: rounded.y - halfHeight,
       right: rounded.x + halfWidth, bottom: rounded.y + halfHeight });
