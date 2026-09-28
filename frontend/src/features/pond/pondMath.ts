@@ -180,6 +180,45 @@ export const DOT = DEFAULT_LAYOUT.dotSize;
 
 
 /**
+ * One zoom scale, read differently by each arrangement.
+ *
+ * Shared by both ponds — the journal's (PondView.tsx) and the transcript
+ * organizer's (transcripts/TranscriptsPond.tsx) — so they zoom the same way.
+ *
+ * Zooming out is the whole point of the far end: at four pixels a day a YEAR of
+ * pond is about fifteen hundred pixels, so the entire record becomes one
+ * picture you take in at once — which is the only scale at which the big shape
+ * (the dense months, the fallow weeks) is visible at all. Zooming in is the
+ * other extreme: room for the within-day bouncing, and type you can read.
+ *
+ * The two tightest words settings sit below the house 12px floor on purpose.
+ * That's the "tiny words" this view exists for — at those steps the text is
+ * texture you lean into rather than copy you read, and every control around it
+ * stays at full size.
+ */
+export const POND_ZOOMS = [
+  { clock: { colWidth: 4, dayHeight: 190, dotSize: 2.5 }, words: { colWidth: 30, fontSize: 5 } },
+  { clock: { colWidth: 12, dayHeight: 380, dotSize: 4 }, words: { colWidth: 78, fontSize: 8 } },
+  { clock: { colWidth: 34, dayHeight: 760, dotSize: 7 }, words: { colWidth: 172, fontSize: 13 } },
+  { clock: { colWidth: 62, dayHeight: 1040, dotSize: 9 }, words: { colWidth: 244, fontSize: 15 } },
+  { clock: { colWidth: 96, dayHeight: 1360, dotSize: 11 }, words: { colWidth: 320, fontSize: 17 } },
+];
+export const DEFAULT_ZOOM = 2;
+
+/**
+ * The zoom a pond opens at: the widest step whose days all fit the viewport.
+ * "Where does it all sit" should be answered by the first paint, not by
+ * panning around looking for it — so the pond frames the WHOLE record, and
+ * falls back to the most zoomed-out step when even that can't hold it.
+ */
+export function fitZoom(dayCount: number, viewportWidth: number): number {
+  for (let i = POND_ZOOMS.length - 1; i >= 0; i -= 1) {
+    if (dayCount * POND_ZOOMS[i].clock.colWidth <= viewportWidth) return i;
+  }
+  return 0;
+}
+
+/**
  * How many days to skip between drawn date labels, so they never overlap.
  * At four pixels a day there is no room for "Aug 9" on every column; showing
  * every Nth keeps the axis readable instead of turning it into a smear.

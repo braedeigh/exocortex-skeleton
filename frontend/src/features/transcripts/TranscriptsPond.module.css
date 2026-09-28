@@ -1,0 +1,163 @@
+/*
+ * TranscriptsPond.module.css — only what the transcript pond adds.
+ *
+ * The pond itself (header, rail, canvas, dots, word cards, hover, detail
+ * panel) wears the journal pond's own stylesheet, pond/PondView.module.css,
+ * so the two look and behave as one thing. This file covers the pieces the
+ * journal pond doesn't have: the search box, the import and sort buttons,
+ * the welcome panel, a lit topic's conversation list, and the conversation
+ * reader in the detail panel. Same theme variables, same 40px tap targets.
+ */
+
+/* The search box, as tall as the pond's buttons beside it. */
+.search {
+  min-height: var(--tap-target);
+  width: 220px;
+  max-width: 100%;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+
+/* Import / Sort / Sign in — a pill button like the pond's toggles, one step bolder. */
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.action:hover { background: var(--bg); }
+.action:disabled { opacity: 0.5; cursor: default; }
+
+/* The real file input stays in the DOM (the label opens it) but out of sight. */
+.fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sortLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.notice,
+.noticeError {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.noticeError { color: var(--red); }
+
+.welcome {
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+}
+
+.welcome p { margin: 0; }
+
+.steps {
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+/* A lit topic's conversations, hung under its rail row — the topic's links back to its sources. */
+.sources {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1) 0 var(--space-2) var(--space-3);
+}
+
+.source,
+.sourceOn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: none;
+  border-left: 2px solid var(--border-soft);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source:hover { color: var(--text); }
+.sourceOn { color: var(--text); border-left-color: var(--accent); }
+
+/* The conversation reader in the detail panel. */
+.convTitle {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  color: var(--text);
+}
+
+.summary {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.message {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+}
+
+/* The user's turns sit on the page colour; the chatbot's step back, like the Keeper's in the journal pond. */
+.fromUser { background: var(--bg); }
+.fromBot { opacity: 0.85; }
+
+/* The message that was tapped on the pond, outlined in the lit colour. */
+.messageOpen { border-color: var(--accent); }
+
+.messageMeta {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.messageText {
+  font-size: var(--font-size-base);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

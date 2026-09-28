@@ -78,6 +78,7 @@ export const SECTIONS: Section[] = [
   },
   { id: 'code', label: 'Code', icon: '📄', home: '/code', claims: ['/code'] },
   { id: 'threads', label: 'Threads', icon: '🧵', home: '/threads', claims: ['/threads'] },
+  { id: 'transcripts', label: 'Transcripts', icon: '💬', home: '/transcripts', claims: ['/transcripts'] },
   { id: 'notes', label: 'Notes', icon: '📝', home: '/notes', claims: ['/notes'] },
   { id: 'files', label: 'Files', icon: '🗂️', home: '/files', claims: ['/files'] },
   { id: 'scratchpad', label: 'Scratchpad', icon: '✏️', home: '/scratchpad', claims: ['/scratchpad'] },

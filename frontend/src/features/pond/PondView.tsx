@@ -10,8 +10,11 @@ import {
 } from './api';
 import type { PondFront, PondKind, PondThread } from './api';
 import {
+  DEFAULT_ZOOM,
+  POND_ZOOMS as ZOOMS,
   UNFILED,
   clockOf,
+  fitZoom,
   dayLabel,
   hourLines,
   labelStep,
@@ -79,28 +82,6 @@ const whoHoverClass = (who: string) =>
 /** How many rows the rail lists in a group before "show all". */
 const RAIL_LIMIT = 12;
 
-/**
- * One zoom scale, read differently by each arrangement.
- *
- * Zooming out is the whole point of the far end: at four pixels a day a YEAR of
- * pond is about fifteen hundred pixels, so the entire record becomes one
- * picture you take in at once — which is the only scale at which the big shape
- * (the dense months, the fallow weeks) is visible at all. Zooming in is the
- * other extreme: room for the within-day bouncing, and type you can read.
- *
- * The two tightest words settings sit below the house 12px floor on purpose.
- * That's the "tiny words" this view exists for — at those steps the text is
- * texture you lean into rather than copy you read, and every control around it
- * stays at full size.
- */
-const ZOOMS = [
-  { clock: { colWidth: 4, dayHeight: 190, dotSize: 2.5 }, words: { colWidth: 30, fontSize: 5 } },
-  { clock: { colWidth: 12, dayHeight: 380, dotSize: 4 }, words: { colWidth: 78, fontSize: 8 } },
-  { clock: { colWidth: 34, dayHeight: 760, dotSize: 7 }, words: { colWidth: 172, fontSize: 13 } },
-  { clock: { colWidth: 62, dayHeight: 1040, dotSize: 9 }, words: { colWidth: 244, fontSize: 15 } },
-  { clock: { colWidth: 96, dayHeight: 1360, dotSize: 11 }, words: { colWidth: 320, fontSize: 17 } },
-];
-const DEFAULT_ZOOM = 2;
 
 /** The rail's shelves, in the order she reads them. */
 const GROUPS: { key: PondKind | 'front'; label: string }[] = [
@@ -542,13 +523,7 @@ export function PondView() {
       skipZoomPick.current = false;
     } else {
       const dayCount = new Set(cards.data!.cards.map((c) => c.day)).size;
-      best = 0;
-      for (let i = ZOOMS.length - 1; i >= 0; i -= 1) {
-        if (dayCount * ZOOMS[i].clock.colWidth <= el.clientWidth) {
-          best = i;
-          break;
-        }
-      }
+      best = fitZoom(dayCount, el.clientWidth);
     }
     fitTarget.current = best;
     setZoom(best);

@@ -4,6 +4,8 @@ import {
   clockOf,
   excerpt,
   findTerm,
+  fitZoom,
+  POND_ZOOMS,
   DEFAULT_LAYOUT,
   cardHeight,
   dayLabel,
@@ -841,5 +843,16 @@ describe('filesBySession', () => {
 
   it('is empty, not broken, with nothing to group', () => {
     expect(filesBySession(null).size).toBe(0);
+  });
+});
+
+describe('fitZoom', () => {
+  it('opens at the widest zoom whose days all fit', () => {
+    const width = 30 * POND_ZOOMS[2].clock.colWidth;
+    expect(fitZoom(30, width)).toBe(2);
+  });
+
+  it('falls back to the most zoomed-out step when nothing fits', () => {
+    expect(fitZoom(100_000, 100)).toBe(0);
   });
 });

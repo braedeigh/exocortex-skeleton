@@ -596,7 +596,9 @@
       "routes": [
         "transcripts.py"
       ],
-      "frontend": [],
+      "frontend": [
+        "transcripts"
+      ],
       "tools": [],
       "scripts": [
         "sort_transcripts.py"

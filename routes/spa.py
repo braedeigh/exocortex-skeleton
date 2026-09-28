@@ -102,6 +102,7 @@ def register(app):
     @app.route("/wiki/<slug>")
     @app.route("/threads")
     @app.route("/threads/<slug>")
+    @app.route("/transcripts")
     @app.route("/settings")
     @app.route("/files")
     @app.route("/chat")
