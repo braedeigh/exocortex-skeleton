@@ -307,7 +307,8 @@
       ],
       "frontend": [
         "research",
-        "ideas"
+        "ideas",
+        "exposure"
       ],
       "tools": [],
       "scripts": [

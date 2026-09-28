@@ -6,7 +6,9 @@
  * food's profile: where it comes from (a small pan-and-zoom map of every
  * source linked to the food or one of its products, then each source with its
  * honest labels and where that information came from, then the machine's
- * suggested sources, marked not approved by her), the research verdict with
+ * suggested sources, marked not approved by her), the pesticide residues
+ * card computed from USDA samples (features/exposure/ExposureCard.tsx), the
+ * research verdict with
  * its reasoning, Claude's estimate with its qualifiers, the contaminants it
  * names, and her confirm/dispute; then every claim and measurement her
  * research tables hold about the food, each linking to the claim on the Claims
@@ -43,6 +45,7 @@ import type {
 import { ECO_ORIGIN, geoSourceInfo, metaLabel, originOf, txInfo } from '../ecosystem/axes';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { ProposalList } from '../ecosystem/ProposalList';
+import { ExposureCard } from '../exposure/ExposureCard';
 import type { EcoProposal } from '../ecosystem/proposals';
 import pageStyles from './ResearchPage.module.css';
 import styles from './FoodPage.module.css';
@@ -85,6 +88,7 @@ export function FoodPage({ name }: { name: string }) {
         <>
           {!page.food ? <div className={styles.note}>This name isn’t in your food catalog yet, so it has no verdict or guess.</div> : null}
           <SourcesCard page={page} />
+          <ExposureCard name={name} />
           <ResearchVerdictCard page={page} />
           <EstimateCard page={page} />
           <EvidenceCard page={page} />

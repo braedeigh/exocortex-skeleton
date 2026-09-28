@@ -18,6 +18,7 @@
     "d3-selection": "^3.0.0",
     "d3-zoom": "^3.0.0",
     "leaflet": "^1.9.4",
+    "pdfjs-dist": "^5.7.284",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "shiki": "^4.4.3"

@@ -1,0 +1,188 @@
+/* Exposure.module.css — the pesticide residues card on a food page
+ * (ExposureCard.tsx) and the contaminant pages (ContaminantPage.tsx). Band
+ * colours match the food page's verdict colours (research/FoodPage.module.css):
+ * orange buy organic, yellow some, green clear, muted open. Chips are ~40px
+ * tall for touch; nothing is under 12px. */
+
+.card {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card-bg);
+}
+
+.cardHead {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.subHead {
+  margin: 14px 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.bandOrganic {
+  color: var(--orange);
+}
+
+.bandSome {
+  color: var(--yellow);
+}
+
+.bandClear {
+  color: var(--green);
+}
+
+.bandOpen {
+  color: var(--text-muted);
+}
+
+.headline {
+  margin-bottom: 10px;
+}
+
+.verdictLine {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.headlineText {
+  margin: 6px 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.muted {
+  margin: 6px 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.method {
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.chip {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.chipOn {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+}
+
+.working {
+  margin-top: 10px;
+}
+
+.summaryLine {
+  margin: 6px 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.termList {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.termRow {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.termTop {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.termName {
+  min-height: 28px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.termShare {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.termDetail {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.bar {
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+/* The fill takes the band's text colour as its background. */
+.barFill {
+  display: block;
+  height: 100%;
+  background: currentColor;
+}
+
+.neverFound summary {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.factLabel {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.factValue {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.reviewRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.disputed .factValue {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}

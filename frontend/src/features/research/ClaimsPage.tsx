@@ -8,9 +8,12 @@
  * keys. Right: the selected claim in full — verdict, measured value, then its
  * sources as rows. Tapping a source opens a pane BELOW the source list (not a
  * modal — she wants it beside the claim) showing the source's extracted text
- * through AnnotatedText.tsx with the linked passage active and scrolled into
- * view, and above the text the other claims citing that source as chips, so
- * she can click back and forth between claims through a shared source.
+ * with the linked passage active and scrolled into view — in the source's own
+ * PDF when the commons holds one (features/exposure/PdfPassage.tsx, the
+ * passage highlighted on the page), else, or at a tap, in its extracted text
+ * through AnnotatedText.tsx — and above it the other claims citing that
+ * source as chips, so she can click back and forth between claims through a
+ * shared source.
  *
  * Under 720px the columns stack: the table is the view until a claim is
  * picked, then the detail takes over with an "‹ all claims" bar to return.
@@ -28,8 +31,10 @@
  * viewing of all the claims."
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { getSourcePdfInfo } from '../exposure/api';
 import { ApiError } from '../../api/client';
 import { FRONT_EMOJI, type Front } from '../fronts/useFronts';
 import { resolveSelector } from './anchor';
@@ -49,6 +54,9 @@ import {
 } from './useResearchData';
 import pageStyles from './ResearchPage.module.css';
 import styles from './ClaimsPage.module.css';
+
+// The PDF viewer (and pdf.js with it) loads only when a source's PDF opens.
+const PdfPassage = lazy(() => import('../exposure/PdfPassage').then((module) => ({ default: module.PdfPassage })));
 
 /** The page's selection state, carried in the URL so a claim can be linked
  * to from a thread row ("⇢ sources") and shared as an address. */
@@ -547,6 +555,19 @@ function SourcePane({
   const citing = citingQuery.data?.claims ?? [];
   const title = textQuery.data?.title || citingQuery.data?.source.text || doc;
 
+  // The source's own PDF, when the commons holds one: shown first, with the
+  // extracted text a tap away.
+  const pdfQuery = useQuery({
+    queryKey: ['exposure', 'source-pdf', sourceId],
+    queryFn: ({ signal }) => getSourcePdfInfo(sourceId, signal),
+    staleTime: 60_000,
+  });
+  const [preferText, setPreferText] = useState(false);
+  const hasPdf = !!pdfQuery.data?.pdf;
+  const showPdf = hasPdf && !preferText;
+  const activePassage = annotations.find((annotation) => annotation.id === activeId) ?? null;
+  const activePage = activeId ? (pdfQuery.data?.passages?.[activeId] ?? null) : null;
+
   const textError = textQuery.error;
   const textErrorMessage = textError
     ? textError instanceof ApiError && textError.status === 404
@@ -584,7 +605,35 @@ function SourcePane({
         )}
       </div>
 
-      {textErrorMessage ? (
+      {hasPdf ? (
+        <div className={styles.pillRow} role="group" aria-label="How to show the source">
+          <button
+            type="button"
+            className={`${pageStyles.chip} ${showPdf ? pageStyles.chipActive : ''}`}
+            onClick={() => setPreferText(false)}
+          >
+            📄 PDF
+          </button>
+          <button
+            type="button"
+            className={`${pageStyles.chip} ${!showPdf ? pageStyles.chipActive : ''}`}
+            onClick={() => setPreferText(true)}
+          >
+            ¶ Text
+          </button>
+        </div>
+      ) : null}
+
+      {showPdf ? (
+        <Suspense fallback={<span className={styles.emptyNote}>Opening the PDF&hellip;</span>}>
+          <PdfPassage
+            sourceId={sourceId}
+            page={activePage}
+            passage={activePassage?.selector?.exact ?? linked?.exact ?? null}
+            pageCount={pdfQuery.data?.pages ?? null}
+          />
+        </Suspense>
+      ) : textErrorMessage ? (
         <div className={styles.errorNote}>{textErrorMessage}</div>
       ) : (
         <AnnotatedText

@@ -1,6 +1,7 @@
 /**
  * FoodNav.tsx — the row of doors at the top of every Food-area page: the map
- * (/food), every food (/food/foods), and the review list of the machine's
+ * (/food), every food (/food/foods), every contaminant found in them
+ * (/food/contaminants, features/exposure/ContaminantPage.tsx), and the review list of the machine's
  * suggested sources (/food/review) with how many are waiting.
  *
  * The count comes from `eco_proposals` on /api/data/ecosystem — the same
@@ -16,7 +17,7 @@ import { Link } from '@tanstack/react-router';
 import { useEcosystemData } from './useEcosystemData';
 import styles from './FoodArea.module.css';
 
-export type FoodNavPage = 'map' | 'foods' | 'review' | 'food';
+export type FoodNavPage = 'map' | 'foods' | 'review' | 'food' | 'contaminants';
 
 export function FoodNav({ current }: { current: FoodNavPage }) {
   const { data } = useEcosystemData();
@@ -29,6 +30,9 @@ export function FoodNav({ current }: { current: FoodNavPage }) {
       </Link>
       <Link to="/food/foods" className={doorClass('foods')}>
         🥕 Foods
+      </Link>
+      <Link to="/food/contaminants" className={doorClass('contaminants')}>
+        ☣ Contaminants
       </Link>
       {proposals ? (
         <Link to="/food/review" search={{}} className={doorClass('review')}>
