@@ -66,6 +66,17 @@ export interface NutritionDay {
   settings: { sex: SexSetting; age: number | null };
 }
 
+export type RankPer = '100g' | '100kcal';
+
+/** Every USDA food ranked by one nutrient, richest first (nutrition.py `ranking`). */
+export interface NutrientRanking {
+  key: string;
+  label: string;
+  unit: string | null;
+  per: RankPer;
+  foods: (FdcFood & { amount: number; per_100g: number; kcal_per_100g: number | null })[];
+}
+
 export interface FdcFood {
   fdc_id: number;
   data_type: 'foundation_food' | 'sr_legacy_food' | 'survey_fndds_food';

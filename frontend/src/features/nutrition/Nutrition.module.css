@@ -197,6 +197,78 @@
   color: var(--text-muted);
 }
 
+/* A nutrient's name opens the foods richest in it. */
+.rowNameBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ranking {
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.rankControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.rankRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.rankRow:last-child {
+  border-bottom: none;
+}
+
+.rankNumber {
+  min-width: 26px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rankName {
+  flex: 1;
+  min-width: 0;
+}
+
+.rankAmount {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rankMine {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* Her meals. */
 .meal {
   border-top: 1px solid var(--border);

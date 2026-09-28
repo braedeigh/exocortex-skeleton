@@ -7,7 +7,8 @@
  * with its total, the range USDA's samples allow, a bar per sex against its
  * target, and plain notes where the number is softer than it looks (an AI
  * target, foods with no figure, foods whose figure was filled in from USDA's
- * survey data, a UL that doesn't count food); then her
+ * survey data, a UL that doesn't count food). Tapping a nutrient's name opens
+ * every USDA food ranked by it, per 100 g or per 100 kcal; then her
  * meals, where each food's grams can be fixed, a food removed, or a USDA food
  * added by search; each meal's servings a day set (0 = saved but not counted);
  * a meal started or deleted. A weight nobody has weighed yet is marked "guess".
@@ -15,6 +16,8 @@
  * the totals always count every meal.
  *
  * Prompt for the meal editing: "make sure there's a UI to be able to edit things".
+ * Prompt for the ranking: "click a nutrient and then it shows me the foods in the
+ * database ranked highest to lowest in that nutrient per density".
  *
  * Data: GET /api/nutrition/day (routes/nutrition.py → nutrition.py).
  * Touches: ./api.ts, ./types.ts, ./nutrientMath.ts, ./Nutrition.module.css,
@@ -28,9 +31,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
-import { deleteMeal, getDay, saveMeal, saveServings, saveSettings, searchFoods } from './api';
+import { deleteMeal, getDay, rankFoods, saveMeal, saveServings, saveSettings, searchFoods } from './api';
 import { barShare, formatAmount, GROUP_TITLES, groupRows } from './nutrientMath';
-import type { FdcFood, Meal, MealItem, NutrientRow, NutritionDay, Sex, SexSetting } from './types';
+import type { FdcFood, Meal, MealItem, NutrientRow, NutritionDay, RankPer, Sex, SexSetting } from './types';
 import pageStyles from '../research/ResearchPage.module.css';
 import styles from './Nutrition.module.css';
 
@@ -126,6 +129,10 @@ function SettingsRow({ day }: { day: NutritionDay }) {
 
 function NutrientList({ day }: { day: NutritionDay }) {
   const groups = groupRows(day.report.nutrients);
+  // The foods her day counts, so a ranking can mark the ones she already eats.
+  const mine = new Set(
+    day.day.flatMap((slot) => (day.meals[slot.meal]?.items ?? []).flatMap((item) => [item.fdc_id, item.fill_from ?? 0])),
+  );
   return (
     <>
       {groups.map(({ group, rows }) => (
@@ -133,7 +140,7 @@ function NutrientList({ day }: { day: NutritionDay }) {
           <div className={styles.cardHead}>{GROUP_TITLES[group]}</div>
           <ul className={styles.rows}>
             {rows.map((row) => (
-              <NutrientLine key={row.key} row={row} sexes={day.report.sexes} />
+              <NutrientLine key={row.key} row={row} sexes={day.report.sexes} mine={mine} />
             ))}
           </ul>
         </section>
@@ -142,7 +149,8 @@ function NutrientList({ day }: { day: NutritionDay }) {
   );
 }
 
-function NutrientLine({ row, sexes }: { row: NutrientRow; sexes: Sex[] }) {
+function NutrientLine({ row, sexes, mine }: { row: NutrientRow; sexes: Sex[]; mine: Set<number> }) {
+  const [ranking, setRanking] = useState(false);
   const unit = row.unit ?? '';
   const spread = row.high - row.low > Math.max(row.amount * 0.02, 0.01);
   // The ceiling is the same for both sexes in every adult row, so the first one says it.
@@ -152,7 +160,10 @@ function NutrientLine({ row, sexes }: { row: NutrientRow; sexes: Sex[] }) {
   return (
     <li className={styles.row}>
       <div className={styles.rowTop}>
-        <span className={styles.rowName}>{row.label}</span>
+        <button type="button" className={styles.rowNameBtn} onClick={() => setRanking(!ranking)} aria-expanded={ranking}>
+          <span>{ranking ? '▾' : '▸'}</span>
+          {row.label}
+        </button>
         <span className={styles.rowAmount}>
           {row.unit ? `${formatAmount(row.amount)} ${unit}` : 'no data'}
           {spread ? (
@@ -203,7 +214,92 @@ function NutrientLine({ row, sexes }: { row: NutrientRow; sexes: Sex[] }) {
           {limit.applies_to ? ` — counts ${limit.applies_to}` : ''}
         </div>
       ) : null}
+      {ranking ? <FoodRanking nutrientKey={row.key} label={row.label} mine={mine} /> : null}
     </li>
+  );
+}
+
+// Every USDA food ranked by one nutrient: per 100 g, or per 100 kcal (nutrient density).
+function FoodRanking({ nutrientKey, label, mine }: { nutrientKey: string; label: string; mine: Set<number> }) {
+  const [per, setPer] = useState<RankPer>(nutrientKey === 'energy' ? '100g' : '100kcal');
+  const [limit, setLimit] = useState(50);
+  const [text, setText] = useState('');
+  const [words, setWords] = useState('');
+  // A debounce: narrow the list 300 ms after the typing stops.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setWords(text.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [text]);
+  const query = useQuery({
+    queryKey: ['nutrition', 'rank', nutrientKey, per, words, limit],
+    queryFn: ({ signal }) => rankFoods(nutrientKey, per, words, limit, signal),
+  });
+  const unit = query.data?.unit ?? '';
+  const perWords = per === '100g' ? 'per 100 g' : 'per 100 kcal';
+
+  return (
+    <div className={styles.ranking}>
+      <div className={styles.rankControls}>
+        {nutrientKey !== 'energy' ? (
+          <button
+            type="button"
+            className={`${styles.chip} ${per === '100kcal' ? styles.chipOn : ''}`}
+            onClick={() => setPer('100kcal')}
+          >
+            Per 100 kcal
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={`${styles.chip} ${per === '100g' ? styles.chipOn : ''}`}
+          onClick={() => setPer('100g')}
+        >
+          Per 100 g
+        </button>
+        <input
+          className={styles.searchInput}
+          placeholder="Narrow by name — e.g. raw, beef"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
+      </div>
+      <p className={styles.note}>
+        {label} {perWords}, richest first, across every USDA food.
+        {per === '100kcal'
+          ? ' Per 100 kcal is density: how much you get for the calories. Foods under 5 kcal per 100 g are left out.'
+          : ' Dried spices and powders lead by weight; narrow by name to compare what you’d eat.'}{' '}
+        Foods with no figure for it aren’t listed.
+      </p>
+      {query.isLoading ? (
+        <p className={styles.muted}>Ranking&hellip;</p>
+      ) : query.isError ? (
+        <p className={styles.error}>{(query.error as Error).message}</p>
+      ) : (
+        <>
+          <ol className={styles.results}>
+            {(query.data?.foods ?? []).map((food, index) => (
+              <li key={food.fdc_id} className={styles.rankRow}>
+                <span className={styles.rankNumber}>{index + 1}</span>
+                <span className={styles.rankName}>
+                  {food.description}
+                  <span className={styles.resultTag}> · {DATASET_TAGS[food.data_type]}</span>
+                  {mine.has(food.fdc_id) ? <span className={styles.rankMine}>in your day</span> : null}
+                </span>
+                <span className={styles.rankAmount}>
+                  {formatAmount(food.amount)} {unit}
+                </span>
+              </li>
+            ))}
+          </ol>
+          {!query.data?.foods.length ? <p className={styles.muted}>No food by that name has a figure for it.</p> : null}
+          {query.data && query.data.foods.length === limit && limit < 500 ? (
+            <button type="button" className={styles.chip} onClick={() => setLimit(limit + 100)}>
+              Show more
+            </button>
+          ) : null}
+        </>
+      )}
+    </div>
   );
 }
 

@@ -2,7 +2,7 @@
  * api.ts — the nutrition endpoints (routes/nutrition.py) over the shared client.
  */
 import { api } from '../../api/client';
-import type { FdcFood, MealItem, NutritionDay, SexSetting } from './types';
+import type { FdcFood, MealItem, NutrientRanking, NutritionDay, RankPer, SexSetting } from './types';
 
 export function getDay(signal?: AbortSignal) {
   return api.get<NutritionDay>('/api/nutrition/day', signal);
@@ -10,6 +10,11 @@ export function getDay(signal?: AbortSignal) {
 
 export function searchFoods(query: string, signal?: AbortSignal) {
   return api.get<{ foods: FdcFood[] }>(`/api/nutrition/search?q=${encodeURIComponent(query)}`, signal);
+}
+
+export function rankFoods(key: string, per: RankPer, words: string, limit: number, signal?: AbortSignal) {
+  const query = new URLSearchParams({ per, q: words, limit: String(limit) });
+  return api.get<NutrientRanking>(`/api/nutrition/rank/${encodeURIComponent(key)}?${query}`, signal);
 }
 
 export function saveMeal(name: string, items: MealItem[]) {

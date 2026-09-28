@@ -162,6 +162,46 @@ def test_search_route_finds_by_words(client):
     assert client.get("/api/nutrition/search?q=kale baby").get_json()["foods"][0]["fdc_id"] == 2
 
 
+def _energy(conn, kcal_by_food):
+    conn.execute("INSERT OR IGNORE INTO fdc_nutrients VALUES (1008, 'Energy', 'KCAL', '208', 300)")
+    for fdc_id, kcal in kcal_by_food.items():
+        conn.execute("INSERT INTO fdc_amounts (fdc_id, nutrient_id, amount) VALUES (?, 1008, ?)", (fdc_id, kcal))
+    conn.commit()
+
+
+def test_ranking_puts_the_richest_food_first(conn):
+    ranked = nutrition.ranking(conn, "calcium")["foods"]
+    assert [food["fdc_id"] for food in ranked] == [1, 50]
+
+
+def test_ranking_leaves_out_foods_with_no_figure(conn):
+    assert 2 not in [food["fdc_id"] for food in nutrition.ranking(conn, "calcium")["foods"]]
+
+
+def test_ranking_per_100_kcal_divides_by_energy(conn):
+    _energy(conn, {1: 50, 50: 10})
+    ranked = nutrition.ranking(conn, "calcium", per="100kcal")["foods"]
+    assert [(food["fdc_id"], food["amount"]) for food in ranked] == [(50, 1500.0), (1, 508.0)]
+
+
+def test_ranking_per_100_kcal_skips_near_zero_calorie_foods(conn):
+    _energy(conn, {1: 50, 50: 1})
+    assert [food["fdc_id"] for food in nutrition.ranking(conn, "calcium", per="100kcal")["foods"]] == [1]
+
+
+def test_ranking_narrows_by_words(conn):
+    assert nutrition.ranking(conn, "calcium", words="baby")["foods"] == []
+
+
+def test_rank_route_refuses_an_unknown_nutrient(client):
+    assert client.get("/api/nutrition/rank/unobtainium").status_code == 400
+
+
+def test_rank_route_ranks(client):
+    body = client.get("/api/nutrition/rank/calcium?per=100g").get_json()
+    assert (body["unit"], body["foods"][0]["fdc_id"]) == ("mg", 1)
+
+
 def test_matrix_column_is_one_gram_of_the_food(conn):
     built = nutrition.matrix(conn, [{"fdc_id": 1, "label": "kale", "grams": 500}], sex="female", age=29)
     assert built["A"][built["nutrients"].index("calcium")] == [pytest.approx(2.54)]

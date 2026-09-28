@@ -8,6 +8,8 @@ Bad input comes back as a 400 with the reason.
 
     GET  /api/nutrition/day            -> {report, meals, day, settings}
     GET  /api/nutrition/search?q=      -> USDA foods whose name holds every word
+    GET  /api/nutrition/rank/<key>?per=100g|100kcal&q=&limit=
+                                       -> every USDA food ranked by that nutrient, richest first
     POST /api/nutrition/meals/<name>   {items: [{label, fdc_id, grams, grams_guessed?, fill_from?}]}
                                        (a new name makes a new meal)
     DELETE /api/nutrition/meals/<name> -> the meal gone, and out of her day
@@ -73,6 +75,19 @@ def register(app):
     def nutrition_search():
         with fdcdb.session() as conn:
             return jsonify({"foods": fdcdb.search(conn, request.args.get("q") or "")})
+
+    @app.route("/api/nutrition/rank/<key>")
+    def nutrition_rank(key):
+        try:
+            limit = min(max(int(request.args.get("limit") or 50), 1), 500)
+        except ValueError:
+            return _refused("limit must be a whole number")
+        try:
+            with fdcdb.session() as conn:
+                return jsonify(nutrition.ranking(conn, key, request.args.get("per") or "100g",
+                                                 request.args.get("q") or "", limit))
+        except ValueError as exc:
+            return _refused(str(exc))
 
     @app.route("/api/nutrition/meals/<name>", methods=["POST"])
     def nutrition_meal(name):

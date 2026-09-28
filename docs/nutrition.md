@@ -142,7 +142,12 @@ Personal facts (her age, why "both") stay in those vault files, never in this re
 
 - `GET /api/nutrition/day`: the usual day's totals against the targets.
 - `GET /api/nutrition/search?q=`: FDC food search (Foundation, then SR Legacy, then FNDDS).
-- `POST /api/nutrition/meals/<name>`: replace a meal's items.
+- `GET /api/nutrition/rank/<key>?per=100g|100kcal&q=&limit=`: every FDC food ranked by one
+  tracked nutrient, richest first. Per 100 kcal is nutrient density; foods under 5 kcal per
+  100 g are left out of it, and foods with no figure are never ranked as 0.
+- `POST /api/nutrition/meals/<name>`: replace a meal's items (a new name makes a new meal).
+- `DELETE /api/nutrition/meals/<name>`: delete a meal and take it out of the day.
+- `POST /api/nutrition/servings/<name>`: servings a day; 0 keeps the meal but stops counting it.
 - `POST /api/nutrition/settings`: sex / age.
 
 ## Testing traps

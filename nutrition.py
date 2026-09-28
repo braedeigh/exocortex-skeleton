@@ -267,6 +267,75 @@ def matrix(conn, items, sex="female", age=None):
             "A": A, "lower": lower, "upper": upper}
 
 
+# Foods under this many kcal per 100 g are left out of a per-100-kcal ranking:
+# dividing by next to nothing (water, plain tea, salt) puts them on top by accident.
+MIN_KCAL_PER_100G = 5.0
+
+
+def ranking(conn, key, per="100g", words="", limit=50):
+    """Every USDA food ranked by one tracked nutrient, richest first.
+
+    `per` is "100g" (the amount in 100 g of the food, as USDA gives it) or
+    "100kcal" (that amount divided by the food's energy — nutrient density,
+    the nutrient you get for the calories). `words` narrows to foods whose
+    name holds every word. A food with no figure for the nutrient isn't
+    ranked at all, rather than counted as 0; a per-100-kcal ranking also
+    leaves out foods with no energy figure or under MIN_KCAL_PER_100G.
+
+    Returns {key, label, unit, per, foods: [{fdc_id, description, data_type,
+    category, amount, per_100g, kcal_per_100g}]}; `amount` is the ranked
+    number (per 100 g or per 100 kcal).
+    """
+    tracked = {k: (label, ids) for k, label, ids in TRACKED}
+    if key not in tracked:
+        raise ValueError(f"unknown nutrient {key}")
+    if per not in ("100g", "100kcal"):
+        raise ValueError("per must be 100g or 100kcal")
+    if per == "100kcal" and key == "energy":
+        raise ValueError("energy per 100 kcal is always 100")
+    label, ids = tracked[key]
+    energy_ids = tracked["energy"][1]
+
+    # Read the nutrient's amounts, and energy's, for every food the words allow.
+    word_list = [w for w in (words or "").lower().split() if w]
+    where = "".join(" AND lower(f.description) LIKE ?" for _ in word_list)
+    wanted = tuple(ids) + (tuple(energy_ids) if per == "100kcal" else ())
+    rows = conn.execute(
+        "SELECT f.fdc_id, f.description, f.data_type, f.category, a.nutrient_id, a.amount, n.unit"
+        " FROM fdc_amounts a JOIN fdc_foods f ON f.fdc_id = a.fdc_id"
+        " JOIN fdc_nutrients n ON n.id = a.nutrient_id"
+        f" WHERE a.nutrient_id IN ({','.join('?' * len(wanted))}){where}",
+        list(wanted) + [f"%{w}%" for w in word_list]).fetchall()
+    foods = {}
+    for fdc_id, description, data_type, category, nutrient_id, amount, unit in rows:
+        food = foods.setdefault(fdc_id, {"fdc_id": fdc_id, "description": description,
+                                         "data_type": data_type, "category": category, "found": {}})
+        food["found"][nutrient_id] = (amount, _unit(unit))
+
+    # Take each food's first-preference id, the same choice the day's totals make.
+    unit = None
+    ranked = []
+    for food in foods.values():
+        found = food.pop("found")
+        hit = next((found[i] for i in ids if i in found), None)
+        if hit is None:
+            continue
+        per_100g, its_unit = hit
+        unit = unit or its_unit
+        per_100g = convert(per_100g, its_unit, unit)
+        energy = next((found[i][0] for i in energy_ids if i in found), None)
+        food.update(per_100g=per_100g, kcal_per_100g=energy)
+        if per == "100kcal":
+            if energy is None or energy < MIN_KCAL_PER_100G:
+                continue
+            food["amount"] = per_100g * 100.0 / energy
+        else:
+            food["amount"] = per_100g
+        ranked.append(food)
+    ranked.sort(key=lambda food: (-food["amount"], food["description"]))
+    return {"key": key, "label": label, "unit": unit, "per": per, "foods": ranked[:limit]}
+
+
 def meals():
     """Her meals and her usual day: {meals: {name: {items: [...]}}, day: [{meal, servings}]}."""
     data = store.read(MEALS, {}) or {}
