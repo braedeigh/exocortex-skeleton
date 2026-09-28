@@ -1,6 +1,6 @@
 """Read public data files from the commons into commons.db.
 
-**What this does.** Two loaders, one per dataset, each taking a file that is
+**What this does.** Three loaders, one per dataset, each taking a file that is
 already in the commons (brought in by scripts/commons_fetch.py) and writing
 its rows into commons.db (commonsdb.py):
 
@@ -12,6 +12,8 @@ its rows into commons.db (commonsdb.py):
                   workbook: pesticide names, EPA tolerances, commodity names.
   load_benchmarks EPA's Human Health Benchmarks for Pesticides web page, one
                   row per pesticide with its chronic and acute safe doses.
+  load_iris       EPA IRIS's reference-dose table (its Advanced Search page),
+                  one row per chemical with its chronic oral reference dose.
 
 Each loader replaces what it loaded before for the same year and commodity,
 so running it twice gives the same rows, and returns counts for the ledger
@@ -37,7 +39,7 @@ import zipfile
 
 import commons
 
-LOADER_VERSIONS = {"usda-pdp": 1, "epa-hhbp": 1}
+LOADER_VERSIONS = {"usda-pdp": 1, "epa-hhbp": 1, "epa-iris-rfd": 1}
 
 # PDP's own column order (its data dictionary); the files have no header row.
 SAMPLE_COLUMNS = ("sample_pk", "state", "year_2digit", "month", "day", "site", "commod",
@@ -302,4 +304,62 @@ def load_benchmarks(conn, html_path):
         [(row["name"], row["cas"], row["acute_dose"], row["chronic_dose"], row["cancer_slope"],
           row["memo_url"], json.dumps(row["as_printed"], ensure_ascii=False), checksum)
          for row in rows])
+    return len(rows)
+
+
+IRIS_BASE = "https://iris.epa.gov"
+
+
+def parse_iris_rfd(html):
+    """IRIS's reference-dose page → one dict per chemical (name, short name, CAS,
+    RfD in mg/kg/day, critical effect, confidence, its IRIS page).
+
+    Columns are found by their header words, as in parse_benchmarks. A row
+    whose RfD isn't in mg/kg-day is skipped rather than guessed at.
+    """
+    parser = _TableParser()
+    parser.feed(html)
+    header = next((row for row in parser.rows
+                   if any(cell.upper() == "RFD VALUE" for cell, _ in row)), None)
+    if header is None:
+        raise ValueError("no table with an RFD VALUE column on the page")
+    labels = [cell.upper() for cell, _ in header]
+    name_at, cas_at, rfd_at = labels.index("CHEMICAL NAME"), labels.index("CASRN"), labels.index("RFD VALUE")
+    effect_at = labels.index("PRINCIPAL CRITICAL DESCRIPTION")
+    confidence_at = labels.index("OVERALL CONFIDENCE")
+    out = []
+    for row in parser.rows:
+        if row is header or len(row) <= max(rfd_at, confidence_at):
+            continue
+        cells = [cell for cell, _ in row]
+        rfd = _first_number(cells[rfd_at])
+        if not cells[name_at] or rfd is None or "mg/kg" not in cells[rfd_at]:
+            continue
+        # "p,p'-Dichlorodiphenyltrichloroethane (DDT)" → short name "DDT".
+        short = re.search(r"\(([^()]+)\)\s*$", cells[name_at])
+        link = row[name_at][1]
+        out.append({
+            "name": cells[name_at], "short_name": short.group(1) if short else None,
+            "cas": cells[cas_at] or None, "rfd": rfd,
+            "critical_effect": cells[effect_at] or None,
+            "confidence": cells[confidence_at] or None,
+            "landing_url": IRIS_BASE + link if link and link.startswith("/") else link,
+            "as_printed": dict(zip([cell for cell, _ in header], cells)),
+        })
+    return out
+
+
+def load_iris(conn, html_path):
+    """Load IRIS's reference-dose page into iris_rfd, replacing what was there.
+    Returns the number of chemicals loaded."""
+    with open(html_path, encoding="utf-8", errors="replace") as handle:
+        rows = parse_iris_rfd(handle.read())
+    checksum = commons.sha256_of(html_path)
+    conn.execute("DELETE FROM iris_rfd")
+    conn.executemany(
+        "INSERT OR REPLACE INTO iris_rfd (name, short_name, cas, rfd, critical_effect, confidence,"
+        " landing_url, as_printed, file_sha256) VALUES (?,?,?,?,?,?,?,?,?)",
+        [(row["name"], row["short_name"], row["cas"], row["rfd"], row["critical_effect"],
+          row["confidence"], row["landing_url"], json.dumps(row["as_printed"], ensure_ascii=False),
+          checksum) for row in rows])
     return len(rows)

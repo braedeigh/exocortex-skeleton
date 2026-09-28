@@ -165,3 +165,13 @@ def test_commons_db_lives_beside_the_files(tmp_path):
         conn.execute("INSERT INTO pdp_samples (year, sample_pk, commod, claim) VALUES (2023, 1, 'PO', 'PO')")
     with commonsdb.session(tmp_path) as conn:
         assert (tmp_path / "commons.db").exists() and commonsdb.sample_count(conn, 2023, "PO") == 1
+
+
+def test_a_locked_database_reports_the_lock_not_a_failed_rollback(data_dir, monkeypatch):
+    import sqlite3
+    # The lock is refused before anything is written, so no food is needed.
+    def locked(conn, budget=None):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(sqlstore, "begin_immediate", locked)
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        exposurestore.save_score(1, "dri-v1", "conventional", "2023", _summary(), [])

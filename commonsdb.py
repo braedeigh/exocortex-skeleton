@@ -20,6 +20,9 @@ What it holds:
   pdp_commodities  PDP's commodity codes and names, per year
   epa_benchmarks   EPA's Human Health Benchmarks for Pesticides table, one row
                    per pesticide (the chronic safe daily dose lives here)
+  iris_rfd         EPA IRIS's table of oral reference doses, one row per
+                   chemical — the second place a chronic dose is read from,
+                   for pesticides the benchmark table leaves out
 
 Touches: `commons.py` (where the folder is), `reference_loaders.py` (fills it),
 `exposure.py` (reads it), `tests/test_commonsdb.py`. Design: docs/exposure.md.
@@ -35,7 +38,7 @@ import sqlite3
 import commons
 
 DB_NAME = "commons.db"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 # The schema, all CREATE ... IF NOT EXISTS, so opening an older file adds
 # whatever is missing. Column names follow PDP's own data dictionary
@@ -89,6 +92,18 @@ _SCHEMA = (
     "  cancer_slope REAL,"
     "  memo_url TEXT,"
     # Each cell exactly as the page printed it, as JSON, for checking by eye.
+    "  as_printed TEXT NOT NULL DEFAULT '{}',"
+    "  file_sha256 TEXT NOT NULL"
+    ")",
+    "CREATE TABLE IF NOT EXISTS iris_rfd ("
+    "  name TEXT PRIMARY KEY COLLATE NOCASE,"
+    # The short name IRIS prints in brackets after the long one ("DDT"), if any.
+    "  short_name TEXT COLLATE NOCASE,"
+    "  cas TEXT,"
+    # mg/kg/day, IRIS's chronic oral reference dose.
+    "  rfd REAL NOT NULL,"
+    "  critical_effect TEXT, confidence TEXT,"
+    "  landing_url TEXT,"
     "  as_printed TEXT NOT NULL DEFAULT '{}',"
     "  file_sha256 TEXT NOT NULL"
     ")",

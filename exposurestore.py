@@ -298,7 +298,10 @@ def record_pull(dataset, year, scope, file_path, file_sha256, rows, detail, load
              json.dumps(detail or {}, sort_keys=True), loader_version))
         conn.execute("COMMIT")
     except BaseException:
-        conn.execute("ROLLBACK")
+        # Undo only a transaction that began: a BEGIN that timed out on the
+        # lock leaves none, and its own error is the one worth seeing.
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
     finally:
         conn.close()
@@ -360,7 +363,10 @@ def save_score(food_id, method, claim, years, summary, terms):
         conn.execute("COMMIT")
         return score_id
     except BaseException:
-        conn.execute("ROLLBACK")
+        # Undo only a transaction that began: a BEGIN that timed out on the
+        # lock leaves none, and its own error is the one worth seeing.
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
     finally:
         conn.close()
@@ -416,7 +422,10 @@ def set_source_file(source_id, commons_path, sha256, pages=None):
             (source_id, commons_path, sha256, pages))
         conn.execute("COMMIT")
     except BaseException:
-        conn.execute("ROLLBACK")
+        # Undo only a transaction that began: a BEGIN that timed out on the
+        # lock leaves none, and its own error is the one worth seeing.
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
     finally:
         conn.close()
@@ -444,7 +453,10 @@ def set_passage_pages(pages):
             list(pages.items()))
         conn.execute("COMMIT")
     except BaseException:
-        conn.execute("ROLLBACK")
+        # Undo only a transaction that began: a BEGIN that timed out on the
+        # lock leaves none, and its own error is the one worth seeing.
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
     finally:
         conn.close()

@@ -20,7 +20,7 @@ for the latest year PDP tested the food and, when there are several years,
 for all of them combined. Each is saved with its working
 (exposurestore.save_score), replacing the last.
 
-Touches: `commonsdb.py` (samples, results, tolerances, EPA benchmarks),
+Touches: `commonsdb.py` (samples, results, tolerances, EPA benchmarks, IRIS doses),
 `exposurestore.py` (safe doses, PDP codes, saving scores), `hazardstore.py`
 (putting found pesticides on the map), `scripts/reference_data.py` (runs
 it), `tests/test_exposure.py`.
@@ -41,6 +41,7 @@ import sqlstore
 METHOD = "dri-v1"
 EPA_URL = "https://www.epa.gov/sdwa/2021-human-health-benchmarks-pesticides"
 PDP_URL = "https://www.ams.usda.gov/datasets/pdp/pdpdata"
+IRIS_URL = "https://iris.epa.gov/AdvancedSearch/rfd_toxicity_values"
 
 # The standard reference person and serving, from the DRI paper: a 16 kg child
 # eating two-thirds of FDA's Reference Amount Customarily Consumed (21 CFR
@@ -155,8 +156,8 @@ def samples_over_organic_line(conn, codes, years, claim):
             "share_of_tolerance": ORGANIC_TOLERANCE_SHARE}
 
 
-def _benchmark(commons_conn, name):
-    """EPA's benchmark row for a PDP pesticide name, matched loosely, or None."""
+def _candidates(name):
+    """The ways a PDP pesticide name may be written by EPA, normalised (_norm)."""
     wanted = _norm(name)
     # PDP sometimes adds a qualifier EPA doesn't ("Thiabendazole 5-hydroxy"
     # stays unmatched on purpose; "Pyrethrins (total)" matches "Pyrethrins").
@@ -167,7 +168,15 @@ def _benchmark(commons_conn, name):
     untotalled = _norm(re.sub(r"\s+total$", "", bare, flags=re.IGNORECASE))
     parts = [part.strip() for part in bare.split(",")]
     swapped = _norm(parts[1] + parts[0]) if len(parts) == 2 else plain
-    candidates = {wanted, plain, untotalled, swapped}
+    # PDP reports some pesticides as one analyte under two names
+    # ("Metalaxyl/Mefenoxam"); either name is that pesticide.
+    alternatives = {_norm(part) for part in bare.split("/")} if "/" in bare else set()
+    return {wanted, plain, untotalled, swapped} | alternatives
+
+
+def _benchmark(commons_conn, name):
+    """EPA's benchmark row for a PDP pesticide name, matched loosely, or None."""
+    candidates = _candidates(name)
     # EPA sometimes adds the forms its figure covers ("Thiabendazole + salt",
     # "2,4-D + salts & esters"); the part before the "+" is the pesticide.
     # A metabolite ("Clethodim sulfoxide") is never matched to its parent:
@@ -181,11 +190,56 @@ def _benchmark(commons_conn, name):
     return None
 
 
-def _map_entry(term, benchmark):
+def _iris(commons_conn, name, cas=None):
+    """IRIS's reference-dose row for a PDP pesticide name, or None.
+
+    Matched by CAS number when EPA's benchmark table gave one, else by name:
+    IRIS's full name, its bracketed short name ("DDT"), or the short name
+    with the isomer the full name starts with ("p,p'-…(DDT)" is PDP's
+    "DDT p,p'" — the same isomer, not a relative). A mixture ("Chlordane
+    (Technical)") is not matched to one of its isomers.
+    """
+    candidates = _candidates(name)
+    for row in commons_conn.execute(
+            "SELECT name, short_name, cas, rfd, critical_effect, confidence, landing_url"
+            " FROM iris_rfd"):
+        entry = dict(zip(("name", "short_name", "cas", "rfd", "critical_effect", "confidence",
+                          "landing_url"), row))
+        if cas and entry["cas"] == cas:
+            return entry
+        forms = {_norm(entry["name"])}
+        if entry["short_name"]:
+            forms.add(_norm(entry["short_name"]))
+            isomer = re.match(r"([opm],[opm]')-", entry["name"])
+            if isomer:
+                forms.add(_norm(entry["short_name"] + isomer.group(1)))
+        if forms & candidates:
+            return entry
+    return None
+
+
+def _map_entry(term, benchmark, iris=None):
     """What putting one found pesticide on the hazard map means: its name, any
-    other name EPA gives it, and the facts the loaders read about it."""
+    other name EPA gives it, and the facts the loaders read about it.
+
+    The chronic dose comes from EPA's benchmark table (the pesticide office's
+    current figure); IRIS's reference dose is used only when that table has
+    none, so the two never compete for the same pesticide.
+    """
     facts = [{"fact": "pdp_code", "value": term["pesticide_code"], "url": PDP_URL}]
     aliases = []
+    if iris and not (benchmark and benchmark["chronic_dose"]):
+        if not (benchmark and benchmark["cas"]) and iris["cas"]:
+            facts.append({"fact": "cas", "value": iris["cas"], "url": iris["landing_url"] or IRIS_URL})
+        if _norm(iris["name"]) != _norm(term["pesticide"]):
+            aliases.append(iris["name"])
+        facts.append({
+            "fact": "chronic_dose", "value": f"{iris['rfd']:g} mg/kg/day",
+            "url": iris["landing_url"] or IRIS_URL, "amount": iris["rfd"], "unit": "mg/kg/day",
+            "basis": "RfD (IRIS)",
+            "note": "; ".join(part for part in (
+                f"critical effect: {iris['critical_effect']}" if iris["critical_effect"] else "",
+                f"IRIS confidence: {iris['confidence']}" if iris["confidence"] else "") if part) or None})
     if benchmark:
         if _norm(benchmark["name"]) != _norm(term["pesticide"]):
             aliases.append(benchmark["name"])
@@ -239,6 +293,11 @@ def score(food_id, codes, years, claim, commons_root=None):
         line = samples_over_organic_line(commons_conn, codes, years, claim)
         benchmarks = {term["pesticide_code"]: _benchmark(commons_conn, term["pesticide"])
                       for term in terms if term["samples_detected"]}
+        # IRIS is asked only about what the benchmark table has no chronic dose for.
+        iris = {code: _iris(commons_conn, term["pesticide"], (benchmarks[code] or {}).get("cas"))
+                for term in terms if term["samples_detected"]
+                for code in [term["pesticide_code"]]
+                if not (benchmarks[code] and benchmarks[code]["chronic_dose"])}
     # Every found pesticide goes on the map (one write for all of them); its
     # dose is then read back from the facts, so her own figure or a dispute
     # is what the score uses.
@@ -248,7 +307,8 @@ def score(food_id, codes, years, claim, commons_root=None):
     if found:
         _ensure_pesticide_branch()
         ids = exposurestore.put_found_contaminants(
-            [_map_entry(term, benchmarks[term["pesticide_code"]]) for term in found])
+            [_map_entry(term, benchmarks[term["pesticide_code"]], iris.get(term["pesticide_code"]))
+             for term in found])
         for term in found:
             term["hazard_id"] = ids[term["pesticide"]]
         doses = exposurestore.chronic_doses([term["hazard_id"] for term in found])

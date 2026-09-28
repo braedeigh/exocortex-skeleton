@@ -11,6 +11,7 @@ exposure score.
     venv/bin/python3 scripts/reference_data.py pdp-code strawberries ST ST:FZ
     venv/bin/python3 scripts/reference_data.py pull-pdp --year 2023 --food potatoes
     venv/bin/python3 scripts/reference_data.py load-epa
+    venv/bin/python3 scripts/reference_data.py load-iris   # IRIS reference doses, for what EPA's table lacks
     venv/bin/python3 scripts/reference_data.py score --food potatoes
     venv/bin/python3 scripts/reference_data.py ledger
     venv/bin/python3 scripts/reference_data.py fetch-pdf --all   # sources' PDFs + passage pages
@@ -46,6 +47,7 @@ from scripts import commons_fetch  # noqa: E402
 PDP_INDEX = "https://www.ams.usda.gov/datasets/pdp/pdpdata"
 PDP_URL = "https://www.ams.usda.gov/sites/default/files/media/{year}PDPDatabase.zip"
 EPA_URL = "https://www.epa.gov/sdwa/2021-human-health-benchmarks-pesticides"
+IRIS_URL = "https://iris.epa.gov/AdvancedSearch/rfd_toxicity_values"
 
 
 def _commons_file(url, source, meta):
@@ -148,6 +150,23 @@ def load_epa(force=False):
     return count
 
 
+def load_iris(force=False):
+    """Load IRIS's reference-dose table into commons.db. Returns the chemical count or 'already'."""
+    version = reference_loaders.LOADER_VERSIONS["epa-iris-rfd"]
+    with commonsdb.session() as conn:
+        loaded = conn.execute("SELECT COUNT(*) FROM iris_rfd").fetchone()[0]
+    if not force and loaded and exposurestore.find_pull("epa-iris-rfd", 0, "", version):
+        return "already pulled"
+    entry = _commons_file(IRIS_URL, "epa", {
+        "title": "EPA IRIS oral reference doses (Advanced Search, RfD table)",
+        "publisher": "US EPA", "name": "iris-rfd.html"})
+    with commonsdb.session() as conn:
+        count = reference_loaders.load_iris(conn, commons.commons_dir() / entry["path"])
+    exposurestore.record_pull("epa-iris-rfd", 0, "", entry["path"], entry["sha256"], count,
+                              {"chemicals": count}, version)
+    return count
+
+
 def _pdf_folder(url):
     """Which commons folder a source's PDF goes in, by who published it."""
     host = urllib.parse.urlparse(url).netloc.lower()
@@ -218,6 +237,9 @@ def main(argv=None):
     epa = commands.add_parser("load-epa", help="load EPA's pesticide benchmark table")
     epa.add_argument("--force", action="store_true")
 
+    iris = commands.add_parser("load-iris", help="load EPA IRIS's reference-dose table")
+    iris.add_argument("--force", action="store_true")
+
     score = commands.add_parser("score", help="compute a food's exposure scores")
     score.add_argument("--food", required=True)
     score.add_argument("--years", help="comma-separated; default: every year pulled, "
@@ -257,6 +279,10 @@ def main(argv=None):
         elif args.command == "load-epa":
             lock = _one_at_a_time()
             print(f"EPA benchmarks: {load_epa(args.force)}")
+            lock.close()
+        elif args.command == "load-iris":
+            lock = _one_at_a_time()
+            print(f"IRIS reference doses: {load_iris(args.force)}")
             lock.close()
         elif args.command == "score":
             import exposure  # the calculation; imported here so the other commands don't need it

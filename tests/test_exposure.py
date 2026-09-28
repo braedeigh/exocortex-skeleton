@@ -195,3 +195,51 @@ def test_pdp_word_orders_still_match(commons_root):
         reference_loaders.load_benchmarks(conn, page)
         assert exposure._benchmark(conn, "Cyhalothrin, Lambda")["chronic_dose"] == 0.001 and \
             exposure._benchmark(conn, "Chlorpropham Total")["chronic_dose"] == 0.005
+
+
+IRIS_PAGE = """<table><tr><th>ROW</th><th>CHEMICAL NAME</th><th>CASRN</th>
+<th>PRINCIPAL CRITICAL DESCRIPTION</th><th>RFD VALUE</th><th>OVERALL CONFIDENCE</th></tr>
+<tr><td>1</td><td><a href="/ChemicalLanding/&substance_nmbr=1">Chlorpropham</a></td><td>101-21-3</td>
+<td>Liver</td><td>0.2 mg/kg-day</td><td>Low</td></tr>
+<tr><td>2</td><td><a href="/ChemicalLanding/&substance_nmbr=2">Mystery</a></td><td>1-1-1</td>
+<td>Kidney</td><td>0.002 mg/kg-day</td><td>High</td></tr>
+<tr><td>3</td><td>p,p'-Dichlorodiphenyltrichloroethane (DDT)</td><td>50-29-3</td>
+<td>Liver lesions</td><td>0.0005 mg/kg-day</td><td>Medium</td></tr>
+<tr><td>4</td><td>Chlordane (Technical)</td><td>12789-03-6</td>
+<td>Hepatic necrosis</td><td>0.0005 mg/kg-day</td><td>Medium</td></tr>
+<tr><td>5</td><td>Oddity</td><td>2-2-2</td><td>x</td><td>3 ppm</td><td>Low</td></tr></table>"""
+
+
+def _load_iris(commons_root):
+    page = commons_root / "iris.html"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(IRIS_PAGE)
+    with commonsdb.session(commons_root) as conn:
+        reference_loaders.load_iris(conn, page)
+
+
+def test_iris_columns_are_found_by_their_headers_and_odd_units_skipped():
+    rows = {row["name"]: row for row in reference_loaders.parse_iris_rfd(IRIS_PAGE)}
+    assert (rows["Mystery"]["rfd"], rows["Mystery"]["landing_url"], "Oddity" in rows) == \
+        (0.002, "https://iris.epa.gov/ChemicalLanding/&substance_nmbr=2", False)
+
+
+def test_iris_isomer_matches_but_a_mixture_does_not_match_one_isomer(commons_root):
+    _load_iris(commons_root)
+    with commonsdb.session(commons_root) as conn:
+        assert exposure._iris(conn, "DDT p,p'")["rfd"] == 0.0005 and \
+            exposure._iris(conn, "DDT o,p'") is None and exposure._iris(conn, "Chlordane cis") is None
+
+
+def test_iris_dose_fills_in_only_where_epas_table_has_none(potatoes, commons_root):
+    _load_iris(commons_root)
+    result = exposure.score(potatoes, [("PO", "")], [2023], "conventional")
+    mystery = next(fact for fact in exposurestore.facts_for("Mystery") if fact["fact"] == "chronic_dose")
+    assert (_term(result, "Chlorpropham")["dose"], _term(result, "Mystery")["dose"],
+            mystery["basis"], result["no_dose_count"]) == (0.005, 0.002, "RfD (IRIS)", 0)
+
+
+def test_a_pdp_analyte_named_two_ways_matches_either_name(commons_root):
+    _load_iris(commons_root)
+    with commonsdb.session(commons_root) as conn:
+        assert exposure._iris(conn, "Chlorpropham/Other")["rfd"] == 0.2
