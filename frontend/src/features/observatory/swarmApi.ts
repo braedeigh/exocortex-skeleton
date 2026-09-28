@@ -9,7 +9,7 @@
  * ONE request however many rooms are showing.
  *
  * Touches: routes/swarms.py (the endpoints), SwarmCard.tsx and SessionLane.tsx
- * (the cards in each room), SwarmPage.tsx (one swarm's page), and
+ * (the cards in each room), RoomMap.tsx (the room from above), SwarmPage.tsx (one swarm's page), and
  * terrain/TerrainPage.tsx (the outlines around swarm members on the map).
  */
 import { useQuery } from '@tanstack/react-query';
@@ -79,6 +79,37 @@ export function useSwarms(enabled = true) {
     queryFn: async ({ signal }) => (await api.get<{ swarms: Swarm[] }>('/api/swarms', signal)).swarms,
     staleTime: 4_000,
     refetchInterval: 5_000,
+  });
+}
+
+/** The room seen from above (routes/swarms.py `room`): its room helper
+ * (room_helper.py), the sessions working alone with the helper's summary of
+ * each, and the helper's recent moves. */
+export interface RoomView {
+  room: string;
+  helper_conv: string | null;
+  solos: { conv: string; title: string; state: MemberState; summary: string | null }[];
+  moves: {
+    id: number;
+    at: string;
+    kind: 'form' | 'join' | 'split' | 'release';
+    convs: string[];
+    from_swarm: number | null;
+    to_swarm: number | null;
+    reason: string | null;
+    undone_at: string | null;
+  }[];
+}
+
+/** One room's view from above, polled with the swarms. */
+export function useRoomView(room: string, enabled = true) {
+  return useQuery({
+    queryKey: ['swarm-room', room] as const,
+    enabled,
+    queryFn: async ({ signal }) =>
+      api.get<RoomView>(`/api/swarms/room/${encodeURIComponent(room)}`, signal),
+    staleTime: 4_000,
+    refetchInterval: 10_000,
   });
 }
 

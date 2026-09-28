@@ -4,7 +4,8 @@ import { orchestraRows, type OrchestraRow } from './orchestra';
 import { ApprovalCard, AwaitingCard, SessionCard } from './SessionCard';
 import { LaneHead, useLaneOpen } from './LaneHead';
 import { SwarmCard } from './SwarmCard';
-import { useSwarms } from './swarmApi';
+import { RoomMap } from './RoomMap';
+import { useRoomView, useSwarms } from './swarmApi';
 import { orderRoom, sessionPlace, swarmPlace, swarmView, type RoomPlace, type SwarmView } from './roomOrder';
 import type { TerrainData } from '../terrain/api';
 import styles from './SessionLane.module.css';
@@ -63,6 +64,11 @@ import styles from './SessionLane.module.css';
  * The room's census still counts swarm members, so a shut room says so when
  * one of them needs her. Swarms come from one shared poll (swarmApi.useSwarms)
  * however many rooms are showing.
+ *
+ * THE ROOM FROM ABOVE. A room with a room helper (room_helper.py) opens with
+ * a RoomMap: every swarm drawn in a circle, the helpers in the middle, the
+ * sessions working alone in rows beneath. The room helper's own session
+ * folds into that map instead of standing in the list.
  *
  * WAITING, THEN RUNNING, THEN DONE. Every card in a room, session or swarm,
  * stands in one order: the ones waiting on her (orange first, then the ones
@@ -152,10 +158,16 @@ export function SessionLane({
   const swarmsHere: SwarmView[] = folding
     ? (allSwarms ?? []).filter((s) => s.lane === laneKey).map((s) => swarmView(s, rosterById, opened))
     : [];
+  // The room from above, when this room has a room helper (RoomMap.tsx).
+  const { data: roomView } = useRoomView(laneKey, folding);
+  const hasRoomMap = folding && !!roomView?.helper_conv;
   const inASwarm = new Set(
     !folding
       ? []
-      : (allSwarms ?? []).flatMap((s) => [...s.members.map((m) => m.conv), ...(s.helper_conv ? [s.helper_conv] : [])]),
+      : [
+          ...(allSwarms ?? []).flatMap((s) => [...s.members.map((m) => m.conv), ...(s.helper_conv ? [s.helper_conv] : [])]),
+          ...(hasRoomMap ? [roomView!.helper_conv!] : []),
+        ],
   );
   const rows = orchestraRows(
     sessions.filter((s) => !inASwarm.has(s.id)),
@@ -242,6 +254,16 @@ export function SessionLane({
     <section className={sectionClass} aria-label={heading}>
       {head}
       {keeper || bare ? null : <p className={styles.blurb}>{blurb}</p>}
+
+      {hasRoomMap ? (
+        <RoomMap
+          room={laneKey}
+          view={roomView!}
+          swarms={(allSwarms ?? []).filter((s) => s.lane === laneKey)}
+          rosterById={rosterById}
+          onOpen={onOpen}
+        />
+      ) : null}
 
       {ordered.length === 0 ? (
         <div className={styles.idle}>

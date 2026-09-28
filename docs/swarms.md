@@ -84,6 +84,12 @@ or move solo sessions out of a swarm into the layer above."
   One tool-less Sonnet call; every run in `room_helper_runs`.
 - **Its chat** works like a swarm helper's (helper_chat.py): fresh every turn,
   seeded with the room overview instead of one swarm.
+- **The room from above** (`RoomMap.tsx`, at the head of any room with a room
+  helper). Her ask: "a display on the front with circles for each swarm and
+  the generated helpers in the middle and extra agents in rows below that."
+  The room helper on top with its last move, each swarm in a circle drawn as
+  on its page (`SwarmNetwork.tsx`, its helper in the middle), and the
+  sessions working alone in rows beneath. Data: `GET /api/swarms/room/<room>`.
 
 ## Stages
 
@@ -122,8 +128,9 @@ or move solo sessions out of a swarm into the layer above."
 ## Status
 
 - The room helper: built and tested (`tests/test_room_helper.py`, placements
-  in `tests/test_swarms.py`). No page for it yet beyond its chat card; undo is
-  through the chat or `scripts/room_moves.py`.
+  in `tests/test_swarms.py`), and the room map above the Coding room. Undo is
+  through the chat or `scripts/room_moves.py` (no undo button on the room map
+  yet).
 
 - Mailbox, token accounting, continuation, swarms and the helper: built and
   tested.
