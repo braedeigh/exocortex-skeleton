@@ -32,6 +32,7 @@ import { getPlan } from './api';
 import { useHighlights } from './Highlights';
 import { fdcFoodUrl, formatAmount } from './nutrientMath';
 import type { NutritionDay } from './types';
+import { FoldCard } from './FoldCard';
 import styles from './Nutrition.module.css';
 
 export function MealPrepPlan({ day }: { day: NutritionDay }) {
@@ -60,8 +61,7 @@ export function MealPrepPlan({ day }: { day: NutritionDay }) {
   const gaps = (plan?.nutrients ?? []).filter((row) => row.target && row.now < row.target);
 
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>What to add</div>
+    <FoldCard cardKey="plan" title="What to add" note={starred.length ? null : 'star a food first'}>
       <p className={styles.muted}>
         The fewest grams of your starred foods that bring each nutrient up to its target without passing an upper
         limit. What you already eat stays the same. Nutrients your body stores are judged on the week’s average, so
@@ -185,6 +185,6 @@ export function MealPrepPlan({ day }: { day: NutritionDay }) {
           ) : null}
         </>
       )}
-    </section>
+    </FoldCard>
   );
 }

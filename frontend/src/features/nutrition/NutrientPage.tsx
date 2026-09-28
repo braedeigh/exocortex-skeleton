@@ -11,6 +11,11 @@
  * every USDA food ranked by it. Nutrients ODS has no sheet for (energy, the
  * macronutrients, fiber, sodium) say so instead of showing anything unsourced.
  *
+ * Only "Your usual day" is always open; every section after it folds shut
+ * behind its title (./FoldCard.tsx) and remembers open or shut on this
+ * device — one choice for every nutrient's page, so opening "If you don't
+ * get enough" once keeps it open on the next nutrient too.
+ *
  * The ranking is per 100 kcal (density) or per 100 g, can be narrowed by
  * name, and marks each food three ways: "in your day" if her meals use it, a
  * ☆ / ★ to star it as a food she's interested in (./Highlights.tsx), and what
@@ -36,6 +41,7 @@ import { Link } from '@tanstack/react-router';
 import { type ReactElement, useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { getDay, getNutrient, rankFoods } from './api';
+import { FoldCard } from './FoldCard';
 import { NutrientSources } from './FoodShares';
 import { StarButton, useHighlights } from './Highlights';
 import { SingleFoodsChip, useSingleFoods } from './SingleFoods';
@@ -84,16 +90,14 @@ export function NutrientPage({ nutrientKey }: { nutrientKey: string }) {
             </div>
             <NutrientBars row={detail.row} sexes={detail.sexes} />
           </section>
-          <section className={styles.card}>
-            <div className={styles.cardHead}>Where yours comes from</div>
+          <FoldCard cardKey="page.sources" title="Where yours comes from">
             <NutrientSources row={detail.row} sexes={detail.sexes} />
-          </section>
+          </FoldCard>
           <StorageCard storage={detail.storage} label={detail.row.label} />
           <Facts facts={detail.facts} label={detail.row.label} />
-          <section className={styles.card}>
-            <div className={styles.cardHead}>Foods richest in it</div>
+          <FoldCard cardKey="page.ranking" title="Foods richest in it" note="every USDA food">
             <FoodRanking nutrientKey={detail.row.key} label={detail.row.label} mine={mine} />
-          </section>
+          </FoldCard>
         </>
       )}
     </div>
@@ -106,13 +110,12 @@ function Facts({ facts, label }: { facts: NutrientFacts; label: string }) {
   const [riskOpen, setRiskOpen] = useState(false);
   if (!facts.sheet) {
     return (
-      <section className={styles.card}>
-        <div className={styles.cardHead}>If you don’t get enough</div>
+      <FoldCard cardKey="page.deficiency" title="If you don’t get enough" note="no fact sheet">
         <p className={styles.muted}>
           The NIH Office of Dietary Supplements has no fact sheet for {label.toLowerCase()}, so there’s no sourced
           text to show here yet.
         </p>
-      </section>
+      </FoldCard>
     );
   }
   const source = (
@@ -126,8 +129,7 @@ function Facts({ facts, label }: { facts: NutrientFacts; label: string }) {
   );
   if (facts.sheet.missing) {
     return (
-      <section className={styles.card}>
-        <div className={styles.cardHead}>If you don’t get enough</div>
+      <FoldCard cardKey="page.deficiency" title="If you don’t get enough" note="sheet not saved">
         <p className={styles.muted}>
           The fact sheet hasn’t been saved on this install yet ({facts.sheet.file} in the commons). Read it at{' '}
           <a href={facts.sheet.url} target="_blank" rel="noreferrer">
@@ -135,18 +137,16 @@ function Facts({ facts, label }: { facts: NutrientFacts; label: string }) {
           </a>
           .
         </p>
-      </section>
+      </FoldCard>
     );
   }
 
   return (
     <>
-      <section className={styles.card}>
-        <div className={styles.cardHead}>What it does</div>
+      <FoldCard cardKey="page.intro" title="What it does">
         <Blocks blocks={facts.intro} />
-      </section>
-      <section className={styles.card}>
-        <div className={styles.cardHead}>If you don’t get enough</div>
+      </FoldCard>
+      <FoldCard cardKey="page.deficiency" title="If you don’t get enough">
         <Blocks blocks={facts.deficiency} />
         {facts.at_risk.length ? (
           <>
@@ -163,7 +163,7 @@ function Facts({ facts, label }: { facts: NutrientFacts; label: string }) {
           </>
         ) : null}
         {source}
-      </section>
+      </FoldCard>
     </>
   );
 }

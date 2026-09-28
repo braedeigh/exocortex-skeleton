@@ -18,6 +18,13 @@
  * The Food search box (../ecosystem/foodSearch.ts) narrows which meals show;
  * the totals always count every meal.
  *
+ * Every section folds shut behind its title (./FoldCard.tsx) and remembers
+ * open or shut on this device; shut, each title line still says what's
+ * inside ("7 nutrients", "female · 29"). Only the two groups that need
+ * acting on — over a limit, below target — start open.
+ * Prompt for the folding: "it's currently a lot to scroll, so i'm wondering
+ * if they could be collapsed and openable or something".
+ *
  * Prompt for the meal editing: "make sure there's a UI to be able to edit things".
  * Prompt for the nutrient link: "I want clicking on a nutrient to take me directly
  * into that nutrient file."
@@ -37,6 +44,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
 import { deleteMeal, getDay, saveMeal, saveServings, saveSettings, searchFoods } from './api';
+import { FoldCard } from './FoldCard';
 import { FoodGiftsCard, TopSources } from './FoodShares';
 import { StorageTag } from './StorageNote';
 import { StarredFoods } from './Highlights';
@@ -121,8 +129,12 @@ function SettingsRow({ day }: { day: NutritionDay }) {
   const choices: SexSetting[] = ['female', 'male', 'both'];
 
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>Targets for</div>
+    <FoldCard
+      cardKey="settings"
+      title="Targets for"
+      note={day.settings.age ? `${day.settings.sex} · ${day.settings.age}` : 'no age yet'}
+      defaultOpen={!day.settings.age}
+    >
       <div className={styles.settingsRow}>
         {choices.map((sex) => (
           <button
@@ -150,7 +162,7 @@ function SettingsRow({ day }: { day: NutritionDay }) {
       </div>
       {save.isError ? <p className={styles.error}>{(save.error as Error).message}</p> : null}
       {!day.settings.age ? <p className={styles.muted}>Give an age to see targets.</p> : null}
-    </section>
+    </FoldCard>
   );
 }
 
@@ -160,15 +172,21 @@ function NutrientList({ day }: { day: NutritionDay }) {
   const groups = groupRows(day.report.nutrients);
   return (
     <>
+      {/* One fold per group; the ones that need acting on start open. */}
       {groups.map(({ group, rows }) => (
-        <section key={group} className={styles.card}>
-          <div className={styles.cardHead}>{GROUP_TITLES[group]}</div>
+        <FoldCard
+          key={group}
+          cardKey={`group.${group}`}
+          title={GROUP_TITLES[group]}
+          note={`${rows.length} nutrient${rows.length === 1 ? '' : 's'}`}
+          defaultOpen={group === 'over' || group === 'under'}
+        >
           <ul className={styles.rows}>
             {rows.map((row) => (
               <NutrientLine key={row.key} row={row} sexes={day.report.sexes} storage={day.storage[row.key]} />
             ))}
           </ul>
-        </section>
+        </FoldCard>
       ))}
     </>
   );
@@ -299,8 +317,11 @@ function MealList({ day }: { day: NutritionDay }) {
   });
 
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>Meals in your usual day</div>
+    <FoldCard
+      cardKey="meals"
+      title="Meals in your usual day"
+      note={needle ? `${names.length} of ${allNames.length} match` : `${counted.length} counted`}
+    >
       {needle && names.length < allNames.length ? (
         <p className={styles.muted}>
           {names.length} of {allNames.length} meals have “{areaSearch.trim()}”; totals still count them all.
@@ -326,7 +347,7 @@ function MealList({ day }: { day: NutritionDay }) {
         </button>
       </div>
       {create.isError ? <p className={styles.error}>{(create.error as Error).message}</p> : null}
-    </section>
+    </FoldCard>
   );
 }
 

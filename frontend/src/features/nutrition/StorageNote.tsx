@@ -19,6 +19,7 @@
  * (routes/nutrition.py → nutrient_storage.py). Touches: ./types.ts,
  * ./NutritionPage.tsx, ./NutrientPage.tsx, ./Nutrition.module.css.
  */
+import { FoldCard } from './FoldCard';
 import type { NutrientStorage, StorageKind } from './types';
 import styles from './Nutrition.module.css';
 
@@ -35,25 +36,24 @@ export function StorageTag({ kind, label }: { kind: StorageKind; label: string }
   return <span className={`${styles.storageTag} ${TAG_CLASS[kind]}`}>{label}</span>;
 }
 
-/** A nutrient page's card: the answer in a line, then the sheet's own sentences behind it. */
+/** A nutrient page's card, folded shut with the answer's tag on its title line: the answer in a line, then the sheet's own sentences behind it. */
 export function StorageCard({ storage, label }: { storage: NutrientStorage; label: string }) {
   if (storage.kind === 'unsourced' || !storage.sheet) {
     return (
-      <section className={styles.card}>
-        <div className={styles.cardHead}>Daily, or does it build up?</div>
+      <FoldCard cardKey="storage" title="Daily, or does it build up?">
         <p className={styles.muted}>
           No sourced answer for {label.toLowerCase()} yet — the NIH Office of Dietary Supplements has no fact sheet
           for it.
         </p>
-      </section>
+      </FoldCard>
     );
   }
   return (
-    <section className={styles.card}>
-      <div className={styles.rowTop}>
-        <div className={styles.cardHead}>Daily, or does it build up?</div>
-        <StorageTag kind={storage.kind} label={storage.label} />
-      </div>
+    <FoldCard
+      cardKey="storage"
+      title="Daily, or does it build up?"
+      note={<StorageTag kind={storage.kind} label={storage.label} />}
+    >
       <p className={styles.factText}>{storage.summary}</p>
       {storage.lasts ? <p className={styles.muted}>How long, per the sheet: {storage.lasts}</p> : null}
       {storage.quotes.length ? (
@@ -79,6 +79,6 @@ export function StorageCard({ storage, label }: { storage: NutrientStorage; labe
         </a>
         . The one-line reading above is ours; the quotes are the evidence.
       </p>
-    </section>
+    </FoldCard>
   );
 }

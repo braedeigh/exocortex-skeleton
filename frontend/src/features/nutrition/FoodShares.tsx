@@ -22,6 +22,7 @@
  */
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
+import { FoldCard } from './FoldCard';
 import { dayTarget, fdcFoodUrl, foodGifts, formatAmount } from './nutrientMath';
 import type { NutrientRow, Sex } from './types';
 import styles from './Nutrition.module.css';
@@ -85,8 +86,7 @@ export function FoodGiftsCard({ rows, sexes }: { rows: NutrientRow[]; sexes: Sex
   const foods = foodGifts(rows, sexes);
   if (!foods.length) return null;
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>What each food gives you</div>
+    <FoldCard cardKey="gifts" title="What each food gives you" note={`${foods.length} foods`}>
       <p className={styles.muted}>
         Tap a food to see every nutrient it adds to your day, largest share of the daily target first.
       </p>
@@ -95,7 +95,7 @@ export function FoodGiftsCard({ rows, sexes }: { rows: NutrientRow[]; sexes: Sex
           <FoodGiftRow key={food.fdc_id} food={food} />
         ))}
       </ul>
-    </section>
+    </FoldCard>
   );
 }
 

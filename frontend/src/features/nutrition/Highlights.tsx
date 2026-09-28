@@ -15,6 +15,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getHighlights, setHighlight } from './api';
+import { FoldCard } from './FoldCard';
 import { fdcFoodUrl } from './nutrientMath';
 import type { HighlightedFood } from './types';
 import styles from './Nutrition.module.css';
@@ -59,8 +60,7 @@ export function StarButton({
 export function StarredFoods() {
   const { foods, toggle } = useHighlights();
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>Foods you’ve starred</div>
+    <FoldCard cardKey="starred" title="Foods you’ve starred" note={foods.length ? `${foods.length} starred` : 'none yet'}>
       {foods.length ? (
         <ul className={styles.results}>
           {foods.map((food: HighlightedFood) => (
@@ -80,6 +80,6 @@ export function StarredFoods() {
         </p>
       )}
       {toggle.isError ? <p className={styles.error}>{(toggle.error as Error).message}</p> : null}
-    </section>
+    </FoldCard>
   );
 }
