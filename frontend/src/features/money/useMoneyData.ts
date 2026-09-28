@@ -20,6 +20,7 @@ import {
   listCsvFiles,
   logTaxSetaside,
   parseCsv,
+  uploadCsv,
   removeCategory,
   removeExpense,
   removeSubscription,
@@ -338,6 +339,16 @@ export function useCsvActions(onError: (message: string) => void) {
     onError: () => onError('Parse failed'),
   });
 
+  // Upload a CSV, then refresh the file list so it shows up there too. The
+  // server's own reason is toasted, because a wrong-bank file needs saying why.
+  const upload = useMutation({
+    mutationFn: (file: File) => uploadCsv(file),
+    onError: (error) => onError(error instanceof Error && error.message ? error.message : 'Upload failed'),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CSV_FILES_QUERY_KEY });
+    },
+  });
+
   const doImport = useMutation({
     mutationFn: (vars: { selections: CsvSelection[]; learnRules: LearnRule[] }) =>
       importCsv(vars.selections, vars.learnRules),
@@ -350,6 +361,8 @@ export function useCsvActions(onError: (message: string) => void) {
 
   return {
     parse: (filename: string) => parse.mutateAsync(filename),
+    upload: (file: File) => upload.mutateAsync(file),
+    uploading: upload.isPending,
     import: (selections: CsvSelection[], learnRules: LearnRule[]) =>
       doImport.mutateAsync({ selections, learnRules }),
   };

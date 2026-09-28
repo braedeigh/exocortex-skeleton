@@ -229,6 +229,40 @@ def test_csv_parse_404s_on_missing_or_escaping_filename(client):
     assert _post(client, "/api/csv/parse", {"filename": "../expenses.json"}).status_code == 404
 
 
+def _upload_csv(client, name, content=BOA_CSV):
+    return client.post("/api/csv/upload",
+                       data={"file": (io.BytesIO(content.encode()), name)},
+                       content_type="multipart/form-data")
+
+
+def test_csv_upload_saves_file_that_then_lists_and_parses(client):
+    r = _upload_csv(client, "my statement!.csv")
+    assert r.status_code == 200
+    fname = r.get_json()["filename"]
+    assert fname == "my_statement.csv"
+    assert fname in client.get("/api/csv/list").get_json()["files"]
+    rows = _post(client, "/api/csv/parse", {"filename": fname}).get_json()["rows"]
+    assert len(rows) == 3
+    (IMPORT_DATA_DIR / "bank_csvs" / fname).unlink()
+
+
+def test_csv_upload_keeps_a_different_file_with_the_same_name_apart(client):
+    first = _upload_csv(client, "clash.csv").get_json()["filename"]
+    again = _upload_csv(client, "clash.csv").get_json()["filename"]
+    other = _upload_csv(client, "clash.csv", BOA_CSV + "04/07/2026,COFFEE,-4.00\n").get_json()["filename"]
+    assert (first, again, other) == ("clash.csv", "clash.csv", "clash-2.csv")
+    for name in (first, other):
+        (IMPORT_DATA_DIR / "bank_csvs" / name).unlink()
+
+
+def test_csv_upload_refuses_non_csv_and_unreadable_files_without_keeping_them(client):
+    assert _upload_csv(client, "photo.jpg").status_code == 400
+    r = _upload_csv(client, "other_bank.csv", "Posted,Payee,Debit\n04/03/2026,COFFEE,4.00\n")
+    assert r.status_code == 400
+    assert "Bank of America" in r.get_json()["error"]
+    assert not (IMPORT_DATA_DIR / "bank_csvs" / "other_bank.csv").exists()
+
+
 def test_csv_import_adds_expenses_learns_rules_and_creates_categories(client):
     r = _post(client, "/api/csv/import", {
         "selections": [

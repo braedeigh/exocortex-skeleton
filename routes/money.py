@@ -369,6 +369,42 @@ def register(app):
         files = sorted([p.name for p in CSV_DIR.iterdir() if p.is_file() and p.suffix.lower() == ".csv"])
         return jsonify({"files": files})
 
+    # Save a CSV picked in the browser into bank_csvs/, so it joins the list.
+    # The name is cut down to safe characters; an identical re-upload reuses its
+    # file, and a different file with a taken name gets -2, -3… added. A file the
+    # Bank of America reader finds no transactions in is refused and not kept —
+    # otherwise it would sit in the list and open to an empty preview.
+    # Prompt: "make it such that i can upload a csv"
+    CSV_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
+
+    @app.route("/api/csv/upload", methods=["POST"])
+    def upload_csv():
+        f = request.files.get("file")
+        if not f or not f.filename:
+            return jsonify({"error": "No file provided"}), 400
+        if Path(f.filename).suffix.lower() != ".csv":
+            return jsonify({"error": "That isn't a .csv file"}), 400
+        content = f.read(CSV_UPLOAD_MAX_BYTES + 1)
+        if len(content) > CSV_UPLOAD_MAX_BYTES:
+            return jsonify({"error": "That CSV is over 5 MB"}), 400
+
+        stem = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(f.filename).stem).strip("._") or "upload"
+        CSV_DIR.mkdir(parents=True, exist_ok=True)
+        target = CSV_DIR / f"{stem}.csv"
+        suffix_number = 2
+        while target.exists() and target.read_bytes() != content:
+            target = CSV_DIR / f"{stem}-{suffix_number}.csv"
+            suffix_number += 1
+        already_there = target.exists()
+        target.write_bytes(content)
+
+        if not _parse_boa_csv(target):
+            if not already_there:
+                target.unlink()
+            return jsonify({"error": "No transactions found — this reader only understands "
+                                     "Bank of America exports (a Date,Description,Amount header)"}), 400
+        return jsonify({"ok": True, "filename": target.name})
+
     @app.route("/api/csv/parse", methods=["POST"])
     def parse_csv():
         data = request.json

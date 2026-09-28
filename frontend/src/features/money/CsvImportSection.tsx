@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '../../ui';
 import { Section } from './Section';
 import {
@@ -20,9 +20,9 @@ export interface CsvImportSectionProps {
   push: (message: string, opts?: PushOptions) => number;
 }
 
-/** "Import from CSV" — pick a file from data/bank_csvs/, preview with
- * include-toggles + category mapping, learn merchant rules on import
- * (renderCsvImport / _renderCsvPreview / confirmCsvImport). */
+/** "Import from CSV" — upload a bank CSV from this device or pick one already
+ * in data/bank_csvs/, preview with include-toggles + category mapping, learn
+ * merchant rules on import (renderCsvImport / _renderCsvPreview / confirmCsvImport). */
 export function CsvImportSection({ push }: CsvImportSectionProps) {
   const filesQuery = useCsvFiles();
   const csv = useCsvActions((m) => push(m));
@@ -34,6 +34,7 @@ export function CsvImportSection({ push }: CsvImportSectionProps) {
   const [learnRules, setLearnRules] = useState(true);
 
   const files = filesQuery.data?.files ?? [];
+  const fileInput = useRef<HTMLInputElement>(null);
 
   async function loadFile(filename: string) {
     try {
@@ -46,6 +47,36 @@ export function CsvImportSection({ push }: CsvImportSectionProps) {
       // "Parse failed" already toasted
     }
   }
+
+  // Upload a CSV from this device and open it straight into the preview.
+  // Prompt: "make it such that i can upload a csv"
+  async function uploadFile(file: File) {
+    try {
+      const data = await csv.upload(file);
+      await loadFile(data.filename);
+    } catch {
+      // the server's reason is already toasted
+    }
+  }
+
+  const uploadButton = (
+    <div className={styles.csvUpload}>
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".csv,text/csv"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void uploadFile(file);
+        }}
+      />
+      <Button variant="secondary" disabled={csv.uploading} onClick={() => fileInput.current?.click()}>
+        {csv.uploading ? 'Uploading…' : 'Upload a CSV'}
+      </Button>
+    </div>
+  );
 
   function newCategory(rowIdx: number) {
     // window.prompt kept for parity with the old "+ new category" flow.
@@ -179,13 +210,17 @@ export function CsvImportSection({ push }: CsvImportSectionProps) {
           </div>
         </>
       ) : files.length === 0 ? (
-        <div className={styles.emptyNote} style={{ fontSize: 13 }}>
-          No CSVs in <code>data/bank_csvs/</code>. Drop a Bank of America CSV export there to import.
-        </div>
+        <>
+          {uploadButton}
+          <div className={styles.emptyNote} style={{ fontSize: 13 }}>
+            No CSVs yet. Upload a Bank of America CSV export to import it.
+          </div>
+        </>
       ) : (
         <>
+          {uploadButton}
           <div className={styles.smallText} style={{ marginBottom: 8 }}>
-            Pick a CSV to parse:
+            Or pick one you've uploaded before:
           </div>
           {files.map((f) => (
             <button type="button" className={styles.fileBtn} key={f} onClick={() => loadFile(f)}>

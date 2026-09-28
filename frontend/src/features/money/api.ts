@@ -51,12 +51,12 @@ export function updateExpense(payload: UpdateExpensePayload): Promise<OkResponse
   return api.post('/api/expense/update', payload);
 }
 
-/** POST /api/expense/<id>/receipt — multipart upload, so it bypasses the JSON
- * client but mirrors its 401→/login and {error} handling. */
-export async function uploadReceipt(expenseId: string, file: File): Promise<{ ok: true; filename: string }> {
+/** Send one file as a multipart upload. It bypasses the JSON client, but
+ * mirrors its 401→/login and {error} handling. */
+async function postFile<T>(url: string, file: File): Promise<T> {
   const fd = new FormData();
   fd.append('file', file);
-  const res = await fetch(`/api/expense/${encodeURIComponent(expenseId)}/receipt`, {
+  const res = await fetch(url, {
     method: 'POST',
     credentials: 'include',
     body: fd,
@@ -77,7 +77,12 @@ export async function uploadReceipt(expenseId: string, file: File): Promise<{ ok
     }
     throw new ApiError(res.status, message);
   }
-  return (await res.json()) as { ok: true; filename: string };
+  return (await res.json()) as T;
+}
+
+/** POST /api/expense/<id>/receipt — attach a receipt photo or PDF. */
+export function uploadReceipt(expenseId: string, file: File): Promise<{ ok: true; filename: string }> {
+  return postFile(`/api/expense/${encodeURIComponent(expenseId)}/receipt`, file);
 }
 
 // --- Subscriptions ---
@@ -138,6 +143,11 @@ export function removeCategory(name: string): Promise<OkResponse> {
 
 export function listCsvFiles(signal?: AbortSignal): Promise<{ files: string[] }> {
   return api.get('/api/csv/list', signal);
+}
+
+/** POST /api/csv/upload — save a bank CSV from the browser into bank_csvs/. */
+export function uploadCsv(file: File): Promise<{ ok: true; filename: string }> {
+  return postFile('/api/csv/upload', file);
 }
 
 export function parseCsv(filename: string): Promise<CsvParseResponse> {

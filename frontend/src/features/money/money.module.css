@@ -178,6 +178,11 @@
   background: color-mix(in srgb, var(--ongoing) 10%, transparent);
 }
 
+/* The "Upload a CSV" button, on its own line above the file list. */
+.csvUpload {
+  margin-bottom: var(--space-3);
+}
+
 .fileBtn {
   min-height: var(--tap-target);
   background: none;
