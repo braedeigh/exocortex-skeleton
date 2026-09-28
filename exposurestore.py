@@ -456,6 +456,51 @@ def agency_no_limit(hazard_ids):
             for hazard_id, value, url, fact_id in rows}
 
 
+# --- what others found (the sanity check) ------------------------------------
+
+# A published ranking of a food's pesticides — EWG's Dirty Dozen, Consumer
+# Reports' risk ratings — is kept as a research claim whose value has this
+# measure, the food's name as its subject, and the ranker in its extra. The
+# food page shows them beside the verdict as a sanity check, never as one:
+# they don't enter the score. Written by scripts/reference_data.py `ranking`.
+RANKING_MEASURE = "pesticide ranking"
+
+
+def outside_rankings(food_names):
+    """Every published ranking of these foods (a food's name and its other
+    names), newest year first: [{claim_id, by, year, claim, label, rank,
+    text, verdict, reviewed, source_id, source, url, passage}]."""
+    names = [name.lower() for name in food_names if name]
+    if not names:
+        return []
+    conn = sqlstore.open_db()
+    try:
+        rows = conn.execute(
+            "SELECT v.claim_id, v.extra, v.year, v.basis, v.tier, v.amount, c.text, c.verdict,"
+            " c.reviewed, s.id, s.text, s.url, a.exact"
+            " FROM claim_values v JOIN research_entries c ON c.id = v.claim_id"
+            " LEFT JOIN claim_sources cs ON cs.claim_id = v.claim_id"
+            " LEFT JOIN research_entries s ON s.id = cs.source_id"
+            " LEFT JOIN research_annotations a ON a.id = cs.annotation_id"
+            f" WHERE v.measure = ? AND lower(v.subject) IN ({','.join('?' * len(names))})"
+            " ORDER BY v.year DESC, v.claim_id, cs.created",
+            [RANKING_MEASURE, *names]).fetchall()
+    finally:
+        conn.close()
+    # One row per claim: a claim with several sources shows its first.
+    rankings = {}
+    for (claim_id, extra, year, claim, label, rank, text, verdict, reviewed, source_id,
+         source, url, passage) in rows:
+        if claim_id in rankings:
+            continue
+        rankings[claim_id] = {
+            "claim_id": claim_id, "by": json.loads(extra or "{}").get("by"), "year": year,
+            "claim": claim, "label": label, "rank": rank, "text": text, "verdict": verdict,
+            "reviewed": bool(reviewed), "source_id": source_id, "source": source, "url": url,
+            "passage": passage}
+    return list(rankings.values())
+
+
 def research_state(facts):
     """How far past the agencies' word a contaminant has been checked:
     {independent: findings she confirmed as useful, to_judge: findings still
@@ -579,7 +624,8 @@ def food_exposure(food):
     {food_id, name, codes, scores (every stored score, no working),
     headline {conventional, organic} (the latest year's scores WITH working),
     years (every data year scored), measures (study numbers from
-    hazard_measures)}. None when the food isn't in the catalog.
+    hazard_measures), rankings (what EWG, Consumer Reports and the like
+    published about it — a sanity check)}. None when the food isn't in the catalog.
     """
     with hazardstore._Read() as conn:
         try:
@@ -592,6 +638,8 @@ def food_exposure(food):
             (food_id,))]
         measures = [dict(zip(_MEASURE_KEYS, row)) for row in conn.execute(
             _MEASURE_SQL + " WHERE m.food_id = ? ORDER BY h.name, m.year DESC", (food_id,))]
+        names = [name] + [row[0] for row in conn.execute(
+            "SELECT name FROM food_names WHERE food_id = ?", (food_id,))]
     scores = scores_for(food_id)
     single_years = sorted({score["years"] for score in scores if "," not in score["years"]},
                           reverse=True)
@@ -601,7 +649,8 @@ def food_exposure(food):
             if score["years"] == single_years[0]:
                 headline[score["claim"]] = score_detail(score["id"])
     return {"food_id": food_id, "name": name, "codes": codes, "scores": scores,
-            "headline": headline, "years": single_years, "measures": measures}
+            "headline": headline, "years": single_years, "measures": measures,
+            "rankings": outside_rankings(names)}
 
 
 def contaminant(hazard_id):

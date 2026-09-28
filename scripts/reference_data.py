@@ -17,6 +17,9 @@ exposure score.
     venv/bin/python3 scripts/reference_data.py fetch-pdf --all   # sources' PDFs + passage pages
     venv/bin/python3 scripts/reference_data.py fact Chlorpropham use "plant growth regulator" \\
         --source-id 2026-09-27.1000
+    venv/bin/python3 scripts/reference_data.py ranking kale --by EWG --claim conventional \\
+        --label "Dirty Dozen #2" --rank 2 --year 2026 --topic <research topic id> \\
+        --url <article> --title "<citation>" --passage "the article's exact words"
 
 Pulling something already in the ledger (same dataset, year, food and loader
 version, with its rows still in commons.db) does nothing; --force re-reads.
@@ -29,6 +32,7 @@ score and ledger, where pulling the same thing again does nothing.
 """
 import argparse
 import fcntl
+import html
 import json
 import re
 import sys
@@ -219,6 +223,55 @@ def fetch_pdf(source_id):
             + (f"; not found: {', '.join(missing)}" if missing else ""))
 
 
+# Some publishers refuse a request that doesn't look like a browser.
+BROWSER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36"
+
+
+def page_text(url):
+    """A web article's readable text: the page with its scripts, styles and
+    tags taken out, one paragraph or heading per line."""
+    request = urllib.request.Request(url, headers={"User-Agent": BROWSER_AGENT})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        page = response.read().decode("utf-8", "replace")
+    page = re.sub(r"(?is)<(script|style|noscript)\b.*?</\1>", "", page)
+    page = re.sub(r"(?i)<(p|h[1-6]|li|br|tr)\b[^>]*>", "\n", page)
+    text = html.unescape(re.sub(r"<[^>]+>", " ", page))
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    return re.sub(r"\n\s*\n+", "\n", text).strip()
+
+
+def ranking(food, by, claim, label, year, url, title, passage, topic, rank=None, note=None):
+    """Record what a published ranking says about a food — a sanity check
+    shown beside the verdict, never part of it (docs/exposure.md).
+
+    The article's text is kept as the source's text (fetched now unless the
+    source already has one) and the passage must be found in it, highlighted
+    there, or nothing but the source is written. Returns the claim id.
+    """
+    import docstore
+    import hazardstore
+    from scripts import research_claims
+    if claim not in exposurestore.CLAIMS:
+        raise ValueError(f"claim must be one of: {', '.join(exposurestore.CLAIMS)}")
+    # Name the food as the catalog does, so the food page finds the ranking.
+    with hazardstore._Read() as conn:
+        food_id = hazardstore._food_id(conn, food)
+        food_name = conn.execute("SELECT name FROM foods WHERE id = ?", (food_id,)).fetchone()[0]
+    source, _ = research_claims.source(None, [topic], url, title)
+    if not docstore.has_text(f"entry:{source['id']}"):
+        docstore.save_entry_text(source["id"], page_text(url))
+    # Find the passage before writing the claim, so a refusal leaves none behind.
+    text = docstore.resolve(f"entry:{source['id']}").get("text", "")
+    if research_claims.find_passage(text, passage) is None:
+        raise ValueError(f"passage not found in {url}; nothing was written. "
+                         "Quote the article exactly as it reads.")
+    entry = research_claims.add(None, [topic], f"{by} {year}: {food_name}, {claim} — {label}")
+    research_claims.value(entry["id"], subject=food_name, measure=exposurestore.RANKING_MEASURE,
+                          amount=rank, basis=claim, year=year, tier=label, by=by)
+    research_claims.link(entry["id"], source["id"], passage=passage, note=note or "")
+    return entry["id"]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -263,6 +316,19 @@ def main(argv=None):
     fact.add_argument("--annotation-id")
     fact.add_argument("--url")
     fact.add_argument("--note")
+
+    rank_cmd = commands.add_parser("ranking", help="record a published pesticide ranking of a food")
+    rank_cmd.add_argument("food")
+    rank_cmd.add_argument("--by", required=True, help="who published it: EWG, Consumer Reports")
+    rank_cmd.add_argument("--claim", required=True, choices=exposurestore.CLAIMS)
+    rank_cmd.add_argument("--label", required=True, help='their words: "Dirty Dozen #2", "very low risk"')
+    rank_cmd.add_argument("--rank", type=float, help="its place on the list, if it has one")
+    rank_cmd.add_argument("--year", type=int, required=True)
+    rank_cmd.add_argument("--url", required=True)
+    rank_cmd.add_argument("--title", required=True, help="the article's citation")
+    rank_cmd.add_argument("--passage", required=True, help="the article's exact words")
+    rank_cmd.add_argument("--topic", required=True, help="research topic id")
+    rank_cmd.add_argument("--note")
     args = parser.parse_args(argv)
 
     try:
@@ -319,6 +385,10 @@ def main(argv=None):
                 basis=args.basis, source_id=args.source_id, annotation_id=args.annotation_id,
                 url=args.url, note=args.note, author="llm")
             print(f"fact {fact_id} recorded (unreviewed)")
+        elif args.command == "ranking":
+            claim_id = ranking(args.food, args.by, args.claim, args.label, args.year, args.url,
+                               args.title, args.passage, args.topic, args.rank, args.note)
+            print(f"ranking {claim_id} recorded (unreviewed)")
     except ValueError as problem:
         print(f"REFUSED  {problem}", file=sys.stderr)
         return 2

@@ -92,6 +92,25 @@ export interface FoodExposure {
   headline: Partial<Record<SampleClaim, ExposureScore>>;
   years: string[];
   measures: StudyMeasure[];
+  rankings: OutsideRanking[];
+}
+
+/** What a published ranking (EWG, Consumer Reports) says about a food — a
+ * sanity check beside the verdict, with the article's own words. */
+export interface OutsideRanking {
+  claim_id: string;
+  by: string | null;
+  year: number | null;
+  claim: SampleClaim | null;
+  label: string | null;
+  rank: number | null;
+  text: string;
+  verdict: string | null;
+  reviewed: boolean;
+  source_id: string | null;
+  source: string | null;
+  url: string | null;
+  passage: string | null;
 }
 
 export interface ContaminantFact {

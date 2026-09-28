@@ -48,6 +48,16 @@ combined. The sample count is always shown.
 health outcomes. EPA *tolerances* are legal limits, not health lines, and are never the safety
 line here. EWG's and Consumer Reports' rankings are shown only as a sanity check.
 
+**What others found (the sanity check).** A published ranking of a food — EWG's Dirty Dozen
+place, a Consumer Reports risk rating — is a research claim (measure `pesticide ranking`, the
+food's name as subject, the ranker in its extra), linked to the article with the passage that
+says it highlighted. The food page's card lists them under "What others found", quoted, and they
+never enter the score. `reference_data.py ranking` records one: it fetches the article's text,
+and refuses unless the passage is found in it. ewg.org refuses downloads, so EWG's list is read
+from a reprint that says so in its note. Consumer Reports worked with Benbrook, whose index this
+app uses, so its agreement is expected rather than independent; EWG ranks residue amount and
+count, not dose.
+
 ## Running it
 
     venv/bin/python3 scripts/reference_data.py pdp-code potatoes PO     # which PDP commodity a food is
@@ -57,6 +67,9 @@ line here. EWG's and Consumer Reports' rankings are shown only as a sanity check
     venv/bin/python3 scripts/reference_data.py score --food potatoes    # latest year + all years
     venv/bin/python3 scripts/reference_data.py fetch-pdf --all          # sources' PDFs + passage pages
     venv/bin/python3 scripts/reference_data.py ledger
+    venv/bin/python3 scripts/reference_data.py ranking kale --by EWG --claim conventional \
+        --label "Dirty Dozen #2" --rank 2 --year 2026 --topic <topic> --url <article> \
+        --title "<citation>" --passage "<the article's exact words>"
 
 The page side: every food page has a pesticide residues card (features/exposure/ExposureCard.tsx),
 each contaminant has a page at /food/contaminants/<id>, and the Claims page opens a source's PDF at

@@ -12,8 +12,10 @@
  * with how often, how much, and its share of the safe dose, linking to its
  * contaminant page; the ones with no EPA dose (with EPA's own words where it
  * says no chronic limit is needed — shown, but still open); the ones tested and never
- * found; and any numbers her studies hold about this food (hazard_measures).
- * The method and its honest limit close the card.
+ * found; any numbers her studies hold about this food (hazard_measures); and
+ * what others published about it (EWG, Consumer Reports), quoted, as a sanity
+ * check that never enters the verdict. The method and its honest limit close
+ * the card.
  *
  * Server: routes/exposure.py (GET /api/exposure/food, POST
  * /api/exposure/food/score). Shapes: ./types.ts; words: ./exposureMath.ts.
@@ -30,7 +32,15 @@ import { useState } from 'react';
 import type { OrganicVerdict } from '../kitchen/types';
 import { getFoodExposure, scoreFood } from './api';
 import { barWidth, orderTerms, residueWords, shareWords, termBand, yearsWords } from './exposureMath';
-import type { ExposureMethod, ExposureScore, ExposureTerm, FoodExposure, SampleClaim, StudyMeasure } from './types';
+import type {
+  ExposureMethod,
+  ExposureScore,
+  ExposureTerm,
+  FoodExposure,
+  OutsideRanking,
+  SampleClaim,
+  StudyMeasure,
+} from './types';
 import styles from './Exposure.module.css';
 
 export const BAND_CLASS: Record<OrganicVerdict, string> = {
@@ -129,6 +139,7 @@ function ExposureBody({ food, method, name }: { food: FoodExposure; method: Expo
       {score ? <ScoreWorking score={score} method={method} /> : null}
 
       {food.measures.length ? <StudyNumbers measures={food.measures} /> : null}
+      {food.rankings?.length ? <OthersFound rankings={food.rankings} /> : null}
 
       <p className={styles.method}>
         How this is worked out: for each pesticide, the average residue over every sample tested (a sample where
@@ -283,6 +294,39 @@ function StudyNumbers({ measures }: { measures: StudyMeasure[] }) {
               ) : null}
               {' · '}
               {measure.review === 'unreviewed' ? 'not reviewed yet' : `you ${measure.review} this`}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** What others published about this food, each in the article's own words —
+ * a sanity check on the verdict above, never part of it. */
+function OthersFound({ rankings }: { rankings: OutsideRanking[] }) {
+  return (
+    <div className={styles.working}>
+      <div className={styles.subHead}>What others found · a sanity check, not part of the verdict</div>
+      <ul className={styles.termList}>
+        {rankings.map((ranking) => (
+          <li key={ranking.claim_id} className={styles.termRow}>
+            <div className={styles.termTop}>
+              <span className={styles.termName}>
+                {ranking.by} {ranking.year ?? ''}
+              </span>
+              <span className={styles.termShare}>{ranking.label}</span>
+            </div>
+            <div className={styles.termDetail}>
+              {ranking.claim ? `${CLAIM_WORDS[ranking.claim]} · ` : ''}
+              {ranking.passage ? <>&ldquo;{ranking.passage}&rdquo; </> : null}
+              {ranking.url ? (
+                <a href={ranking.url} target="_blank" rel="noreferrer">
+                  {ranking.source ?? 'source'}
+                </a>
+              ) : null}
+              {' · '}
+              {ranking.reviewed ? 'you reviewed this' : 'not reviewed yet'}
             </div>
           </li>
         ))}
