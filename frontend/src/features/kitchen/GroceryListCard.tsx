@@ -6,14 +6,17 @@
  * remove button, then a "Got it" group for what's been checked off. Around
  * the list: the scan-receipt banners and the bulk buttons. Each unchecked row
  * also gets a buy-organic chip that opens a popup with the why
- * (OrganicVerdict.tsx), including where the food comes from on the map. Every write goes through the actions KitchenPage.tsx
- * passes in (useKitchenData.ts); a logged-out visitor sees the list read-only
- * and no organic chips.
+ * (OrganicVerdict.tsx), including where the food comes from on the map, or a
+ * "Request linking" button when nothing is traced. List writes go through the
+ * actions KitchenPage.tsx passes in (useKitchenData.ts); a request refetches
+ * the kitchen payload so its "Requested" state shows. A logged-out visitor sees
+ * the list read-only and no organic chips.
  */
 import { useRef, useState } from 'react';
 import { groupGroceryItems, kitchenCats, nextSafetyTag } from './catalogHelpers';
 import { EstimateBar, OrganicChip, OrganicModal, useListVerdicts } from './OrganicVerdict';
 import { locationOptions, locationValue } from './receiptHelpers';
+import { useInvalidateKitchen } from './useKitchenData';
 import type { GroceryItem, KitchenData, ParsedReceiptMeta } from './types';
 import styles from './kitchen.module.css';
 
@@ -168,6 +171,7 @@ export function GroceryListCard({
   const verdicts = useListVerdicts(items.map((i) => i.name), !isPublic);
   const [organicOpen, setOrganicOpen] = useState<string | null>(null);
   const organicItem = organicOpen ? verdicts.byName.get(organicOpen) : undefined;
+  const invalidateKitchen = useInvalidateKitchen();
 
   function handleToggle(item: GroceryItem) {
     const wasLastUnchecked = !item.checked && unchecked.length === 1;
@@ -418,6 +422,8 @@ export function GroceryListCard({
           item={organicItem}
           data={verdicts.data}
           sources={data.ecosystem?.sources || []}
+          requested={data.eco_requested}
+          onRequested={invalidateKitchen}
           onClose={() => setOrganicOpen(null)}
         />
       ) : null}

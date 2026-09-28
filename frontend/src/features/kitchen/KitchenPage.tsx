@@ -269,6 +269,9 @@ export function KitchenPage() {
           allRecipes={recipes}
           sources={data.ecosystem?.sources || []}
           ecoRecipe={data.eco_recipes?.find((r) => r.id === viewedRecipe.id) ?? null}
+          ecoRequested={data.eco_requested}
+          onRequested={invalidate}
+          onRequestError={push}
           onBack={() => {
             setRecipeView(null);
             window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });

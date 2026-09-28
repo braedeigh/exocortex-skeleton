@@ -86,6 +86,12 @@ export interface MealDefaults {
 
 export type SafetyTag = '' | 'safe' | 'suspect' | 'inflammatory';
 
+/** Open "Request linking" requests: by food id, and by normalized name for foods filed by name. */
+export interface EcoRequested {
+  food_ids: number[];
+  names: string[];
+}
+
 /** The kitchen slice of /api/data/kitchen the page reads. */
 export interface KitchenData {
   server_date?: string;
@@ -108,6 +114,8 @@ export interface KitchenData {
   ecosystem?: { sources?: EcoSource[] };
   /** Recipes with each line resolved to its catalog food (server.py → sourcestore.map_recipes). */
   eco_recipes?: EcoRecipe[];
+  /** Foods with an open "Request linking" request (source_requests) — see requestState.ts. */
+  eco_requested?: EcoRequested;
   meal_defaults?: MealDefaults;
 }
 

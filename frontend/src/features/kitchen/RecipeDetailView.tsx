@@ -8,18 +8,23 @@
  * with one line — "3 of 9 traced" (traceSummary.ts). Each traced ingredient's
  * name opens its food's page under Research, and each source name opens that
  * source on the map. Untraced ones are listed with the closest-named source
- * as a hint only. KitchenPage.tsx passes in the recipe, the map's sources and
- * the recipe with its lines resolved to foods (eco_recipes).
+ * as a hint only, plus a "Request linking" button (ecosystem/RequestLinkButton)
+ * that queues the food for research — it doesn't link anything; requestState.ts
+ * says whether it's already asked. KitchenPage.tsx passes in the recipe, the
+ * map's sources, the recipe with its lines resolved to foods (eco_recipes) and
+ * the open requests (eco_requested).
  */
 import { Link } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import { ecoRecipeSourcing } from '../ecosystem/ecoMatch';
+import { RequestLinkButton } from '../ecosystem/RequestLinkButton';
 import type { EcoRecipe } from '../ecosystem/types';
 import { SourceDot, SourceLink } from './ComesFrom';
 import { walkRecipeChain } from './recipeHelpers';
 import { Section } from './Section';
+import { isLinkRequested } from './requestState';
 import { traceSummary } from './traceSummary';
-import type { EcoSource, Recipe } from './types';
+import type { EcoRequested, EcoSource, Recipe } from './types';
 import styles from './kitchen.module.css';
 
 export interface RecipeDetailViewProps {
@@ -28,6 +33,11 @@ export interface RecipeDetailViewProps {
   sources: EcoSource[];
   /** The same recipe with each line resolved to its food — what tracing follows. */
   ecoRecipe: EcoRecipe | null;
+  /** Foods already queued for research, so their button reads "Requested". */
+  ecoRequested?: EcoRequested;
+  /** A request went through — refetch so eco_requested catches up. */
+  onRequested?: () => void;
+  onRequestError?: (message: string) => void;
   onBack: () => void;
   onEdit: () => void;
   onSendToList: () => void;
@@ -45,6 +55,9 @@ export function RecipeDetailView({
   allRecipes,
   sources,
   ecoRecipe,
+  ecoRequested,
+  onRequested,
+  onRequestError,
   onBack,
   onEdit,
   onSendToList,
@@ -188,7 +201,8 @@ export function RecipeDetailView({
                 <div className={styles.muted13}>Nothing traced yet.</div>
               )}
               {/* Untraced ingredients: each on its own row, with the closest-named source as a
-                  hint only — a guess from shared words, never drawn as a trace. */}
+                  hint only — a guess from shared words, never drawn as a trace — and, for her,
+                  a button that queues the food for research (by id, or by name if uncataloged). */}
               {sourcing.place.length ? (
                 <div style={{ marginTop: 10 }}>
                   <div className={styles.muted12} style={{ fontWeight: 700 }}>
@@ -201,6 +215,16 @@ export function RecipeDetailView({
                       </span>
                       {p.suggestion ? <span className={styles.muted12}>looks like: {p.suggestion.name}?</span> : null}
                       {p.ing.food_id == null ? <span className={styles.muted12}>not in your food catalog</span> : null}
+                      {isPublic ? null : (
+                        <RequestLinkButton
+                          foodId={p.ing.food_id ?? null}
+                          foodName={p.ing.food_name || p.ing.item || ''}
+                          requested={isLinkRequested(ecoRequested, p.ing.food_id, p.ing.food_name || p.ing.item || '')}
+                          from={`recipe:${recipe.id}`}
+                          onRequested={onRequested}
+                          onError={onRequestError}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>

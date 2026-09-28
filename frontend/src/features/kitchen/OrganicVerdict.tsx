@@ -6,7 +6,8 @@
  * (from general knowledge), and draws them. GroceryListCard.tsx puts an
  * OrganicChip on every food row; tapping it opens OrganicModal: the verdict, a
  * summary of why, where the food comes from (ComesFrom.tsx, from the map
- * sources linked to its food), and one button into the food's own page under Research
+ * sources linked to its food — or, when none are, a "Request linking" button
+ * that queues it for research, ecosystem/RequestLinkButton.tsx), and one button into the food's own page under Research
  * (features/research/FoodPage.tsx), which holds the claims, studies,
  * contaminants and her review. The EstimateBar above the list starts an
  * estimate run for items with none.
@@ -25,10 +26,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { ecoSourcesForFood } from '../ecosystem/ecoMatch';
+import { RequestLinkButton } from '../ecosystem/RequestLinkButton';
 import { getListVerdicts, runEstimates } from './api';
 import { ComesFrom } from './ComesFrom';
 import { Modal } from './Modal';
-import type { EcoSource, ListVerdictItem, ListVerdicts, OrganicVerdict, VerdictReview } from './types';
+import { isLinkRequested } from './requestState';
+import type { EcoRequested, EcoSource, ListVerdictItem, ListVerdicts, OrganicVerdict, VerdictReview } from './types';
 import styles from './OrganicVerdict.module.css';
 
 const VERDICTS_KEY = ['kitchen', 'list-verdicts'] as const;
@@ -153,14 +156,21 @@ export function OrganicModal({
   item,
   data,
   sources,
+  requested,
+  onRequested,
   onClose,
 }: {
   item: ListVerdictItem;
   data: ListVerdicts;
   /** Every map source, with its links; the ones linked to this item's food are shown. */
   sources: EcoSource[];
+  /** Foods already queued for research, so the button reads "Requested". */
+  requested?: EcoRequested;
+  /** A request went through — refetch so eco_requested catches up. */
+  onRequested?: () => void;
   onClose: () => void;
 }) {
+  const [requestError, setRequestError] = useState('');
   const words = data.vocab.verdicts;
   const { research, estimate } = item;
   const summary = research?.reasoning || estimate?.summary;
@@ -184,11 +194,24 @@ export function OrganicModal({
           <div className={styles.meta}>Not estimated yet — use “Estimate” above the list.</div>
         )}
         {summary ? <p className={styles.summary}>{summary}</p> : null}
-        {item.food_id != null ? (
-          <div className={styles.comesFrom}>
-            <ComesFrom sources={ecoSourcesForFood(item.food_id, sources)} />
-          </div>
-        ) : null}
+        {/* Where it comes from: its linked sources, or a button that queues it for research.
+            A food not in the catalog yet has no sources, so it's requested by name. */}
+        <div className={styles.comesFrom}>
+          <ComesFrom
+            sources={item.food_id != null ? ecoSourcesForFood(item.food_id, sources) : []}
+            untraced={
+              <RequestLinkButton
+                foodId={item.food_id ?? null}
+                foodName={item.name}
+                requested={isLinkRequested(requested, item.food_id, item.name)}
+                from="grocery"
+                onRequested={onRequested}
+                onError={setRequestError}
+              />
+            }
+          />
+          {requestError ? <div className={styles.meta}>Couldn’t request: {requestError}</div> : null}
+        </div>
         <Link to="/research/foods/$name" params={{ name: item.name }} className={styles.pageBtn}>
           Read the research →
         </Link>
