@@ -13,13 +13,17 @@
  * button at the top (`PackagedAdder`, which saves into a chosen meal at once),
  * and a meal's own add-a-food search when "Packaged" is on (`FoodSearch`).
  * Data: GET /api/nutrition/packaged (routes/nutrition.py).
- * The camera is ./BarcodeScanner.tsx, loaded only when opened.
+ * The camera is ./BarcodeScanner.tsx, loaded only when opened. A product that
+ * isn't listed can be made from photos of its label (./LabelReader.tsx),
+ * offered at once when a barcode finds nothing; those products (tagged
+ * "Your label") come first in later searches.
  *
  * Prompt: "no packaged or branded food support, and no barcode lookup" — "yeah sure".
  */
 import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { searchPackaged } from './api';
+import { LabelReader } from './LabelReader';
 import type { MealItem, PackagedFood } from './types';
 import styles from './Nutrition.module.css';
 
@@ -30,6 +34,7 @@ export function PackagedSearch({ onPick }: { onPick: (item: MealItem) => void })
   const [text, setText] = useState('');
   const [debounced, setDebounced] = useState('');
   const [scanning, setScanning] = useState(false);
+  const [readingLabel, setReadingLabel] = useState(false);
   // A debounce: search 300 ms after the typing stops.
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(text.trim()), 300);
@@ -86,7 +91,9 @@ export function PackagedSearch({ onPick }: { onPick: (item: MealItem) => void })
                     {[brandOf(food), servingOf(food), `barcode ${food.gtin_upc}`].filter(Boolean).join(' · ')}
                   </span>
                 </span>
-                <span className={styles.resultTag}>label · {food.nutrient_count} nutrients</span>
+                <span className={styles.resultTag}>
+                  {food.data_type === 'label_photo' ? 'your label' : 'label'} · {food.nutrient_count} nutrients
+                </span>
               </button>
             </li>
           ))}
@@ -99,6 +106,21 @@ export function PackagedSearch({ onPick }: { onPick: (item: MealItem) => void })
           ) : null}
         </ul>
       ) : null}
+      {/* Not listed: read its label from a photo — offered at once when a barcode found nothing. */}
+      {readingLabel || (isBarcode && results.data && !results.data.foods.length) ? (
+        <LabelReader
+          barcode={isBarcode ? debounced.replace(/\D/g, '') : ''}
+          onSaved={(food) => {
+            onPick(mealItem(food));
+            setText('');
+            setReadingLabel(false);
+          }}
+        />
+      ) : (
+        <button type="button" className={styles.chip} onClick={() => setReadingLabel(true)}>
+          Not listed? Read its label from a photo
+        </button>
+      )}
       <p className={styles.muted}>
         Packaged foods carry the maker’s label figures as USDA lists them, not USDA’s own lab analysis. A label
         gives 10–15 nutrients, and the rest show as unknown.

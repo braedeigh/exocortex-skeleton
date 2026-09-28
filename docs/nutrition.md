@@ -85,6 +85,32 @@ never 0, and "What to add" names it in `unknown_in`. Every nutrient a label *doe
 lists the product under `labelled`, and the page says "From the package label (the
 maker's figures, not USDA's lab)".
 
+## Her own products: read off a label photo
+
+When USDA hasn't got a product (store brands often aren't listed; H-E-B's milk wasn't), she
+can photograph its Nutrition Facts panel from the packaged search ("Not listed? Read its
+label from a photo", offered at once when a barcode finds nothing). `label_products.py` saves
+the photos under `nutrition_labels/` in the data dir and opens a **helper Claude session**
+(`routes/helpers.py` `mint_helper`, the same door the Kitchen's receipt scan uses) with a
+brief that says exactly what to write: `<photo>.parsed.json`, every figure **per serving,
+as printed**, only from a fixed list of label rows, and nothing guessed. The page polls
+until it lands, then shows the draft beside the photo for her to check and correct.
+
+Only **Save** makes a product. The server converts per serving to per 100 g (or 100 ml,
+as USDA does for drinks) using the serving's metric amount. A figure left blank, or given
+only as a % Daily Value, isn't stored, so it counts as unknown, never zero. The product
+gets a **negative id** so it can't collide with a USDA FDC id. `fdcdb.food` hands negative
+ids to `label_products.food`, so meals, totals and "where it comes from" treat it like
+any food, and `nutrition.totals` lists it under `labelled`. Its barcode means the next scan
+finds it, ahead of USDA's results. Its name links to its label photo.
+
+A product record holds only what's printed on the package (name, brand, barcode, serving,
+ingredients, figures, the photo's file name), nothing about her or her meals. That's
+deliberate. The owner's longer aim is a shared product database that fills itself as
+people scan (eventually a paid tier with an API). The collection is kept shareable so it
+can seed that without being edited. Not built yet: sharing, accounts, or sending products
+to Open Food Facts.
+
 ## Nutrient pages: deficiency text and the low-histamine list
 
 Each nutrient's name on the Nutrients page opens `/food/nutrients/<key>`: the day's total,

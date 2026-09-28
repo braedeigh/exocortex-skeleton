@@ -10,7 +10,14 @@ Bad input comes back as a 400 with the reason.
                                           nutrient to whether the body stores it (nutrient_storage.py)
     GET  /api/nutrition/search?q=      -> USDA foods whose name holds every word
     GET  /api/nutrition/packaged?q=    -> packaged products (USDA Branded Foods, the makers' labels) by
-                                          name or brand; a q of 8+ digits (typed or scanned) is a barcode
+                                          name or brand; a q of 8+ digits (typed or scanned) is a barcode.
+                                          Her own label-photo products (label_products.py) come first
+    POST /api/nutrition/labels         multipart photo(s) [+ barcode] -> {job}: the photos saved and a helper
+                                          Claude session sent to read them (label_products.reading_brief)
+    GET  /api/nutrition/labels/<job>   -> {status: reading|ready|failed|missing, draft?, error?}
+    GET  /api/nutrition/labels/<name>/photo -> the photo itself, to check the figures against
+    POST /api/nutrition/label-products {draft, photo} -> {food}: a checked draft saved as a product
+    GET  /api/nutrition/label-products/<n>/photo -> product -n's label photo (its food name links here)
     GET  /api/nutrition/rank/<key>?per=100g|100kcal&q=&limit=&histamine=low
                                        -> every USDA food ranked by that nutrient, richest first,
                                           each rated against the SIGHI low-histamine list (histamine.py);
@@ -39,16 +46,20 @@ Prompt that produced this file: "make my own kind of like, Cronometer so I can
 plug in my diet and see how to optimize it for my health overall."
 """
 from datetime import datetime
+from pathlib import Path
 
-from flask import jsonify, request
+from flask import jsonify, request, send_from_directory
 
 import fdcdb
 import histamine
+import label_products
 import measures
 import nutrient_facts
 import nutrient_storage
 import nutrition
 import store
+from routes import helpers
+from routes.kitchen import shared
 
 
 def _refused(message):
@@ -259,9 +270,65 @@ def register(app):
         # Packaged products by name or brand; a string of digits is a barcode typed in.
         text = (request.args.get("q") or "").strip()
         digits = text.replace(" ", "").replace("-", "")
+        # Her own label-photo products come first: she read them because USDA hadn't got them.
         with fdcdb.session() as conn:
             if digits.isdigit() and len(digits) >= 8:
-                foods = fdcdb.lookup_barcode(conn, digits)
+                foods = label_products.lookup_barcode(digits) + fdcdb.lookup_barcode(conn, digits)
             else:
-                foods = fdcdb.search_packaged(conn, text)
+                foods = label_products.search(text) + fdcdb.search_packaged(conn, text)
         return jsonify({"foods": foods})
+
+    @app.route("/api/nutrition/labels", methods=["POST"])
+    def nutrition_label_read():
+        # Save the label photos, then hand them to a helper Claude session to read (like the receipt scan).
+        photos = [f for f in request.files.getlist("photo") if f and f.filename][:4]
+        if not photos:
+            return _refused("no photo uploaded")
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        folder = label_products.labels_dir()
+        shared.chmod_for_claude(folder)
+        saved = []
+        for index, upload in enumerate(photos):
+            extension = Path(upload.filename).suffix.lower() or ".jpg"
+            if extension not in label_products.PHOTO_EXTENSIONS:
+                return _refused(f"unsupported photo type: {extension}")
+            target = folder / f"label-{stamp}-{index + 1}{extension}"
+            upload.save(str(target))
+            shared.chmod_for_claude(target)
+            saved.append(target)
+        barcode = "".join(ch for ch in request.form.get("barcode", "") if ch.isdigit())
+        brief = label_products.reading_brief([str(path) for path in saved], barcode)
+        payload, status = helpers.mint_helper("label", f"label-{stamp}"[:39], brief, f"Label read {stamp}")
+        if status != 200:
+            return jsonify(payload), status
+        return jsonify({"job": saved[0].name, "photos": [path.name for path in saved]})
+
+    @app.route("/api/nutrition/labels/<name>")
+    def nutrition_label_job(name):
+        # One label read: still reading, ready with its draft to check, or failed.
+        return jsonify(label_products.job_status(name))
+
+    @app.route("/api/nutrition/labels/<name>/photo")
+    def nutrition_label_photo(name):
+        # A label photo, so the figures can be checked against it.
+        if not label_products._safe_name(name):
+            return _refused("bad photo name")
+        return send_from_directory(str(label_products.labels_dir()), name)
+
+    @app.route("/api/nutrition/label-products/<int:number>/photo")
+    def nutrition_label_product_photo(number):
+        # A saved product's label photo — where its food name links, as a USDA food's links to USDA.
+        product = label_products.product(-number)
+        if not product or not product.get("photo"):
+            return jsonify({"error": "no photo for that product"}), 404
+        return send_from_directory(str(label_products.labels_dir()), product["photo"])
+
+    @app.route("/api/nutrition/label-products", methods=["POST"])
+    def nutrition_label_save():
+        # Save a checked label draft as a product; answers with it as a packaged-search result.
+        body = request.get_json(silent=True) or {}
+        try:
+            product = label_products.save_product(body.get("draft") or {}, photo=body.get("photo"))
+        except ValueError as exc:
+            return _refused(str(exc))
+        return jsonify({"food": label_products.as_result(product)})

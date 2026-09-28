@@ -761,3 +761,37 @@ a.rowNameBtn {
   border-radius: 10px;
   background: #000;
 }
+
+/* Making a product from label photos (LabelReader.tsx). */
+.labelReader {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.labelPhotos {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.labelPhoto {
+  max-height: 220px;
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  font-size: 14px;
+}
+
+.labelRow > span:first-child {
+  flex: 0 0 9.5em;
+  color: var(--text-muted);
+}

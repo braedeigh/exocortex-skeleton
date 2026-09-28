@@ -1,7 +1,7 @@
 /**
  * api.ts — the nutrition endpoints (routes/nutrition.py) over the shared client.
  */
-import { api } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import type {
   FdcFood,
   HighlightedFood,
@@ -11,6 +11,8 @@ import type {
   NutrientRanking,
   NutritionDay,
   NutritionPlan,
+  LabelDraft,
+  LabelJob,
   PackagedFood,
   RankPer,
   SexSetting,
@@ -95,4 +97,33 @@ export function getMeasures(fdcIds: number[], signal?: AbortSignal) {
 /** Packaged products by name or brand; a query of 8+ digits is read as a barcode. */
 export function searchPackaged(text: string, signal?: AbortSignal) {
   return api.get<{ foods: PackagedFood[] }>(`/api/nutrition/packaged?${new URLSearchParams({ q: text })}`, signal);
+}
+
+/** Send label photos to be read by a helper Claude session; answers with the job to watch. */
+export async function readLabel(photos: File[], barcode: string) {
+  const form = new FormData();
+  photos.forEach((photo) => form.append('photo', photo));
+  if (barcode) form.append('barcode', barcode);
+  // Multipart, so not the shared JSON client; same 401 and error handling.
+  const res = await fetch('/api/nutrition/labels', { method: 'POST', body: form, credentials: 'include' });
+  if (res.status === 401) {
+    window.location.href = '/login';
+    throw new ApiError(401, 'Unauthorized');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.error || `Upload failed (${res.status})`);
+  return data as { job: string; photos: string[] };
+}
+
+export function getLabelJob(job: string, signal?: AbortSignal) {
+  return api.get<LabelJob>(`/api/nutrition/labels/${encodeURIComponent(job)}`, signal);
+}
+
+export function labelPhotoUrl(name: string) {
+  return `/api/nutrition/labels/${encodeURIComponent(name)}/photo`;
+}
+
+/** Save a checked label draft as her own product. */
+export function saveLabelProduct(draft: LabelDraft, photo: string) {
+  return api.post<{ food: PackagedFood }>('/api/nutrition/label-products', { draft, photo });
 }

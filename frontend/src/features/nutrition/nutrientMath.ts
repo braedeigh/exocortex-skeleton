@@ -16,6 +16,7 @@ export const DATASET_TAGS: Record<FdcFood['data_type'], string> = {
   sr_legacy_food: 'SR',
   survey_fndds_food: 'FNDDS',
   branded_food: 'Label',
+  label_photo: 'Your label',
 };
 
 export type RowGroup = 'over' | 'under' | 'met' | 'untargeted';
@@ -63,6 +64,8 @@ export function barShare(amount: number, judgement: Judgement | undefined): numb
 
 // Link a food to its source: its own page on USDA FoodData Central, by FDC id.
 export function fdcFoodUrl(fdcId: number): string {
+  // A product she read off a label photo has a negative id and no USDA page: link its photo instead.
+  if (fdcId < 0) return `/api/nutrition/label-products/${-fdcId}/photo`;
   return `https://fdc.nal.usda.gov/food-details/${fdcId}/nutrients`;
 }
 

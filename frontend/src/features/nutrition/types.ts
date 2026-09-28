@@ -177,7 +177,8 @@ export interface HighlightedFood {
 
 export interface FdcFood {
   fdc_id: number;
-  data_type: 'foundation_food' | 'sr_legacy_food' | 'survey_fndds_food' | 'branded_food';
+  /** label_photo = her own product, read by AI off a label photo and checked by her (label_products.py). */
+  data_type: 'foundation_food' | 'sr_legacy_food' | 'survey_fndds_food' | 'branded_food' | 'label_photo';
   description: string;
   category: string | null;
 }
@@ -241,4 +242,42 @@ export interface PackagedFood extends FdcFood {
   household_serving: string | null;
   /** How many nutrients the label gives — usually 10–15 of the ~30 tracked. */
   nutrient_count: number;
+}
+
+/** One figure off a label photo, per serving as printed (label_products.clean_draft). */
+export interface LabelFigure {
+  amount: number | null;
+  /** The unit it's stored in: kcal, g, mg or mcg. */
+  unit: string;
+  printed_unit?: string;
+  dv_percent?: number | null;
+}
+
+/** What the AI read off a label photo, for her to check before saving. */
+export interface LabelDraft {
+  name: string;
+  brand: string;
+  barcode: string;
+  serving_text: string;
+  serving_amount: number | null;
+  serving_unit: 'g' | 'ml';
+  ingredients: string;
+  nutrients: Record<string, LabelFigure>;
+  unreadable: string[];
+  notes: string;
+}
+
+/** One row of a Nutrition Facts panel; core rows are on every US label. */
+export interface LabelField {
+  key: string;
+  words: string;
+  unit: string;
+  core: boolean;
+}
+
+export interface LabelJob {
+  status: 'reading' | 'ready' | 'failed' | 'missing';
+  draft?: LabelDraft;
+  fields?: LabelField[];
+  error?: string | null;
 }

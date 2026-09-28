@@ -444,6 +444,10 @@ def search(conn, text, limit=20):
 
 def food(conn, fdc_id):
     """One food with every nutrient amount (per 100 g) and its portions, or None."""
+    # A product read off her label photo has a negative id and lives in label_products.py, not here.
+    if isinstance(fdc_id, int) and fdc_id < 0:
+        import label_products
+        return label_products.food(fdc_id)
     head = conn.execute("SELECT fdc_id, data_type, description, category FROM fdc_foods WHERE fdc_id = ?",
                         (fdc_id,)).fetchone()
     if not head:

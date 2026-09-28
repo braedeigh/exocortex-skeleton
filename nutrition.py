@@ -16,8 +16,9 @@ It is built to show how sure each number is, not just the number:
     lists those foods under `filled`, so an estimate never passes as a
     measurement.
   - **A package label is named as one.** A packaged product's figures are
-    its manufacturer's label, as USDA's Branded Foods copies it, not a lab
-    measurement; the total lists those foods under `labelled`. A nutrient
+    its manufacturer's label — as USDA's Branded Foods copies it, or read off
+    her own photo of it (label_products.py) — not a lab measurement; the total
+    lists those foods under `labelled`. A nutrient
     the label doesn't give is missing, like any other unknown.
   - **A range where USDA gives one.** Foundation foods come with the min and
     max of the samples USDA measured; the day's low / high are those added up.
@@ -59,6 +60,9 @@ import fdcdb
 MEALS = "nutrition_meals"
 SETTINGS = "nutrition_settings"
 HIGHLIGHTS = "nutrition_highlights"
+
+# Figures off a package label: USDA's copy of the maker's (Branded Foods), or her own photo read by AI.
+LABEL_TYPES = (fdcdb.BRANDED, "label_photo")
 
 # FoodData Central's own site, where every food has a page under its FDC id.
 FDC_URL = "https://fdc.nal.usda.gov/"
@@ -133,7 +137,7 @@ def totals(conn, items):
     `missing` the foods USDA has no figure for, so the total is a floor, not
     the whole, `filled` the foods whose figure came from their fill_from
     entry instead of their own, `labelled` the foods whose figure is a
-    package label's (fdcdb.py, Branded Foods), and `by_food` each food's share of the
+    package label's (fdcdb.py Branded Foods, or label_products.py), and `by_food` each food's share of the
     amount — [{fdc_id, label, meals, amount}], a food eaten in two meals
     counted once, richest first.
     """
@@ -163,7 +167,7 @@ def totals(conn, items):
                 entry["missing"].append(name)
                 continue
             # A figure off a package label says so.
-            if source["data_type"] == fdcdb.BRANDED and name not in entry["labelled"]:
+            if source["data_type"] in LABEL_TYPES and name not in entry["labelled"]:
                 entry["labelled"].append(name)
             unit = _unit(found["unit"])
             entry["unit"] = entry["unit"] or unit
