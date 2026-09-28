@@ -44,6 +44,23 @@ def test_unknown_words_fall_back_to_the_most_cautious():
     assert (proposal["transparency"], proposal["geo_source"]) == ("opaque", "guess")
 
 
+def test_a_label_with_several_ingredients_and_no_parts_is_refused():
+    proposal, problems = provenance.clean_answer(
+        _answer(ingredients=["beef bones", "water", "onions", "vinegar"]))
+    assert proposal is None and "3 ingredients" in problems[0]
+
+
+def test_one_ingredient_plus_water_needs_no_parts():
+    proposal, _ = provenance.clean_answer(_answer(ingredients=["quinoa", "Water"]))
+    assert proposal is not None and proposal["parts"] == []
+
+
+def test_fewer_parts_than_listed_ingredients_is_said_but_kept():
+    parts = [{"ingredient": "cream", "transparency": "partial", "geo_source": "proxy"}]
+    proposal, problems = provenance.clean_answer(_answer(ingredients=["cream", "sugar"], parts=parts))
+    assert proposal is not None and "1 parts for 2" in problems[-1]
+
+
 def test_worst_parts_picks_least_traceable_and_worst_for_health_separately():
     parts = [
         {"seq": 0, "transparency": "disclosed", "geo_source": "proxy", "health_concern": "high"},

@@ -97,6 +97,19 @@ def test_a_product_answer_keeps_every_part_and_names_the_worst(data_dir):
             proposal["worst_health_seq"]) == (["oats", "palm oil"], 1, 1)
 
 
+def test_a_product_answered_without_its_parts_is_asked_again(data_dir):
+    food = foodstore.add_food("bone broth")
+    product = foodstore.add_product(food, "Brand bone broth")
+    key = f"product:{product}"
+    bare = _answer(key, ingredients=["beef bones", "water", "onions", "vinegar"])
+    parts = [{"ingredient": name, "place": "US", "transparency": "partial", "geo_source": "guess",
+              "health_concern": "low"} for name in ("beef bones", "onions", "vinegar")]
+    replies = iter([[bare], [dict(bare, parts=parts)]])
+    saved, _, failures = propose_sources.propose(
+        proposalstore.targets(only="products"), ask=lambda prompt: json.dumps(next(replies)), run_id="t")
+    assert (len(saved), failures, len(proposalstore.live()[0]["parts"])) == (1, [], 3)
+
+
 def test_the_quote_travels_from_the_proposer_to_the_checker(data_dir):
     food = foodstore.add_food("quinoa")
     _propose(proposalstore.targets(), [_answer(f"food:{food}")])

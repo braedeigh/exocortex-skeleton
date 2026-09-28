@@ -109,6 +109,18 @@ def _parts(items, problems):
     return out
 
 
+# Ingredients that don't need a place of their own. Water is everywhere, so a
+# label that adds only water to one ingredient still counts as one ingredient.
+_PLACELESS_INGREDIENTS = ("water", "filtered water")
+
+
+def label_ingredients(answer):
+    """The ingredient list the answer copied off the label, water left out."""
+    items = answer.get("ingredients") if isinstance(answer, dict) else None
+    names = [_text(item, 120) for item in items] if isinstance(items, list) else []
+    return [name for name in names if name and name.lower() not in _PLACELESS_INGREDIENTS]
+
+
 def clean_answer(answer):
     """Turn one model answer into (proposal, problems).
 
@@ -146,6 +158,15 @@ def clean_answer(answer):
 
     radius = _number(place.get("radius_km"), 0, 3000)
     parts = _parts(answer.get("parts"), problems)
+
+    # Refuse a several-ingredient product that isn't broken into parts. The
+    # model states the label's list, so whether a product needs parts is its
+    # own words, not its whim; the caller asks again once.
+    ingredients = label_ingredients(answer)
+    if len(ingredients) >= 2 and not parts:
+        return None, [f"the label lists {len(ingredients)} ingredients but no parts were given"]
+    if len(ingredients) >= 2 and len(parts) < len(ingredients):
+        problems.append(f"{len(parts)} parts for {len(ingredients)} listed ingredients")
     proposal = {
         "name": _text(answer.get("name") or answer.get("food"), 200),
         "summary": _text(answer.get("summary"), 800),

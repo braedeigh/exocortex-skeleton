@@ -85,7 +85,8 @@ For each item below, answer with one object:
 - "usda_commodity": for anything grown or raised in the US, the USDA NASS QuickStats commodity_desc that fits it (e.g. "CATTLE", "CHICKENS", "MILK", "SWEET POTATOES", "RICE"), or null when none fits. The script fetches the county figures itself; don't quote numbers for it.
 - "summary": 1-3 plain sentences: where it comes from and how sure that is.
 - "evidence": a list of {{"url", "title", "quote": a passage copied exactly from that page (one or two sentences), "claim": the one-sentence claim the quote backs}}. At least one when you can find any.
-- "parts": ONLY for a product made of several ingredients: one entry per ingredient in label order, each {{"ingredient", "place": where it's from in words, "transparency", "geo_source", "health_concern": "high"|"some"|"low"|"unknown" — how much it is worth worrying about for health (residues, contaminants, additives), "note"}}. Omit for single-ingredient items.
+- "ingredients": the ingredient list as the label or the product page gives it, one string per ingredient in label order (["organic beef bones", "water", "organic onions", ...]). A whole food with no label is one ingredient: ["kale"]. Look the list up — don't guess it from the name.
+- "parts": REQUIRED whenever "ingredients" names two or more things besides water — broth, ice cream, chips, sauces, spreads, flavoured anything. One entry per ingredient in label order (water may be left out), each {{"ingredient", "place": where it's from in words, "transparency", "geo_source", "health_concern": "high"|"some"|"low"|"unknown" — how much it is worth worrying about for health (residues, contaminants, additives), "note"}}. The top-level place is where the product is made or its main ingredient comes from. Omit "parts" only for a single ingredient; an answer listing several ingredients without parts is refused.
 {improve}
 Items:
 {items}
@@ -259,6 +260,20 @@ def save_answer(target, answer, usda_key, run_id, fetch_usda=provenance.usda_pla
 def propose(targets, ask=run_claude, usda_key="", run_id=""):
     """Ask about `targets` in batches and save each answer.
     Returns (saved [(key, proposal id)], skipped [{item, reason}], failures [{item, error}])."""
+    saved, skipped, failures = _propose_once(targets, ask, usda_key, run_id)
+    # Ask again, once, about every item that failed. A refused answer (a
+    # product listed with no parts) or a timed-out batch usually comes right
+    # the second time; what still fails is reported.
+    if failures:
+        failed_keys = {failure["item"] for failure in failures}
+        retry = [target for target in targets if target["key"] in failed_keys]
+        again_saved, again_skipped, failures = _propose_once(retry, ask, usda_key, run_id)
+        saved += again_saved
+        skipped += again_skipped
+    return saved, skipped, failures
+
+
+def _propose_once(targets, ask, usda_key, run_id):
     saved, skipped, failures = [], [], []
     for start in range(0, len(targets), BATCH_SIZE):
         batch = targets[start:start + BATCH_SIZE]
