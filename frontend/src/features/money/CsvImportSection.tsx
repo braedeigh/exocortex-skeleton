@@ -9,8 +9,10 @@
  * from the line or remembered from last time) and a category. Naming or
  * categorizing one row fills in its merchant's other rows. An included row is
  * tinted orange until she confirms it (tap it, or change anything on it);
- * "Approve all" confirms the rest. Import writes the expenses with their names
- * and learns merchant→name and merchant→category rules for next time.
+ * "Approve all" confirms the rest. Any money-out row can also be marked a
+ * "One-time thing" (OneTimeFields.tsx): on import it's filed into Inventory.
+ * Import writes the expenses with their names and learns merchant→name and
+ * merchant→category rules for next time.
  *
  * Row logic lives in csvImport.ts, the merchant reader in statementMerchant.ts,
  * the server side in routes/money.py (/api/csv/*).
@@ -35,11 +37,13 @@ import {
   needsConfirming,
   prepareRows,
   setRowInclude,
+  setRowOneTime,
   summarizeCsvRows,
 } from './csvImport';
 import { useCsvActions, useCsvFiles } from './useMoneyData';
 import type { PushOptions } from './useMoneyData';
-import type { CsvRow } from './types';
+import { OneTimeChip, OneTimeDetail } from './OneTimeFields';
+import type { CsvRow, OneTimeThing } from './types';
 import styles from './money.module.css';
 
 export interface CsvImportSectionProps {
@@ -202,6 +206,7 @@ export function CsvImportSection({ push }: CsvImportSectionProps) {
                     onInclude={(include) => edit((cur) => setRowInclude(cur, index, include))}
                     onIdentify={(patch) => edit((cur) => identifyRow(cur, index, patch))}
                     onNewCategory={() => newCategory(index)}
+                    onOneTime={(oneTime) => edit((cur) => setRowOneTime(cur, index, oneTime))}
                   />
                 ))}
               </section>
@@ -249,11 +254,12 @@ interface StatementRowProps {
   onInclude: (include: boolean) => void;
   onIdentify: (patch: { title?: string; category?: string }) => void;
   onNewCategory: () => void;
+  onOneTime: (oneTime: OneTimeThing | null) => void;
 }
 
 /** One transaction: tap anywhere on it to confirm; the fields below identify
  * it (and don't count as a tap on the row). */
-function StatementRow({ row, categories, onConfirm, onInclude, onIdentify, onNewCategory }: StatementRowProps) {
+function StatementRow({ row, categories, onConfirm, onInclude, onIdentify, onNewCategory, onOneTime }: StatementRowProps) {
   // A refund shows as "−$x" in the plain colour: it takes that much off spending.
   // Only real money in gets the green "+".
   const refund = isRefund(row);
@@ -329,7 +335,19 @@ function StatementRow({ row, categories, onConfirm, onInclude, onIdentify, onNew
         >
           +
         </button>
+        {/* Only money out can be a one-time purchase. */}
+        {row.amount < 0 ? (
+          <OneTimeChip
+            on={!!row.one_time}
+            onToggle={() => onOneTime(row.one_time ? null : { name: '', shelf: 'durables' })}
+          />
+        ) : null}
       </div>
+      {row.one_time ? (
+        <div className={styles.stmtOneTime} onClick={stop} onKeyDown={stop} role="presentation">
+          <OneTimeDetail value={row.one_time} onChange={onOneTime} namePlaceholder={row.title || undefined} />
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -514,3 +514,67 @@ def test_parsed_receipt_import_404s_without_staged_file(client):
 def test_parsed_receipt_import_404s_for_unknown_expense(client):
     r = _post(client, "/api/expense-receipts/parsed/import", {"eid": "nope"})
     assert r.status_code == 404
+
+
+# --- category kinds + one-time things ------------------------------------------
+
+def test_category_kind_is_set_and_validated(client):
+    _post(client, "/api/budget/category/add", {"name": "Eating Out", "kind": "cut_back"})
+    _post(client, "/api/budget/category/add", {"name": "Rent"})
+    assert _post(client, "/api/budget/category/update", {"name": "Rent", "kind": "recurring"}).status_code == 200
+    assert _post(client, "/api/budget/category/update", {"name": "Rent", "kind": "sometimes"}).status_code == 400
+    assert _post(client, "/api/budget/category/update", {"name": "Nope", "kind": "recurring"}).status_code == 404
+    kinds = {c["name"]: c["kind"] for c in read_budget()["categories"]}
+    assert kinds == {"Eating Out": "cut_back", "Rent": "recurring"}
+
+
+def _seed_expense(**extra):
+    store.write("expenses", {"items": [{"id": "e1", "date": "2026-09-02", "amount": 499.0,
+                                        "category": "Home", "comments": "FUTON SHOP", "title": "Futon Shop", **extra}]})
+
+
+def test_marking_one_time_durable_files_it_into_archivals_once(client):
+    _seed_expense()
+    store.write("buy_list", {"items": [{"name": "Mattress", "kind": "durable"}]})
+    payload = {"id": "e1", "one_time": {"name": "Mattress", "shelf": "durables"}}
+    _post(client, "/api/expense/update", payload)
+    _post(client, "/api/expense/update", payload)  # marking again doesn't file twice
+    archivals = store.read("archivals", {"items": []})["items"]
+    assert [a["name"] for a in archivals] == ["Mattress"]
+    assert "Futon Shop" in archivals[0]["origin"] and "$499.00" in archivals[0]["origin"]
+    assert store.read("buy_list", {"items": []})["items"] == []
+    e = read_expenses()[0]
+    assert e["one_time"] is True
+    assert e["inventory"] == {"shelf": "durables", "name": "Mattress", "id": archivals[0]["id"]}
+
+
+def test_marking_one_time_consumable_restocks_existing_item(client):
+    _seed_expense(amount=12.5, title="Target")
+    store.write("active_inventory", {"items": [{"name": "toilet cleaner", "status": "finished", "ordered_at": ["2026-01-01"]}]})
+    _post(client, "/api/expense/update", {"id": "e1", "one_time": {"name": "Toilet cleaner", "shelf": "consumables"}})
+    items = store.read("active_inventory", {"items": []})["items"]
+    assert len(items) == 1
+    assert items[0]["status"] == "in_use" and items[0]["last_cost"] == "12.50"
+    assert items[0]["ordered_at"] == ["2026-01-01", "2026-09-02"]
+
+
+def test_unmarking_one_time_drops_the_flag_but_keeps_the_inventory_item(client):
+    _seed_expense()
+    _post(client, "/api/expense/update", {"id": "e1", "one_time": {"name": "Mattress", "shelf": "durables"}})
+    _post(client, "/api/expense/update", {"id": "e1", "one_time": None})
+    e = read_expenses()[0]
+    assert "one_time" not in e and "inventory" not in e
+    assert len(store.read("archivals", {"items": []})["items"]) == 1
+
+
+def test_csv_import_files_one_time_rows_into_inventory(client):
+    r = _post(client, "/api/csv/import", {"selections": [
+        {"date": "2026-09-03", "desc": "TARGET 123", "amount": -8.99, "category": "Home", "title": "Target",
+         "one_time": {"name": "Toilet cleaner", "shelf": "consumables"}},
+        {"date": "2026-09-04", "desc": "TARGET 123", "amount": -20, "category": "Home", "title": "Target"},
+    ]})
+    assert r.status_code == 200
+    one, plain = read_expenses()
+    assert one["one_time"] is True and one["inventory"]["shelf"] == "consumables"
+    assert "one_time" not in plain
+    assert [i["name"] for i in store.read("active_inventory", {"items": []})["items"]] == ["Toilet cleaner"]

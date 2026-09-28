@@ -1,3 +1,14 @@
+/**
+ * SpendingBreakdownSection.tsx — the Money page's "Spending by month" card.
+ * Each month opens to an earned-vs-spent gauge, then a split by kind
+ * (Recurring / Can cut back / One-time / Not sorted), then one bar per
+ * category. Tapping a category bar drills into its transactions, where each
+ * can be renamed, recategorized, or given a receipt photo.
+ *
+ * The math lives in moneyMath.ts (groupByMonth, incomeGauge, monthKindSplit,
+ * monthBars). A category's kind is set in Budget setup (BudgetConfigSection.tsx);
+ * one-time things are marked in the statement preview or Recent expenses.
+ */
 import { useState } from 'react';
 import { Section } from './Section';
 import {
@@ -7,9 +18,10 @@ import {
   groupByMonth,
   incomeGauge,
   monthBars,
+  monthKindSplit,
   monthLabel,
 } from './moneyMath';
-import type { Expense, ReceiptEntry } from './types';
+import type { BudgetCategory, Expense, ReceiptEntry } from './types';
 import styles from './money.module.css';
 
 export interface SpendingBreakdownSectionProps {
@@ -18,6 +30,8 @@ export interface SpendingBreakdownSectionProps {
   masked: boolean;
   /** Sorted list for the drill-down recategorize dropdowns. */
   knownCategories: string[];
+  /** Budget categories, for each one's kind in the month split. */
+  categories: BudgetCategory[];
   onUpdateExpense: (patch: { id: string; category?: string; title?: string; learn_label_rule?: boolean }) => void;
   onUploadReceipt: (id: string, file: File) => void;
 }
@@ -99,7 +113,7 @@ function DrillTable({
 }: {
   items: Expense[];
   category: string;
-} & Omit<SpendingBreakdownSectionProps, 'expenses'>) {
+} & Omit<SpendingBreakdownSectionProps, 'expenses' | 'categories'>) {
   const matching = drillTransactions(items, category);
   if (!matching.length) {
     return <div className={styles.drillEmpty}>No transactions.</div>;
@@ -120,7 +134,10 @@ function DrillTable({
                 <td style={{ whiteSpace: 'nowrap' }}>
                   <TitleCell key={`${e.id}:${e.title || ''}`} expense={e} onUpdateExpense={onUpdateExpense} />
                 </td>
-                <td className={styles.mutedText}>{e.comments || ''}</td>
+                <td className={styles.mutedText}>
+                  {e.comments || ''}
+                  {e.one_time ? <span className={styles.dupTag}>one-time</span> : null}
+                </td>
                 <td style={{ textAlign: 'center' }}>
                   <ReceiptCell expense={e} receipt={receiptsMap[e.id]} onUploadReceipt={onUploadReceipt} />
                 </td>
@@ -201,6 +218,27 @@ function IncomeGaugeBar({ items, masked }: { items: Expense[]; masked: boolean }
   );
 }
 
+/** The month's spending by kind, as a row of small figures: a label over
+ * an amount. No colour on purpose: the gauge and category bars right around
+ * it already use the palette, and matching hues would read as the same thing.
+ * Hidden when nothing is sorted yet, since a lone "Not sorted" says nothing. */
+function KindSplit({ items, categories, masked }: { items: Expense[]; categories: BudgetCategory[]; masked: boolean }) {
+  const split = monthKindSplit(items, categories);
+  if (!split.length || (split.length === 1 && split[0].kind === 'unsorted')) return null;
+  return (
+    <dl className={styles.kindSplit}>
+      {split.map((k) => (
+        <div key={k.kind} className={styles.kindFigure}>
+          <dt>{k.label}</dt>
+          <dd>
+            {formatMoney(k.amount, masked)} <span className={styles.kindPct}>{Math.round(k.pct)}%</span>
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 /** "Spending by month" — per-month income gauge + category bars with
  * click-to-drill transaction tables (renderSpendingBreakdown & co). */
 export function SpendingBreakdownSection({
@@ -208,6 +246,7 @@ export function SpendingBreakdownSection({
   receiptsMap,
   masked,
   knownCategories,
+  categories,
   onUpdateExpense,
   onUploadReceipt,
 }: SpendingBreakdownSectionProps) {
@@ -249,6 +288,7 @@ export function SpendingBreakdownSection({
           </summary>
           <div className={styles.monthBody}>
             <IncomeGaugeBar items={m.items} masked={masked} />
+            <KindSplit items={m.spendingOnly} categories={categories} masked={masked} />
             {monthBars(m.spendingOnly).map((bar) => {
               const isActive =
                 drill !== null && drill.monthKey === m.monthKey && drill.category === bar.category;

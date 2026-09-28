@@ -134,6 +134,7 @@ export function MoneyPage() {
           receiptsMap={receiptsMap}
           masked={masked}
           knownCategories={knownCategories}
+          categories={budgetView.categories || []}
           onUpdateExpense={expenseActions.update}
           onUploadReceipt={expenseActions.uploadReceipt}
         />
@@ -144,6 +145,7 @@ export function MoneyPage() {
           expenses={expenses}
           masked={masked}
           onRemove={(e) => requestDelete(`expense:${e.id}`, 'Expense removed', () => expenseActions.remove(e.id))}
+          onUpdate={isPublic ? undefined : expenseActions.update}
         />
 
         <SubscriptionsSection
@@ -166,6 +168,7 @@ export function MoneyPage() {
             onSaveIncome={budgetActions.saveIncome}
             onSaveBankUrl={budgetActions.saveBankUrl}
             onAddCategory={budgetActions.addCategory}
+            onSetKind={budgetActions.setCategoryKind}
             onRemoveCategory={(c) =>
               requestDelete(`cat:${c.name}`, `Category "${c.name}" removed`, () => budgetActions.removeCategory(c.name))
             }

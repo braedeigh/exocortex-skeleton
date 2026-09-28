@@ -27,6 +27,7 @@ import {
   removeTaxSetaside,
   toggleTabTodo,
   updateBudget,
+  updateCategoryKind,
   updateExpense,
   updateSubscription,
   uploadReceipt,
@@ -39,7 +40,7 @@ import type {
   UpdateExpensePayload,
 } from './api';
 import { isFrosted } from './types';
-import type { CsvSelection, Expense, LabelRule, LearnRule, MoneyData, Subscription, TaxSetasideEntry } from './types';
+import type { CategoryKind, CsvSelection, Expense, LabelRule, LearnRule, MoneyData, Subscription, TaxSetasideEntry } from './types';
 
 export const MONEY_QUERY_KEY = ['data', 'money'] as const;
 
@@ -174,6 +175,7 @@ export function useExpenseActions(onError: (message: string) => void) {
                 ...e,
                 ...(vars.category !== undefined ? { category: vars.category } : {}),
                 ...(vars.title !== undefined ? { title: vars.title } : {}),
+                ...(vars.one_time !== undefined ? { one_time: !!vars.one_time } : {}),
               }
             : e,
         ),
@@ -270,11 +272,28 @@ export function useBudgetActions(onError: (message: string) => void) {
     "Couldn't remove the category — it's back in the list",
   );
 
+  const setKind = useOptimisticMutation(
+    (vars: { name: string; kind: CategoryKind }) => updateCategoryKind(vars.name, vars.kind),
+    (data, vars) => {
+      if (!data.budget || isFrosted(data.budget)) return data;
+      return {
+        ...data,
+        budget: {
+          ...data.budget,
+          categories: data.budget.categories.map((c) => (c.name === vars.name ? { ...c, kind: vars.kind } : c)),
+        },
+      };
+    },
+    onError,
+    "Couldn't change the category's kind",
+  );
+
   return {
     saveIncome: (income_monthly: string | number) => save.mutateAsync({ income_monthly }),
     saveBankUrl: (bank_csv_url: string) => save.mutateAsync({ bank_csv_url }),
     addCategory: (payload: AddCategoryPayload) => addCat.mutateAsync(payload),
     removeCategory: (name: string) => removeCat.mutate(name),
+    setCategoryKind: (name: string, kind: CategoryKind) => setKind.mutate({ name, kind }),
   };
 }
 

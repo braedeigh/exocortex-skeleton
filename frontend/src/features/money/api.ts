@@ -10,7 +10,9 @@ import type {
   CsvSelection,
   LabelRule,
   LearnRule,
+  CategoryKind,
   MoneyData,
+  OneTimeThing,
 } from './types';
 
 interface OkResponse {
@@ -46,6 +48,8 @@ export interface UpdateExpensePayload {
   title?: string;
   /** With `title`: also save a merchant→title rule for future imports. */
   learn_label_rule?: boolean;
+  /** Mark as a one-time thing (filed into Inventory once), or null to unmark. */
+  one_time?: OneTimeThing | null;
 }
 
 export function updateExpense(payload: UpdateExpensePayload): Promise<OkResponse> {
@@ -130,10 +134,15 @@ export interface AddCategoryPayload {
   name: string;
   planned: string | number;
   type: string;
+  kind?: CategoryKind;
 }
 
 export function addCategory(payload: AddCategoryPayload): Promise<OkResponse> {
   return api.post('/api/budget/category/add', payload);
+}
+
+export function updateCategoryKind(name: string, kind: CategoryKind): Promise<OkResponse> {
+  return api.post('/api/budget/category/update', { name, kind });
 }
 
 export function removeCategory(name: string): Promise<OkResponse> {

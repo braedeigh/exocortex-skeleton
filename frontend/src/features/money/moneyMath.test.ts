@@ -8,6 +8,7 @@ import {
   drillTransactions,
   expensesInMonth,
   formatMoney,
+  monthKindSplit,
   grandTotals,
   groupByMonth,
   incomeGauge,
@@ -309,5 +310,44 @@ describe('refunds (negative expenses)', () => {
       ['Recreation', 30, true],
       ['Subscriptions', -5, true],
     ]);
+  });
+});
+
+describe('monthKindSplit', () => {
+  const categories = [
+    { name: 'Rent', planned: 0, kind: 'recurring' as const },
+    { name: 'Eating Out', planned: 0, kind: 'cut_back' as const },
+    { name: 'Home', planned: 0 },
+  ];
+
+  it('splits spending by kind, a one-time thing winning over its category', () => {
+    const split = monthKindSplit(
+      [
+        { id: '1', amount: 1000, category: 'Rent' },
+        { id: '2', amount: 60, category: 'Eating Out' },
+        { id: '3', amount: 499, category: 'Eating Out', one_time: true },
+        { id: '4', amount: 41, category: 'Home' },
+      ],
+      categories,
+    );
+    expect(split.map((k) => [k.kind, k.amount])).toEqual([
+      ['recurring', 1000],
+      ['cut_back', 60],
+      ['one_time', 499],
+      ['unsorted', 41],
+    ]);
+    expect(split.reduce((s, k) => s + k.pct, 0)).toBeCloseTo(100);
+  });
+
+  it('nets refunds inside their kind and drops a kind that nets to nothing', () => {
+    const split = monthKindSplit(
+      [
+        { id: '1', amount: 30, category: 'Eating Out' },
+        { id: '2', amount: -30, category: 'Eating Out' },
+        { id: '3', amount: 900, category: 'Rent' },
+      ],
+      categories,
+    );
+    expect(split.map((k) => k.kind)).toEqual(['recurring']);
   });
 });

@@ -8,6 +8,43 @@ import json
 import re
 import uuid
 import store
+from routes.inventory import file_purchase
+
+# What a budget category's spending is like, for the monthly split in Spending
+# by month: a need that comes back every month, or something she could spend
+# less on. "" = not sorted yet. Separate from `type` (variable/fixed/savings),
+# which decides whether a category counts against the monthly budget.
+CATEGORY_KINDS = {"recurring", "cut_back", ""}
+
+
+def _apply_one_time(expense, one_time):
+    """Mark an expense as a one-time thing (or not), filing it into Inventory once.
+
+    `one_time` is {"name": what was bought, "shelf": "durables"|"consumables"}
+    to mark it, or falsy to unmark it. Filing happens only the first time: an
+    expense that already has an inventory link keeps it. Unmarking leaves the
+    inventory item where it is (she may still own the thing), and only drops
+    the flag and the link.
+    Prompt: "i kind of want it as a 'thing' so i can know it was a 'one time
+    purchase' vs. something that is recurring" / "i want it to also add
+    something to my inventory"."""
+    if not one_time:
+        expense.pop("one_time", None)
+        expense.pop("inventory", None)
+        return
+    expense["one_time"] = True
+    if expense.get("inventory"):
+        return
+    shelf = one_time.get("shelf") if one_time.get("shelf") in ("durables", "consumables") else "durables"
+    link = file_purchase(
+        one_time.get("name") or expense.get("title") or "",
+        shelf,
+        cost=f"{abs(float(expense.get('amount') or 0)):.2f}",
+        date=expense.get("date", ""),
+        where=expense.get("title", ""),
+    )
+    if link:
+        expense["inventory"] = link
 
 
 def register(app):
@@ -45,11 +82,32 @@ def register(app):
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid planned amount"}), 400
         ctype = data.get("type", "variable")  # variable | fixed | savings
+        kind = data.get("kind", "")
+        if kind not in CATEGORY_KINDS:
+            return jsonify({"error": "Invalid kind"}), 400
         bdata = store.read("budget.json", {"income_monthly": 0, "categories": []})
         if any(c["name"].lower() == name.lower() for c in bdata["categories"]):
             return jsonify({"error": "Category already exists"}), 400
-        bdata["categories"].append({"name": name, "planned": planned, "type": ctype})
+        category = {"name": name, "planned": planned, "type": ctype}
+        if kind:
+            category["kind"] = kind
+        bdata["categories"].append(category)
         store.write("budget.json", bdata)
+        return jsonify({"ok": True})
+
+    # Set a category's kind: recurring need, can cut back, or unsorted ("").
+    @app.route("/api/budget/category/update", methods=["POST"])
+    def update_category():
+        data = request.json or {}
+        name = data.get("name", "")
+        kind = data.get("kind", "")
+        if kind not in CATEGORY_KINDS:
+            return jsonify({"error": "Invalid kind"}), 400
+        with store.mutate("budget.json", {"income_monthly": 0, "categories": []}) as bdata:
+            cat = next((c for c in bdata["categories"] if c["name"] == name), None)
+            if cat is None:
+                return jsonify({"error": "No such category"}), 404
+            cat["kind"] = kind
         return jsonify({"ok": True})
 
     @app.route("/api/budget/category/remove", methods=["POST"])
@@ -111,6 +169,8 @@ def register(app):
                     i["comments"] = data["comments"]
                 if "date" in data:
                     i["date"] = data["date"]
+                if "one_time" in data:
+                    _apply_one_time(i, data["one_time"])
                 if "title" in data:
                     i["title"] = data["title"]
                     # If learn_as_rule is set, save as a merchant_labels rule for future matches
@@ -502,14 +562,18 @@ def register(app):
                 match["bank_matched"] = True
                 merged_with_receipt += 1
                 continue
-            edata["items"].append({
+            expense = {
                 "id": str(uuid.uuid4()),
                 "date": row_date,
                 "amount": row_amount,
                 "category": s.get("category", ""),
                 "comments": comments,
                 "title": title,
-            })
+            }
+            # A row she marked "One-time thing" is filed into Inventory as it lands.
+            if s.get("one_time") and not is_refund:
+                _apply_one_time(expense, s["one_time"])
+            edata["items"].append(expense)
             added += 1
         store.write("expenses.json", edata)
 

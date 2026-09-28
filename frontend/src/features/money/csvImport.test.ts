@@ -9,6 +9,7 @@ import {
   groupByMonth,
   identifyRow,
   isRefund,
+  setRowOneTime,
   merchantKey,
   prepareRows,
   setRowInclude,
@@ -158,5 +159,26 @@ describe('refunds', () => {
       row({ amount: 500, category: 'Income' }),
     ]);
     expect([july.moneyOut, july.moneyIn]).toEqual([70, 500]);
+  });
+});
+
+describe('one-time things in the statement preview', () => {
+  const rows = [
+    { date: '2026-09-02', desc: 'FUTON SHOP 123', amount: -499, category: 'Home', include: true, title: 'Futon Shop' },
+    { date: '2026-09-09', desc: 'FUTON SHOP 123', amount: -20, category: 'Home', include: true, title: 'Futon Shop' },
+  ];
+
+  it('marks only the row she tapped, not the merchant\'s other rows', () => {
+    const next = setRowOneTime(rows, 0, { name: 'Mattress', shelf: 'durables' });
+    expect(next[0].one_time).toEqual({ name: 'Mattress', shelf: 'durables' });
+    expect(next[0].user_touched).toBe(true);
+    expect(next[1].one_time).toBeUndefined();
+  });
+
+  it('sends the one-time thing on import, naming it after the row when left blank', () => {
+    const marked = setRowOneTime(rows, 0, { name: '  ', shelf: 'consumables' });
+    const [first, second] = buildSelections(marked);
+    expect(first.one_time).toEqual({ name: 'Futon Shop', shelf: 'consumables' });
+    expect(second.one_time).toBeUndefined();
   });
 });

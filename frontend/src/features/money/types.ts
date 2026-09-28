@@ -13,6 +13,21 @@ export interface BudgetCategory {
   planned: number;
   /** variable | fixed | savings */
   type?: string;
+  /** What its spending is like: a need that comes back every month, or
+   * something she could spend less on. Missing / "" = not sorted yet. */
+  kind?: CategoryKind;
+}
+
+export type CategoryKind = 'recurring' | 'cut_back' | '';
+
+/** Which Inventory shelf a one-time purchase goes on: a thing she keeps
+ * (archivals catalog) or a thing that gets used up (active inventory). */
+export type InventoryShelf = 'durables' | 'consumables';
+
+/** Marking something a one-time thing: what she bought and where it goes. */
+export interface OneTimeThing {
+  name: string;
+  shelf: InventoryShelf;
 }
 
 export interface Budget {
@@ -33,6 +48,10 @@ export interface Expense {
   /** 'receipt_import' rows get merged with bank rows on CSV import. */
   source?: string;
   bank_matched?: boolean;
+  /** A one-time purchase (a mattress), not everyday spending in its category. */
+  one_time?: boolean;
+  /** Where the one-time thing was filed in Inventory (routes/inventory.py file_purchase). */
+  inventory?: { shelf: InventoryShelf; name: string; id?: string };
 }
 
 export interface Subscription {
@@ -96,6 +115,8 @@ export interface CsvRow {
   learned_title?: string;
   /** She has confirmed this row — tapped it or changed anything on it. */
   user_touched?: boolean;
+  /** Marked a one-time thing: filed into Inventory on import. */
+  one_time?: OneTimeThing | null;
 }
 
 export interface CsvParseResponse {
@@ -111,6 +132,7 @@ export interface CsvSelection {
   amount: number;
   category: string;
   title: string;
+  one_time?: OneTimeThing;
 }
 
 /** A learned merchant→name label (merchant_labels on the server). */

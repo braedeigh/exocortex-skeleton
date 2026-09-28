@@ -251,6 +251,57 @@ export function incomeGauge(monthItems: Expense[]): IncomeGauge {
   };
 }
 
+/** Where one expense sits in the month's split: a one-time thing wins over
+ * its category; otherwise the category's kind; otherwise not sorted yet. */
+export type SpendingKind = 'recurring' | 'cut_back' | 'one_time' | 'unsorted';
+
+export function spendingKindOf(e: Expense, kindByCategory: Record<string, string>): SpendingKind {
+  if (e.one_time) return 'one_time';
+  const kind = kindByCategory[e.category || ''];
+  return kind === 'recurring' || kind === 'cut_back' ? kind : 'unsorted';
+}
+
+export const SPENDING_KIND_LABELS: Record<SpendingKind, string> = {
+  recurring: 'Recurring',
+  cut_back: 'Can cut back',
+  one_time: 'One-time',
+  unsorted: 'Not sorted',
+};
+
+export interface KindShare {
+  kind: SpendingKind;
+  label: string;
+  amount: number;
+  /** Share of the month's spending, 0–100. */
+  pct: number;
+}
+
+/** The month's spending split by kind — recurring needs, things she could cut
+ * back on, one-time purchases, and whatever isn't sorted yet — in that fixed
+ * order, skipping empty ones. Refunds net out inside their kind; a kind that
+ * nets to zero or below is left out.
+ * Prompt: "i want to know it was a 'one time purchase' vs. something that is
+ * recurring. vs. coffee which is something i can cut back on". */
+export function monthKindSplit(spendingItems: Expense[], categories: BudgetCategory[]): KindShare[] {
+  const kindByCategory: Record<string, string> = {};
+  categories.forEach((c) => {
+    if (c.kind) kindByCategory[c.name] = c.kind;
+  });
+  const totals: Record<SpendingKind, number> = { recurring: 0, cut_back: 0, one_time: 0, unsorted: 0 };
+  spendingItems.forEach((e) => {
+    totals[spendingKindOf(e, kindByCategory)] += e.amount || 0;
+  });
+  const order: SpendingKind[] = ['recurring', 'cut_back', 'one_time', 'unsorted'];
+  const positive = order.filter((k) => totals[k] > 0);
+  const sum = positive.reduce((s, k) => s + totals[k], 0);
+  return positive.map((kind) => ({
+    kind,
+    label: SPENDING_KIND_LABELS[kind],
+    amount: totals[kind],
+    pct: sum > 0 ? (totals[kind] / sum) * 100 : 0,
+  }));
+}
+
 export interface MonthGroup {
   monthKey: string;
   items: Expense[];

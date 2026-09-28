@@ -18,7 +18,7 @@
  * and … auto fill expense type on each expense entry".
  */
 import { readStatementMerchant } from './statementMerchant';
-import type { CsvRow, CsvSelection, LabelRule, LearnRule } from './types';
+import type { CsvRow, CsvSelection, LabelRule, LearnRule, OneTimeThing } from './types';
 
 /** Stable merchant key for learned rules — the merchant's stretch of the line
  * ("TST*COSMIC COFFEE - EAS 07/15 …" → "cosmic coffee"). */
@@ -71,6 +71,13 @@ export function identifyRow(rows: CsvRow[], idx: number, patch: { title?: string
 /** Tick or untick one row; that counts as touching it. */
 export function setRowInclude(rows: CsvRow[], idx: number, include: boolean): CsvRow[] {
   return rows.map((r, i) => (i === idx ? { ...r, include, user_touched: true } : r));
+}
+
+/** Mark one row a one-time thing (or unmark it with null). Only that row:
+ * unlike a name or category, it never fills in the merchant's other rows —
+ * one mattress from the Futon Shop doesn't make every Futon Shop line one. */
+export function setRowOneTime(rows: CsvRow[], idx: number, oneTime: OneTimeThing | null): CsvRow[] {
+  return rows.map((r, i) => (i === idx ? { ...r, one_time: oneTime, user_touched: true } : r));
 }
 
 export function confirmRow(rows: CsvRow[], idx: number): CsvRow[] {
@@ -145,17 +152,26 @@ function monthLabel(key: string): string {
   return new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
 }
 
-/** The import payload: every included row, defaulting category to Uncategorized. */
+/** The import payload: every included row, defaulting category to
+ * Uncategorized. A one-time thing rides along with what it was (falling back
+ * to the row's name when she left that blank). */
 export function buildSelections(rows: CsvRow[]): CsvSelection[] {
   return rows
     .filter((r) => r.include)
-    .map((r) => ({
-      date: r.date,
-      desc: r.desc,
-      amount: r.amount,
-      category: r.category || 'Uncategorized',
-      title: (r.title || '').trim(),
-    }));
+    .map((r) => {
+      const title = (r.title || '').trim();
+      const selection: CsvSelection = {
+        date: r.date,
+        desc: r.desc,
+        amount: r.amount,
+        category: r.category || 'Uncategorized',
+        title,
+      };
+      if (r.one_time) {
+        selection.one_time = { name: r.one_time.name.trim() || title, shelf: r.one_time.shelf };
+      }
+      return selection;
+    });
 }
 
 /** One category rule per merchant: included, categorized rows only — so

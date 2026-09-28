@@ -1,7 +1,13 @@
-"""Inventory routes — buy list, active inventory (things owned/in use), restock loop."""
+"""Inventory routes — buy list, active inventory (things owned/in use), restock loop.
+
+Also file_purchase(), which the Money page (routes/money.py) calls to file a
+one-time purchase onto a shelf: durables go to the archivals catalog, consumables
+to active inventory.
+"""
 from flask import request, jsonify
 from data_helpers import DATA_DIR
 from datetime import datetime
+import uuid
 import store
 
 
@@ -54,6 +60,69 @@ def graduate_buy_item(name):
         })
     store.write("active_inventory.json", adata)
     return item
+
+
+def file_purchase(name, shelf, cost="", date="", where=""):
+    """File a one-time purchase from the Money page into Inventory, and say where it went.
+
+    `shelf` is "durables" (a thing she keeps: a mattress goes to the archivals
+    catalog) or "consumables" (a thing that gets used up: toilet cleaner goes to
+    active inventory). If the thing was on her Buy list, it comes off it, and
+    the Buy list's linked to-do is ticked, the same as the Bought step. A
+    consumable already in inventory gets restocked instead of duplicated.
+    Returns the link the expense keeps: {"shelf", "name"}, plus "id" for durables.
+
+    Prompt that made it: "i want it to also add something to my inventory" —
+    for one-time purchases like a mattress or toilet cleaning stuff."""
+    name = (name or "").strip()
+    if not name:
+        return None
+    cost = str(cost or "").strip()
+    date = date or datetime.now().strftime("%Y-%m-%d")
+
+    if shelf == "durables":
+        # Durables: take it off the Buy list if it's there, then catalog it.
+        bdata = store.read("buy_list.json", {"items": []})
+        bought = next((i for i in bdata["items"] if i["name"].lower() == name.lower()), None)
+        if bought is not None:
+            bdata["items"] = [i for i in bdata["items"] if i is not bought]
+            store.write("buy_list.json", bdata)
+            _mark_linked_todo_done(bought.get("todo"))
+        item = {
+            "id": str(uuid.uuid4()),
+            "name": name,
+            "category": "other",
+            "origin": " · ".join(p for p in (where, date, f"${cost}" if cost else "") if p),
+            "materials": [],
+            "photos": [],
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        with store.mutate("archivals.json", {"items": []}) as adata:
+            adata["items"].append(item)
+        return {"shelf": "durables", "name": name, "id": item["id"]}
+
+    # Consumables: graduate it off the Buy list, or add / restock it directly.
+    bought = graduate_buy_item(name)
+    if bought is not None:
+        _mark_linked_todo_done(bought.get("todo"))
+    adata = store.read("active_inventory.json", {"items": []})
+    existing = next((i for i in adata["items"] if i["name"].lower() == name.lower()), None)
+    if existing is None:
+        adata["items"].append({
+            "name": name, "category": "", "status": "in_use",
+            "last_cost": cost, "where": where, "notes": "",
+            "order_url": "", "ordered_at": [date],
+        })
+    else:
+        existing["status"] = "in_use"
+        if cost:
+            existing["last_cost"] = cost
+        if where and not existing.get("where"):
+            existing["where"] = where
+        if bought is None:
+            existing.setdefault("ordered_at", []).append(date)
+    store.write("active_inventory.json", adata)
+    return {"shelf": "consumables", "name": existing["name"] if existing else name}
 
 
 def _mark_linked_todo_done(link):

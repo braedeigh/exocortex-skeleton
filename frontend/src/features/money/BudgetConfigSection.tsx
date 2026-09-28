@@ -1,10 +1,22 @@
+/**
+ * BudgetConfigSection.tsx — the Money page's "Budget setup" card: monthly
+ * income, the bank's CSV download link, and the budget categories.
+ *
+ * Each category has a planned amount, a type (variable / fixed / savings;
+ * savings stays out of the monthly budget), and a kind: "Recurring" (a need
+ * that comes back every month, like Rent) or "Can cut back" (like Eating Out).
+ * The kind drives the recurring / cut-back / one-time split in Spending by
+ * month (moneyMath.ts monthKindSplit). Saves go through useMoneyData.ts.
+ * Prompt: "kitty litter is a recurring spend category … coffee which is
+ * something i can cut back on or beer".
+ */
 import { useRef, useState } from 'react';
 import { Button, IconButton } from '../../ui';
 import { Section } from './Section';
 import { dollars } from './moneyMath';
 import { useConfirmDelete } from './useDeleteFlow';
 import type { AddCategoryPayload } from './api';
-import type { Budget, BudgetCategory } from './types';
+import type { Budget, BudgetCategory, CategoryKind } from './types';
 import styles from './money.module.css';
 
 export interface BudgetConfigSectionProps {
@@ -13,6 +25,7 @@ export interface BudgetConfigSectionProps {
   onSaveBankUrl: (url: string) => Promise<unknown>;
   onAddCategory: (payload: AddCategoryPayload) => Promise<unknown>;
   onRemoveCategory: (cat: BudgetCategory) => void;
+  onSetKind: (name: string, kind: CategoryKind) => void;
 }
 
 /** "Budget setup" — income, bank CSV deep-link, planned categories
@@ -23,6 +36,7 @@ export function BudgetConfigSection({
   onSaveBankUrl,
   onAddCategory,
   onRemoveCategory,
+  onSetKind,
 }: BudgetConfigSectionProps) {
   const { confirmKey, tap } = useConfirmDelete();
   const cats = budget.categories || [];
@@ -96,6 +110,7 @@ export function BudgetConfigSection({
             <thead>
               <tr>
                 <th>Category</th>
+                <th>Kind</th>
                 <th>Type</th>
                 <th>Planned/mo</th>
                 <th />
@@ -106,6 +121,18 @@ export function BudgetConfigSection({
                 <tr key={c.name}>
                   <td>
                     <b>{c.name}</b>
+                  </td>
+                  <td>
+                    <select
+                      aria-label={`Kind of ${c.name}`}
+                      className={styles.select}
+                      value={c.kind || ''}
+                      onChange={(e) => onSetKind(c.name, e.target.value as CategoryKind)}
+                    >
+                      <option value="">— not sorted —</option>
+                      <option value="recurring">Recurring</option>
+                      <option value="cut_back">Can cut back</option>
+                    </select>
                   </td>
                   <td className={styles.tdComments}>{c.type || 'variable'}</td>
                   <td className={styles.nowrap}>{dollars(c.planned)}</td>
