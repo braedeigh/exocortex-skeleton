@@ -115,7 +115,7 @@ export function MoneyPage() {
 
         <div className={styles.sectionTitle}>Money</div>
 
-        {!isPublic ? <QuickExpense budget={budgetView} todayStr={todayStr} onAdd={expenseActions.add} /> : null}
+        {!isPublic ? <QuickExpense budget={budgetView} todayStr={todayStr} expenses={expenses} onAdd={expenseActions.add} /> : null}
 
         {!isPublic ? <CsvImportSection push={push} /> : null}
 

@@ -151,6 +151,16 @@
   min-width: 160px;
 }
 
+/* A category the Log expense card filled in from what she typed: a soft accent
+   tint says "guessed for you"; picking one by hand returns it to plain. */
+.selectGuessed {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  transition:
+    background-color 200ms ease-out,
+    border-color 200ms ease-out;
+}
+
 .wAmount {
   width: 110px;
 }

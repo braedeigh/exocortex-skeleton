@@ -31,6 +31,7 @@ import {
   deriveLearnRules,
   groupByMonth,
   identifyRow,
+  isRefund,
   needsConfirming,
   prepareRows,
   setRowInclude,
@@ -253,7 +254,10 @@ interface StatementRowProps {
 /** One transaction: tap anywhere on it to confirm; the fields below identify
  * it (and don't count as a tap on the row). */
 function StatementRow({ row, categories, onConfirm, onInclude, onIdentify, onNewCategory }: StatementRowProps) {
-  const moneyIn = row.amount > 0;
+  // A refund shows as "−$x" in the plain colour: it takes that much off spending.
+  // Only real money in gets the green "+".
+  const refund = isRefund(row);
+  const moneyIn = row.amount > 0 && !refund;
   const waiting = needsConfirming(row);
   const rowClass = [styles.stmtRow, waiting ? styles.stmtRowWaiting : '', row.include ? '' : styles.stmtRowOff]
     .filter(Boolean)
@@ -284,11 +288,12 @@ function StatementRow({ row, categories, onConfirm, onInclude, onIdentify, onNew
           <div className={styles.stmtMeta}>
             {row.date}
             {row.already_imported ? <span className={styles.dupTag}>already imported</span> : null}
+            {refund ? <span className={styles.dupTag}>refund</span> : null}
             {waiting ? <span className={styles.stmtTapHint}> · tap to confirm</span> : null}
           </div>
         </div>
         <div className={moneyIn ? `${styles.stmtAmount} ${styles.stmtIn}` : styles.stmtAmount}>
-          {moneyIn ? '+' : ''}
+          {moneyIn ? '+' : refund ? '−' : ''}
           {dollars(Math.abs(row.amount))}
         </div>
       </div>

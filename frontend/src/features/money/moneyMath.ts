@@ -3,6 +3,10 @@
  * formatting (incl. the public $••• mask), month tallies, subscription
  * ordering/renewal urgency, the spending-breakdown aggregation (month bars +
  * income gauge), and the tax set-aside math.
+ *
+ * A refund is an expense with a negative amount in its spending category
+ * (routes/money.py import_csv stores it that way), so every tally here nets it
+ * off that category's spending; bar widths are floored at zero.
  */
 import type { Budget, BudgetCategory, Expense, Subscription, TaxSetasideEntry } from './types';
 
@@ -11,13 +15,15 @@ import type { Budget, BudgetCategory, Expense, Subscription, TaxSetasideEntry } 
  * bars/percentages. (money.js _m) */
 export function formatMoney(n: unknown, masked: boolean): string {
   if (masked) return '$•••';
-  return '$' + (Number(n) || 0).toFixed(2);
+  return dollars(n);
 }
 
 /** Plain, never-masked dollar figure — the auth-only Budget setup / Set Aside
  * cards printed raw values even in the old page. */
 export function dollars(n: unknown): string {
-  return '$' + (Number(n) || 0).toFixed(2);
+  const value = Number(n) || 0;
+  // A refund (negative) reads "−$16.53", with the minus ahead of the dollar sign.
+  return (value < 0 ? '−$' : '$') + Math.abs(value).toFixed(2);
 }
 
 /** YYYY-MM for `now` (money.js _thisMonthKey). */
@@ -68,7 +74,7 @@ export function thisMonthSummary(budget: Budget, monthExpenses: Expense[]): This
     const p = c.planned || 0;
     totalSpent += s;
     totalPlanned += p;
-    const pct = p > 0 ? Math.min(100, (s / p) * 100) : 0;
+    const pct = p > 0 ? Math.max(0, Math.min(100, (s / p) * 100)) : 0;
     const over = p > 0 && s > p;
     const barColor = over ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : 'var(--green)';
     return { name: c.name, spent: s, planned: p, pct, over, barColor };
@@ -183,12 +189,12 @@ export function monthBars(items: Expense[]): MonthBar[] {
   const tally = spentByCategory(items);
   const sorted = Object.entries(tally).sort((a, b) => b[1] - a[1]);
   const total = sorted.reduce((s, [, v]) => s + v, 0);
-  const max = sorted[0]?.[1] || 1;
+  const max = Math.max(sorted[0]?.[1] || 0, 1);
   return sorted.map(([category, amount]) => ({
     category,
     amount,
-    pct: (amount / max) * 100,
-    sharePct: total > 0 ? (amount / total) * 100 : 0,
+    pct: Math.max(0, (amount / max) * 100),
+    sharePct: total > 0 ? Math.max(0, (amount / total) * 100) : 0,
     color: breakdownColorFor(category),
   }));
 }
@@ -223,7 +229,7 @@ export function incomeGauge(monthItems: Expense[]): IncomeGauge {
   const tally = spentByCategory(spendingItems);
   const sortedCats = Object.entries(tally).sort((a, b) => b[1] - a[1]);
   const denom = Math.max(income, spent, 1);
-  const segments = sortedCats.map(([category, amount]) => ({
+  const segments = sortedCats.filter(([, amount]) => amount > 0).map(([category, amount]) => ({
     category,
     amount,
     pct: (amount / denom) * 100,

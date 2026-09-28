@@ -292,3 +292,22 @@ describe('recentExpenses', () => {
     expect(recent[0].date! >= recent[29].date!).toBe(true);
   });
 });
+
+describe('refunds (negative expenses)', () => {
+  it('prints a refund with the minus ahead of the dollar sign', () => {
+    expect(dollars(-16.53)).toBe('−$16.53');
+    expect(formatMoney(-16.53, false)).toBe('−$16.53');
+  });
+
+  it('nets a refund off its category and never draws a negative bar', () => {
+    const bars = monthBars([
+      { id: '1', date: '2026-07-01', amount: 40, category: 'Recreation', comments: '' },
+      { id: '2', date: '2026-07-02', amount: -10, category: 'Recreation', comments: '' },
+      { id: '3', date: '2026-07-03', amount: -5, category: 'Subscriptions', comments: '' },
+    ] as Expense[]);
+    expect(bars.map((b) => [b.category, b.amount, b.pct >= 0])).toEqual([
+      ['Recreation', 30, true],
+      ['Subscriptions', -5, true],
+    ]);
+  });
+});

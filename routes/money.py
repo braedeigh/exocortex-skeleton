@@ -198,7 +198,9 @@ def register(app):
     def auto_detect_subscriptions():
         """Scan expenses with category 'Subscriptions', group by merchant, add recurring ones."""
         expenses = store.read("expenses.json", {"items": []}).get("items", [])
-        sub_expenses = [e for e in expenses if (e.get("category", "").lower() == "subscriptions")]
+        # Charges only: a refund is stored negative and isn't a renewal.
+        sub_expenses = [e for e in expenses
+                        if e.get("category", "").lower() == "subscriptions" and (e.get("amount") or 0) > 0]
         if not sub_expenses:
             return jsonify({"added": 0, "skipped": 0})
 
@@ -298,6 +300,8 @@ def register(app):
     # --- CSV Import (rules-based with learning loop) ---
 
     CSV_DIR = DATA_DIR / "bank_csvs"
+    # Categories that aren't spending: money in, and moving her own money around.
+    _NOT_SPENDING = {"income", "transfer (in)", "savings/transfer"}
 
     def _load_merchant_rules():
         return store.read("merchant_categories.json", {"patterns": []})
@@ -307,12 +311,15 @@ def register(app):
 
     def _categorize(desc, amount, rules):
         d = desc.lower()
-        # Income / transfers — special signals, not categories
+        # Income / transfers — special signals, not categories. A refund is the
+        # exception: money back from a merchant goes to that merchant's category
+        # (found by the same rules as a purchase), so it comes off that spending.
         if amount > 0:
             if "transfer from" in d:
                 return "Transfer (in)"
-            return "Income"
-        if "transfer to" in d:
+            if "refund" not in d:
+                return "Income"
+        elif "transfer to" in d:
             return "Savings/Transfer"
         for p in rules.get("patterns", []):
             if p["match"].lower() in d:
@@ -420,18 +427,11 @@ def register(app):
         # Annotate with auto-category + default include flag
         for r in rows:
             r["category"] = _categorize(r["desc"], r["amount"], rules)
-            # Decide which rows start ticked: money out and money in both do, so
-            # paychecks from any employer, payouts, and cashouts are counted without
-            # ticking each one. Left unticked: moving her own money between her
-            # accounts (either direction), and refunds — the import stores amounts
-            # unsigned, so a refund imported as Income would inflate income.
-            desc_lower = (r["desc"] or "").lower()
-            if r["category"] in ("Savings/Transfer", "Transfer (in)"):
-                r["include"] = False
-            elif r["amount"] > 0 and "refund" in desc_lower:
-                r["include"] = False
-            else:
-                r["include"] = True
+            # Decide which rows start ticked: money out, money in, and refunds all
+            # do, so paychecks from any employer, payouts, and cashouts are counted
+            # without ticking each one. Left unticked: moving her own money between
+            # her accounts, in either direction.
+            r["include"] = r["category"] not in ("Savings/Transfer", "Transfer (in)")
         # Detect already-imported rows (match by date+amount+desc)
         existing = store.read("expenses.json", {"items": []}).get("items", [])
         existing_keys = {(e.get("date"), abs(e.get("amount", 0)), e.get("comments", "")) for e in existing}
@@ -471,6 +471,14 @@ def register(app):
             comments = s.get("desc", "").strip()
             row_date = s.get("date") or datetime.now().strftime("%Y-%m-%d")
             row_amount = abs(amount)
+            # Store a refund as a negative amount in its spending category. Money in
+            # filed under anything but Income or a transfer is money back, so it
+            # subtracts from that category's spending and never counts as income.
+            # Prompt: "refund should come off of spending and not be counted
+            # towards monthly in or out"
+            is_refund = amount > 0 and (s.get("category") or "").strip().lower() not in _NOT_SPENDING
+            if is_refund:
+                row_amount = -row_amount
             # Name the expense: the name she gave the row in the preview wins,
             # else whatever an already-learned merchant label says.
             title = (s.get("title") or "").strip() or _label_for(comments, ldata)
@@ -478,7 +486,7 @@ def register(app):
             # date + amount (and same category if both have one), merge bank info INTO that
             # entry instead of creating a duplicate. The receipt keeps its photo + items,
             # the bank's title/comments overwrite the placeholder.
-            match = next(
+            match = None if is_refund else next(
                 (e for e in edata["items"]
                  if e.get("source") == "receipt_import"
                  and e.get("date") == row_date

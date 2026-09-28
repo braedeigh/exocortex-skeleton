@@ -213,7 +213,7 @@ def test_csv_parse_normalizes_dates_skips_balance_rows_and_sets_includes(client)
     assert by_desc["TRANSFER TO SAVINGS"]["category"] == "Savings/Transfer"
 
 
-def test_csv_parse_ticks_money_in_from_any_payer_but_not_refunds_or_own_transfers(client):
+def test_csv_parse_ticks_money_in_and_refunds_but_not_own_transfers(client):
     fname = _write_csv("test_money_in.csv", BOA_CSV
                        + "04/08/2026,ST HEALTH SVCS DES:PAYROLLREG ID:7013,4401.60\n"
                        + "04/09/2026,Etsy.com*Shop 04/08 REFUND BROOKLYN NY,290.11\n"
@@ -221,9 +221,29 @@ def test_csv_parse_ticks_money_in_from_any_payer_but_not_refunds_or_own_transfer
     rows = _post(client, "/api/csv/parse", {"filename": fname}).get_json()["rows"]
     include = {row["desc"]: row["include"] for row in rows}
     assert include["ST HEALTH SVCS DES:PAYROLLREG ID:7013"] is True
-    assert include["Etsy.com*Shop 04/08 REFUND BROOKLYN NY"] is False
+    assert include["Etsy.com*Shop 04/08 REFUND BROOKLYN NY"] is True
     assert include["TRANSFER FROM SAVINGS"] is False
     (IMPORT_DATA_DIR / "bank_csvs" / fname).unlink()
+
+
+def test_csv_parse_files_a_refund_under_its_merchants_category_not_income(client):
+    store.write("merchant_categories", {"patterns": [{"match": "amazon prime", "category": "Subscriptions"}]})
+    fname = _write_csv("test_refund_cat.csv", BOA_CSV
+                       + "04/09/2026,AMAZON PRIME PMTS 04/07 REFUND Amzn.com/bill WA,16.53\n")
+    rows = _post(client, "/api/csv/parse", {"filename": fname}).get_json()["rows"]
+    refund = next(r for r in rows if "REFUND" in r["desc"])
+    assert refund["category"] == "Subscriptions"
+    (IMPORT_DATA_DIR / "bank_csvs" / fname).unlink()
+
+
+def test_csv_import_stores_money_back_in_a_spending_category_as_negative(client):
+    _post(client, "/api/csv/import", {"selections": [
+        {"date": "2026-04-09", "desc": "Etsy REFUND", "amount": 290.11, "category": "Recreation"},
+        {"date": "2026-04-08", "desc": "ST HEALTH PAYROLL", "amount": 4401.60, "category": "Income"},
+        {"date": "2026-04-07", "desc": "ETSY PURCHASE", "amount": -290.11, "category": "Recreation"},
+    ]})
+    amounts = {e["comments"]: e["amount"] for e in store.read("expenses", {"items": []})["items"]}
+    assert amounts == {"Etsy REFUND": -290.11, "ST HEALTH PAYROLL": 4401.60, "ETSY PURCHASE": 290.11}
 
 
 def test_csv_parse_flags_already_imported_rows(client):

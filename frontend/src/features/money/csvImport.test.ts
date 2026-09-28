@@ -8,6 +8,7 @@ import {
   deriveLearnRules,
   groupByMonth,
   identifyRow,
+  isRefund,
   merchantKey,
   prepareRows,
   setRowInclude,
@@ -91,7 +92,7 @@ describe('groupByMonth', () => {
   it('splits rows by month in statement order, totalling included money out and in', () => {
     const groups = groupByMonth([
       row({ date: '2026-07-01', amount: -10 }),
-      row({ date: '2026-07-20', amount: 500 }),
+      row({ date: '2026-07-20', amount: 500, category: 'Income' }),
       row({ date: '2026-07-21', amount: -99, include: false }),
       row({ date: '2026-08-02', amount: -5 }),
     ]);
@@ -139,5 +140,23 @@ describe('learning', () => {
       row({ desc: 'SQ *BOTTEGA 03/23 PURCHASE', title: 'Wine bar', include: false }),
     ]);
     expect(labels).toEqual([{ match: 'id:uber', title: 'Uber rides' }]);
+  });
+});
+
+describe('refunds', () => {
+  it('treats money in under a spending category as a refund, and income or transfers as not', () => {
+    expect(isRefund(row({ amount: 290.11, category: 'Recreation' }))).toBe(true);
+    expect(isRefund(row({ amount: 4401.6, category: 'Income' }))).toBe(false);
+    expect(isRefund(row({ amount: 50, category: 'Transfer (in)' }))).toBe(false);
+    expect(isRefund(row({ amount: -12, category: 'Recreation' }))).toBe(false);
+  });
+
+  it('takes a refund off the month\'s money out instead of counting it as money in', () => {
+    const [july] = groupByMonth([
+      row({ amount: -100, category: 'Recreation' }),
+      row({ amount: 30, category: 'Recreation' }),
+      row({ amount: 500, category: 'Income' }),
+    ]);
+    expect([july.moneyOut, july.moneyIn]).toEqual([70, 500]);
   });
 });

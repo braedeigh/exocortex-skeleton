@@ -111,7 +111,16 @@ export interface MonthGroup {
   moneyIn: number;
 }
 
-/** Split the preview into calendar months, in the statement's own order. */
+/** Is this row a refund? Money in filed under a spending category is money
+ * back, and the server stores it as a negative amount in that category
+ * (routes/money.py import_csv) — so it comes off spending, never counts as in. */
+export function isRefund(row: CsvRow): boolean {
+  const category = (row.category || '').toLowerCase();
+  return row.amount > 0 && !['income', 'transfer (in)', 'savings/transfer'].includes(category);
+}
+
+/** Split the preview into calendar months, in the statement's own order. A
+ * month's "out" is its spending net of refunds; "in" is money in only. */
 export function groupByMonth(rows: CsvRow[]): MonthGroup[] {
   const groups: MonthGroup[] = [];
   rows.forEach((row, index) => {
@@ -123,7 +132,7 @@ export function groupByMonth(rows: CsvRow[]): MonthGroup[] {
     }
     group.rows.push({ row, index });
     if (row.include) {
-      if (row.amount < 0) group.moneyOut += -row.amount;
+      if (row.amount < 0 || isRefund(row)) group.moneyOut -= row.amount;
       else group.moneyIn += row.amount;
     }
   });
