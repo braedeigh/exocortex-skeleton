@@ -391,8 +391,11 @@ export function createSession(
   journal: boolean,
   model = '',
   lane: Lane = 'orchestra',
+  swarm?: number,
 ): Promise<{ ok: true; id: string; lane: Lane }> {
-  return api.post('/api/observatory/conversations', { title, journal, model, lane });
+  // `swarm` starts the session inside that swarm: a member from birth, told
+  // which swarm it woke up in (the '+' on a swarm's page).
+  return api.post('/api/observatory/conversations', { title, journal, model, lane, swarm });
 }
 
 /** Put one keeper reply into the journal (a K card) — the tap gesture.

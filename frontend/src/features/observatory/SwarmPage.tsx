@@ -10,6 +10,9 @@
  *   - the swarm's name, the helper's summary, and where members' work differs;
  *   - the swarm as a network: rings joined by green lines where members have
  *     messaged each other (SwarmNetwork.tsx);
+ *   - a '+' on the Sessions title line that starts a new session inside the
+ *     swarm — a member from its first turn (swarms.join), told on waking
+ *     which swarm it's in and who else is working;
  *   - the member sessions as the usual session cards, same colours, same taps
  *     (SessionLane, told it's showing a swarm so it doesn't fold them again);
  *   - a box to talk to the helper, and a link to its own chat;
@@ -19,20 +22,30 @@
  *     what it wrote back — the information it used, nothing hidden.
  *
  * Touches: swarmApi.ts (useSwarm, refreshSwarm), api.ts (the roster, sending
- * to the helper's mailbox, closing a session), SessionLane.tsx (the member
+ * to the helper's mailbox, starting and closing a session), SessionDialog.tsx
+ * (the new-session sheet), SessionLane.tsx (the member
  * cards), sessionLocation.ts, routes/observatory_.swarm.$swarmId.tsx (the
  * route), SwarmPage.module.css, NightCrewPage.module.css (the page chrome).
  *
  * Prompt that produced it: "one helper per swarm. i want to be able to click
  * into it and see what information is being used by it and sent between
  * sessions and summaries and whatnot. could also have an input section."
+ * · "i want to make it possible to add a session per swarm room"
  */
 import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
-import { closeConversation, sendToInbox, useSessionRoster } from './api';
+import {
+  closeConversation,
+  createSession,
+  sendToInbox,
+  toLane,
+  updateConversation,
+  useSessionRoster,
+} from './api';
 import pageStyles from './NightCrewPage.module.css';
 import { setConversationRead, openedMap } from './readReceipts';
 import { sessionLocation } from './sessionLocation';
+import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
 import styles from './SwarmPage.module.css';
 import { SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
@@ -48,6 +61,7 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
   const [ask, setAsk] = useState('');
   const [note, setNote] = useState('');
   const [, bump] = useState(0);
+  const [creating, setCreating] = useState(false);
 
   const open = (convId: string) => void navigate(sessionLocation(convId));
   const titleOf = (conv: string) =>
@@ -65,6 +79,22 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
         void refetch();
       },
       () => setNote('Couldn’t send that — try again.'),
+    );
+  };
+
+  // Start a session inside this swarm: the same sheet as a room's '+', opened
+  // on the swarm's own room, and the new session joins the swarm on creation.
+  // An explicit asks-first choice is a second call, as on the roster.
+  const onCreate = (draft: SessionDraft) => {
+    if (!swarm) return;
+    createSession(draft.name, draft.journal, draft.model, draft.lane, swarm.id).then(
+      ({ id }) => {
+        setCreating(false);
+        if (draft.actGate !== null) void updateConversation(id, { act_gate: draft.actGate }).catch(() => {});
+        void refetch();
+        open(id);
+      },
+      () => setNote('Couldn’t start that session — try again.'),
     );
   };
 
@@ -131,6 +161,7 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
               blurb="Every session in this swarm. Tap one to open it."
               sessions={memberSessions}
               terrain={terrain}
+              onNew={() => setCreating(true)}
               opened={openedMap()}
               onOpen={open}
               onSetRead={(convId, read) => {
@@ -140,6 +171,15 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
               onRename={(s) => open(s.id)}
               onChanged={() => void refetchRoster()}
               onClose={(convId) => void closeConversation(convId).then(() => refetchRoster())}
+            />
+
+            <SessionDialog
+              open={creating}
+              title={`New session in ${swarm.name}`}
+              lane={toLane(swarm.lane)}
+              modelChoices={roster?.model_choices ?? []}
+              onClose={() => setCreating(false)}
+              onSave={onCreate}
             />
 
             {/* Talking to the helper. */}
