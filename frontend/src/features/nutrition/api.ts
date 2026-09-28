@@ -94,9 +94,10 @@ export function getMeasures(fdcIds: number[], signal?: AbortSignal) {
   return api.get<{ measures: Record<string, Measure[]> }>(`/api/nutrition/measures?ids=${fdcIds.join(',')}`, signal);
 }
 
-/** Packaged products by name or brand; a query of 8+ digits is read as a barcode. */
+/** Packaged products by name or brand; a query of 8+ digits is read as a barcode.
+ *  `open_food_facts` says whether a barcode nobody here had was found on Open Food Facts (null: not asked). */
 export function searchPackaged(text: string, signal?: AbortSignal) {
-  return api.get<{ foods: PackagedFood[] }>(`/api/nutrition/packaged?${new URLSearchParams({ q: text })}`, signal);
+  return api.get<{ foods: PackagedFood[]; open_food_facts: 'found' | 'missing' | 'unreachable' | null }>(`/api/nutrition/packaged?${new URLSearchParams({ q: text })}`, signal);
 }
 
 /** Send label photos to be read by a helper Claude session; answers with the job to watch. */

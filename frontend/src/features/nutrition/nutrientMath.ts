@@ -17,6 +17,7 @@ export const DATASET_TAGS: Record<FdcFood['data_type'], string> = {
   survey_fndds_food: 'FNDDS',
   branded_food: 'Label',
   label_photo: 'Your label',
+  open_food_facts: 'Open Food Facts',
 };
 
 export type RowGroup = 'over' | 'under' | 'met' | 'untargeted';
@@ -64,8 +65,9 @@ export function barShare(amount: number, judgement: Judgement | undefined): numb
 
 // Link a food to its source: its own page on USDA FoodData Central, by FDC id.
 export function fdcFoodUrl(fdcId: number): string {
-  // A product she read off a label photo has a negative id and no USDA page: link its photo instead.
-  if (fdcId < 0) return `/api/nutrition/label-products/${-fdcId}/photo`;
+  // A product of her own (a label photo, or a copy from Open Food Facts) has a negative id and no USDA
+  // page: link where its figures came from instead — the photo, or its Open Food Facts page.
+  if (fdcId < 0) return `/api/nutrition/label-products/${-fdcId}/source`;
   return `https://fdc.nal.usda.gov/food-details/${fdcId}/nutrients`;
 }
 

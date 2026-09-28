@@ -61,8 +61,9 @@ MEALS = "nutrition_meals"
 SETTINGS = "nutrition_settings"
 HIGHLIGHTS = "nutrition_highlights"
 
-# Figures off a package label: USDA's copy of the maker's (Branded Foods), or her own photo read by AI.
-LABEL_TYPES = (fdcdb.BRANDED, "label_photo")
+# Figures off a package label: USDA's copy of the maker's (Branded Foods), her own photo read by AI,
+# or Open Food Facts' crowd-typed copy (openfoodfacts.py).
+LABEL_TYPES = (fdcdb.BRANDED, "label_photo", "open_food_facts")
 
 # FoodData Central's own site, where every food has a page under its FDC id.
 FDC_URL = "https://fdc.nal.usda.gov/"

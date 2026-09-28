@@ -11,13 +11,18 @@ Bad input comes back as a 400 with the reason.
     GET  /api/nutrition/search?q=      -> USDA foods whose name holds every word
     GET  /api/nutrition/packaged?q=    -> packaged products (USDA Branded Foods, the makers' labels) by
                                           name or brand; a q of 8+ digits (typed or scanned) is a barcode.
-                                          Her own label-photo products (label_products.py) come first
+                                          Her own label-photo products (label_products.py) come first;
+                                          a barcode nobody here has is asked of Open Food Facts
+                                          (openfoodfacts.py) -> {foods, open_food_facts: found|missing|
+                                          unreachable|null}
     POST /api/nutrition/labels         multipart photo(s) [+ barcode] -> {job}: the photos saved and a helper
                                           Claude session sent to read them (label_products.reading_brief)
     GET  /api/nutrition/labels/<job>   -> {status: reading|ready|failed|missing, draft?, error?}
     GET  /api/nutrition/labels/<name>/photo -> the photo itself, to check the figures against
     POST /api/nutrition/label-products {draft, photo} -> {food}: a checked draft saved as a product
-    GET  /api/nutrition/label-products/<n>/photo -> product -n's label photo (its food name links here)
+    GET  /api/nutrition/label-products/<n>/photo -> product -n's label photo
+    GET  /api/nutrition/label-products/<n>/source -> its label photo, or its Open Food Facts page (the
+                                          food name links here)
     GET  /api/nutrition/rank/<key>?per=100g|100kcal&q=&limit=&histamine=low
                                        -> every USDA food ranked by that nutrient, richest first,
                                           each rated against the SIGHI low-histamine list (histamine.py);
@@ -48,11 +53,12 @@ plug in my diet and see how to optimize it for my health overall."
 from datetime import datetime
 from pathlib import Path
 
-from flask import jsonify, request, send_from_directory
+from flask import jsonify, redirect, request, send_from_directory
 
 import fdcdb
 import histamine
 import label_products
+import openfoodfacts
 import measures
 import nutrient_facts
 import nutrient_storage
@@ -270,13 +276,17 @@ def register(app):
         # Packaged products by name or brand; a string of digits is a barcode typed in.
         text = (request.args.get("q") or "").strip()
         digits = text.replace(" ", "").replace("-", "")
-        # Her own label-photo products come first: she read them because USDA hadn't got them.
+        # Her own products come first: she read them (or copied them) because USDA hadn't got them.
         with fdcdb.session() as conn:
             if digits.isdigit() and len(digits) >= 8:
                 foods = label_products.lookup_barcode(digits) + fdcdb.lookup_barcode(conn, digits)
             else:
                 foods = label_products.search(text) + fdcdb.search_packaged(conn, text)
-        return jsonify({"foods": foods})
+        # Ask Open Food Facts for a barcode nobody here has; a find is kept, so this asks once per product.
+        open_food_facts = None
+        if not foods and digits.isdigit() and len(digits) >= 8:
+            foods, open_food_facts = openfoodfacts.lookup(digits)
+        return jsonify({"foods": foods, "open_food_facts": open_food_facts})
 
     @app.route("/api/nutrition/labels", methods=["POST"])
     def nutrition_label_read():
@@ -322,6 +332,14 @@ def register(app):
         if not product or not product.get("photo"):
             return jsonify({"error": "no photo for that product"}), 404
         return send_from_directory(str(label_products.labels_dir()), product["photo"])
+
+    @app.route("/api/nutrition/label-products/<int:number>/source")
+    def nutrition_label_product_source(number):
+        # Where a saved product's figures came from: its label photo, or its page on Open Food Facts.
+        product = label_products.product(-number)
+        if product and product.get("url"):
+            return redirect(product["url"])
+        return nutrition_label_product_photo(number)
 
     @app.route("/api/nutrition/label-products", methods=["POST"])
     def nutrition_label_save():

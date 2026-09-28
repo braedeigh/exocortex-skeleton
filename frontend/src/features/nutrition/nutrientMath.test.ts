@@ -56,6 +56,9 @@ describe('fdcFoodUrl', () => {
   it('points at the food’s own FoodData Central page', () => {
     expect(fdcFoodUrl(168421)).toBe('https://fdc.nal.usda.gov/food-details/168421/nutrients');
   });
+  it('points a product of her own at where its figures came from', () => {
+    expect(fdcFoodUrl(-3)).toBe('/api/nutrition/label-products/3/source');
+  });
 });
 
 // A day row with targets per sex and per-food shares, for the food-by-food view.

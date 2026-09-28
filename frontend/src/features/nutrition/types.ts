@@ -177,8 +177,9 @@ export interface HighlightedFood {
 
 export interface FdcFood {
   fdc_id: number;
-  /** label_photo = her own product, read by AI off a label photo and checked by her (label_products.py). */
-  data_type: 'foundation_food' | 'sr_legacy_food' | 'survey_fndds_food' | 'branded_food' | 'label_photo';
+  /** label_photo = her own product, read by AI off a label photo and checked by her (label_products.py);
+   *  open_food_facts = a local copy of a crowd-sourced Open Food Facts product (openfoodfacts.py). */
+  data_type: 'foundation_food' | 'sr_legacy_food' | 'survey_fndds_food' | 'branded_food' | 'label_photo' | 'open_food_facts';
   description: string;
   category: string | null;
 }

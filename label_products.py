@@ -14,6 +14,10 @@ goes into meals and totals through `fdcdb.food`, which hands negative ids to
 `food()` here. Its figures are named for what they are — the maker's label,
 read by AI from a photo and checked by her — never passed off as a lab's.
 
+A barcode found on Open Food Facts instead (openfoodfacts.py) is kept here
+too, as a copy with its own data type and a link back to its page there, so
+one lookup serves every later scan.
+
 A product record holds only what's printed on the package (name, brand,
 barcode, serving, ingredients, figures) and never anything about her, so the
 collection can later be shared as a product database without editing it.
@@ -22,7 +26,7 @@ Where things live:
   `label_products` (data dir, JSON via store.py) — {products: [...], next_id}.
   `nutrition_labels/` (data dir) — the photos, and each job's `.parsed.json`.
 
-Touches: store.py, fdcdb.py (barcode_keys, and it calls food() here),
+Touches: store.py, openfoodfacts.py (calls save_copy), fdcdb.py (barcode_keys, and it calls food() here),
 routes/helpers.py (mint_helper, the helper session), routes/nutrition.py
 (the HTTP seam), nutrition.py (totals names these as labelled).
 Tests: tests/test_label_products.py. Design: docs/nutrition.md.
@@ -239,19 +243,42 @@ def save_product(fields, photo=None):
     if not per_100:
         raise ValueError("no figures to save")
 
+    return _store({
+        "data_type": LABEL_PHOTO,
+        "name": draft["name"], "brand": draft["brand"], "barcode": draft["barcode"],
+        "serving_text": draft["serving_text"], "serving_amount": serving,
+        "serving_unit": draft["serving_unit"], "ingredients": draft["ingredients"],
+        "per_100": per_100,
+        "photo": photo if photo and _safe_name(photo) else None,
+        "source": "label photo, read by AI and checked before saving",
+    })
+
+
+def save_copy(fields, per_100, data_type, source, url):
+    """Keep a product found in another database (openfoodfacts.py) as a local copy; returns it.
+
+    `fields` are the package facts in save_product's shape, `per_100` its
+    figures already per 100 g in a label's units. The copy is named for where
+    it came from (`data_type`, `source`, `url`), never as her own label."""
+    unit = "ml" if fields.get("serving_unit") == "ml" else "g"
+    return _store({
+        "data_type": data_type,
+        "name": str(fields.get("name") or "").strip(), "brand": str(fields.get("brand") or "").strip(),
+        "barcode": re.sub(r"\D", "", str(fields.get("barcode") or "")),
+        "serving_text": str(fields.get("serving_text") or "").strip(),
+        "serving_amount": fields.get("serving_amount"), "serving_unit": unit,
+        "ingredients": str(fields.get("ingredients") or "").strip(),
+        "per_100": {key: amount for key, amount in per_100.items() if key in _BY_KEY},
+        "photo": None, "url": url, "source": source,
+    })
+
+
+def _store(product):
+    """Give a product the next negative id and today's date, and save it; returns it."""
     with store.mutate(PRODUCTS, {}) as data:
         products = data.setdefault("products", [])
         next_id = int(data.get("next_id") or 1)
-        product = {
-            "id": -next_id,
-            "name": draft["name"], "brand": draft["brand"], "barcode": draft["barcode"],
-            "serving_text": draft["serving_text"], "serving_amount": serving,
-            "serving_unit": draft["serving_unit"], "ingredients": draft["ingredients"],
-            "per_100": per_100,
-            "photo": photo if photo and _safe_name(photo) else None,
-            "source": "label photo, read by AI and checked before saving",
-            "added": datetime.now().strftime("%Y-%m-%d"),
-        }
+        product = {"id": -next_id, **product, "added": datetime.now().strftime("%Y-%m-%d")}
         products.append(product)
         data["next_id"] = next_id + 1
     return product
@@ -279,10 +306,10 @@ def food(product_id):
         words, nutrient_id, unit = _BY_KEY[key]
         nutrients[nutrient_id] = {"name": words, "unit": _FDC_UNITS[unit], "amount": amount,
                                   "data_points": None, "min": None, "max": None, "median": None}
-    grams = found["serving_amount"] if found.get("serving_unit") == "g" else None
+    grams = found.get("serving_amount") if found.get("serving_unit") == "g" else None
     return {
-        "fdc_id": found["id"], "data_type": LABEL_PHOTO, "description": found["name"], "category": None,
-        "nutrients": nutrients,
+        "fdc_id": found["id"], "data_type": found.get("data_type", LABEL_PHOTO), "description": found["name"],
+        "category": None, "nutrients": nutrients,
         "portions": [{"amount": 1, "unit": "serving", "description": found.get("serving_text") or "serving",
                       "grams": grams}] if grams else [],
         "label": _label(found),
@@ -298,8 +325,8 @@ def _label(found):
 
 def as_result(found):
     """A product as a packaged-search result, the same shape fdcdb._packaged gives."""
-    return {"fdc_id": found["id"], "data_type": LABEL_PHOTO, "description": found["name"], "category": None,
-            "gtin_upc": found.get("barcode") or "", "brand_owner": found.get("brand") or "",
+    return {"fdc_id": found["id"], "data_type": found.get("data_type", LABEL_PHOTO), "description": found["name"],
+            "category": None, "gtin_upc": found.get("barcode") or "", "brand_owner": found.get("brand") or "",
             "brand_name": found.get("brand") or "", "serving_size": found.get("serving_amount"),
             "serving_size_unit": found.get("serving_unit"), "household_serving": found.get("serving_text"),
             "nutrient_count": len(found.get("per_100") or {})}

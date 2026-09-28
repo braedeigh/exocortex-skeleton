@@ -16,7 +16,9 @@
  * The camera is ./BarcodeScanner.tsx, loaded only when opened. A product that
  * isn't listed can be made from photos of its label (./LabelReader.tsx),
  * offered at once when a barcode finds nothing; those products (tagged
- * "Your label") come first in later searches.
+ * "Your label") come first in later searches. A barcode USDA hasn't got is
+ * asked of Open Food Facts first, by the server; a find is tagged
+ * "Open Food Facts (crowd-sourced)" and kept, so it's found here next time.
  *
  * Prompt: "no packaged or branded food support, and no barcode lookup" — "yeah sure".
  */
@@ -26,6 +28,12 @@ import { searchPackaged } from './api';
 import { LabelReader } from './LabelReader';
 import type { MealItem, PackagedFood } from './types';
 import styles from './Nutrition.module.css';
+
+// Whose figures a result's are, when they aren't USDA's copy of the maker's label.
+const RESULT_TAGS: Partial<Record<PackagedFood['data_type'], string>> = {
+  label_photo: 'your label',
+  open_food_facts: 'Open Food Facts (crowd-sourced)',
+};
 
 // The camera and its barcode library download only when "Scan" is tapped.
 const BarcodeScanner = lazy(() => import('./BarcodeScanner'));
@@ -92,7 +100,7 @@ export function PackagedSearch({ onPick }: { onPick: (item: MealItem) => void })
                   </span>
                 </span>
                 <span className={styles.resultTag}>
-                  {food.data_type === 'label_photo' ? 'your label' : 'label'} · {food.nutrient_count} nutrients
+                  {RESULT_TAGS[food.data_type] ?? 'label'} · {food.nutrient_count} nutrients
                 </span>
               </button>
             </li>
@@ -100,7 +108,9 @@ export function PackagedSearch({ onPick }: { onPick: (item: MealItem) => void })
           {!results.data.foods.length ? (
             <li className={styles.muted}>
               {isBarcode
-                ? `USDA has no packaged food under barcode ${debounced}.`
+                ? results.data.open_food_facts === 'unreachable'
+                  ? `USDA has no packaged food under barcode ${debounced}, and Open Food Facts couldn't be reached.`
+                  : `Neither USDA nor Open Food Facts has barcode ${debounced}.`
                 : 'No packaged food by that name or brand.'}
             </li>
           ) : null}

@@ -177,7 +177,8 @@
         "georegions.py",
         "measures.py",
         "fdcdb.py", "dri.py", "nutrition.py", "nutrient_facts.py", "nutrient_storage.py", "histamine.py",
-        "recipe_nutrition.py", "recipe_shares.py", "label_products.py"
+        "recipe_nutrition.py", "recipe_shares.py", "label_products.py",
+        "openfoodfacts.py"
       ],
       "routes": [
         "kitchen",

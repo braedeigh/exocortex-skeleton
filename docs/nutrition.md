@@ -109,7 +109,22 @@ ingredients, figures, the photo's file name), nothing about her or her meals. Th
 deliberate. The owner's longer aim is a shared product database that fills itself as
 people scan (eventually a paid tier with an API). The collection is kept shareable so it
 can seed that without being edited. Not built yet: sharing, accounts, or sending products
-to Open Food Facts.
+to Open Food Facts (she said "not yet" on 2026-09-28; decide once the paid tier is planned).
+
+## Barcodes nobody here has: Open Food Facts
+
+Before a barcode miss offers the label reader, the packaged search asks **Open Food Facts**
+(`openfoodfacts.py`), a free crowd-sourced product database: one GET to
+`/api/v2/product/<code>.json`, six-second timeout, and only the barcode is sent. Its
+figures come per 100 g already but in grams (sodium `0.044` = 44 mg), so each is turned
+into the unit a US label prints. A figure it doesn't give stays unknown. A find is kept as
+a local copy in `label_products` with `data_type: "open_food_facts"`, its source and a link
+to its page there. It's tagged "Open Food Facts (crowd-sourced)" in results, counts as
+`labelled` in the totals, and its name links to its Open Food Facts page. The next scan of
+that barcode finds the copy and doesn't ask again. The route answers
+`open_food_facts: found | missing | unreachable | null` (null means it wasn't asked), so
+the page can tell "nobody has it" from "couldn't ask". Either way the label reader is
+still offered.
 
 ## Nutrient pages: deficiency text and the low-histamine list
 

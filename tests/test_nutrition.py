@@ -16,6 +16,7 @@ import dri
 import fdcdb
 import histamine
 import nutrition
+import openfoodfacts
 import store
 from routes import nutrition as nutrition_routes
 from tests.test_fdcdb import make_branded_zip, make_survey_zip, make_zip
@@ -405,5 +406,7 @@ def test_packaged_route_finds_by_name_and_by_typed_barcode(client):
     assert ([f["fdc_id"] for f in by_name], [f["fdc_id"] for f in by_code]) == ([901], [901])
 
 
-def test_packaged_route_says_nothing_found_for_an_unknown_barcode(client):
+def test_packaged_route_says_nothing_found_for_an_unknown_barcode(client, monkeypatch):
+    # Open Food Facts is asked on a miss; here it hasn't the product either (no network in tests).
+    monkeypatch.setattr(openfoodfacts, "fetch", lambda code, timeout=6: None)
     assert client.get("/api/nutrition/packaged?q=000000000017").get_json()["foods"] == []
