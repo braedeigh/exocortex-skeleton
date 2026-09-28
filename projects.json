@@ -175,7 +175,7 @@
         "proposalstore.py",
         "provenance.py",
         "georegions.py",
-        "fdcdb.py", "dri.py", "nutrition.py", "nutrient_facts.py", "histamine.py"
+        "fdcdb.py", "dri.py", "nutrition.py", "nutrient_facts.py", "nutrient_storage.py", "histamine.py"
       ],
       "routes": [
         "kitchen",

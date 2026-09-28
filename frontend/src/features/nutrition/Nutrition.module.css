@@ -577,3 +577,31 @@ a.rowNameBtn {
   gap: 8px 16px;
   margin: 8px 0;
 }
+
+/* A nutrient's marker: whether the body stores it or needs it steadily (./StorageNote.tsx). */
+.storageTag {
+  display: inline-flex;
+  align-items: center;
+  margin: 4px 0;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill, 999px);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.storageStores {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.storageSteady {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.storageUnclear {
+  border-style: dashed;
+}

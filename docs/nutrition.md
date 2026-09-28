@@ -58,6 +58,21 @@ manifest entry names its snapshot. The page shows the sections as written, with 
 numbers stripped, and links ODS's own address. No text is paraphrased. Energy, protein,
 fat, carbohydrate, fiber and sodium have no ODS sheet, and their pages say so.
 
+**Daily, or does it build up?** (`nutrient_storage.py`, `StorageNote.tsx`). Each of the
+23 ODS nutrients gets one of three readings: *Body stores it* (calcium, iron, vitamin A,
+vitamin D, folate, B12), *Needed steadily* (thiamin, riboflavin, copper, vitamin K,
+vitamin C), or *Store not stated* (the sheet says where it sits in the body, or nothing,
+but not whether that carries you through low days). The six nutrients without a sheet
+say "no sourced answer". The reading is ours. The sentences behind it are the sheet's,
+quoted word for word. Every quote is checked against the sheet on each read, and one
+that has gone missing is dropped rather than shown. "How long" appears only where the
+sheet names a time: B12 several years, vitamin C about a month, vitamin D's blood form a
+15-day half-life, thiamin a short half-life. The card closes with the sheet's own
+definition of the RDA ("Average daily level of intake"), since targets are averages over
+days. Deliberately *not* written from general knowledge. Zinc, for example, is "stored in
+skeletal muscle and bone" per ODS, but the sheet doesn't say the body can draw on it, so
+it stays *Store not stated*.
+
 **Low-histamine list: SIGHI, one list, named** (`histamine.py`). Low-histamine lists
 disagree. The app follows only the Swiss Interest Group Histamine Intolerance *Food
 Compatibility List* (2023-04-01 edition). It rates each food 0–3 for tolerance by
@@ -209,15 +224,16 @@ Personal facts (her age, why "both") stay in those vault files, never in this re
 
 ## HTTP
 
-- `GET /api/nutrition/day`: the usual day's totals against the targets.
+- `GET /api/nutrition/day`: the usual day's totals against the targets, plus `storage`,
+  each nutrient's stored-or-steady marker.
 - `GET /api/nutrition/search?q=`: FDC food search (Foundation, then SR Legacy, then FNDDS).
 - `GET /api/nutrition/rank/<key>?per=100g|100kcal&q=&limit=&histamine=low`: every FDC food
   ranked by one tracked nutrient, richest first. Per 100 kcal is nutrient density; foods
   under 5 kcal per 100 g are left out of it, and foods with no figure are never ranked as 0.
   Each food carries its SIGHI rating (`histamine`), and `histamine=low` keeps only the 0s,
   filtered before the limit.
-- `GET /api/nutrition/nutrient/<key>`: `{row, sexes, facts}`, the day's row for one nutrient
-  plus the ODS sections.
+- `GET /api/nutrition/nutrient/<key>`: `{row, sexes, facts, storage}`, the day's row for one
+  nutrient plus the ODS sections and the stored-or-steady reading.
 - `GET /api/nutrition/highlights`, `POST /api/nutrition/highlights/<fdc_id>` `{on, description}`:
   star / unstar.
 - `POST /api/nutrition/meals/<name>`: replace a meal's items (a new name makes a new meal).

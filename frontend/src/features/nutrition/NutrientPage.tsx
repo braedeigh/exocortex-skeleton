@@ -3,7 +3,8 @@
  *
  * Top to bottom: her usual day's total for it against its targets (the same
  * bars and notes as the Nutrients list); which of her foods it comes from
- * (./FoodShares.tsx); what it does and what happens if
+ * (./FoodShares.tsx); whether the body keeps a store of it or needs it
+ * steadily, from its NIH fact sheet (./StorageNote.tsx); what it does and what happens if
  * you don't get enough, in the NIH Office of Dietary Supplements' own words
  * (their Health Professional Fact Sheet — Introduction, "<nutrient>
  * Deficiency", and, folded, "Groups at Risk"), with a link to the sheet; then
@@ -27,7 +28,7 @@
  * Data: GET /api/nutrition/nutrient/<key> and /api/nutrition/rank/<key>
  * (routes/nutrition.py → nutrient_facts.py, nutrition.py, histamine.py).
  * Touches: ./api.ts, ./types.ts, ./NutritionPage.tsx (NutrientAmount,
- * NutrientBars, DAY_KEY), ./Highlights.tsx, ./nutrientMath.ts,
+ * NutrientBars, DAY_KEY), ./Highlights.tsx, ./StorageNote.tsx, ./nutrientMath.ts,
  * ./Nutrition.module.css, ../ecosystem/FoodNav.tsx. Design: docs/nutrition.md.
  */
 import { useQuery } from '@tanstack/react-query';
@@ -38,6 +39,7 @@ import { getDay, getNutrient, rankFoods } from './api';
 import { NutrientSources } from './FoodShares';
 import { StarButton, useHighlights } from './Highlights';
 import { SingleFoodsChip, useSingleFoods } from './SingleFoods';
+import { StorageCard } from './StorageNote';
 import { DATASET_TAGS, fdcFoodUrl, formatAmount } from './nutrientMath';
 import { DAY_KEY, NutrientAmount, NutrientBars } from './NutritionPage';
 import type { FactBlock, HistamineRating, HistamineSource, NutrientFacts, RankPer } from './types';
@@ -86,6 +88,7 @@ export function NutrientPage({ nutrientKey }: { nutrientKey: string }) {
             <div className={styles.cardHead}>Where yours comes from</div>
             <NutrientSources row={detail.row} sexes={detail.sexes} />
           </section>
+          <StorageCard storage={detail.storage} label={detail.row.label} />
           <Facts facts={detail.facts} label={detail.row.label} />
           <section className={styles.card}>
             <div className={styles.cardHead}>Foods richest in it</div>

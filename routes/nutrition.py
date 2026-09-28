@@ -6,14 +6,16 @@ adds up to against the daily targets, and lets her fix a meal's gram weights
 and her settings. The adding-up is nutrition.py; the food lookup is fdcdb.py.
 Bad input comes back as a 400 with the reason.
 
-    GET  /api/nutrition/day            -> {report, meals, day, settings}
+    GET  /api/nutrition/day            -> {report, meals, day, settings, storage}: storage maps each
+                                          nutrient to whether the body stores it (nutrient_storage.py)
     GET  /api/nutrition/search?q=      -> USDA foods whose name holds every word
     GET  /api/nutrition/rank/<key>?per=100g|100kcal&q=&limit=&histamine=low
                                        -> every USDA food ranked by that nutrient, richest first,
                                           each rated against the SIGHI low-histamine list (histamine.py);
                                           histamine=low keeps only the foods SIGHI rates 0
-    GET  /api/nutrition/nutrient/<key> -> {row, sexes, facts}: her day's total for one nutrient,
-                                          and the NIH ODS fact sheet's own words (nutrient_facts.py)
+    GET  /api/nutrition/nutrient/<key> -> {row, sexes, facts, storage}: her day's total for one nutrient,
+                                          the NIH ODS fact sheet's own words (nutrient_facts.py), and
+                                          what the sheet says about the body storing it (nutrient_storage.py)
     GET  /api/nutrition/plan?cap=&kcal= -> the fewest grams a day of her starred foods that close her
                                           day's gaps (nutrition.plan_additions): cap = most grams of any
                                           one food (default 100), kcal = most calories to add (optional)
@@ -38,6 +40,7 @@ from flask import jsonify, request
 import fdcdb
 import histamine
 import nutrient_facts
+import nutrient_storage
 import nutrition
 import store
 
@@ -81,8 +84,11 @@ def register(app):
         data = nutrition.meals()
         with fdcdb.session() as conn:
             report = nutrition.report(conn, nutrition.day_items(data))
+        storage = {row["key"]: {"kind": nutrient_storage.kind(row["key"]),
+                                "label": nutrient_storage.LABELS[nutrient_storage.kind(row["key"])]}
+                   for row in report["nutrients"]}
         return jsonify({"report": report, "meals": data["meals"], "day": data["day"],
-                        "settings": nutrition.settings()})
+                        "settings": nutrition.settings(), "storage": storage})
 
     @app.route("/api/nutrition/search")
     def nutrition_search():
@@ -128,7 +134,8 @@ def register(app):
         with fdcdb.session() as conn:
             report = nutrition.report(conn, nutrition.day_items(data))
         row = next(row for row in report["nutrients"] if row["key"] == key)
-        return jsonify({"row": row, "sexes": report["sexes"], "facts": nutrient_facts.facts(key)})
+        return jsonify({"row": row, "sexes": report["sexes"], "facts": nutrient_facts.facts(key),
+                        "storage": nutrient_storage.storage(key)})
 
     @app.route("/api/nutrition/plan")
     def nutrition_plan():

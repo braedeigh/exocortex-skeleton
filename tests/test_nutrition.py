@@ -362,3 +362,13 @@ def test_plan_route_adds_only_starred_foods(client):
 
 def test_plan_route_refuses_a_bad_cap(client):
     assert client.get("/api/nutrition/plan?cap=-5").status_code == 400
+
+
+def test_nutrient_route_says_whether_the_body_stores_it(client):
+    body = client.get("/api/nutrition/nutrient/vitamin_b12").get_json()
+    assert body["storage"]["kind"] == "stores"
+
+
+def test_day_route_marks_each_nutrient_stored_or_steady(client):
+    storage = client.get("/api/nutrition/day").get_json()["storage"]
+    assert (storage["thiamin"]["kind"], storage["energy"]["kind"]) == ("steady", "unsourced")

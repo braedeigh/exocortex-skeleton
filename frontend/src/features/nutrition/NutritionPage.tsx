@@ -7,8 +7,9 @@
  * with its total, the range USDA's samples allow, a bar per sex against its
  * target, and plain notes where the number is softer than it looks (an AI
  * target, foods with no figure, foods whose figure was filled in from USDA's
- * survey data, a UL that doesn't count food), and its top three sources among
- * her foods. Tapping a nutrient's name opens its own page (./NutrientPage.tsx);
+ * survey data, a UL that doesn't count food), a marker for whether the body
+ * stores it or needs it steadily (./StorageNote.tsx), and its top three sources
+ * among her foods. Tapping a nutrient's name opens its own page (./NutrientPage.tsx);
  * then what each of her foods gives her (./FoodShares.tsx); then the foods she's starred,
  * and how much of them to add to meet her targets (./MealPrepPlan.tsx)
  * (./Highlights.tsx); then her meals, where each food's grams can be fixed, a food removed, or a USDA food
@@ -23,7 +24,7 @@
  *
  * Data: GET /api/nutrition/day (routes/nutrition.py → nutrition.py).
  * Touches: ./api.ts, ./types.ts, ./nutrientMath.ts, ./Nutrition.module.css,
- * ./NutrientPage.tsx (shares NutrientAmount / NutrientBars), ./Highlights.tsx,
+ * ./NutrientPage.tsx (shares NutrientAmount / NutrientBars), ./Highlights.tsx, ./StorageNote.tsx,
  * ../ecosystem/FoodNav.tsx, ../research/ResearchPage.module.css (the page
  * frame the Food pages share). Design: docs/nutrition.md.
  *
@@ -37,6 +38,7 @@ import { FoodNav } from '../ecosystem/FoodNav';
 import { normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
 import { deleteMeal, getDay, saveMeal, saveServings, saveSettings, searchFoods } from './api';
 import { FoodGiftsCard, TopSources } from './FoodShares';
+import { StorageTag } from './StorageNote';
 import { StarredFoods } from './Highlights';
 import { MealPrepPlan } from './MealPrepPlan';
 import { SingleFoodsChip, useSingleFoods } from './SingleFoods';
@@ -163,7 +165,7 @@ function NutrientList({ day }: { day: NutritionDay }) {
           <div className={styles.cardHead}>{GROUP_TITLES[group]}</div>
           <ul className={styles.rows}>
             {rows.map((row) => (
-              <NutrientLine key={row.key} row={row} sexes={day.report.sexes} />
+              <NutrientLine key={row.key} row={row} sexes={day.report.sexes} storage={day.storage[row.key]} />
             ))}
           </ul>
         </section>
@@ -172,7 +174,15 @@ function NutrientList({ day }: { day: NutritionDay }) {
   );
 }
 
-function NutrientLine({ row, sexes }: { row: NutrientRow; sexes: Sex[] }) {
+function NutrientLine({
+  row,
+  sexes,
+  storage,
+}: {
+  row: NutrientRow;
+  sexes: Sex[];
+  storage?: NutritionDay['storage'][string];
+}) {
   return (
     <li className={styles.row}>
       <div className={styles.rowTop}>
@@ -183,6 +193,7 @@ function NutrientLine({ row, sexes }: { row: NutrientRow; sexes: Sex[] }) {
         <NutrientAmount row={row} />
       </div>
       <NutrientBars row={row} sexes={sexes} />
+      {storage ? <StorageTag kind={storage.kind} label={storage.label} /> : null}
       <TopSources row={row} />
     </li>
   );

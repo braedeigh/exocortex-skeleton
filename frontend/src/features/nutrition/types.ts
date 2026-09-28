@@ -81,6 +81,8 @@ export interface NutritionDay {
   meals: Record<string, Meal>;
   day: DaySlot[];
   settings: { sex: SexSetting; age: number | null };
+  /** Each nutrient's marker: whether the body stores it (nutrient_storage.py). */
+  storage: Record<string, { kind: StorageKind; label: string }>;
 }
 
 export type RankPer = '100g' | '100kcal';
@@ -139,10 +141,27 @@ export interface NutrientFacts {
   at_risk: FactBlock[];
 }
 
+/** Whether the body keeps a store of a nutrient — the ODS sheet's reading (nutrient_storage.py). */
+export type StorageKind = 'stores' | 'steady' | 'unclear' | 'unsourced';
+
+/** What the ODS sheet says about the body storing one nutrient, with its sentences word for word. */
+export interface NutrientStorage {
+  key: string;
+  kind: StorageKind;
+  label: string;
+  summary: string | null;
+  lasts: string | null;
+  quotes: string[];
+  unverified: string[];
+  average: string | null;
+  sheet: NutrientFacts['sheet'];
+}
+
 export interface NutrientDetail {
   row: NutrientRow;
   sexes: Sex[];
   facts: NutrientFacts;
+  storage: NutrientStorage;
 }
 
 /** A food she's starred as one she's interested in eating. */
