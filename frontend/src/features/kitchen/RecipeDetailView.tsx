@@ -6,7 +6,7 @@
  * Where it comes from follows each ingredient's food along its real links to
  * map sources (ecoRecipeSourcing, features/ecosystem/ecoMatch.ts) and opens
  * with one line — "3 of 9 traced" (traceSummary.ts). Each traced ingredient's
- * name opens its food's page under Research, and each source name opens that
+ * name opens its food's page in the Food area, and each source name opens that
  * source on the map. Untraced ones are listed with the closest-named source
  * as a hint only, plus a "Request linking" button (ecosystem/RequestLinkButton)
  * that queues the food for research — it doesn't link anything; requestState.ts
@@ -182,7 +182,7 @@ export function RecipeDetailView({
           >
             <div style={{ padding: '0 0 12px' }}>
               {/* Traced ingredients: the food's name opens its page, each source opens on the map.
-                  A visitor has no Research pages, so there the food name is plain text. */}
+                  A visitor has no food pages, so there the food name is plain text. */}
               {sourcing.traced.length ? (
                 sourcing.traced.map((t, i) => (
                   <div key={i} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 10px', fontSize: 14 }}>
@@ -234,11 +234,9 @@ export function RecipeDetailView({
                   + {sourcing.pantry.length} pantry staple{sourcing.pantry.length === 1 ? '' : 's'} (not traced)
                 </div>
               ) : null}
-              {/* Deep-link to the Ecosystem tab with this recipe selected (old
-                  switchTab(event,'ecosystem',{recipe:id})). The React ecosystem
-                  page reads ?recipe= when it lands. */}
+              {/* Open this recipe on the Food area's map: /food reads ?recipe= when it lands. */}
               <a
-                href={`/ecosystem?recipe=${encodeURIComponent(recipe.id)}`}
+                href={`/food?recipe=${encodeURIComponent(recipe.id)}`}
                 className={styles.mutedBtn}
                 style={{
                   display: 'inline-flex',
@@ -338,14 +336,14 @@ export function RecipeDetailView({
   );
 }
 
-/** An ingredient's name that opens its food's page under Research — keyed by
+/** An ingredient's name that opens its food's page in the Food area — keyed by
  * the catalog food's name when the line resolved to one, else the line as
  * written (the page still opens and says it isn't in the catalog yet). */
 function FoodName({ item, foodName, isPublic }: { item: string; foodName?: string | null; isPublic: boolean }) {
   if (isPublic) return <>{item}</>;
   return (
     <Link
-      to="/research/foods/$name"
+      to="/food/foods/$name"
       params={{ name: foodName || item }}
       style={{ display: 'inline-flex', alignItems: 'center', minHeight: 40, color: 'var(--text)', textDecoration: 'underline dotted' }}
       title="This food's page"

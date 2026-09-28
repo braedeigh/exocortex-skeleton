@@ -3,7 +3,7 @@
  *
  * What this file does: given the map sources one food is linked to, draws each
  * as its transparency-coloured dot and its name, the name opening that source
- * on the map (/ecosystem?source=<id>). With no linked source it says "Not
+ * on the Food area's map (/food?source=<id>). With no linked source it says "Not
  * traced yet". Used by the organic popup (OrganicVerdict.tsx); the sources
  * come from the kitchen payload and are matched to the food by
  * ecoSourcesForFood (features/ecosystem/ecoMatch.ts) — a real link, never a
@@ -25,7 +25,7 @@ export function SourceDot({ source }: { source: EcoSource }) {
 /** A source's name as a link that opens it on the map. */
 export function SourceLink({ source }: { source: EcoSource }) {
   return (
-    <Link to="/ecosystem" search={{ source: source.id }} className={styles.sourceLink} title="Open on the map">
+    <Link to="/food" search={{ source: source.id }} className={styles.sourceLink} title="Open on the map">
       {source.name}
     </Link>
   );

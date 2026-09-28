@@ -7,8 +7,9 @@
  * OrganicChip on every food row; tapping it opens OrganicModal: the verdict, a
  * summary of why, where the food comes from (ComesFrom.tsx, from the map
  * sources linked to its food — or, when none are, a "Request linking" button
- * that queues it for research, ecosystem/RequestLinkButton.tsx), and one button into the food's own page under Research
- * (features/research/FoodPage.tsx), which holds the claims, studies,
+ * that queues it for research, ecosystem/RequestLinkButton.tsx), and one
+ * button into the food's own page in the Food area (/food/foods/<name>, drawn
+ * by features/research/FoodPage.tsx), which holds the claims, studies,
  * contaminants and her review. The EstimateBar above the list starts an
  * estimate run for items with none.
  *
@@ -149,7 +150,7 @@ export function EstimateBar({ data, running, onStarted }: { data: ListVerdicts |
 }
 
 /** The popup: one verdict, one summary of why, where the food comes from,
- * and one button into the food's own page under Research, where the claims,
+ * and one button into the food's own page in the Food area, where the claims,
  * studies, contaminants and her review live. The research verdict's reasoning
  * is the summary when there is one; otherwise Claude's estimate's. */
 export function OrganicModal({
@@ -212,7 +213,7 @@ export function OrganicModal({
           />
           {requestError ? <div className={styles.meta}>Couldn’t request: {requestError}</div> : null}
         </div>
-        <Link to="/research/foods/$name" params={{ name: item.name }} className={styles.pageBtn}>
+        <Link to="/food/foods/$name" params={{ name: item.name }} className={styles.pageBtn}>
           Read the research →
         </Link>
       </div>
