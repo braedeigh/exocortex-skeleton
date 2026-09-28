@@ -1,8 +1,13 @@
 /**
- * geo.ts — US county/state boundary GeoJSON, lazy-loaded (the counties file is
- * ~3MB, so it's fetched once, and only when a real region actually needs
- * drawing). Files are copies of static/vendor/geo/* served from /geo/ (the
- * Vite public dir). The geometry→Leaflet-rings conversion is pure and tested.
+ * geo.ts — the outlines regions are drawn with, lazy-loaded.
+ *
+ * Two kinds. US county/state boundary GeoJSON (the counties file is ~3MB, so
+ * it's fetched once, and only when a real region actually needs drawing);
+ * files are copies of static/vendor/geo/* served from /geo/ (the Vite public
+ * dir). And states/provinces anywhere in the world by ISO 3166-2 code
+ * ('PE-JUN'), fetched a few at a time from /api/geo/regions
+ * (routes/georegions.py) and kept once fetched. The geometry→Leaflet-rings
+ * conversion is pure and tested.
  */
 
 export interface GeoGeometry {
@@ -59,13 +64,49 @@ export function loadGeo(): Promise<GeoIndex> {
   return geoPromise;
 }
 
-/** GeoJSON features for a shape-region source/draft (or [] if geo isn't
- * loaded yet / nothing matched). `s` only needs {area_kind, counties,
- * region_name}. */
+// --- world states/provinces, by ISO 3166-2 code --------------------------------
+// A cache that fills as codes are asked for. A code the server doesn't know is
+// remembered as asked, so it isn't fetched again on every redraw.
+const regionCache: Record<string, GeoFeature> = {};
+const regionsAsked = new Set<string>();
+
+/** Fetch the outlines for any of `codes` not asked for yet. Resolves true when
+ * something new arrived (so the caller redraws), false otherwise. */
+export function loadRegions(codes: string[]): Promise<boolean> {
+  const wanted = [...new Set(codes.map((c) => c.toUpperCase()))].filter((c) => !regionsAsked.has(c));
+  if (!wanted.length) return Promise.resolve(false);
+  wanted.forEach((c) => regionsAsked.add(c));
+  return fetch(`/api/geo/regions?codes=${encodeURIComponent(wanted.join(','))}`)
+    .then((r) => r.json())
+    .then((body: { features?: GeoFeature[] }) => {
+      (body.features || []).forEach((f) => {
+        if (f.id !== undefined) regionCache[String(f.id)] = f;
+      });
+      return (body.features || []).length > 0;
+    })
+    .catch((e) => {
+      // Let them be asked again next time; until then they draw as circles.
+      wanted.forEach((c) => regionsAsked.delete(c));
+      console.warn('ecosystem: region outlines failed to load — those regions will show as circles', e);
+      return false;
+    });
+}
+
+/** The loaded outlines for `codes`, skipping any not loaded (yet). */
+export function regionFeatures(codes: string[]): GeoFeature[] {
+  return [...new Set(codes.map((c) => c.toUpperCase()))].map((c) => regionCache[c]).filter(Boolean);
+}
+
+/** GeoJSON features for a shape-region source/draft (or [] if its outlines
+ * aren't loaded yet / nothing matched). `s` only needs {area_kind, counties,
+ * region_name}, plus `regions` when it's drawn as world states/provinces. */
 export function featuresFor(
-  s: { area_kind?: string; counties?: string[]; region_name?: string },
+  s: { area_kind?: string; counties?: string[]; region_name?: string; regions?: { code: string }[] },
   geo: GeoIndex | null,
 ): GeoFeature[] {
+  if (s.area_kind === 'state' && s.regions?.length) {
+    return regionFeatures(s.regions.map((r) => r.code));
+  }
   if (!geo) return [];
   if (s.area_kind === 'counties') {
     return [...new Set(s.counties || [])].map((f) => geo.byFips[f]).filter(Boolean);

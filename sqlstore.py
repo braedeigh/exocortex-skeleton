@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 37
+_SCHEMA_VERSION = 38
 
 
 def _db_path():
@@ -185,7 +185,7 @@ _EXPECTED_TABLES = (
     "receipts",
     "food_sources", "food_source_counties", "food_estimates", "source_requests",
     "source_proposals", "source_proposal_counties", "source_proposal_parts",
-    "source_proposal_evidence",
+    "source_proposal_evidence", "source_proposal_regions",
     # The journal word index, plus the five storage tables FTS5 keeps behind it.
     "cards_fts", "cards_fts_data", "cards_fts_idx", "cards_fts_content",
     "cards_fts_docsize", "cards_fts_config",
@@ -2823,6 +2823,23 @@ def _run_ladder(conn):
             "  output TEXT,"
             "  cost_usd REAL,"
             "  error TEXT"
+            ")"
+        )
+    if version < 38:
+        # Rung 38: the states and provinces a proposal is drawn as, anywhere in
+        # the world — Peru's Junín, Mexico's Sinaloa and Sonora, Texas. One row
+        # per region, keyed by its ISO 3166-2 code ('PE-JUN', 'US-TX'), with
+        # its name. A proposal with rows here has area_kind 'state' (a
+        # first-level region, not only a US state); the outlines themselves
+        # come from Natural Earth in the commons (georegions.py). Machine
+        # output, like the rest of the proposal tables.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_proposal_regions ("
+            "  proposal_id INTEGER NOT NULL REFERENCES source_proposals(id) ON DELETE CASCADE,"
+            "  code TEXT NOT NULL CHECK (code LIKE '__-%'),"
+            "  seq INTEGER NOT NULL DEFAULT 0,"
+            "  name TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (proposal_id, code)"
             ")"
         )
     if version < _SCHEMA_VERSION:

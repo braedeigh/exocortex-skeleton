@@ -3090,6 +3090,26 @@
       }
     }
   },
+  "source_proposal_regions": {
+    "holds": "The states or provinces a proposal is drawn as, anywhere in the world, one row each, by ISO 3166-2 code.",
+    "source": "Written only through proposalstore.py: by propose_sources.py when an answer names a region, and by backfill_proposal_regions.py for older proposals. Found in the proposal's own words by georegions.py; outlines from Natural Earth in the commons. Machine output: not backed up — a re-run regenerates it.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "proposal_id": {
+        "holds": "The proposal this region belongs to."
+      },
+      "code": {
+        "holds": "The region's ISO 3166-2 code, e.g. PE-JUN (Junín, Peru) or US-TX."
+      },
+      "seq": {
+        "holds": "The region's place in the list, in the order the proposal's words name them."
+      },
+      "name": {
+        "holds": "The region's name as Natural Earth gives it."
+      }
+    }
+  },
   "source_proposal_parts": {
     "holds": "One row per ingredient of a multi-ingredient product's proposal, rated on how traceable it is and how bad for health.",
     "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output: not backed up — a re-run regenerates it.",

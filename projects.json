@@ -173,12 +173,14 @@
         "sourcestore.py",
         "proposalstore.py",
         "provenance.py",
+        "georegions.py",
         "fdcdb.py", "dri.py", "nutrition.py"
       ],
       "routes": [
         "kitchen",
         "food.py",
-        "nutrition.py"
+        "nutrition.py",
+        "georegions.py"
       ],
       "frontend": [
         "kitchen",
@@ -190,6 +192,8 @@
         "migrate_ecosystem_sql.py",
         "propose_sources.py",
         "check_proposals.py",
+        "build_georegions.py",
+        "backfill_proposal_regions.py",
         "nutrient_data.py"
       ],
       "tables": [
@@ -212,6 +216,7 @@
         "source_requests",
         "source_proposals",
         "source_proposal_counties",
+        "source_proposal_regions",
         "source_proposal_parts",
         "source_proposal_evidence"
       ],

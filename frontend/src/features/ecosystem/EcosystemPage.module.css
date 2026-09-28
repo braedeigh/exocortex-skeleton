@@ -245,3 +245,22 @@
     bottom: 28px;
   }
 }
+
+/* Show/hide the machine's proposals on the map: a plain outlined toggle,
+   full tap height, pressed = showing. */
+.proposalToggle {
+  height: var(--tap-target);
+  padding: 0 14px;
+  margin: 8px 0 4px;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--accent);
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.proposalToggle[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}

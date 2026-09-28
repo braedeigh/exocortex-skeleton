@@ -8,7 +8,9 @@ it asks `claude -p` — with web search and nothing else — where it comes from
 with the passage on each page that says so. The answer is cleaned against the
 rules in provenance.py; when the model names a USDA commodity, the script
 fetches the real county figures from USDA NASS itself rather than trusting the
-model's numbers. The evidence is written to her research pool as unreviewed
+model's numbers. A state or province the answer names (anywhere in the
+world) is drawn as its outline, found by georegions.py in the answer's own
+words. The evidence is written to her research pool as unreviewed
 machine entries (under the topic "Food origins"), and the proposal to the
 proposal tables, unchecked. `scripts/check_proposals.py` tests it next.
 
@@ -22,7 +24,8 @@ already have a live proposal; --dry-run prints the first prompt and the target
 list and writes nothing. One run at a time: a second run exits at once. How the
 run went is written to source_proposal_run.json in the data dir.
 
-Touches: provenance.py (cleaning, ranking, USDA), proposalstore.py (targets and
+Touches: provenance.py (cleaning, ranking, USDA), georegions.py (region
+outlines), proposalstore.py (targets and
 every proposal write), estimatestore.py (her organic estimates, reused as an
 ingredient's health concern), routes/research.py + store.py (the research
 pool's entries, the same write path scripts/research_ctl.py uses), and
@@ -51,6 +54,7 @@ if SKELETON not in sys.path:
     sys.path.insert(0, SKELETON)
 
 import estimatestore  # noqa: E402
+import georegions  # noqa: E402
 import proposalstore  # noqa: E402
 import provenance  # noqa: E402
 import researchstore  # noqa: E402
@@ -231,6 +235,16 @@ def save_answer(target, answer, usda_key, run_id, fetch_usda=provenance.usda_pla
             proposal.update(origin="usda-nass", origin_detail=usda["origin_detail"], origin_url=USDA_SITE)
     elif proposal["origin"] == "usda-nass":
         proposal["origin"] = "research" if proposal["evidence"] else "unknown"
+    # Draw a named state or province as its outline, not a circle. The regions
+    # come only from the proposal's own words (georegions.match); a place
+    # given as part of a region ("East Texas"), or one far smaller than the
+    # region, stays a circle.
+    regions = []
+    if not usda and proposal["area_kind"] == "circle":
+        regions = georegions.regions_for(proposal["country"], proposal["region_name"],
+                                         radius_km=proposal["radius_km"] or 0)
+        if regions:
+            proposal.update(area_kind="state", precision="area")
     proposal["origin_date"] = time.strftime("%Y-%m-%d")
     _health_from_estimates(proposal["parts"])
     proposal.update(provenance.worst_parts(proposal["parts"]))
@@ -238,7 +252,7 @@ def save_answer(target, answer, usda_key, run_id, fetch_usda=provenance.usda_pla
     evidence, links = record_evidence(proposal, usda, target["label"])
     _link(links)
     proposal_id = proposalstore.add(target, proposal, counties=counties, evidence=evidence,
-                                    model=MODEL, run_id=run_id)
+                                    model=MODEL, run_id=run_id, regions=regions)
     return proposal_id, problems
 
 

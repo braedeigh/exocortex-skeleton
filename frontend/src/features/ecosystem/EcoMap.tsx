@@ -17,7 +17,9 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { geoSourceInfo, isShapeSource, metaLabel, txInfo } from './axes';
 import { embedFitPadding } from './embedLayout';
-import { featuresFor, geometryToLatLngs, getGeo, loadGeo } from './geo';
+import { featuresFor, geometryToLatLngs, getGeo, loadGeo, loadRegions } from './geo';
+import { CHECK_WORDS, proposalPaint, regionCodes } from './proposals';
+import type { EcoProposal } from './proposals';
 import { homeCluster } from './homeCluster';
 import type { GeoFeature } from './geo';
 import { cartoKey, currentTileKey, tileLayersFor } from './themeColor';
@@ -79,6 +81,9 @@ export interface EcoMapProps {
   onDeleteSource: (id: string, name: string) => void;
   /** Open the source's panel (the popup's "Details"). Absent → no button. */
   onOpenSource?: (id: string) => void;
+  /** The machine's proposals to draw, in their own dashed layer under her
+   * sources. Absent or empty → none. */
+  proposals?: EcoProposal[];
 }
 
 /** Mouse/trackpad devices get the popup on hover — no tap required at a desk.
@@ -175,6 +180,34 @@ function makePopup(
   return root;
 }
 
+/** A proposal's popup: what it says, that it's the machine's, what the
+ * checker made of it, and — when it failed — why. Read-only. */
+function makeProposalPopup(p: EcoProposal): HTMLElement {
+  const root = document.createElement('div');
+  root.style.minWidth = '190px';
+  root.style.maxWidth = '280px';
+  const line = (text: string, css: string) => {
+    const el = document.createElement('div');
+    el.style.cssText = css;
+    el.textContent = text;
+    root.appendChild(el);
+  };
+  line("Machine's proposal · " + CHECK_WORDS[p.check_status], 'font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:2px');
+  line(p.name, 'font-size:15px;font-weight:700;margin-bottom:4px;color:var(--text)');
+  const where = p.regions?.length ? p.regions.map((r) => r.name).join(', ') : p.region_name || '';
+  if (where) line(where + (p.country ? ` · ${p.country}` : ''), 'font-size:13px;color:var(--text-secondary);margin-bottom:4px');
+  if (p.geo_source) {
+    line(
+      p.geo_source === 'proxy' ? 'Proxy — where this is generally grown, not necessarily this item' : 'Guess — the best reading of the evidence',
+      'font-size:12px;color:var(--text-muted);margin-bottom:4px',
+    );
+  }
+  if (p.check_status === 'failed' && p.check_reason) {
+    line('Why it failed: ' + p.check_reason, 'font-size:12px;color:var(--text-secondary)');
+  }
+  return root;
+}
+
 /** Bind a source's popup to a layer (dot / circle / region group). Click/tap
  * always opens it. On hover-capable devices it also opens on mouseover;
  * mouseout closes it UNLESS the cursor is heading into the popup itself (e.g.
@@ -197,6 +230,11 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
   const mapRef = useRef<L.Map | null>(null);
   const userMovedRef = useRef(false);
   const layerRef = useRef<L.LayerGroup | null>(null);
+  const proposalLayerRef = useRef<L.LayerGroup | null>(null);
+  const lastProposalsKeyRef = useRef<string | null>(null);
+  // Bumped when world region outlines arrive, so proposals drawn as circles
+  // in the meantime get redrawn as their regions.
+  const [regionsVersion, setRegionsVersion] = useState(0);
   const markersRef = useRef<Record<string, L.Layer>>({});
   // The basemap is one or two tile layers (Esri = base + labels), swapped as a
   // unit when the theme flips.
@@ -250,6 +288,8 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     // yank it back (the late boundary-file refit below checks this).
     map.on('dragstart', () => { userMovedRef.current = true; });
     el.addEventListener('wheel', () => { userMovedRef.current = true; }, { passive: true });
+    // Proposals go on first, so her own sources always sit on top of them.
+    proposalLayerRef.current = L.layerGroup().addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
     map.on('click', (e: L.LeafletMouseEvent) => {
       // only places a pin while adding/editing
@@ -271,6 +311,8 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
       map.remove();
       mapRef.current = null;
       layerRef.current = null;
+      proposalLayerRef.current = null;
+      lastProposalsKeyRef.current = null;
       markersRef.current = {};
       tilesRef.current = [];
       tilesKeyRef.current = null;
@@ -281,6 +323,56 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // --- The machine's proposals: dashed outlines, circles or dots -----------
+  // Their own layer, redrawn only when the proposals (or their outlines)
+  // change. A named state/province or USDA counties draw as outlines once
+  // loaded; until then, and for everything else, a dashed circle or a dot.
+  const proposals = props.proposals;
+  useEffect(() => {
+    const layer = proposalLayerRef.current;
+    if (!layer) return;
+    const list = proposals || [];
+    const key = JSON.stringify(list.map((p) => [p.id, p.check_status])) + '|' + regionsVersion + '|' + geoVersion;
+    if (lastProposalsKeyRef.current === key) return;
+    lastProposalsKeyRef.current = key;
+    layer.clearLayers();
+    loadRegions(regionCodes(list)).then((arrived) => {
+      if (arrived) setRegionsVersion((v) => v + 1);
+    });
+    if (!getGeo() && list.some((p) => p.area_kind === 'counties')) {
+      loadGeo().then(() => setGeoVersion((v) => v + 1)).catch(() => {});
+    }
+    list.forEach((p) => {
+      if (typeof p.lat !== 'number' || typeof p.lng !== 'number') return;
+      const paint = proposalPaint(p);
+      const style = { color: paint.color, weight: 1.5, fillColor: paint.color, fillOpacity: paint.fillOpacity, opacity: paint.opacity, dashArray: paint.dashArray };
+      try {
+        const feats = featuresFor(
+          { area_kind: p.area_kind ?? undefined, counties: p.counties.map((c) => c.fips), region_name: p.region_name ?? undefined, regions: p.regions },
+          getGeo(),
+        );
+        let host: L.Layer | null = null;
+        if (feats.length) {
+          const group = L.featureGroup();
+          feats.forEach((f) => {
+            const rings = geometryToLatLngs(f.geometry);
+            if (rings) L.polygon(rings as L.LatLngExpression[][], style).addTo(group);
+          });
+          if (group.getLayers().length) host = group;
+        }
+        if (!host && (p.radius_km || 0) > 0) {
+          host = L.circle([p.lat, p.lng], { ...style, radius: (p.radius_km || 0) * 1000 });
+        }
+        if (!host) host = L.circleMarker([p.lat, p.lng], { ...style, radius: 6, fillOpacity: 0.5 });
+        host.addTo(layer);
+        bindPopup(host, makeProposalPopup(p));
+      } catch (e) {
+        // One bad proposal must not hide the rest.
+        console.error(`ecosystem: failed to draw proposal ${p.id} "${p.name}":`, e);
+      }
+    });
+  }, [proposals, regionsVersion, geoVersion]);
 
   // --- Source dots + circles + region shapes (synced only when the data
   //     actually changes, so an open popup isn't yanked on every 5s poll) ----

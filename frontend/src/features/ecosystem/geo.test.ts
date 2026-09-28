@@ -54,6 +54,9 @@ describe('featuresFor', () => {
     expect(featuresFor({ area_kind: 'state', region_name: 'Atlantis' }, geo)).toEqual([]);
     expect(featuresFor({ area_kind: 'state', region_name: '' }, geo)).toEqual([]);
   });
+  it('returns [] for world regions whose outlines have not loaded', () => {
+    expect(featuresFor({ area_kind: 'state', region_name: 'Texas', regions: [{ code: 'PE-JUN' }] }, geo)).toEqual([]);
+  });
   it('returns [] for circle regions (no outline to draw)', () => {
     expect(featuresFor({ area_kind: 'circle' }, geo)).toEqual([]);
   });

@@ -134,6 +134,18 @@ export function EcosystemPage({
   const recipes = useMemo(() => data?.eco_recipes ?? [], [data]);
   const foods: EcoFood[] = useMemo(() => data?.eco_foods ?? [], [data]);
   const origins = useMemo(() => data?.eco_origins ?? {}, [data]);
+  // The machine's proposals, drawn under her sources unless she hides them;
+  // the choice is remembered on this device.
+  const proposals = useMemo(() => data?.eco_proposals ?? [], [data]);
+  const [showProposals, setShowProposals] = useState(
+    () => localStorage.getItem('eco.showProposals') !== '0',
+  );
+  const toggleProposals = () => {
+    setShowProposals((on) => {
+      localStorage.setItem('eco.showProposals', on ? '0' : '1');
+      return !on;
+    });
+  };
   const openSource = useMemo(
     () => sources.find((s) => s.id === openSourceId) || null,
     [sources, openSourceId],
@@ -515,7 +527,14 @@ export function EcosystemPage({
         onEditSource={editOpen}
         onDeleteSource={requestDelete}
         onOpenSource={openSourcePanel}
+        proposals={showProposals && !draft ? proposals : undefined}
       />
+
+      {proposals.length ? (
+        <button type="button" className={styles.proposalToggle} aria-pressed={showProposals} onClick={toggleProposals}>
+          {showProposals ? 'Hide' : 'Show'} the machine&rsquo;s proposals ({proposals.length}) &mdash; dashed
+        </button>
+      ) : null}
 
       <EcoLegend />
 

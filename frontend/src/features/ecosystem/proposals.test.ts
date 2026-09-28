@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupByFood, waitingByFood, type EcoProposal } from './proposals';
+import { groupByFood, proposalPaint, regionCodes, waitingByFood, type EcoProposal } from './proposals';
 
 function proposal(id: number, food_id: number | null, check_status: EcoProposal['check_status']): EcoProposal {
   return { id, food_id, check_status } as EcoProposal;
@@ -22,5 +22,27 @@ describe('waitingByFood', () => {
     const counts = waitingByFood([proposal(1, 5, 'failed'), proposal(2, 5, 'passed'), proposal(3, null, 'unchecked')]);
     expect(counts.get(5)).toBe(2);
     expect(counts.size).toBe(1);
+  });
+});
+
+describe('proposalPaint', () => {
+  it('draws a failed proposal faint and grey, whatever its transparency', () => {
+    const paint = proposalPaint({ check_status: 'failed', transparency: 'disclosed' });
+    expect([paint.color, paint.opacity < 0.5]).toEqual(['#9aa0a6', true]);
+  });
+
+  it('dashes every proposal, passed ones included', () => {
+    expect(proposalPaint({ check_status: 'passed', transparency: 'partial' }).dashArray).not.toBe('');
+  });
+});
+
+describe('regionCodes', () => {
+  it('lists each region code once across all proposals', () => {
+    const codes = regionCodes([
+      { regions: [{ code: 'BO-O', name: 'Oruro' }, { code: 'BO-P', name: 'Potosí' }] },
+      { regions: [{ code: 'BO-O', name: 'Oruro' }] },
+      { regions: [] },
+    ]);
+    expect(codes).toEqual(['BO-O', 'BO-P']);
   });
 });

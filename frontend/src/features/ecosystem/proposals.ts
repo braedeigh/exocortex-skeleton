@@ -8,10 +8,12 @@
  * only) and as `proposals` on /api/food/page (one food and its products).
  * Server side: proposalstore.py live().
  *
- * This file holds the shape, the words for each check status, and the
- * grouping the review page and the "N waiting" chip use. Tested in
- * proposals.test.ts. Drawn by ProposalList.tsx.
+ * This file holds the shape, the words for each check status, the grouping
+ * the review page and the "N waiting" chip use, and how a proposal is painted
+ * on the map. Tested in proposals.test.ts. Drawn by ProposalList.tsx, and on
+ * the map by EcoMap.tsx.
  */
+import { ECO_TX, txInfo } from './axes';
 
 export type ProposalCheck = 'unchecked' | 'passed' | 'failed';
 
@@ -37,6 +39,21 @@ export interface ProposalPart {
   health_concern: string | null;
   health_basis: string | null;
   note: string | null;
+}
+
+/** One USDA county a proposal is drawn as, with what USDA reported for it. */
+export interface ProposalCounty {
+  fips: string;
+  county: string;
+  state: string;
+  value: number | null;
+  unit: string;
+}
+
+/** One state/province a proposal is drawn as, by ISO 3166-2 code ('PE-JUN'). */
+export interface ProposalRegion {
+  code: string;
+  name: string;
 }
 
 /** One live proposal: a suggested place for a food, a product, or a fix to
@@ -67,7 +84,9 @@ export interface EcoProposal {
   check_status: ProposalCheck;
   check_reason: string | null;
   checked_at: string | null;
-  counties: string[];
+  counties: ProposalCounty[];
+  /** The states/provinces it's drawn as (area_kind 'state'), anywhere in the world. */
+  regions: ProposalRegion[];
   parts: ProposalPart[];
   evidence: ProposalEvidence[];
 }
@@ -107,4 +126,25 @@ export function waitingByFood(proposals: EcoProposal[]): Map<number, number> {
     counts.set(proposal.food_id, (counts.get(proposal.food_id) ?? 0) + 1);
   }
   return counts;
+}
+
+/** How a proposal looks on the map. Always dashed, because it's the machine's
+ * and not hers. A passed or unchecked one wears its transparency colour; a
+ * failed one is grey and faint, still there so its reason can be read. */
+export function proposalPaint(proposal: Pick<EcoProposal, 'check_status' | 'transparency'>): {
+  color: string;
+  fillOpacity: number;
+  opacity: number;
+  dashArray: string;
+} {
+  if (proposal.check_status === 'failed') {
+    return { color: ECO_TX.unrated.color, fillOpacity: 0.05, opacity: 0.35, dashArray: '2 6' };
+  }
+  const color = txInfo({ transparency: proposal.transparency ?? undefined }).color;
+  return { color, fillOpacity: proposal.check_status === 'passed' ? 0.14 : 0.08, opacity: 0.7, dashArray: '6 4' };
+}
+
+/** Every region code the proposals are drawn with — what the map fetches outlines for. */
+export function regionCodes(proposals: Pick<EcoProposal, 'regions'>[]): string[] {
+  return [...new Set(proposals.flatMap((p) => (p.regions || []).map((r) => r.code)))];
 }

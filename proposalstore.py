@@ -8,6 +8,8 @@ this file, and nothing else touches the proposal tables (sqlstore rung 34):
   source_proposals          — one proposed place for a food, product, or one
                               of her existing sources (a suggested fix)
   source_proposal_counties  — the USDA counties it's drawn as
+  source_proposal_regions   — or the states/provinces it's drawn as, anywhere
+                              in the world (ISO 3166-2 codes, georegions.py)
   source_proposal_parts     — a multi-ingredient product's ingredients
   source_proposal_evidence  — the research-pool entries behind it, each with
                               the checker's verdict
@@ -178,10 +180,11 @@ def targets(only=None, force=False):
 
 # --- writing a proposal -------------------------------------------------------
 
-def add(target, proposal, counties=(), evidence=(), model="", run_id=""):
+def add(target, proposal, counties=(), evidence=(), model="", run_id="", regions=()):
     """Save one cleaned proposal for `target`, unchecked. Returns its id.
 
     `counties` are USDA's county dicts (fips, county, state, value, unit);
+    `regions` are [{code, name}] states/provinces (proposal area_kind 'state');
     `evidence` is [(research entry id, role)]. Any live proposal for the same
     target is pointed at this one."""
     values = {field: proposal.get(field) for field in _FIELDS}
@@ -204,6 +207,7 @@ def add(target, proposal, counties=(), evidence=(), model="", run_id=""):
                 " (proposal_id, fips, seq, county, state, value, unit) VALUES (?,?,?,?,?,?,?)",
                 (proposal_id, county["fips"], seq, county.get("county", ""),
                  county.get("state", ""), county.get("value"), county.get("unit", "")))
+        _write_regions(conn, proposal_id, regions)
         for part in proposal.get("parts") or ():
             conn.execute(
                 f"INSERT INTO source_proposal_parts (proposal_id, {', '.join(_PART_COLUMNS)})"
@@ -220,6 +224,31 @@ def add(target, proposal, counties=(), evidence=(), model="", run_id=""):
                      f" WHERE superseded_by IS NULL AND id != ? AND {match}",
                      (proposal_id, proposal_id, *args))
     return proposal_id
+
+
+def _write_regions(conn, proposal_id, regions):
+    for seq, region in enumerate(regions):
+        conn.execute(
+            "INSERT OR IGNORE INTO source_proposal_regions (proposal_id, code, seq, name)"
+            " VALUES (?,?,?,?)", (proposal_id, region["code"], seq, region.get("name", "")))
+
+
+def set_regions(proposal_id, regions):
+    """Draw an existing proposal as `regions` ([{code, name}]) in place of its
+    circle. Only the drawing changes — the place, its words and its check stay
+    as they were — so this is an update, not a superseding answer. False when
+    there's no such proposal, or it's already drawn as counties or regions."""
+    if not regions:
+        return False
+    with _writing() as conn:
+        row = conn.execute("SELECT area_kind FROM source_proposals WHERE id = ?",
+                           (proposal_id,)).fetchone()
+        if row is None or row[0] != "circle":
+            return False
+        conn.execute("UPDATE source_proposals SET area_kind = 'state', precision = 'area'"
+                     " WHERE id = ?", (proposal_id,))
+        _write_regions(conn, proposal_id, regions)
+    return True
 
 
 def _same_target(target):
@@ -243,6 +272,15 @@ def _counties(conn, ids):
             f" WHERE proposal_id IN ({', '.join('?' * len(ids))}) ORDER BY proposal_id, seq", ids):
         out.setdefault(pid, []).append(
             {"fips": fips, "county": county, "state": state, "value": value, "unit": unit})
+    return out
+
+
+def _regions(conn, ids):
+    out = {}
+    for pid, code, name in conn.execute(
+            f"SELECT proposal_id, code, name FROM source_proposal_regions"
+            f" WHERE proposal_id IN ({', '.join('?' * len(ids))}) ORDER BY proposal_id, seq", ids):
+        out.setdefault(pid, []).append({"code": code, "name": name})
     return out
 
 
@@ -295,8 +333,10 @@ def _read(where="", args=(), with_citations=False):
         if not ids:
             return []
         counties, parts, evidence = _counties(conn, ids), _parts(conn, ids), _evidence(conn, ids)
+        regions = _regions(conn, ids)
         for proposal in proposals:
             proposal["counties"] = counties.get(proposal["id"], [])
+            proposal["regions"] = regions.get(proposal["id"], [])
             proposal["parts"] = parts.get(proposal["id"], [])
             proposal["evidence"] = evidence.get(proposal["id"], [])
             if with_citations:
@@ -306,7 +346,7 @@ def _read(where="", args=(), with_citations=False):
 
 def live(food_id=None):
     """Every live proposal (or one food's, counting its products'), each with
-    its counties, parts and evidence — what the pages show."""
+    its counties, regions, parts and evidence — what the pages show."""
     if food_id is None:
         return _read()
     return _read("AND (food_id = ? OR product_id IN (SELECT id FROM products WHERE food_id = ?))",
