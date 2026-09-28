@@ -375,10 +375,15 @@ def _food_word_sets(conn, name):
 
 
 def _source_rows(conn, sql, params):
+    """Studies as the food page lists them. `sql` selects id, text, url,
+    stance and the id and words of the highlighted passage that is the
+    evidence (NULLs when none was marked), so the page can open the study's
+    PDF at that passage."""
     return [
         {"id": sid, "title": " ".join(str(text or "").split()), "url": url or None,
-         "stance": stance}
-        for sid, text, url, stance in conn.execute(sql, params)
+         "stance": stance,
+         "passage": {"id": passage_id, "exact": exact} if passage_id else None}
+        for sid, text, url, stance, passage_id, exact in conn.execute(sql, params)
     ]
 
 
@@ -415,8 +420,9 @@ def evidence(name):
                                     "unit": unit, "basis": basis, "year": year, "tier": tier})
         for claim in claims.values():
             claim["sources"] = _source_rows(
-                conn, "SELECT s.id, s.text, s.url, c.stance FROM claim_sources c"
-                " JOIN research_entries s ON s.id = c.source_id WHERE c.claim_id = ?"
+                conn, "SELECT s.id, s.text, s.url, c.stance, a.id, a.exact FROM claim_sources c"
+                " JOIN research_entries s ON s.id = c.source_id"
+                " LEFT JOIN research_annotations a ON a.id = c.annotation_id WHERE c.claim_id = ?"
                 " ORDER BY c.created", (claim["id"],))
 
         measures = []
@@ -424,9 +430,9 @@ def evidence(name):
                            (foodstore._norm(name),)).fetchone()
         if row:
             for (measure_id, hazard, measure, amount, unit, year, measured_on, review_mark,
-                 source_id) in conn.execute(
+                 source_id, annotation_id) in conn.execute(
                     "SELECT m.id, h.name, m.measure, m.amount, m.unit, m.year, m.measured_on,"
-                    " m.review, m.source_id FROM hazard_measures m"
+                    " m.review, m.source_id, m.annotation_id FROM hazard_measures m"
                     " JOIN hazards h ON h.id = m.hazard_id WHERE m.food_id = ?"
                     " ORDER BY h.name, m.year", (row[0],)):
                 measures.append({
@@ -434,8 +440,9 @@ def evidence(name):
                     "unit": unit, "year": year, "measured_on": measured_on,
                     "review": review_mark,
                     "sources": _source_rows(
-                        conn, "SELECT id, text, url, NULL FROM research_entries WHERE id = ?",
-                        (source_id,)) if source_id else []})
+                        conn, "SELECT s.id, s.text, s.url, NULL, a.id, a.exact"
+                        " FROM research_entries s LEFT JOIN research_annotations a ON a.id = ?"
+                        " WHERE s.id = ?", (annotation_id, source_id)) if source_id else []})
     finally:
         conn.close()
     return {"name": name, "claims": list(claims.values()), "measures": measures}

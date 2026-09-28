@@ -203,6 +203,14 @@ def test_evidence_finds_a_claim_about_a_stand_in_with_its_study_link(research):
         [(CLAIM, "yukon potatoes", "https://example.org/pdp")]
 
 
+def test_evidence_source_carries_its_highlighted_passage(research):
+    import researchstore
+    passage = researchstore.add_annotation(f"entry:{SOURCE}", 0, 5, "92.7%")
+    researchstore.link_claim_source(CLAIM, SOURCE, annotation_id=passage)
+    source = estimatestore.evidence("Potatoes")["claims"][0]["sources"][0]
+    assert source["passage"] == {"id": passage, "exact": "92.7%"}
+
+
 def test_evidence_does_not_count_cornmeal_as_corn(research):
     assert estimatestore.evidence("corn")["claims"] == []
 
