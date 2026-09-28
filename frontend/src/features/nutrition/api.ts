@@ -9,6 +9,7 @@ import type {
   NutrientDetail,
   NutrientRanking,
   NutritionDay,
+  NutritionPlan,
   RankPer,
   SexSetting,
 } from './types';
@@ -75,4 +76,11 @@ export function setHighlight(food: { fdc_id: number; description: string }, on: 
     on,
     description: food.description,
   });
+}
+
+/** The fewest grams a day of her starred foods that close her day's gaps (nutrition.plan_additions). */
+export function getPlan(capGrams: number, energyCap: number | null, signal?: AbortSignal) {
+  const query = new URLSearchParams({ cap: String(capGrams) });
+  if (energyCap != null) query.set('kcal', String(energyCap));
+  return api.get<NutritionPlan>(`/api/nutrition/plan?${query}`, signal);
 }

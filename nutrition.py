@@ -441,3 +441,106 @@ def day_items(data=None):
             items.append(dict(item, grams=float(item.get("grams") or 0) * servings,
                               meal=slot.get("meal")))
     return items
+
+
+def plan_additions(conn, items, candidates, cap_grams=100.0, energy_cap=None, sex=None, age=None):
+    """The fewest grams of her candidate foods to add a day so her day meets its targets.
+
+    This is the diet problem as a linear program, solved with scipy's linprog
+    (docs/nutrition.md "Step 4, together"). The unknowns x are grams a day of
+    each candidate, 0 ≤ x ≤ cap_grams. What she already eats stays as it is.
+
+    The program runs twice (a lexicographic solve), so a gap her foods can't
+    close still gets as close as it can instead of making the whole thing fail:
+      1. Close the gaps as far as possible: minimize the total shortfall,
+         each nutrient's shortfall counted as a fraction of its target, so
+         micrograms and grams weigh the same.
+      2. Keeping that shortfall, use the fewest grams: minimize Σ x.
+    Every ceiling (a UL that counts food, the optional energy cap) holds in
+    both. A ceiling the day is already past can't be fixed by adding food, so
+    it's left out and listed in `already_over`.
+
+    An unknown figure (None) in a candidate counts as nothing, and that
+    nutrient lists the food in `unknown_in`: the plan never leans on a number
+    USDA doesn't have.
+
+    `candidates` are {fdc_id, label}. Returns {foods: [{fdc_id, label, grams}],
+    nutrients: [{key, unit, now, after, target, limit, closed, unknown_in}],
+    added_energy, already_over, cap_grams, energy_cap}.
+    """
+    import numpy as np
+    from scipy.optimize import linprog
+
+    sex = sex or settings()["sex"]
+    candidates = [dict(food, grams=1.0) for food in candidates]
+    built = matrix(conn, list(items) + candidates, sex=sex, age=age)
+    keys, units = built["nutrients"], built["units"]
+    split = len(items)
+    grams_now = [float(item.get("grams") or 0) for item in items]
+
+    # Split the matrix: what she eats now (a fixed total) and the candidates (the unknowns).
+    now, C, unknown_in = [], [], []
+    for row in built["A"]:
+        now.append(sum((a or 0.0) * g for a, g in zip(row[:split], grams_now)))
+        C.append([a or 0.0 for a in row[split:]])
+        unknown_in.append([food["label"] for food, a in zip(candidates, row[split:]) if a is None])
+    C = np.array(C) if candidates else np.zeros((len(keys), 0))
+    n = len(candidates)
+
+    # The gaps: nutrients under their floor, each with a shortfall variable s in 0..1 of the target.
+    gaps = [i for i, floor in enumerate(built["lower"]) if floor and now[i] < floor]
+    m = len(gaps)
+    upper_rows, upper_values, already_over = [], [], []
+    for i in gaps:
+        floor = built["lower"][i]
+        # C·x + floor·s ≥ floor − now, written as ≤ for linprog.
+        upper_rows.append(np.concatenate([-C[i], [-floor if k == i else 0.0 for k in gaps]]))
+        upper_values.append(-(floor - now[i]))
+
+    # The ceilings: every UL that counts food, and the energy cap if one is set.
+    ceilings = [(i, value) for i, value in enumerate(built["upper"]) if value is not None]
+    if energy_cap is not None and "energy" in keys:
+        ceilings.append((keys.index("energy"), float(energy_cap) + now[keys.index("energy")]))
+    for i, value in ceilings:
+        if now[i] >= value:
+            already_over.append(keys[i])
+            continue
+        upper_rows.append(np.concatenate([C[i], np.zeros(m)]))
+        upper_values.append(value - now[i])
+
+    bounds = [(0, float(cap_grams))] * n + [(0, 1)] * m
+    A_ub = np.array(upper_rows) if upper_rows else None
+    b_ub = np.array(upper_values) if upper_values else None
+
+    # Solve 1: the smallest total shortfall. Solve 2: the fewest grams that keep it.
+    x = np.zeros(n)
+    if m:
+        first = linprog(np.concatenate([np.zeros(n), np.ones(m)]), A_ub=A_ub, b_ub=b_ub, bounds=bounds,
+                        method="highs")
+        if first.status != 0:
+            raise ValueError(f"no plan: {first.message}")
+        keep = np.concatenate([np.zeros(n), np.ones(m)])
+        second = linprog(np.concatenate([np.ones(n), np.zeros(m)]),
+                         A_ub=np.vstack([A_ub, keep]), b_ub=np.append(b_ub, first.fun + 1e-7),
+                         bounds=bounds, method="highs")
+        if second.status != 0:
+            raise ValueError(f"no plan: {second.message}")
+        x = second.x[:n]
+
+    # Read the answer back: grams per food, and each nutrient before and after.
+    after = [now[i] + float(C[i] @ x) for i in range(len(keys))] if n else list(now)
+    foods = [{"fdc_id": food["fdc_id"], "label": food["label"], "grams": round(float(grams), 1)}
+             for food, grams in zip(candidates, x) if grams >= 0.05]
+    nutrients = []
+    for i, key in enumerate(keys):
+        floor = built["lower"][i]
+        if not floor and built["upper"][i] is None:
+            continue
+        nutrients.append({"key": key, "unit": units[i], "now": round(now[i], 3), "after": round(after[i], 3),
+                          "target": floor, "limit": built["upper"][i],
+                          "closed": bool(floor) and after[i] >= floor * (1 - 1e-6),
+                          "unknown_in": unknown_in[i]})
+    energy = keys.index("energy") if "energy" in keys else None
+    return {"foods": sorted(foods, key=lambda food: -food["grams"]), "nutrients": nutrients,
+            "added_energy": round(after[energy] - now[energy], 1) if energy is not None else None,
+            "already_over": already_over, "cap_grams": float(cap_grams), "energy_cap": energy_cap}

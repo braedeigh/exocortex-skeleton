@@ -14,6 +14,9 @@ Bad input comes back as a 400 with the reason.
                                           histamine=low keeps only the foods SIGHI rates 0
     GET  /api/nutrition/nutrient/<key> -> {row, sexes, facts}: her day's total for one nutrient,
                                           and the NIH ODS fact sheet's own words (nutrient_facts.py)
+    GET  /api/nutrition/plan?cap=&kcal= -> the fewest grams a day of her starred foods that close her
+                                          day's gaps (nutrition.plan_additions): cap = most grams of any
+                                          one food (default 100), kcal = most calories to add (optional)
     GET  /api/nutrition/highlights     -> the foods she's starred as interested in eating
     POST /api/nutrition/highlights/<fdc_id> {on: bool, description} — star / unstar one
     POST /api/nutrition/meals/<name>   {items: [{label, fdc_id, grams, grams_guessed?, fill_from?}]}
@@ -126,6 +129,25 @@ def register(app):
             report = nutrition.report(conn, nutrition.day_items(data))
         row = next(row for row in report["nutrients"] if row["key"] == key)
         return jsonify({"row": row, "sexes": report["sexes"], "facts": nutrient_facts.facts(key)})
+
+    @app.route("/api/nutrition/plan")
+    def nutrition_plan():
+        # What to add: her starred foods are the only ones the calculator may use.
+        try:
+            cap = float(request.args.get("cap") or 100)
+            kcal = float(request.args["kcal"]) if request.args.get("kcal") else None
+        except ValueError:
+            return _refused("cap and kcal must be numbers")
+        if not 0 < cap <= 2000 or (kcal is not None and kcal < 0):
+            return _refused("cap must be between 0 and 2000 g, kcal 0 or more")
+        candidates = [{"fdc_id": food["fdc_id"], "label": food["description"]} for food in nutrition.highlights()]
+        with fdcdb.session() as conn:
+            try:
+                plan = nutrition.plan_additions(conn, nutrition.day_items(), candidates,
+                                                cap_grams=cap, energy_cap=kcal)
+            except ValueError as exc:
+                return _refused(str(exc))
+        return jsonify(plan)
 
     @app.route("/api/nutrition/highlights")
     def nutrition_highlights():

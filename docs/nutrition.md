@@ -178,6 +178,14 @@ The diet problem as linear algebra. Say there are *n* foods and *m* nutrients.
   drop that nutrient's row, or treat the food as contributing nothing and say so. They are
   never silently 0.
 
+**The calculator** (`plan_additions`, `GET /api/nutrition/plan`, `MealPrepPlan.tsx`) is this
+problem, solved with `scipy.optimize.linprog` (HiGHS). Her choices: it only **adds** food (what she
+eats now stays fixed), and only her **starred** foods. Each food is capped at a most-grams-a-day (100 by
+default), with an optional cap on the calories added. It runs twice: first it minimizes the total shortfall
+(each gap counted as a fraction of its target, so a gap it can't close still gets as close as it can),
+then, keeping that, the fewest grams. ULs that count food are hard ceilings; one the day is already
+past is listed in `already_over`. An unknown figure counts as none, and the food is named in `unknown_in`.
+
 A suggested learning path, each step runnable against her real matrix:
 1. Vectors and the dot product: compute one nutrient's total by hand from one row of A.
 2. Matrix × vector: compute the whole day at once and check it against the page's totals.

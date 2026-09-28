@@ -569,3 +569,11 @@ a.rowNameBtn {
 .giftTable td:first-child {
   text-align: left;
 }
+
+/* The calculator's caps: most grams of one food, most kcal added. */
+.planInputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 8px 0;
+}

@@ -307,3 +307,58 @@ def test_rank_and_search_routes_keep_single_foods_when_asked(client, monkeypatch
     ranked = client.get("/api/nutrition/rank/calcium?per=100g&single=1").get_json()["foods"]
     found = client.get("/api/nutrition/search?q=kale&single=1").get_json()["foods"]
     assert {f["description"] for f in ranked + found} == {"Kale, raw"}
+
+
+# The meal-prep calculator: fewest grams of candidate foods that close the gaps.
+KALE, SURVEY, BABY_KALE = ({"fdc_id": 1, "label": "kale"}, {"fdc_id": 50, "label": "survey kale"},
+                           {"fdc_id": 2, "label": "baby kale"})
+
+
+def _plan(conn, items, candidates, **options):
+    plan = nutrition.plan_additions(conn, items, candidates, sex="female", age=29, **options)
+    calcium = next(row for row in plan["nutrients"] if row["key"] == "calcium")
+    return plan, calcium
+
+
+def test_plan_uses_the_fewest_grams_to_meet_the_target(conn):
+    plan, calcium = _plan(conn, [], [KALE, SURVEY], cap_grams=1000)
+    assert ([(f["label"], f["grams"]) for f in plan["foods"]], calcium["closed"]) == (
+        [("kale", pytest.approx(393.7, abs=0.1))], True)
+
+
+def test_plan_counts_what_she_already_eats(conn):
+    plan, _ = _plan(conn, [{"fdc_id": 1, "label": "kale", "grams": 200}], [KALE], cap_grams=1000)
+    assert plan["foods"][0]["grams"] == pytest.approx(193.7, abs=0.1)
+
+
+def test_plan_gets_as_close_as_it_can_when_the_cap_stops_it(conn):
+    plan, calcium = _plan(conn, [], [KALE, SURVEY], cap_grams=100)
+    assert (calcium["after"], calcium["closed"]) == (pytest.approx(404.0), False)
+
+
+def test_plan_never_leans_on_an_unknown_figure(conn):
+    plan, calcium = _plan(conn, [{"fdc_id": 1, "label": "kale", "grams": 100}], [BABY_KALE], cap_grams=100)
+    assert (plan["foods"], calcium["unknown_in"]) == ([], ["baby kale"])
+
+
+def test_plan_stays_under_a_ceiling_that_counts_food(conn):
+    conn.execute("INSERT INTO dri_values VALUES ('calcium', 'female', '19-30', 'ul', 1100, 'mg', '', 'test', NULL)")
+    plan, calcium = _plan(conn, [{"fdc_id": 50, "label": "survey kale", "grams": 600}], [KALE], cap_grams=1000)
+    assert (calcium["after"], plan["already_over"]) == (pytest.approx(1000.0), [])
+
+
+def test_plan_lists_a_ceiling_already_passed(conn):
+    conn.execute("INSERT INTO dri_values VALUES ('calcium', 'female', '19-30', 'ul', 1100, 'mg', '', 'test', NULL)")
+    plan, _ = _plan(conn, [{"fdc_id": 1, "label": "kale", "grams": 500}], [SURVEY])
+    assert (plan["already_over"], plan["foods"]) == (["calcium"], [])
+
+
+def test_plan_route_adds_only_starred_foods(client):
+    client.post("/api/nutrition/settings", json={"sex": "female", "age": 29})
+    client.post("/api/nutrition/highlights/1", json={"on": True, "description": "kale"})
+    body = client.get("/api/nutrition/plan?cap=1000").get_json()
+    assert [(f["fdc_id"], f["grams"]) for f in body["foods"]] == [(1, pytest.approx(393.7, abs=0.1))]
+
+
+def test_plan_route_refuses_a_bad_cap(client):
+    assert client.get("/api/nutrition/plan?cap=-5").status_code == 400

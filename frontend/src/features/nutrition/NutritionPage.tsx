@@ -9,7 +9,8 @@
  * target, foods with no figure, foods whose figure was filled in from USDA's
  * survey data, a UL that doesn't count food), and its top three sources among
  * her foods. Tapping a nutrient's name opens its own page (./NutrientPage.tsx);
- * then what each of her foods gives her (./FoodShares.tsx); then the foods she's starred
+ * then what each of her foods gives her (./FoodShares.tsx); then the foods she's starred,
+ * and how much of them to add to meet her targets (./MealPrepPlan.tsx)
  * (./Highlights.tsx); then her meals, where each food's grams can be fixed, a food removed, or a USDA food
  * added by search; each meal's servings a day set (0 = saved but not counted);
  * a meal started or deleted. A weight nobody has weighed yet is marked "guess".
@@ -37,6 +38,7 @@ import { normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSea
 import { deleteMeal, getDay, saveMeal, saveServings, saveSettings, searchFoods } from './api';
 import { FoodGiftsCard, TopSources } from './FoodShares';
 import { StarredFoods } from './Highlights';
+import { MealPrepPlan } from './MealPrepPlan';
 import { SingleFoodsChip, useSingleFoods } from './SingleFoods';
 import { barShare, DATASET_TAGS, fdcFoodUrl, formatAmount, GROUP_TITLES, groupRows } from './nutrientMath';
 import type { Meal, MealItem, NutrientRow, NutritionDay, Sex, SexSetting } from './types';
@@ -76,6 +78,7 @@ export function NutritionPage() {
           <NutrientList day={data} />
           <FoodGiftsCard rows={data.report.nutrients} sexes={data.report.sexes} />
           <StarredFoods />
+          <MealPrepPlan day={data} />
           <MealList day={data} />
           <p className={styles.sources}>
             Food composition:{' '}

@@ -158,3 +158,24 @@ export interface FdcFood {
   description: string;
   category: string | null;
 }
+
+/** What to add a day, from her starred foods (nutrition.py `plan_additions`). */
+export interface NutritionPlan {
+  foods: { fdc_id: number; label: string; grams: number }[];
+  nutrients: {
+    key: string;
+    unit: string | null;
+    now: number;
+    after: number;
+    target: number | null;
+    limit: number | null;
+    closed: boolean;
+    /** Starred foods USDA has no figure for here; the plan counts them as giving none. */
+    unknown_in: string[];
+  }[];
+  added_energy: number | null;
+  /** Ceilings the day is already past; adding food can't fix those. */
+  already_over: string[];
+  cap_grams: number;
+  energy_cap: number | null;
+}
