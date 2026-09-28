@@ -42,6 +42,7 @@ two parts: nutrients against the targets, and the sensitivity filter.
 """
 import functools
 import re
+import sqlite3
 
 import fdcdb
 import foodstore
@@ -390,7 +391,15 @@ def _percent(row):
 
 def _context():
     """What every recipe view reads once: rebuilt rows, the catalog, the guide, SIGHI."""
-    foodstore.rebuild()
+    # Refresh the recipe rows, but never fail a read over it. The rebuild is a
+    # write, and another writer holding exo.db past the busy timeout makes it
+    # raise "database is locked"; the rows from the last rebuild are then used,
+    # at worst missing an edit made in the last moment.
+    try:
+        foodstore.rebuild()
+    except sqlite3.OperationalError as error:
+        if "locked" not in str(error) and "busy" not in str(error):
+            raise
     return _guide_sets(), histamine.names(), histamine.SOURCE
 
 

@@ -8,6 +8,7 @@ after the amount changed, a line that can't be weighed being counted as 0,
 and her two new records (USDA entry, gram weight) being lost to a merge or
 missing from the backup. Built on a tiny hand-made FDC zip.
 """
+import sqlite3
 import zipfile
 
 import pytest
@@ -192,6 +193,14 @@ def test_the_overview_counts_weighed_lines_and_carries_flags(stew):
     one = rn.overview()["recipes"][0]
     # Carrots and butter weigh; water has no amount, and USDA gives this vinegar no cup weight.
     assert (one["counted"], one["lines"], one["flags"]["hurts"]) == (2, 4, ["butter"])
+
+
+def test_a_locked_database_still_answers_from_the_last_rebuild(stew, monkeypatch):
+    rn.overview()
+    def locked():
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(foodstore, "rebuild", locked)
+    assert rn.overview()["recipes"][0]["lines"] == 4
 
 
 # --- her record: backup and merge -------------------------------------------------
