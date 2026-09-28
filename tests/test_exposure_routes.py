@@ -87,3 +87,27 @@ def test_she_can_dispute_a_fact(client):
 def test_a_bad_review_word_is_refused(client):
     fact = exposurestore.facts_for("Chlorpropham")[0]
     assert client.post(f"/api/exposure/facts/{fact['id']}/review", json={"review": "maybe"}).status_code == 400
+
+
+def test_source_pdf_is_served_from_the_commons(client, tmp_path):
+    import store
+    store.write("research.json", {"topics": [], "sessions": [], "entries": [
+        {"id": "2026-09-27.1100", "kind": "source", "text": "A report", "topics": [], "url": "https://x/r.pdf",
+         "verdict": "", "status": "", "reply_to": None, "created": "2026-09-27 11:00"}]})
+    pdf = tmp_path / "commons" / "papers" / "r.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    exposurestore.set_source_file("2026-09-27.1100", "papers/r.pdf", "abc", 3)
+    info = client.get("/api/exposure/sources/2026-09-27.1100/pdf-info").get_json()
+    body = client.get("/api/exposure/sources/2026-09-27.1100/pdf")
+    assert (info["pdf"], info["pages"], body.status_code, body.data[:5]) == (True, 3, 200, b"%PDF-")
+
+
+def test_a_path_leading_out_of_the_commons_is_refused(client, tmp_path):
+    import store
+    store.write("research.json", {"topics": [], "sessions": [], "entries": [
+        {"id": "2026-09-27.1101", "kind": "source", "text": "Sneaky", "topics": [], "url": "",
+         "verdict": "", "status": "", "reply_to": None, "created": "2026-09-27 11:00"}]})
+    (tmp_path / "secret.pdf").write_bytes(b"%PDF-secret")
+    exposurestore.set_source_file("2026-09-27.1101", "../secret.pdf", "abc", 1)
+    assert client.get("/api/exposure/sources/2026-09-27.1101/pdf").status_code == 404

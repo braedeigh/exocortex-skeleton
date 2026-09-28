@@ -290,7 +290,8 @@
         "exposurestore.py",
         "commonsdb.py",
         "exposure.py",
-        "reference_loaders.py"
+        "reference_loaders.py",
+        "pdfpages.py"
       ],
       "routes": [
         "research.py",

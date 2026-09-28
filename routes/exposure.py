@@ -12,6 +12,8 @@ over chosen years runs exposure.py. ValueErrors become 400s.
     GET  /api/exposure/contaminants/<id>    -> what it is, its facts, where it was found
     POST /api/exposure/facts/<id>/review    {review: unreviewed|confirmed|disputed}
     GET  /api/exposure/ledger               -> every pull of public data
+    GET  /api/exposure/sources/<id>/pdf-info -> {pdf: bool, pages, passages: {annotation id: page}}
+    GET  /api/exposure/sources/<id>/pdf      -> the source's PDF from the commons, as published
 
 The method's constants ride along with each food so the page can say exactly
 what was assumed. No feature gate: like the research tables these are her own
@@ -22,11 +24,15 @@ Prompt that produced this file: "i want any possible contaminant to be listed
 with potential values next to any of them, and be able to click into those
 contaminants to learn more about them and see how harmful they might be."
 """
-from flask import jsonify, request
+from pathlib import Path
 
+from flask import jsonify, request, send_file
+
+import commons
 import exposure
 import exposurestore
 import hazardstore
+import sqlstore
 
 
 def _method():
@@ -101,3 +107,40 @@ def register(app):
     @app.route("/api/exposure/ledger")
     def exposure_ledger():
         return jsonify({"pulls": exposurestore.ledger(request.args.get("dataset") or None)})
+
+    # --- a source's own PDF, for showing a passage where it really is ---------
+
+    def _pdf_path(source_id):
+        """The source's PDF on disk, or None. Refuses any stored path that
+        would lead outside the commons folder."""
+        found = exposurestore.source_file(source_id)
+        if not found:
+            return None
+        root = Path(commons.commons_dir()).resolve()
+        path = (root / found["commons_path"]).resolve()
+        if root not in path.parents or not path.is_file():
+            return None
+        return path
+
+    @app.route("/api/exposure/sources/<source_id>/pdf-info")
+    def exposure_source_pdf_info(source_id):
+        found = exposurestore.source_file(source_id)
+        if not found or _pdf_path(source_id) is None:
+            return jsonify({"pdf": False})
+        conn = sqlstore.open_db()
+        try:
+            passages = dict(conn.execute(
+                "SELECT p.annotation_id, p.page FROM passage_pages p"
+                " JOIN research_annotations a ON a.id = p.annotation_id WHERE a.doc = ?",
+                (f"entry:{source_id}",)).fetchall())
+        finally:
+            conn.close()
+        return jsonify({"pdf": True, "pages": found["pages"], "sha256": found["sha256"],
+                        "passages": passages})
+
+    @app.route("/api/exposure/sources/<source_id>/pdf")
+    def exposure_source_pdf(source_id):
+        path = _pdf_path(source_id)
+        if path is None:
+            return _not_found()
+        return send_file(path, mimetype="application/pdf", max_age=86400)

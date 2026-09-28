@@ -13,6 +13,7 @@ exposure score.
     venv/bin/python3 scripts/reference_data.py load-epa
     venv/bin/python3 scripts/reference_data.py score --food potatoes
     venv/bin/python3 scripts/reference_data.py ledger
+    venv/bin/python3 scripts/reference_data.py fetch-pdf --all   # sources' PDFs + passage pages
     venv/bin/python3 scripts/reference_data.py fact Chlorpropham use "plant growth regulator" \\
         --source-id 2026-09-27.1000
 
@@ -147,6 +148,58 @@ def load_epa(force=False):
     return count
 
 
+def _pdf_folder(url):
+    """Which commons folder a source's PDF goes in, by who published it."""
+    host = urllib.parse.urlparse(url).netloc.lower()
+    if "ams.usda.gov" in host:
+        return "usda-pdp"
+    if "fda.gov" in host:
+        return "fda-tds"
+    return "papers"
+
+
+def fetch_pdf(source_id):
+    """Keep a research source's PDF in the commons and note each passage's page.
+
+    Returns a line saying what happened. A source whose address doesn't give
+    a PDF (a web article) is left alone — its highlights stay in the text view.
+    """
+    import pdfpages
+    import sqlstore
+    conn = sqlstore.open_db()
+    try:
+        row = conn.execute("SELECT url, text FROM research_entries WHERE id = ? AND kind = 'source'",
+                           (source_id,)).fetchone()
+        passages = conn.execute(
+            "SELECT id, exact FROM research_annotations WHERE doc = ? AND exact IS NOT NULL",
+            (f"entry:{source_id}",)).fetchall()
+    finally:
+        conn.close()
+    if not row or not row[0]:
+        return f"{source_id}: no such source, or it has no address"
+    url, title = row
+    root = commons.commons_dir()
+    entry = next((each for each in commons.read_manifest(root)["files"] if each.get("url") == url), None)
+    if entry is None:
+        folder = root / _pdf_folder(url)
+        temp, served_name = commons_fetch.download(url, folder)
+        with open(temp, "rb") as handle:
+            if handle.read(5) != b"%PDF-":
+                temp.unlink()
+                return f"{source_id}: {url} is not a PDF — left to the text view"
+        name = served_name if served_name.lower().endswith(".pdf") else f"{source_id}.pdf"
+        _, entry = commons_fetch.add_file(temp, _pdf_folder(url), {
+            "url": url, "title": title[:200], "name": name}, root, move=True)
+    pages = pdfpages.page_texts(root / entry["path"])
+    exposurestore.set_source_file(source_id, entry["path"], entry["sha256"], len(pages))
+    found = {annotation_id: pdfpages.find_page(pages, exact) for annotation_id, exact in passages}
+    exposurestore.set_passage_pages({key: page for key, page in found.items() if page})
+    missing = [key for key, page in found.items() if not page]
+    return (f"{source_id}: {entry['path']} ({len(pages)} pages); "
+            f"{len(found) - len(missing)} of {len(found)} passages placed"
+            + (f"; not found: {', '.join(missing)}" if missing else ""))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -172,6 +225,10 @@ def main(argv=None):
 
     ledger = commands.add_parser("ledger", help="what has been pulled")
     ledger.add_argument("--dataset")
+
+    pdf = commands.add_parser("fetch-pdf", help="keep a source's PDF and place its passages on pages")
+    pdf.add_argument("source_ids", nargs="*")
+    pdf.add_argument("--all", action="store_true", help="every source with a highlighted passage")
 
     fact = commands.add_parser("fact", help="record a sourced fact about a contaminant")
     fact.add_argument("hazard")
@@ -212,6 +269,24 @@ def main(argv=None):
                 print(f"{pull['pulled_at'][:16]}  {pull['dataset']:9} {pull['year'] or '':5}"
                       f" {pull['scope'] or 'all':4} rows={pull['rows']:<8} v{pull['loader_version']}"
                       f"  {pull['file_path']}  {json.dumps(pull['detail'])}")
+        elif args.command == "fetch-pdf":
+            ids = list(args.source_ids)
+            if args.all:
+                import sqlstore
+                conn = sqlstore.open_db()
+                try:
+                    ids += [row[0] for row in conn.execute(
+                        "SELECT DISTINCT substr(doc, 7) FROM research_annotations"
+                        " WHERE doc LIKE 'entry:%' ORDER BY 1")]
+                finally:
+                    conn.close()
+            lock = _one_at_a_time()
+            for source_id in ids:
+                try:
+                    print(fetch_pdf(source_id))
+                except (OSError, commons_fetch.TooBig) as problem:
+                    print(f"{source_id}: couldn't fetch — {problem}")
+            lock.close()
         elif args.command == "fact":
             fact_id = exposurestore.add_fact(
                 args.hazard, args.fact, args.value, amount=args.amount, unit=args.unit,
