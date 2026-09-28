@@ -60,7 +60,10 @@ line here. EWG's and Consumer Reports' rankings are shown only as a sanity check
 
 The page side: every food page has a pesticide residues card (features/exposure/ExposureCard.tsx),
 each contaminant has a page at /food/contaminants/<id>, and the Claims page opens a source's PDF at
-its highlighted passage (features/exposure/PdfPassage.tsx).
+its highlighted passage (features/exposure/PdfPassage.tsx). Wherever else a study is listed — a
+food page's evidence, a number's detail in the tables view — a "📄 PDF" button
+(features/exposure/SourcePdf.tsx) opens the same viewer beside it, at the passage that backs the
+number, when the commons holds that study's PDF.
 
 ## Known gaps
 
@@ -77,7 +80,10 @@ its highlighted passage (features/exposure/PdfPassage.tsx).
   (chlorpyrifos, diazinon, ametoctradin); IRIS covers some (cypermethrin, bifenthrin, DDT,
   dieldrin, malathion, carbaryl). A food where one still missing is found scores as an open
   question until a sourced `chronic_dose` fact is added (EPA's risk assessment or a Federal
-  Register tolerance rule for that chemical) and the food is scored again.
+  Register tolerance rule for that chemical) and the food is scored again. Where EPA's pesticide
+  office sets only a steady-state dose (ssPAD — diazinon, chlorpyrifos, which take the lowest
+  population's), or where only another agency has a figure (ATSDR's MRL for p,p'-DDE), the fact
+  says so in its basis and its note carries the quote and URL — it's a judgment, not EPA's cPAD.
 - **Metabolites are never matched to their parent** (clethodim sulfoxide ≠ clethodim): whether
   the parent's dose covers them is a judgment, recorded as a fact.
 - **Serving sizes** use the general FDA categories (85 g vegetables, 140 g fruit); a food with no
