@@ -3,12 +3,13 @@
  * category, date; Enter logs it. As she types what it was ("coffee"), the
  * category fills itself in from how she filed similar expenses before
  * (quickCategory.ts); picking a category by hand turns that off until the next
- * expense. Also carries the "Download CSV from bank" link. Posts through
+ * expense. The + beside the category adds a new one to the budget and picks it.
+ * Also carries the "Download CSV from bank" link. Posts through
  * api.ts addExpense (routes/money.py /api/expense/add).
  */
 import { useMemo, useRef, useState } from 'react';
 import { Button } from '../../ui';
-import type { AddExpensePayload } from './api';
+import type { AddCategoryPayload, AddExpensePayload } from './api';
 import { suggestCategory } from './quickCategory';
 import type { Budget, Expense } from './types';
 import styles from './money.module.css';
@@ -20,9 +21,11 @@ export interface QuickExpenseProps {
   /** Past expenses — what the category guess learns from. */
   expenses: Expense[];
   onAdd: (payload: AddExpensePayload) => void;
+  /** Saves a new budget category (the same call Budget setup's Add makes). */
+  onAddCategory: (payload: AddCategoryPayload) => Promise<unknown>;
 }
 
-export function QuickExpense({ budget, todayStr, expenses, onAdd }: QuickExpenseProps) {
+export function QuickExpense({ budget, todayStr, expenses, onAdd, onAddCategory }: QuickExpenseProps) {
   const [amount, setAmount] = useState('');
   const [pickedCategory, setPickedCategory] = useState('');
   const [comments, setComments] = useState('');
@@ -49,6 +52,23 @@ export function QuickExpense({ budget, todayStr, expenses, onAdd }: QuickExpense
     setAmount('');
     setComments('');
     setPickedCategory('');
+  }
+
+  // Add a category right here instead of in Budget setup, then select it.
+  // window.prompt matches the statement preview's + button.
+  // Prompt: "first add the ability to add a category and then i can go back and reorganize."
+  async function newCategory() {
+    const name = (window.prompt('New category name:', '') || '').trim();
+    if (!name) return;
+    const existing = offered.find((c) => c.toLowerCase() === name.toLowerCase());
+    if (!existing) {
+      try {
+        await onAddCategory({ name, planned: 0, type: 'variable' });
+      } catch {
+        return; // failure already toasted
+      }
+    }
+    setPickedCategory(existing || name);
   }
 
   function onEnter(e: React.KeyboardEvent) {
@@ -96,12 +116,17 @@ export function QuickExpense({ budget, todayStr, expenses, onAdd }: QuickExpense
           onChange={(e) => setPickedCategory(e.target.value)}
         >
           <option value="">— pick category —</option>
-          {(budget.categories || []).map((c) => (
-            <option key={c.name} value={c.name}>
-              {c.name}
+          {offered.map((name) => (
+            <option key={name} value={name}>
+              {name}
             </option>
           ))}
+          {/* A category just added with + shows before the budget reloads. */}
+          {category && !offered.includes(category) ? <option value={category}>{category}</option> : null}
         </select>
+        <button type="button" className={styles.plusBtn} title="New category" aria-label="New category" onClick={newCategory}>
+          +
+        </button>
         <input
           type="date"
           aria-label="Date"
