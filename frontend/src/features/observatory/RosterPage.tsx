@@ -269,7 +269,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // ONE list, so a count can't describe a population the page doesn't draw.
   // roomRoster (sessionFilters.ts) owns what's eligible and why; it's a function
   // there rather than a line here precisely because the two used to disagree.
-  const roomable = roomRoster(ordered);
+  const roomable = roomRoster(ordered, opened);
 
   // Recomputed every render, which is what keeps the hour window and the unread
   // comparison honest as the poll ticks.

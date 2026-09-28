@@ -127,8 +127,9 @@ export function swarmView(
   let waitingSince: string | undefined;
   const members: SwarmMemberView[] = [];
   for (const member of swarm.members) {
-    if (member.retired) continue;
+    // Retired by either account — the swarm list's or the roster's — is off.
     const meta = metaById.get(member.conv);
+    if (member.retired || meta?.retired) continue;
     let state: MemberState = member.state;
     let unread = false;
     if (meta) {

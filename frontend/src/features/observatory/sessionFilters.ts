@@ -236,6 +236,8 @@ export function matchesFilter(
  *   origin helper     button-fired jobs (triage, recipe/receipt parses, person
  *                     impressions), which belong to the Helpers room at the
  *                     bottom of the roster and are reached through its door
+ *   retired + orange  a session that handed its work on but is still asking or
+ *                     unread (retiredOrange, below) — work that moved on
  *   lane research     her research desk and the dispatched research workers,
  *                     which belong to the Research room behind its own door
  *                     (ResearchDoor → /observatory/research); matched on the
@@ -252,15 +254,31 @@ export function matchesFilter(
  *
  * [prompt: "why does the orange one say 32 when i don't have that many open and
  * why does the red one say 3 when i don't see any"] */
-export function roomRoster(sessions: SessionMeta[]): SessionMeta[] {
+export function roomRoster(
+  sessions: SessionMeta[],
+  opened: Record<string, string> = {},
+  nowMs: number = Date.now(),
+): SessionMeta[] {
   return sessions.filter(
     (s) =>
       !s.pinned &&
       s.origin !== 'nightcrew' &&
       s.origin !== 'helper' &&
       s.origin !== 'research' &&
-      s.lane !== 'research',
+      s.lane !== 'research' &&
+      !retiredOrange(s, opened[s.id], nowMs),
   );
+}
+
+/** A retired session still wearing orange: it handed its work on, yet it's
+ * asking or has an unread reply. Kept off the front page, and out of the
+ * rail's counts, since that work has already moved on. Its swarm's page and the
+ * session itself still show it.
+ * [prompt: "make any retired one with an orange not display on the front
+ * page's card"] */
+function retiredOrange(meta: SessionMeta, openedAt: string | undefined, nowMs: number): boolean {
+  if (meta.retired !== true) return false;
+  return isAsking(meta) || cardState(meta, openedAt, nowMs) === 'unread';
 }
 
 /** How many sessions sit under each button — the number on its face, and (for

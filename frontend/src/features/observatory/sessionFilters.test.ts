@@ -289,6 +289,14 @@ describe('a button returns only cards wearing its colour', () => {
  * broke was feeding them the raw payload, which carries sessions no room on the
  * page draws. */
 describe('roomRoster', () => {
+  it('keeps a retired session off the front page while it wears orange', () => {
+    const asking = session('asking', { retired: true, awaiting_input: 'q' });
+    const unread = session('unread', { retired: true });
+    const quiet = session('quiet', { retired: true });
+    const opened = { quiet: ago(0) };
+    expect(roomRoster([asking, unread, quiet], opened, NOW).map((s) => s.id)).toEqual(['quiet']);
+  });
+
   it('drops the pinned Keeper and every night-crew worker', () => {
     const kept = roomRoster([
       session('keeper', { pinned: true }),
