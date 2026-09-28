@@ -74,7 +74,65 @@ export interface NutrientRanking {
   label: string;
   unit: string | null;
   per: RankPer;
-  foods: (FdcFood & { amount: number; per_100g: number; kcal_per_100g: number | null })[];
+  foods: RankedFood[];
+  /** The low-histamine list every food is rated against (histamine.py); loaded false = not fetched here. */
+  histamine_source: HistamineSource;
+}
+
+export type RankedFood = FdcFood & {
+  amount: number;
+  per_100g: number;
+  kcal_per_100g: number | null;
+  /** What the SIGHI list says of it, matched by name; null = not on the list. */
+  histamine: HistamineRating | null;
+};
+
+export type HistamineVerdict = 'low' | 'moderate' | 'high' | 'unclear' | 'avoid';
+
+export interface HistamineRating {
+  verdict: HistamineVerdict;
+  /** SIGHI's 0–3, or '?' / '-'; null for the leaflet's canned / smoked / cured rule. */
+  rating: string | null;
+  /** The SIGHI entry the food's name matched. */
+  sighi_name: string;
+  remark: string;
+}
+
+export interface HistamineSource {
+  name: string;
+  publisher: string;
+  edition: string;
+  url: string;
+  leaflet_url: string;
+  loaded: boolean;
+}
+
+/** A block of an NIH ODS fact sheet, word for word: a paragraph, a subheading, or a list item. */
+export interface FactBlock {
+  kind: 'p' | 'h3' | 'li';
+  text: string;
+}
+
+/** What the NIH ODS fact sheet says about one nutrient (nutrient_facts.py). */
+export interface NutrientFacts {
+  key: string;
+  sheet: { name: string; url: string; publisher: string; file: string; missing?: boolean } | null;
+  intro: FactBlock[];
+  deficiency: FactBlock[];
+  at_risk: FactBlock[];
+}
+
+export interface NutrientDetail {
+  row: NutrientRow;
+  sexes: Sex[];
+  facts: NutrientFacts;
+}
+
+/** A food she's starred as one she's interested in eating. */
+export interface HighlightedFood {
+  fdc_id: number;
+  description: string;
+  added: string;
 }
 
 export interface FdcFood {

@@ -432,3 +432,91 @@
   opacity: 0.45;
   cursor: default;
 }
+
+/* A nutrient's own page (NutrientPage.tsx). */
+a.rowNameBtn {
+  text-decoration: none;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.factText {
+  margin: 8px 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.factHeading {
+  margin: 14px 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.factList {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Starring a food she's interested in (Highlights.tsx). */
+.starBtn {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.starOn {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.rankRowStarred {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.rankRow .starBtn {
+  align-self: center;
+}
+
+/* A food's SIGHI low-histamine rating, on its own line under the name. */
+.histTag {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.hist_low {
+  color: var(--green, #2e8b57);
+}
+
+.hist_moderate {
+  color: var(--orange, #c77a2a);
+}
+
+.hist_high,
+.hist_avoid {
+  color: var(--red, #c0392b);
+}
+
+.hist_unclear,
+.hist_none {
+  color: var(--text-muted);
+}

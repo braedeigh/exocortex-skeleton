@@ -29,6 +29,8 @@ Where things live:
       {label, fdc_id, grams, grams_guessed?, fill_from?} and her usual day as
       [{meal, servings}]. `grams_guessed` marks a weight nobody has weighed.
   `nutrition_settings` (data dir, JSON) — {sex: female|male|both, age}.
+  `nutrition_highlights` (data dir, JSON) — {foods: [{fdc_id, description,
+      added}]}, the USDA foods she's starred as ones she's interested in eating.
 
 Touches: `fdcdb.py` and `dri.py` (both in commons.db), `store.py`,
 `routes/nutrition.py` (the HTTP seam), `tests/test_nutrition.py`.
@@ -45,6 +47,7 @@ import fdcdb
 
 MEALS = "nutrition_meals"
 SETTINGS = "nutrition_settings"
+HIGHLIGHTS = "nutrition_highlights"
 
 # The nutrients tracked: (key, label, FDC nutrient ids in order of preference).
 # The key matches dri.py's names, so a target lines up with its total.
@@ -272,7 +275,7 @@ def matrix(conn, items, sex="female", age=None):
 MIN_KCAL_PER_100G = 5.0
 
 
-def ranking(conn, key, per="100g", words="", limit=50):
+def ranking(conn, key, per="100g", words="", limit=50, keep=None):
     """Every USDA food ranked by one tracked nutrient, richest first.
 
     `per` is "100g" (the amount in 100 g of the food, as USDA gives it) or
@@ -281,6 +284,9 @@ def ranking(conn, key, per="100g", words="", limit=50):
     name holds every word. A food with no figure for the nutrient isn't
     ranked at all, rather than counted as 0; a per-100-kcal ranking also
     leaves out foods with no energy figure or under MIN_KCAL_PER_100G.
+    `keep`, when given, is asked of each food dict before the limit is
+    applied (the low-histamine filter uses it), so a filter never shortens
+    the page it's shown on.
 
     Returns {key, label, unit, per, foods: [{fdc_id, description, data_type,
     category, amount, per_100g, kcal_per_100g}]}; `amount` is the ranked
@@ -331,9 +337,16 @@ def ranking(conn, key, per="100g", words="", limit=50):
             food["amount"] = per_100g * 100.0 / energy
         else:
             food["amount"] = per_100g
-        ranked.append(food)
+        if keep is None or keep(food):
+            ranked.append(food)
     ranked.sort(key=lambda food: (-food["amount"], food["description"]))
     return {"key": key, "label": label, "unit": unit, "per": per, "foods": ranked[:limit]}
+
+
+def highlights():
+    """The foods she's marked as ones she's interested in eating: [{fdc_id, description, added}]."""
+    data = store.read(HIGHLIGHTS, {}) or {}
+    return data.get("foods") or []
 
 
 def meals():

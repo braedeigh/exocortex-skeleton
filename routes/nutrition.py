@@ -8,8 +8,14 @@ Bad input comes back as a 400 with the reason.
 
     GET  /api/nutrition/day            -> {report, meals, day, settings}
     GET  /api/nutrition/search?q=      -> USDA foods whose name holds every word
-    GET  /api/nutrition/rank/<key>?per=100g|100kcal&q=&limit=
-                                       -> every USDA food ranked by that nutrient, richest first
+    GET  /api/nutrition/rank/<key>?per=100g|100kcal&q=&limit=&histamine=low
+                                       -> every USDA food ranked by that nutrient, richest first,
+                                          each rated against the SIGHI low-histamine list (histamine.py);
+                                          histamine=low keeps only the foods SIGHI rates 0
+    GET  /api/nutrition/nutrient/<key> -> {row, sexes, facts}: her day's total for one nutrient,
+                                          and the NIH ODS fact sheet's own words (nutrient_facts.py)
+    GET  /api/nutrition/highlights     -> the foods she's starred as interested in eating
+    POST /api/nutrition/highlights/<fdc_id> {on: bool, description} — star / unstar one
     POST /api/nutrition/meals/<name>   {items: [{label, fdc_id, grams, grams_guessed?, fill_from?}]}
                                        (a new name makes a new meal)
     DELETE /api/nutrition/meals/<name> -> the meal gone, and out of her day
@@ -22,9 +28,13 @@ them to visitors. Design: docs/nutrition.md.
 Prompt that produced this file: "make my own kind of like, Cronometer so I can
 plug in my diet and see how to optimize it for my health overall."
 """
+from datetime import datetime
+
 from flask import jsonify, request
 
 import fdcdb
+import histamine
+import nutrient_facts
 import nutrition
 import store
 
@@ -82,12 +92,52 @@ def register(app):
             limit = min(max(int(request.args.get("limit") or 50), 1), 500)
         except ValueError:
             return _refused("limit must be a whole number")
+        # Rate every food against the SIGHI list; ?histamine=low keeps only its 0s.
+        names = histamine.names()
+        low_only = request.args.get("histamine") == "low"
+
+        def keep(food):
+            food["histamine"] = histamine.rate(names, food["description"])
+            return not low_only or (food["histamine"] or {}).get("verdict") == "low"
         try:
             with fdcdb.session() as conn:
-                return jsonify(nutrition.ranking(conn, key, request.args.get("per") or "100g",
-                                                 request.args.get("q") or "", limit))
+                result = nutrition.ranking(conn, key, request.args.get("per") or "100g",
+                                           request.args.get("q") or "", limit, keep=keep)
         except ValueError as exc:
             return _refused(str(exc))
+        return jsonify(dict(result, histamine_source=dict(histamine.SOURCE, loaded=bool(names))))
+
+    @app.route("/api/nutrition/nutrient/<key>")
+    def nutrition_nutrient(key):
+        # One nutrient's own page: her day's total for it, and what ODS says about it.
+        if key not in {k for k, _, _ in nutrition.TRACKED}:
+            return _refused(f"unknown nutrient {key}")
+        data = nutrition.meals()
+        with fdcdb.session() as conn:
+            report = nutrition.report(conn, nutrition.day_items(data))
+        row = next(row for row in report["nutrients"] if row["key"] == key)
+        return jsonify({"row": row, "sexes": report["sexes"], "facts": nutrient_facts.facts(key)})
+
+    @app.route("/api/nutrition/highlights")
+    def nutrition_highlights():
+        return jsonify({"foods": nutrition.highlights()})
+
+    @app.route("/api/nutrition/highlights/<int:fdc_id>", methods=["POST"])
+    def nutrition_highlight(fdc_id):
+        # Star or unstar a food she's interested in eating; {on: bool, description}.
+        body = request.get_json(silent=True) or {}
+        description = str(body.get("description") or "").strip()
+        if not isinstance(body.get("on"), bool):
+            return _refused("on must be true or false")
+        with store.mutate(nutrition.HIGHLIGHTS, {}) as data:
+            foods = [food for food in data.get("foods") or [] if food.get("fdc_id") != fdc_id]
+            if body["on"]:
+                if not description:
+                    return _refused("a starred food needs its description")
+                foods.append({"fdc_id": fdc_id, "description": description,
+                              "added": datetime.now().isoformat(timespec="seconds")})
+            data["foods"] = foods
+        return jsonify({"ok": True, "foods": foods})
 
     @app.route("/api/nutrition/meals/<name>", methods=["POST"])
     def nutrition_meal(name):

@@ -14,6 +14,7 @@ from flask import Flask
 import commons
 import dri
 import fdcdb
+import histamine
 import nutrition
 import store
 from routes import nutrition as nutrition_routes
@@ -215,3 +216,42 @@ def test_matrix_leaves_unknown_as_none_not_zero(conn):
 def test_matrix_both_takes_the_higher_floor(conn):
     built = nutrition.matrix(conn, [{"fdc_id": 1, "label": "kale", "grams": 100}], sex="both", age=29)
     assert built["lower"][built["nutrients"].index("calcium")] == 1200
+
+
+def _sighi(monkeypatch):
+    # A one-food SIGHI list: raw kale rated 0 (the real list doesn't carry kale).
+    entries = [{"name": "kale", "rating": "0", "flags": [], "remark": "", "category": "Vegetables"}]
+    monkeypatch.setattr("histamine.names", lambda: histamine.index(entries))
+
+
+def test_rank_route_rates_each_food_against_sighi(client, monkeypatch):
+    _sighi(monkeypatch)
+    body = client.get("/api/nutrition/rank/calcium?per=100g").get_json()
+    assert (body["foods"][0]["histamine"]["verdict"], body["histamine_source"]["loaded"]) == ("low", True)
+
+
+def test_rank_route_low_histamine_keeps_only_sighi_zeros(client, monkeypatch):
+    entries = [{"name": "kale, baby", "rating": "2", "flags": [], "remark": "", "category": None}]
+    monkeypatch.setattr("histamine.names", lambda: histamine.index(entries))
+    body = client.get("/api/nutrition/rank/calcium?per=100g&histamine=low").get_json()
+    assert body["foods"] == []
+
+
+def test_nutrient_route_gives_the_days_row_and_the_facts(client):
+    body = client.get("/api/nutrition/nutrient/calcium").get_json()
+    assert (body["row"]["key"], body["facts"]["sheet"]["missing"]) == ("calcium", True)
+
+
+def test_nutrient_route_refuses_an_unknown_nutrient(client):
+    assert client.get("/api/nutrition/nutrient/unobtainium").status_code == 400
+
+
+def test_starring_a_food_saves_it_and_unstarring_removes_it(client):
+    client.post("/api/nutrition/highlights/1", json={"on": True, "description": "Kale, raw"})
+    starred = [food["fdc_id"] for food in client.get("/api/nutrition/highlights").get_json()["foods"]]
+    client.post("/api/nutrition/highlights/1", json={"on": False})
+    assert (starred, client.get("/api/nutrition/highlights").get_json()["foods"]) == ([1], [])
+
+
+def test_starring_without_a_description_is_refused(client):
+    assert client.post("/api/nutrition/highlights/1", json={"on": True}).status_code == 400

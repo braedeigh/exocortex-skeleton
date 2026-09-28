@@ -4,9 +4,16 @@
  * its bar is. Kept apart from the page so they're tested
  * (nutrientMath.test.ts).
  *
- * Touches: ./types.ts; read by ./NutritionPage.tsx.
+ * Touches: ./types.ts; read by ./NutritionPage.tsx and ./NutrientPage.tsx.
  */
-import type { Judgement, NutrientRow, NutrientStatus } from './types';
+import type { FdcFood, Judgement, NutrientRow, NutrientStatus } from './types';
+
+// The short tag each USDA dataset shows beside a food's name.
+export const DATASET_TAGS: Record<FdcFood['data_type'], string> = {
+  foundation_food: 'Foundation',
+  sr_legacy_food: 'SR',
+  survey_fndds_food: 'FNDDS',
+};
 
 export type RowGroup = 'over' | 'under' | 'met' | 'untargeted';
 
