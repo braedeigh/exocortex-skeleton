@@ -161,6 +161,21 @@ def test_merge_moves_names_products_and_links(data_dir):
     assert rows("SELECT COUNT(*) FROM foods")[0][0] == 1
 
 
+def test_merge_moves_source_proposals(data_dir):
+    seed_kitchen()
+    keep = foodstore.add_food("potatoes")
+    drop = foodstore.add_food("yukon potatoes")
+    conn = sqlstore.open_db()
+    try:
+        conn.execute("INSERT INTO source_proposals (food_id, name, lat, lng, geo_source)"
+                     " VALUES (?, 'Idaho', 44.0, -114.0, 'guess')", (drop,))
+        conn.commit()
+    finally:
+        conn.close()
+    foodstore.merge(keep, drop)
+    assert rows("SELECT food_id FROM source_proposals") == [(keep,)]
+
+
 def test_merge_keeps_the_kept_foods_judgment(data_dir):
     seed_kitchen()
     keep = foodstore.add_food("kale", safety="safe")

@@ -528,6 +528,12 @@ def merge(keep, drop):
         # exposure scores are deleted with it: they are rebuilt from the codes.
         conn.execute("UPDATE OR IGNORE food_pdp_codes SET food_id = ? WHERE food_id = ?",
                      (keep_id, drop_id))
+        # Source proposals (proposalstore.py) and their ingredient parts move
+        # the same way; they have no ON DELETE rule, so leaving them would
+        # make the delete below fail.
+        conn.execute("UPDATE source_proposals SET food_id = ? WHERE food_id = ?", (keep_id, drop_id))
+        conn.execute("UPDATE source_proposal_parts SET food_id = ? WHERE food_id = ?",
+                     (keep_id, drop_id))
         # Origin requests (sourcestore.py) move too. Only one request per food
         # may be open, so when both foods have one, drop's is withdrawn first.
         conn.execute(
