@@ -2430,6 +2430,29 @@
       }
     }
   },
+  "food_usda": {
+    "holds": "Which USDA FoodData Central entry each catalog food is (\"carrots\" is \"Carrots, raw\"), so a recipe's nutrients use that entry's figures and household portions. A food with no row gets an entry suggested from its name, counted but marked as a guess.",
+    "source": "Written only through foodstore.set_usda (routes/food.py is its HTTP door), when she confirms or changes the entry on a recipe's page. Backed up to food_catalog.json with the rest of the catalog. Never cleared by a rebuild.",
+    "kind": "record",
+    "time_column": "set_at",
+    "columns": {
+      "food_id": {"holds": "The food."},
+      "fdc_id": {"holds": "Its USDA FoodData Central id (the fdc_foods table in commons.db)."},
+      "set_at": {"holds": "When she chose it."}
+    }
+  },
+  "recipe_line_grams": {
+    "holds": "Her own gram weight for one recipe line, where the amount as written (\"a drizzle\", \"1 small\") can't be weighed or was weighed wrong.",
+    "source": "Written only through foodstore.set_line_grams (routes/recipe_nutrition.py is its HTTP door). Keyed by the line's text, so reordering a recipe keeps it; `for_amount` is the amount it was set against, and an edited amount shows the weight as out of date instead of using it. Backed up to food_catalog.json. Never cleared by a rebuild.",
+    "kind": "record",
+    "time_column": null,
+    "columns": {
+      "recipe_id": {"holds": "The recipe."},
+      "line": {"holds": "The line's text as matched: trimmed, lowercased, spaces collapsed."},
+      "grams": {"holds": "Her weight for the whole line, in grams."},
+      "for_amount": {"holds": "The amount the line read when she set the weight."}
+    }
+  },
   "meal_rotation": {
     "holds": "The meals that recur and how many times a week, so what gets eaten is a standing fact rather than a daily log.",
     "source": "Written only through foodstore.py (routes/food.py is its HTTP door). Backed up to food_catalog.json after every change and read back from it if the table is ever empty. Never cleared by a rebuild.",

@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 38
+_SCHEMA_VERSION = 39
 
 
 def _db_path():
@@ -201,6 +201,8 @@ _EXPECTED_TABLES = (
     # Verifiable exposure scores (rung 36).
     "hazard_facts", "food_pdp_codes", "data_pulls", "exposure_scores", "exposure_terms",
     "source_files", "passage_pages",
+    # Recipe nutrients: which USDA entry a food is, and her gram weights (rung 39).
+    "food_usda", "recipe_line_grams",
 )
 
 
@@ -2840,6 +2842,35 @@ def _run_ladder(conn):
             "  seq INTEGER NOT NULL DEFAULT 0,"
             "  name TEXT NOT NULL DEFAULT '',"
             "  PRIMARY KEY (proposal_id, code)"
+            ")"
+        )
+    if version < 39:
+        # Rung 39: what a recipe gives, nutrient by nutrient (recipe_nutrition.py).
+        # Two of her RECORDS, written only through foodstore.py and backed up
+        # in food_catalog.json with the rest of the catalog.
+        #
+        # Which USDA FoodData Central entry a catalog food is: "carrots" is
+        # fdc 170393 "Carrots, raw". One per food. A food without a row here
+        # gets a suggested entry by name, counted but marked as a guess.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_usda ("
+            "  food_id INTEGER PRIMARY KEY REFERENCES foods(id) ON DELETE CASCADE,"
+            "  fdc_id INTEGER NOT NULL,"
+            "  set_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Her own weight for one recipe line, when the amount as written
+        # ("a drizzle", "1 small") can't be weighed or was weighed wrong.
+        # Keyed by the line's text, not its position, so reordering the
+        # recipe keeps it; `for_amount` is the amount it was set against, so
+        # an edited amount shows the weight as out of date instead of using it.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS recipe_line_grams ("
+            "  recipe_id TEXT NOT NULL,"
+            "  line TEXT NOT NULL,"
+            "  grams REAL NOT NULL CHECK (grams >= 0),"
+            "  for_amount TEXT,"
+            "  PRIMARY KEY (recipe_id, line)"
             ")"
         )
     if version < _SCHEMA_VERSION:

@@ -175,13 +175,15 @@
         "proposalstore.py",
         "provenance.py",
         "georegions.py",
-        "fdcdb.py", "dri.py", "nutrition.py", "nutrient_facts.py", "nutrient_storage.py", "histamine.py"
+        "fdcdb.py", "dri.py", "nutrition.py", "nutrient_facts.py", "nutrient_storage.py", "histamine.py",
+        "recipe_nutrition.py"
       ],
       "routes": [
         "kitchen",
         "food.py",
         "nutrition.py",
-        "georegions.py"
+        "georegions.py",
+        "recipe_nutrition.py"
       ],
       "frontend": [
         "kitchen",
@@ -219,7 +221,9 @@
         "source_proposal_counties",
         "source_proposal_regions",
         "source_proposal_parts",
-        "source_proposal_evidence"
+        "source_proposal_evidence",
+        "food_usda",
+        "recipe_line_grams"
       ],
       "collections": [
         "kitchen",

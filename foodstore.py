@@ -36,7 +36,9 @@ has matched yet, which leaves duplicates ("onion", "onions") in plain sight;
 `merge()` is how two become one. Guessing would hide the decision.
 
 The map's sources are her record too: `sourcestore.py` writes them through
-the same transaction below, so they ride in the same backup.
+the same transaction below, so they ride in the same backup. So do the two
+tables behind recipe nutrients (`recipe_nutrition.py`): which USDA entry each
+food is, and her gram weights for recipe lines.
 
 Touches: `sqlstore.py` (the tables, rungs 20 and 22, and two views:
 food_last_price, recipe_cost), `store.py` (reads recipes / kitchen /
@@ -88,6 +90,10 @@ _RECORD_TABLES = (
     # Her requests to have a food's origin found (sourcestore.request).
     ("source_requests", ("id", "food_id", "food_name", "food_key", "product_id", "asked_from",
                          "status", "created_at", "closed_at")),
+    # Which USDA entry each food is, and her gram weights for recipe lines
+    # (recipe_nutrition.py).
+    ("food_usda", ("food_id", "fdc_id", "set_at")),
+    ("recipe_line_grams", ("recipe_id", "line", "grams", "for_amount")),
 )
 
 
@@ -510,6 +516,8 @@ def merge(keep, drop):
         conn.execute("UPDATE food_names SET food_id = ? WHERE food_id = ?", (keep_id, drop_id))
         conn.execute("UPDATE products SET food_id = ? WHERE food_id = ?", (keep_id, drop_id))
         conn.execute("UPDATE recipe_makes SET food_id = ? WHERE food_id = ?", (keep_id, drop_id))
+        # Its USDA entry moves only when keep has none: keep's own choice wins.
+        conn.execute("UPDATE OR IGNORE food_usda SET food_id = ? WHERE food_id = ?", (keep_id, drop_id))
         # A link keep already has would collide; OR IGNORE leaves it behind,
         # and the delete below takes it away with the dropped food.
         conn.execute("UPDATE OR IGNORE food_links SET food_id = ? WHERE food_id = ?",
@@ -637,6 +645,45 @@ def set_rotation(recipe_id, per_week=1, since=None, note=None):
                 " ON CONFLICT (recipe_id) DO UPDATE SET per_week = excluded.per_week,"
                 " since = excluded.since, note = excluded.note",
                 (recipe_id, per_week, since, note))
+
+
+def set_usda(food, fdc_id):
+    """Say which USDA FoodData Central entry a food is (None to clear).
+
+    Recipe nutrients (recipe_nutrition.py) weigh the food with this entry's
+    figures and portions instead of a guess made from its name.
+    """
+    with _Write() as conn:
+        food_id = _food_id(conn, food)
+        if fdc_id is None:
+            conn.execute("DELETE FROM food_usda WHERE food_id = ?", (food_id,))
+        else:
+            conn.execute(
+                "INSERT INTO food_usda (food_id, fdc_id) VALUES (?,?)"
+                " ON CONFLICT (food_id) DO UPDATE SET fdc_id = excluded.fdc_id,"
+                " set_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+                (food_id, int(fdc_id)))
+    return food_id
+
+
+def set_line_grams(recipe_id, text, grams, for_amount=None):
+    """Her own weight for one recipe line (None to go back to the worked-out one).
+
+    Keyed by the line's text as matched (_norm), and remembers the amount it
+    was set against so an edited amount can say the weight is out of date.
+    """
+    if grams is not None and grams < 0:
+        raise ValueError("grams must be 0 or more")
+    with _Write() as conn:
+        if grams is None:
+            conn.execute("DELETE FROM recipe_line_grams WHERE recipe_id = ? AND line = ?",
+                         (recipe_id, _norm(text)))
+        else:
+            conn.execute(
+                "INSERT INTO recipe_line_grams (recipe_id, line, grams, for_amount) VALUES (?,?,?,?)"
+                " ON CONFLICT (recipe_id, line) DO UPDATE SET grams = excluded.grams,"
+                " for_amount = excluded.for_amount",
+                (recipe_id, _norm(text), float(grams), (for_amount or "").strip() or None))
 
 
 # --- reading -----------------------------------------------------------------

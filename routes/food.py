@@ -12,6 +12,8 @@ Claude session over HTTP, rather than only by hand in Python.
     POST /api/food/foods              {name, kind?, category?, safety?, note?}
     POST /api/food/foods/<id>         change a food's fields
     POST /api/food/foods/<id>/names   {name} — another way it's written
+    POST /api/food/foods/<id>/usda    {fdc_id|null} — which USDA FoodData
+                                      Central entry it is (recipe nutrients)
     POST /api/food/merge              {keep, drop} — fold drop into keep
     POST /api/food/products           {food, name, brand?, store?, size?, receipt_text?, organic?}
     POST /api/food/products/<id>      change a product (food, name, brand, organic…)
@@ -107,6 +109,15 @@ def register(app):
         if not name:
             return jsonify({"ok": False, "error": "missing name"}), 400
         return _run(foodstore.add_name, food_id, name)
+
+    # Which USDA entry a food is, so recipe nutrients (recipe_nutrition.py)
+    # weigh it with that entry instead of one guessed from its name.
+    @app.route("/api/food/foods/<int:food_id>/usda", methods=["POST"])
+    def food_set_usda(food_id):
+        fdc_id = (request.json or {}).get("fdc_id")
+        if fdc_id is not None and not str(fdc_id).isdigit():
+            return jsonify({"ok": False, "error": "fdc_id must be a number or null"}), 400
+        return _run(foodstore.set_usda, food_id, int(fdc_id) if fdc_id is not None else None)
 
     @app.route("/api/food/merge", methods=["POST"])
     def food_merge():

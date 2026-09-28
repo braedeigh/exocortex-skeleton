@@ -12,7 +12,9 @@
  * that queues the food for research — it doesn't link anything; requestState.ts
  * says whether it's already asked. KitchenPage.tsx passes in the recipe, the
  * map's sources, the recipe with its lines resolved to foods (eco_recipes) and
- * the open requests (eco_requested).
+ * the open requests (eco_requested). Below it, for her only, "Nutrients per
+ * serving" (./RecipeNutrients.tsx): one serving against her daily targets,
+ * and how each line was counted.
  */
 import { Link } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
@@ -21,6 +23,7 @@ import { RequestLinkButton } from '../ecosystem/RequestLinkButton';
 import type { EcoRecipe } from '../ecosystem/types';
 import { SourceDot, SourceLink } from './ComesFrom';
 import { walkRecipeChain } from './recipeHelpers';
+import { RecipeNutrients } from './RecipeNutrients';
 import { Section } from './Section';
 import { isLinkRequested } from './requestState';
 import { traceSummary } from './traceSummary';
@@ -254,6 +257,9 @@ export function RecipeDetailView({
           </Section>
         </div>
       ) : null}
+
+      {/* What a serving gives against her targets — her own numbers, so not for a visitor. */}
+      {!isPublic ? <RecipeNutrients recipeId={recipe.id} /> : null}
 
       <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 16 }}>Instructions</div>
       {hasSections ? (
