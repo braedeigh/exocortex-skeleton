@@ -208,3 +208,13 @@
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* THE HELPER: a bigger filled dot in the middle, no ring of its own, a
+   name in bold. It glows (state_working) while a run is going. */
+.helper .name {
+  font-weight: 600;
+}
+
+.helper .spinner {
+  stroke-dasharray: 25 50;
+}

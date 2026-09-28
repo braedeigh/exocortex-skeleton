@@ -228,7 +228,11 @@ export function WorktreeMapPage() {
                 >
                   {swarm.name} &rarr;
                 </button>
-                <SwarmNetwork swarm={swarm} onOpen={open} />
+                <SwarmNetwork
+                  swarm={swarm}
+                  onOpen={open}
+                  helperWorking={!!(swarm.helper_conv && sessionsById.get(swarm.helper_conv)?.running)}
+                />
               </div>
             ))}
           </section>

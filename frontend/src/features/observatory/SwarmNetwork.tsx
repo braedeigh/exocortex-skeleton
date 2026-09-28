@@ -15,6 +15,10 @@
  *   - a dashed purple line is a handover: one session took over from the
  *     other when its context filled (continuation.py).
  *
+ * The swarm's helper (swarm_helper.py) sits in the middle of them all as a
+ * bigger, filled dot with no lines of its own — it talks to everyone. It
+ * glows while it's running; tap it to open its chat.
+ *
  * The lines are an SVG underneath; the rings, names and counts are ordinary
  * HTML placed on top by percentage, so they keep real, readable pixel sizes
  * and ~40px taps however narrow the screen scales the drawing. Tap a ring to
@@ -36,7 +40,7 @@ import type { CSSProperties } from 'react';
 import { makeStickyToggle } from '../terrain/codeHeatPref';
 import styles from './SwarmNetwork.module.css';
 import type { Swarm } from './swarmApi';
-import { layoutSwarm, lineWidth, shortTitle } from './swarmNetworkMath';
+import { countSpot, layoutSwarm, lineWidth, shortTitle } from './swarmNetworkMath';
 
 /* The "hide retired" switch: a toggle that stays (localStorage), shared by
    every swarm drawing on every page, so hiding them once hides them
@@ -46,9 +50,12 @@ const retiredHiddenToggle = makeStickyToggle('swarm-network-retired-hidden');
 export function SwarmNetwork({
   swarm,
   onOpen,
+  helperWorking = false,
 }: {
-  swarm: Pick<Swarm, 'members' | 'links' | 'continues'>;
+  swarm: Pick<Swarm, 'members' | 'links' | 'continues' | 'helper_conv'>;
   onOpen: (conv: string) => void;
+  /** Whether the helper is mid-run, from the roster. */
+  helperWorking?: boolean;
 }) {
   // Leave retired members out when the switch is on. Their lines go with
   // them: the layout only draws lines between members it was given.
@@ -100,11 +107,12 @@ export function SwarmNetwork({
         {layout.talk.map((t) => {
           const a = at.get(t.a)!;
           const b = at.get(t.b)!;
+          const spot = countSpot(a, b, layout.centre);
           return (
             <span
               key={`n-${t.a}-${t.b}`}
               className={styles.count}
-              style={place((a.x + b.x) / 2, (a.y + b.y) / 2)}
+              style={place(spot.x, spot.y)}
               title={`${titleOf(t.a)} → ${titleOf(t.b)}: ${t.aToB} · ${titleOf(t.b)} → ${titleOf(t.a)}: ${t.bToA}`}
             >
               {t.messages}
@@ -136,6 +144,24 @@ export function SwarmNetwork({
             <span className={styles.name}>{shortTitle(n.title)}</span>
           </button>
         ))}
+
+        {/* The helper, in the middle of them all: tap to open its chat. */}
+        {swarm.helper_conv ? (
+          <button
+            type="button"
+            className={[styles.node, styles.helper, helperWorking ? styles.state_working : ''].filter(Boolean).join(' ')}
+            style={place(layout.centre.x, layout.centre.y)}
+            onClick={() => onOpen(swarm.helper_conv!)}
+            title="The swarm's helper — tap to open its chat"
+          >
+            <svg width="32" height="32" viewBox="0 0 32 32" className={styles.ringBox} aria-hidden="true">
+              <circle cx="16" cy="16" r="14" className={styles.halo} />
+              {helperWorking ? <circle cx="16" cy="16" r="12" className={styles.spinner} /> : null}
+              <circle cx="16" cy="16" r="9" className={styles.dot} />
+            </svg>
+            <span className={styles.name}>Helper</span>
+          </button>
+        ) : null}
       </div>
     </div>
   );

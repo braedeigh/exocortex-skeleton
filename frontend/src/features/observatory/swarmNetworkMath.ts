@@ -13,7 +13,10 @@
  *     (a→b and b→a); a line is one PAIR, carrying both counts, so a
  *     conversation is one line and not two laid on top of each other;
  *   - only member-to-member messages count — the helper talks to everyone,
- *     and a line to it would say nothing;
+ *     and a line to it would say nothing. It gets a seat of its own instead:
+ *     the middle of the members (the centre of the circle, halfway between
+ *     two, beside a lone one), and a line's message count slides off the
+ *     middle when that middle is where the helper sits;
  *   - a continuation (one session taking over from another) is its own kind
  *     of line, since it's a handover rather than talk.
  *
@@ -57,6 +60,8 @@ export interface NetworkLayout {
   nodes: NetworkNode[];
   talk: NetworkLine[];
   continues: { from: string; to: string }[];
+  /** Where the swarm's helper sits: the middle of the members. */
+  centre: { x: number; y: number };
 }
 
 /** Place the rings: side by side for two, evenly round a circle for more. */
@@ -84,6 +89,28 @@ export function placeRings(count: number): { x: number; y: number; height: numbe
       height,
     };
   });
+}
+
+/** The helper's seat: the middle of the rings. With one ring the middle is
+ * the ring itself, so the helper sits beside it instead. */
+export function centreOf(seats: { x: number; y: number }[]): { x: number; y: number } {
+  if (seats.length === 0) return { x: NETWORK_WIDTH / 2, y: MARGIN_TOP };
+  if (seats.length === 1) return { x: seats[0].x + 170, y: seats[0].y };
+  const x = seats.reduce((sum, s) => sum + s.x, 0) / seats.length;
+  const y = seats.reduce((sum, s) => sum + s.y, 0) / seats.length;
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+/** Where a line's message count sits: its middle, unless the helper sits
+ * there — then a third of the way along, so the two don't overlap. */
+export function countSpot(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  centre: { x: number; y: number },
+): { x: number; y: number } {
+  const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  if (Math.hypot(middle.x - centre.x, middle.y - centre.y) > 50) return middle;
+  return { x: a.x + (b.x - a.x) / 3, y: a.y + (b.y - a.y) / 3 };
 }
 
 /** Fold per-direction message counts into one line per pair of members. */
@@ -122,6 +149,7 @@ export function layoutSwarm(swarm: Pick<Swarm, 'members' | 'links' | 'continues'
     nodes,
     talk: foldLinks(swarm.links, members),
     continues: (swarm.continues ?? []).filter((c) => members.has(c.from) && members.has(c.to)),
+    centre: centreOf(seats),
   };
 }
 

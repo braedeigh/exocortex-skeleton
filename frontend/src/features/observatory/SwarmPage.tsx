@@ -6,10 +6,11 @@
  * messaged each other (swarms.py), with a helper — a Sonnet that names the
  * swarm, keeps a summary of every member and notices where their work
  * collides (swarm_helper.py). This page shows, top to bottom:
- *
+ *   - a box to ask the helper about the swarm's work, and a link to its own
+ *     chat (the helper is a session of its own);
  *   - the swarm's name, the helper's summary, and where members' work differs;
  *   - the swarm as a network: rings joined by green lines where members have
- *     messaged each other (SwarmNetwork.tsx);
+ *     messaged each other (SwarmNetwork.tsx), the helper as the dot in the middle;
  *   - a '+' on the Sessions title line that starts a new session inside the
  *     swarm — a member from its first turn (swarms.join), told on waking
  *     which swarm it's in and who else is working;
@@ -18,7 +19,6 @@
  *     top (SessionLane, told it's showing a swarm so it doesn't fold them
  *     again). Retired members (archived, or handed on) aren't among them, and
  *     the counts at the top leave them out too (roomOrder.swarmView);
- *   - a box to talk to the helper, and a link to its own chat;
  *   - what the helper thinks each member is doing;
  *   - every message between members;
  *   - every helper run, each opening to show exactly what it was given and
@@ -79,7 +79,7 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
     sendToInbox(swarm.helper_conv, text, true).then(
       () => {
         setAsk('');
-        setNote('Sent — the helper answers in its chat, and the run shows below.');
+        setNote('Sent — the helper answers in its chat, and the run shows at the bottom.');
         void refetch();
       },
       () => setNote('Couldn’t send that — try again.'),
@@ -110,6 +110,7 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
     : null;
   const memberConvs = new Set(view?.members.map((m) => m.conv) ?? []);
   const memberSessions = (roster?.sessions ?? []).filter((s) => memberConvs.has(s.id));
+  const helperWorking = !!roster?.sessions.find((s) => s.id === swarm?.helper_conv)?.running;
 
   return (
     <div className={pageStyles.page}>
@@ -124,6 +125,30 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
         {error ? <p className={styles.empty}>Couldn&rsquo;t load this swarm.</p> : null}
         {swarm && view ? (
           <>
+            {/* Talking to the helper, first thing on the page: ask it about the
+                swarm's work. It's a session of its own (swarm_helper.py). */}
+            <section className={styles.section}>
+              <h2 className={styles.h2}>Ask the helper</h2>
+              <div className={styles.askRow}>
+                <textarea
+                  className={styles.ask}
+                  value={ask}
+                  placeholder="What's everyone doing? Is anyone stepping on anyone?"
+                  onChange={(e) => setAsk(e.target.value)}
+                  rows={2}
+                />
+                <button type="button" className={styles.button} onClick={sendAsk} disabled={!ask.trim()}>
+                  Send
+                </button>
+              </div>
+              {note ? <p className={styles.note}>{note}</p> : null}
+              {swarm.helper_conv ? (
+                <button type="button" className={styles.link} onClick={() => open(swarm.helper_conv!)}>
+                  Open the helper&rsquo;s chat &rarr;
+                </button>
+              ) : null}
+            </section>
+
             {/* What the swarm is, in the helper's words. */}
             <section className={styles.section}>
               <div className={styles.countsRow}>
@@ -160,7 +185,7 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
             <section className={styles.section}>
               <h2 className={styles.h2}>Who&rsquo;s talking to whom</h2>
               <SwarmNetworkKey />
-              <SwarmNetwork swarm={swarm} onOpen={open} />
+              <SwarmNetwork swarm={swarm} onOpen={open} helperWorking={helperWorking} />
             </section>
 
             {/* The members, as the usual cards. */}
@@ -191,29 +216,6 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
               onClose={() => setCreating(false)}
               onSave={onCreate}
             />
-
-            {/* Talking to the helper. */}
-            <section className={styles.section}>
-              <h2 className={styles.h2}>Ask the helper</h2>
-              <div className={styles.askRow}>
-                <textarea
-                  className={styles.ask}
-                  value={ask}
-                  placeholder="What's everyone doing? Is anyone stepping on anyone?"
-                  onChange={(e) => setAsk(e.target.value)}
-                  rows={2}
-                />
-                <button type="button" className={styles.button} onClick={sendAsk} disabled={!ask.trim()}>
-                  Send
-                </button>
-              </div>
-              {note ? <p className={styles.note}>{note}</p> : null}
-              {swarm.helper_conv ? (
-                <button type="button" className={styles.link} onClick={() => open(swarm.helper_conv!)}>
-                  Open the helper&rsquo;s chat &rarr;
-                </button>
-              ) : null}
-            </section>
 
             {/* What the helper thinks each member is doing. */}
             <section className={styles.section}>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SwarmMember } from './swarmApi';
-import { foldLinks, layoutSwarm, lineWidth, NETWORK_WIDTH, placeRings, shortTitle } from './swarmNetworkMath';
+import { centreOf, countSpot, foldLinks, layoutSwarm, lineWidth, NETWORK_WIDTH, placeRings, shortTitle } from './swarmNetworkMath';
 
 function member(conv: string): SwarmMember {
   return { conv, title: `title ${conv}`, lane: 'coding', state: 'silent', joined_at: '', summary: null, summary_at: null };
@@ -60,4 +60,29 @@ it('thickens a line with more messages, up to a cap', () => {
 it('cuts a long title at a word', () => {
   expect(shortTitle('make it such that sessions can talk to each other')).toBe('make it such that…');
   expect(shortTitle('short')).toBe('short');
+});
+
+describe('the helper seat', () => {
+  it('sits at the centre of the circle of rings', () => {
+    const centre = centreOf(placeRings(5));
+    expect(centre.x).toBe(NETWORK_WIDTH / 2);
+    const seats = placeRings(4);
+    expect(centre.y).toBeGreaterThan(seats[0].y);
+  });
+
+  it('sits halfway between two rings', () => {
+    const [a, b] = placeRings(2);
+    expect(centreOf([a, b])).toEqual({ x: (a.x + b.x) / 2, y: a.y });
+  });
+
+  it('moves a message count off the middle when the helper sits there', () => {
+    const [a, b] = placeRings(2);
+    const spot = countSpot(a, b, centreOf([a, b]));
+    expect(spot.x).not.toBe((a.x + b.x) / 2);
+  });
+
+  it('leaves a message count at the middle when the helper is elsewhere', () => {
+    const spot = countSpot({ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 50, y: 300 });
+    expect(spot).toEqual({ x: 50, y: 0 });
+  });
 });
