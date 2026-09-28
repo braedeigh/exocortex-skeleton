@@ -109,6 +109,11 @@ export interface ContaminantFact {
   note: string | null;
   author: 'code' | 'llm' | 'owner';
   review: VerdictReview;
+  /** The research source's citation and address, when the fact names one. */
+  source: string | null;
+  source_url: string | null;
+  /** The source's own words that back the fact (its highlighted passage). */
+  passage: string | null;
 }
 
 export interface ContaminantFinding {
@@ -127,6 +132,14 @@ export interface ContaminantFinding {
   method: string;
 }
 
+export interface LiteratureSearch {
+  database: string;
+  query: string;
+  matched: number;
+  looked_at: number;
+  searched_at: string;
+}
+
 export interface Contaminant {
   id: number;
   name: string;
@@ -134,8 +147,11 @@ export interface Contaminant {
   parents: string[];
   names: string[];
   facts: ContaminantFact[];
-  /** How far past the agencies' word it has been checked: independent findings on file. */
-  research: { independent: number; needs_research: boolean };
+  /** How far past the agencies' word it has been checked: findings you confirmed
+   * as useful, findings still waiting for you, and whether it still needs research. */
+  research: { independent: number; to_judge: number; needs_research: boolean };
+  /** Every literature search logged about it, newest first. */
+  searches: LiteratureSearch[];
   found_in: ContaminantFinding[];
   measures: StudyMeasure[];
 }
@@ -147,6 +163,8 @@ export interface ContaminantListItem {
   foods: number;
   facts: number;
   max_dri: number | null;
-  /** Independent (non-agency) findings on file; 0 means it still needs research. */
+  /** Independent findings you confirmed; 0 means it still needs research. */
   independent: number;
+  /** Independent findings waiting for you to judge. */
+  to_judge: number;
 }

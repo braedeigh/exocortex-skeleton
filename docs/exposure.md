@@ -88,9 +88,35 @@ number, when the commons holds that study's PDF.
   dose already covers it: lambda-cyhalothrin, deltamethrin, esfenvalerate; or no endpoints at all:
   ametoctradin), that goes in as a `no_chronic_limit` fact carrying EPA's own sentence. The food
   page shows it beside the pesticide, but it is never a dose: the verdict stays open. Every
-  contaminant page says **Needs more research** until a study from outside the agencies (in vitro,
-  animal, human) is on file as an `independent_evidence` fact
-  (`exposurestore.research_state`). Nothing has been combed yet — that's research still to do.
+  contaminant page says **Needs more research** until she has marked a study from outside the
+  agencies useful (`exposurestore.research_state`). See "Combing the studies" below.
+
+## Combing the studies (beyond the agencies)
+
+An agent finds the studies about a contaminant and writes a plain summary of each; she judges
+whether each one is useful. The door is `scripts/literature.py`:
+
+    venv/bin/python3 scripts/literature.py progress                       # what's left, in order
+    venv/bin/python3 scripts/literature.py search Deltamethrin "deltamethrin[tiab] AND toxicity"
+    venv/bin/python3 scripts/literature.py study 31841155 --topic <research topic>
+    venv/bin/python3 scripts/literature.py finding Deltamethrin <source id> "what it found" \
+        --study-type animal --leaning "found harm" --passage "the study's exact words"
+
+- **Any related study counts** — in vitro, animal, human, reviews — and a study that finds harm
+  goes in as surely as one that finds none. The leaning is in the finding's basis
+  ("animal · found harm") so she can scan them.
+- **A study is a research source** whose text is its PubMed record: citation, publication type,
+  funding and conflicts of interest (so she can weigh who paid for it), then the abstract. Most
+  findings are read from the abstract alone; a note says so where it matters.
+- **Every finding quotes the study.** Its passage must be found in the source's text or nothing is
+  written; it is highlighted there, and where the source's address is a PDF, `fetch-pdf` places
+  it on the page and the contaminant page's "📄 PDF" button opens it.
+- **Only her judgment lifts "needs research."** An agent's finding arrives unreviewed ("waiting
+  for you to judge"); ✓ Useful confirms it, ✗ Not useful disputes it. Findings never become a
+  dose — a study's no-effect level stays in the finding's words for her to act on.
+- **Every search is remembered** in the pull ledger (dataset `literature`, one row per
+  contaminant × database × query), shown on the contaminant page, so no one repeats one blind.
+- Order: the pesticides EPA sets no chronic limit for, then the largest share of a safe dose.
 - **Metabolites are never matched to their parent** (clethodim sulfoxide ≠ clethodim): whether
   the parent's dose covers them is a judgment, recorded as a fact.
 - **Serving sizes** use the general FDA categories (85 g vegetables, 140 g fruit); a food with no

@@ -125,14 +125,15 @@ def test_no_chronic_limit_shows_epa_words_but_scores_as_no_dose(world):
     assert shown["value"] == "none - acute protective"
 
 
-def test_contaminant_needs_research_until_independent_evidence(world):
+def test_contaminant_needs_research_until_she_confirms_a_finding(world):
     hazard_id = rows("SELECT hazard_id FROM hazard_names WHERE name = 'chlorpropham'")[0][0]
     exposurestore.add_fact("Chlorpropham", "chronic_dose", "0.05", amount=0.05, url=EPA_URL)
-    assert exposurestore.contaminant(hazard_id)["research"]["needs_research"]
-    exposurestore.add_fact("Chlorpropham", "independent_evidence", "no cytotoxicity in vitro",
-                           source_id=SOURCE)
-    assert exposurestore.contaminant(hazard_id)["research"] == {
-        "independent": 1, "needs_research": False}
+    finding = exposurestore.add_fact("Chlorpropham", "independent_evidence",
+                                     "no cytotoxicity in vitro", source_id=SOURCE)
+    waiting = exposurestore.contaminant(hazard_id)["research"]
+    exposurestore.review_fact(finding, "confirmed")
+    assert waiting["needs_research"] and exposurestore.contaminant(hazard_id)["research"] == {
+        "independent": 1, "to_judge": 0, "needs_research": False}
 
 
 def test_pdp_codes_are_replaced_not_added(world):

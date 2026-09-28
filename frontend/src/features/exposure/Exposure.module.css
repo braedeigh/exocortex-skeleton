@@ -186,3 +186,20 @@
   text-decoration: line-through;
   color: var(--text-muted);
 }
+
+/* A study's finding: what it found, in plain words, under its kind and leaning. */
+.findingText {
+  margin-top: 4px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+/* The study's own words, quoted, that back a fact. */
+.passage {
+  margin: 6px 0 0;
+  padding: 4px 10px;
+  border-left: 3px solid var(--accent);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}

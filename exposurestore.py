@@ -59,12 +59,18 @@ FACTS = {
     "summary": "in plain words",
     "independent_evidence": "independent evidence",
 }
-# Agency figures are not taken on trust. A contaminant counts as researched
-# only once a study outside the agencies (in vitro, animal, human) is on file
-# as an `independent_evidence` fact; until then its page says it needs more
-# research. A `no_chronic_limit` fact shows EPA's own words but never counts as
-# a dose, so a food where one is found stays an open question.
+# Agency figures are not taken on trust. Studies from outside the agencies
+# (in vitro, animal, human, reviews) go in as `independent_evidence` facts —
+# an agent's plain summary of one study each, for her to judge. A contaminant
+# counts as researched only once she has confirmed one as useful; until then
+# its page says it needs more research. A `no_chronic_limit` fact shows EPA's
+# own words but never counts as a dose, so a food where one is found stays an
+# open question.
 AUTHORS = ("llm", "owner", "code")
+# What kind of study an independent finding comes from, and which way it
+# leans; a finding's basis reads "<study type> · <leaning>".
+STUDY_TYPES = ("in vitro", "animal", "human", "review", "other")
+LEANINGS = ("found harm", "found no harm", "mixed", "background")
 CLAIMS = ("conventional", "organic", "all")
 
 _FACT_COLUMNS = ("id", "hazard_id", "fact", "value", "amount", "unit", "basis", "source_id",
@@ -199,14 +205,25 @@ def delete_fact(fact_id):
 
 
 def facts_for(hazard):
-    """Every fact about one contaminant, grouped in FACTS order, newest first within a kind."""
+    """Every fact about one contaminant, grouped in FACTS order, newest first within a kind.
+
+    A fact read from a research source also carries that source's citation
+    and address (`source`, `source_url`), and the words of its highlighted
+    passage (`passage`), so the page can show what the study said.
+    """
     order = {name: index for index, name in enumerate(FACTS)}
     with hazardstore._Read() as conn:
         hazard_id = hazardstore._hazard_id(conn, hazard)
         rows = conn.execute(
-            f"SELECT {', '.join(_FACT_COLUMNS)} FROM hazard_facts WHERE hazard_id = ?"
-            " ORDER BY created_at DESC, id DESC", (hazard_id,)).fetchall()
-    facts = [_fact_dict(row) for row in rows]
+            f"SELECT {', '.join('f.' + column for column in _FACT_COLUMNS)}, e.text, e.url, a.exact"
+            " FROM hazard_facts f LEFT JOIN research_entries e ON e.id = f.source_id"
+            " LEFT JOIN research_annotations a ON a.id = f.annotation_id"
+            " WHERE f.hazard_id = ? ORDER BY f.created_at DESC, f.id DESC", (hazard_id,)).fetchall()
+    facts = []
+    for row in rows:
+        fact = _fact_dict(row[:len(_FACT_COLUMNS)])
+        fact["source"], fact["source_url"], fact["passage"] = row[len(_FACT_COLUMNS):]
+        facts.append(fact)
     return sorted(facts, key=lambda fact: order.get(fact["fact"], len(order)))
 
 
@@ -441,11 +458,44 @@ def agency_no_limit(hazard_ids):
 
 def research_state(facts):
     """How far past the agencies' word a contaminant has been checked:
-    {independent: how many independent findings, needs_research: True until
-    there is at least one}."""
-    independent = sum(1 for fact in facts
-                      if fact["fact"] == "independent_evidence" and fact["review"] != "disputed")
-    return {"independent": independent, "needs_research": independent == 0}
+    {independent: findings she confirmed as useful, to_judge: findings still
+    waiting for her, needs_research: True until she has confirmed one}.
+
+    An agent's finding alone never lifts "needs research" — it is a summary
+    for her to judge, and only her confirmation counts.
+    """
+    findings = [fact for fact in facts if fact["fact"] == "independent_evidence"]
+    independent = sum(1 for fact in findings if fact["review"] == "confirmed")
+    to_judge = sum(1 for fact in findings if fact["review"] == "unreviewed")
+    return {"independent": independent, "to_judge": to_judge, "needs_research": independent == 0}
+
+
+# --- the literature searches (the memory of what has been combed) --------------
+
+# A search is kept in the pull ledger like any other pull of public data: one
+# row per contaminant × database × query, so running the same search again
+# updates its row instead of adding one.
+LITERATURE = "literature"
+_LITERATURE_VERSION = 1
+
+
+def record_search(hazard, database, query, count, looked_at):
+    """Remember one literature search about a contaminant: where, what was
+    typed, how many papers matched, and how many were looked at."""
+    with hazardstore._Read() as conn:
+        hazard_id = hazardstore._hazard_id(conn, hazard)
+    record_pull(LITERATURE, 0, f"{hazard_id}|{database}|{query}", "", "", count,
+                {"hazard_id": hazard_id, "database": database, "query": query,
+                 "matched": count, "looked_at": looked_at}, _LITERATURE_VERSION)
+    return hazard_id
+
+
+def searches_for(hazard_id):
+    """Every literature search about one contaminant, newest first:
+    [{database, query, matched, looked_at, searched_at}]."""
+    return [{**{key: pull["detail"].get(key) for key in ("database", "query", "matched", "looked_at")},
+             "searched_at": pull["pulled_at"]}
+            for pull in ledger(LITERATURE) if pull["detail"].get("hazard_id") == hazard_id]
 
 
 # --- a source's own file, and the page each passage is on ----------------------
@@ -580,13 +630,15 @@ def contaminant(hazard_id):
     facts = facts_for(hazard_id)
     return {"id": row[0], "name": row[1], "note": row[2], "parents": parents,
             "names": names, "facts": facts, "research": research_state(facts),
+            "searches": searches_for(row[0]),
             "found_in": [dict(zip(keys, each)) for each in found], "measures": measures}
 
 
 def contaminant_index():
     """Every contaminant with a fact or a computed finding, for the list page:
     [{id, name, parents, foods (how many foods it was found in), facts, max_dri,
-    independent (how many independent findings — 0 means it needs research)}]."""
+    independent (findings she confirmed — 0 means it needs research),
+    to_judge (findings waiting for her)}]."""
     with hazardstore._Read() as conn:
         rows = conn.execute(
             "SELECT h.id, h.name,"
@@ -598,10 +650,13 @@ def contaminant_index():
             " (SELECT COUNT(*) FROM hazard_facts WHERE hazard_id = h.id),"
             " (SELECT MAX(t.dri) FROM exposure_terms t WHERE t.hazard_id = h.id),"
             " (SELECT COUNT(*) FROM hazard_facts WHERE hazard_id = h.id"
-            "   AND fact = 'independent_evidence' AND review != 'disputed')"
+            "   AND fact = 'independent_evidence' AND review = 'confirmed'),"
+            " (SELECT COUNT(*) FROM hazard_facts WHERE hazard_id = h.id"
+            "   AND fact = 'independent_evidence' AND review = 'unreviewed')"
             " FROM hazards h WHERE EXISTS (SELECT 1 FROM hazard_facts WHERE hazard_id = h.id)"
             "   OR EXISTS (SELECT 1 FROM exposure_terms WHERE hazard_id = h.id)"
             "   OR EXISTS (SELECT 1 FROM hazard_measures WHERE hazard_id = h.id)"
             " ORDER BY h.name").fetchall()
-    return [dict(zip(("id", "name", "parents", "foods", "facts", "max_dri", "independent"), row))
+    return [dict(zip(("id", "name", "parents", "foods", "facts", "max_dri", "independent",
+                      "to_judge"), row))
             for row in rows]

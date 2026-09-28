@@ -8,9 +8,11 @@
  * (EPA's chronic and acute safe doses, cancer figures, health effects), each
  * saying where it was read, who wrote it (a loader reading a published table,
  * an agent, or her) and her review, with Confirm and Dispute. A disputed safe
- * dose is never used to score. Then whether anything beyond the agencies
- * (independent studies) is on file — until it is, the page says it needs more
- * research. Then every food it was found in, with how
+ * dose is never used to score. Then the studies from beyond the agencies: each
+ * one an agent's plain summary with the study's own words quoted, for her to
+ * mark Useful or Not useful, and the literature searches run so far. Until
+ * she marks one useful, the page says it needs more research. Then every
+ * food it was found in, with how
  * often, how much and its share of the safe dose per serving, and the study
  * numbers about it. ContaminantsIndex (/food/contaminants) lists every
  * contaminant with facts or findings, the most concerning first.
@@ -20,7 +22,9 @@
  * Linked from ExposureCard.tsx's rows. Design: docs/exposure.md.
  *
  * Prompt that produced this file: "be able to click into those contaminants
- * to learn more about them and see how harmful they might be."
+ * to learn more about them and see how harmful they might be." The studies
+ * card: "the idea is you'd find any studies related to them and produce
+ * summaries for me to judge and see if they're useful."
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
@@ -29,8 +33,9 @@ import type { VerdictReview } from '../kitchen/types';
 import pageStyles from '../research/ResearchPage.module.css';
 import { getContaminant, getContaminants, reviewFact } from './api';
 import { BAND_CLASS } from './ExposureCard';
+import { SourcePdf } from './SourcePdf';
 import { residueWords, shareWords, termBand, yearsWords } from './exposureMath';
-import type { ContaminantFact, ContaminantFinding, ExposureMethod } from './types';
+import type { ContaminantFact, ContaminantFinding, ExposureMethod, LiteratureSearch } from './types';
 import styles from './Exposure.module.css';
 
 // Harm first: the facts that say how dangerous it is lead the list.
@@ -54,6 +59,13 @@ const REVIEW_WORDS: Record<VerdictReview, string> = {
   unreviewed: 'not reviewed yet',
   confirmed: 'you confirmed this',
   disputed: 'you disputed this — not used',
+};
+
+// A study's finding is judged for usefulness, so its buttons and words say so.
+const FINDING_REVIEW_WORDS: Record<VerdictReview, string> = {
+  unreviewed: 'waiting for you to judge',
+  confirmed: 'you marked it useful',
+  disputed: 'you marked it not useful',
 };
 
 // --- one contaminant -------------------------------------------------------------
@@ -101,6 +113,12 @@ export function ContaminantPage({ id }: { id: number }) {
             <div className={styles.cardHead}>
               {contaminant.research.needs_research ? 'Needs more research' : 'Checked beyond the agencies'}
             </div>
+            {contaminant.research.to_judge ? (
+              <p className={styles.muted}>
+                {contaminant.research.to_judge} {contaminant.research.to_judge === 1 ? 'study is' : 'studies are'}{' '}
+                waiting for you — mark the useful ones.
+              </p>
+            ) : null}
             {independent.length ? (
               <FactList facts={independent} contaminantId={id} />
             ) : (
@@ -109,6 +127,7 @@ export function ContaminantPage({ id }: { id: number }) {
                 through yet, so nothing above is taken as settled.
               </p>
             )}
+            <Searches searches={contaminant.searches} />
           </section>
           <section className={styles.card}>
             <div className={styles.cardHead}>Where it’s found</div>
@@ -170,27 +189,37 @@ function FactList({ facts, contaminantId }: { facts: ContaminantFact[]; contamin
   });
   return (
     <ul className={styles.termList}>
-      {facts.map((fact) => (
+      {facts.map((fact) => {
+        const isFinding = fact.fact === 'independent_evidence';
+        return (
         <li key={fact.id} className={`${styles.termRow} ${fact.review === 'disputed' ? styles.disputed : ''}`}>
-          <div className={styles.termTop}>
-            <span className={styles.factLabel}>{fact.label}</span>
-            <span className={styles.factValue}>{fact.value}</span>
-          </div>
+          {/* A study's finding reads as a sentence under its kind and leaning;
+              any other fact is a label and a value on one line. */}
+          {isFinding ? (
+            <>
+              <span className={styles.factLabel}>{fact.basis ?? fact.label}</span>
+              <div className={`${styles.findingText} ${styles.factValue}`}>{fact.value}</div>
+            </>
+          ) : (
+            <div className={styles.termTop}>
+              <span className={styles.factLabel}>{fact.label}</span>
+              <span className={styles.factValue}>{fact.value}</span>
+            </div>
+          )}
+          {fact.passage ? <blockquote className={styles.passage}>“{fact.passage}”</blockquote> : null}
           <div className={styles.termDetail}>
-            {fact.basis ? `${fact.basis} · ` : ''}
-            {fact.url ? (
-              <a href={fact.url} target="_blank" rel="noreferrer">
-                source
-              </a>
-            ) : fact.source_id ? (
-              `source ${fact.source_id}`
-            ) : (
-              'no source'
-            )}
+            {fact.basis && !isFinding ? `${fact.basis} · ` : ''}
+            <FactSource fact={fact} />
             {' · '}
-            {AUTHOR_WORDS[fact.author]} · {REVIEW_WORDS[fact.review]}
+            {AUTHOR_WORDS[fact.author]} · {(isFinding ? FINDING_REVIEW_WORDS : REVIEW_WORDS)[fact.review]}
           </div>
           {fact.note ? <div className={styles.termDetail}>{linkify(fact.note)}</div> : null}
+          {fact.source_id ? (
+            <SourcePdf
+              sourceId={fact.source_id}
+              passage={fact.annotation_id ? { id: fact.annotation_id, exact: fact.passage } : null}
+            />
+          ) : null}
           {fact.author !== 'owner' ? (
             <div className={styles.reviewRow}>
               <button
@@ -199,7 +228,7 @@ function FactList({ facts, contaminantId }: { facts: ContaminantFact[]; contamin
                 disabled={review.isPending}
                 onClick={() => review.mutate({ id: fact.id, value: fact.review === 'confirmed' ? 'unreviewed' : 'confirmed' })}
               >
-                ✓ Confirm
+                {isFinding ? '✓ Useful' : '✓ Confirm'}
               </button>
               <button
                 type="button"
@@ -207,13 +236,46 @@ function FactList({ facts, contaminantId }: { facts: ContaminantFact[]; contamin
                 disabled={review.isPending}
                 onClick={() => review.mutate({ id: fact.id, value: fact.review === 'disputed' ? 'unreviewed' : 'disputed' })}
               >
-                ✗ Dispute
+                {isFinding ? '✗ Not useful' : '✗ Dispute'}
               </button>
             </div>
           ) : null}
         </li>
-      ))}
+        );
+      })}
     </ul>
+  );
+}
+
+/** Where a fact was read: the research source's citation (linked), an agency page, or nothing. */
+function FactSource({ fact }: { fact: ContaminantFact }) {
+  const address = fact.source_url ?? fact.url;
+  const words = fact.source ? fact.source : 'source';
+  if (address) {
+    return (
+      <a href={address} target="_blank" rel="noreferrer">
+        {words}
+      </a>
+    );
+  }
+  return <>{fact.source ?? (fact.source_id ? `source ${fact.source_id}` : 'no source')}</>;
+}
+
+/** The literature searches run for a contaminant — the memory of what has been combed. */
+function Searches({ searches }: { searches: LiteratureSearch[] }) {
+  if (!searches.length) return <p className={styles.muted}>No literature search logged yet.</p>;
+  return (
+    <div className={styles.termDetail}>
+      Searched:
+      <ul>
+        {searches.map((search) => (
+          <li key={`${search.database}|${search.query}`}>
+            {search.database === 'pubmed' ? 'PubMed' : search.database} for “{search.query}” — {search.matched}{' '}
+            matched, {search.looked_at} looked at ({search.searched_at.slice(0, 10)})
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -300,7 +362,11 @@ export function ContaminantsIndex() {
               <div className={styles.termDetail}>
                 {item.parents ?? 'contaminant'} · found in {item.foods} food{item.foods === 1 ? '' : 's'} · {item.facts}{' '}
                 fact{item.facts === 1 ? '' : 's'} ·{' '}
-                {item.independent ? `${item.independent} independent finding${item.independent === 1 ? '' : 's'}` : 'needs research'}
+                {item.independent
+                  ? `${item.independent} useful stud${item.independent === 1 ? 'y' : 'ies'}`
+                  : item.to_judge
+                    ? `needs research · ${item.to_judge} to judge`
+                    : 'needs research'}
               </div>
             </li>
           ))}

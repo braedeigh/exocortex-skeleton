@@ -406,3 +406,46 @@ def test_jats_to_text_falls_back_when_no_body():
     xml = "<article><p>Just a stub with no body element.</p></article>"
     text = paperclients.jats_to_text(xml)
     assert "Just a stub with no body element." in text
+
+
+# --- PubMed ---------------------------------------------------------------------
+
+_PUBMED_XML = """<?xml version="1.0"?>
+<PubmedArticleSet><PubmedArticle><MedlineCitation><Article>
+<Journal><JournalIssue><PubDate><Year>2019</Year></PubDate></JournalIssue>
+<Title>Toxicology Reports</Title></Journal>
+<ArticleTitle>Deltamethrin and the <i>rat</i> liver</ArticleTitle>
+<Abstract><AbstractText Label="RESULTS">Liver enzymes rose at 5 mg/kg.</AbstractText>
+<AbstractText Label="CONCLUSIONS">Oxidative stress was seen.</AbstractText></Abstract>
+<AuthorList><Author><LastName>Rao</LastName><Initials>K</Initials>
+<AffiliationInfo><Affiliation>Dept of Toxicology, Some University.</Affiliation></AffiliationInfo></Author></AuthorList>
+<PublicationTypeList><PublicationType>Journal Article</PublicationType></PublicationTypeList>
+<GrantList><Grant><Agency>NIEHS NIH HHS</Agency><Country>United States</Country></Grant></GrantList>
+</Article><CoiStatement>None declared.</CoiStatement></MedlineCitation>
+<PubmedData><ArticleIdList><ArticleId IdType="doi">10.1/x</ArticleId>
+<ArticleId IdType="pmc">PMC123</ArticleId></ArticleIdList>
+<ReferenceList><Reference><ArticleIdList><ArticleId IdType="pmc">PMC999</ArticleId>
+</ArticleIdList></Reference></ReferenceList></PubmedData>
+</PubmedArticle></PubmedArticleSet>"""
+
+
+def test_pubmed_article_keeps_abstract_sections_funding_and_conflicts(monkeypatch):
+    monkeypatch.setattr(paperclients, "_get", lambda url, headers=None: _PUBMED_XML)
+    article = paperclients.pubmed_article("31")
+    assert (article["title"], article["year"], article["abstract"], article["funding"],
+            article["conflicts"], article["pmcid"], article["affiliations"]) == (
+        "Deltamethrin and the rat liver", "2019",
+        "RESULTS: Liver enzymes rose at 5 mg/kg.\n\nCONCLUSIONS: Oxidative stress was seen.",
+        ["NIEHS NIH HHS, United States"], "None declared.", "PMC123",
+        ["Dept of Toxicology, Some University."])
+
+
+def test_pubmed_article_unknown_id_is_not_found(monkeypatch):
+    monkeypatch.setattr(paperclients, "_get", lambda url, headers=None: "<PubmedArticleSet/>")
+    assert paperclients.pubmed_article("0") == {"ok": False, "error": "not_found"}
+
+
+def test_pubmed_search_returns_total_and_ids(monkeypatch):
+    _fake_get_json(monkeypatch, {"esearchresult": {"count": "212", "idlist": ["9", "8"]}})
+    assert paperclients.pubmed_search("deltamethrin toxicity", 2) == {
+        "ok": True, "count": 212, "pmids": ["9", "8"]}

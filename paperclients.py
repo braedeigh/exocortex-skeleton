@@ -58,6 +58,12 @@ Shapes:
   - `fetch_pmc_fulltext(pmcid) -> {"ok": True, "text"} | error` — GET Europe PMC's
     fullTextXML + xml_to_text. `"no_fulltext"` on 404 (NCBI's own endpoint has bot
     protection, hence Europe PMC — same reasoning as `pmc_pdf_url`).
+  - `pubmed_search(query, retmax)` -> `{"ok": True, "count": int, "pmids": [str, ...]}` | error
+    (NCBI esearch; `count` is every match, `pmids` the first `retmax`, best match first)
+  - `pubmed_summaries(pmids)` -> `{"ok": True, "items": [{"pmid","title","journal","year",
+    "types"}]}` | error (NCBI esummary, one line per paper for a search listing)
+  - `pubmed_article(pmid)` -> `{"ok": True, "pmid","title","journal","year","authors",
+    "abstract","types","doi","pmcid","funding","affiliations","conflicts"}` | error (NCBI efetch XML)
 
 # TODO(3): EXOCORTEX_CONTACT_EMAIL defaults to "" upstream in routes/research_sources.py,
 # which falls back to a placeholder mailto — set a real contact email in the service env.
@@ -583,6 +589,113 @@ def fetch_pmc_fulltext(pmcid):
     except Exception as e:
         return {"ok": False, "error": _error_code(e)}
     return {"ok": True, "text": jats_to_text(body)}
+
+
+# --- PubMed (NCBI E-utilities), for combing studies about a contaminant ------------
+
+_EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+# NCBI allows three requests a second without an API key; stay under it.
+PUBMED_RATE_LIMIT_S = 0.4
+
+
+def pubmed_search(query, retmax=40):
+    """Search PubMed: how many papers match, and the ids of the first `retmax`,
+    ordered by PubMed's own best-match ranking."""
+    time.sleep(PUBMED_RATE_LIMIT_S)
+    params = urllib.parse.urlencode({"db": "pubmed", "term": query, "retmax": int(retmax),
+                                     "sort": "relevance", "retmode": "json"})
+    try:
+        result = _get_json(f"{_EUTILS}/esearch.fcgi?{params}")
+    except Exception as e:
+        return {"ok": False, "error": _error_code(e)}
+    found = result.get("esearchresult") if isinstance(result, dict) else None
+    if not isinstance(found, dict):
+        return {"ok": False, "error": "network"}
+    return {"ok": True, "count": int(found.get("count") or 0),
+            "pmids": [str(pmid) for pmid in found.get("idlist") or []]}
+
+
+def pubmed_summaries(pmids):
+    """One line per paper — title, journal, year, publication types — in the
+    order asked, for a search listing a person can scan."""
+    if not pmids:
+        return {"ok": True, "items": []}
+    time.sleep(PUBMED_RATE_LIMIT_S)
+    params = urllib.parse.urlencode({"db": "pubmed", "id": ",".join(pmids), "retmode": "json"})
+    try:
+        result = _get_json(f"{_EUTILS}/esummary.fcgi?{params}")
+    except Exception as e:
+        return {"ok": False, "error": _error_code(e)}
+    records = result.get("result") if isinstance(result, dict) else None
+    if not isinstance(records, dict):
+        return {"ok": False, "error": "network"}
+    items = []
+    for pmid in pmids:
+        record = records.get(str(pmid))
+        if not isinstance(record, dict):
+            continue
+        items.append({"pmid": str(pmid), "title": record.get("title") or "",
+                      "journal": record.get("source") or "",
+                      "year": (record.get("pubdate") or "")[:4],
+                      "types": list(record.get("pubtype") or [])})
+    return {"ok": True, "items": items}
+
+
+def _xml_text(element):
+    """All the words inside an XML element, tags dropped, whitespace collapsed."""
+    if element is None:
+        return ""
+    return " ".join("".join(element.itertext()).split())
+
+
+def pubmed_article(pmid):
+    """One paper's record from PubMed: citation, abstract, publication types,
+    and — so whoever reads it can weigh it — its funding and conflicts of
+    interest when the record states them."""
+    import xml.etree.ElementTree as ElementTree
+    time.sleep(PUBMED_RATE_LIMIT_S)
+    params = urllib.parse.urlencode({"db": "pubmed", "id": str(pmid), "retmode": "xml"})
+    try:
+        body = _get(f"{_EUTILS}/efetch.fcgi?{params}")
+        root = ElementTree.fromstring(body)
+    except ElementTree.ParseError:
+        return {"ok": False, "error": "network"}
+    except Exception as e:
+        return {"ok": False, "error": _error_code(e)}
+    article = root.find(".//PubmedArticle")
+    if article is None:
+        return {"ok": False, "error": "not_found"}
+    # A structured abstract keeps its section labels (BACKGROUND:, RESULTS: ...).
+    sections = []
+    for part in article.findall(".//Abstract/AbstractText"):
+        words = _xml_text(part)
+        label = part.get("Label")
+        sections.append(f"{label}: {words}" if label else words)
+    authors = []
+    for author in article.findall(".//AuthorList/Author"):
+        family = _xml_text(author.find("LastName")) or _xml_text(author.find("CollectiveName"))
+        initials = _xml_text(author.find("Initials"))
+        if family:
+            authors.append(f"{family} {initials}".strip())
+    # The paper's own ids only — its reference list nests ArticleIdLists too.
+    ids = {node.get("IdType"): _xml_text(node)
+           for node in article.findall("./PubmedData/ArticleIdList/ArticleId")}
+    year = _xml_text(article.find(".//JournalIssue/PubDate/Year")) or \
+        _xml_text(article.find(".//JournalIssue/PubDate/MedlineDate"))[:4]
+    # Where the authors work, first seen first: often the clearest sign of who
+    # stands behind a study when the record lists no funding.
+    affiliations = list(dict.fromkeys(filter(None, (
+        _xml_text(node) for node in article.findall(".//AuthorList/Author/AffiliationInfo/Affiliation")))))
+    funding = [", ".join(filter(None, (_xml_text(grant.find("Agency")), _xml_text(grant.find("Country")))))
+               for grant in article.findall(".//GrantList/Grant")]
+    return {"ok": True, "pmid": str(pmid),
+            "title": _xml_text(article.find(".//ArticleTitle")),
+            "journal": _xml_text(article.find(".//Journal/Title")),
+            "year": year, "authors": authors, "abstract": "\n\n".join(sections),
+            "types": [_xml_text(kind) for kind in article.findall(".//PublicationTypeList/PublicationType")],
+            "doi": ids.get("doi") or "", "pmcid": ids.get("pmc") or "",
+            "funding": sorted(set(filter(None, funding))), "affiliations": affiliations,
+            "conflicts": _xml_text(article.find(".//CoiStatement"))}
 
 
 # --- the one network seam (tests monkeypatch these, never urllib) -------------
