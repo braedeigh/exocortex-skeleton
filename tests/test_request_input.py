@@ -194,3 +194,48 @@ def test_the_turn_gets_its_conv_id_in_the_environment(bot_client):
                            json={"text": "go"}))
     seen = [json.loads(l) for l in bot_client._env_log.read_text().splitlines()]
     assert seen == ["c1"]
+
+
+# --- a cleared question is handed back to the agent ---------------------------
+# Her next send clears the card whether or not it answers the questions — she
+# may be asking about something else — so the agent is told what was open and
+# re-files what's still unanswered. The transcript keeps her words alone.
+
+def _seed_asker(**fields):
+    rr._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c1"] = {"bot": "keeper", "started": rr._now(), "last_at": rr._now(),
+                       "claude_session_id": None, "cost_usd": 0.0, "title": "asker",
+                       "journal": False, "cwd": str(store.BUILD_DIR),
+                       "allowed_tools": list(rr._BUILDER_TOOLS), **fields}
+
+
+def test_reopen_note_is_empty_when_nothing_was_open():
+    assert rr._reopen_note([]) == ""
+    assert rr._reopen_note([""]) == ""
+
+
+def test_reopen_note_lists_the_cleared_questions():
+    note = rr._reopen_note(["Public repo?", "Keep the old route?"])
+    assert "1. Public repo?" in note and "2. Keep the old route?" in note
+    assert "request_input.py" in note
+
+
+def test_her_send_hands_the_cleared_questions_to_the_agent(bot_client, monkeypatch):
+    _seed_asker(awaiting_input="Public repo?", awaiting_questions=["Public repo?"])
+    told = []
+    monkeypatch.setattr(rr, "_spawn_host", lambda config, text, *a, **k: told.append(text) or True)
+    result = rr.begin_turn("c1", "fix the swarm bug")
+    assert result["ok"]
+    assert told[0].startswith("fix the swarm bug")
+    assert "1. Public repo?" in told[0]
+    transcript = (store.DATA_DIR / "bot_chats" / "c1.jsonl").read_text()
+    assert "Public repo?" not in transcript
+
+
+def test_a_send_with_nothing_open_reaches_the_agent_unchanged(bot_client, monkeypatch):
+    _seed_asker()
+    told = []
+    monkeypatch.setattr(rr, "_spawn_host", lambda config, text, *a, **k: told.append(text) or True)
+    rr.begin_turn("c1", "go")
+    assert told == ["go"]

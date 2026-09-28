@@ -1545,6 +1545,22 @@ def request_input(conv_id, questions):
             "awaiting_questions": cleaned}, 200
 
 
+def _reopen_note(questions):
+    """The questions her send just took off the card, handed back to the
+    agent. Her next message clears them whether or not it answers them —
+    she may be asking about something else entirely — so the agent is told
+    what was open and re-files whatever is still unanswered. Empty when
+    nothing was open."""
+    questions = [q for q in questions if q and q.strip()]
+    if not questions:
+        return ""
+    listed = "\n".join(f"{n}. {q}" for n, q in enumerate(questions, 1))
+    return ("\n\n[System: this message cleared the open questions you had filed"
+            " for the owner:\n" + listed + "\nIf it doesn't answer one of them,"
+            " re-file every one still open with scripts/request_input.py before"
+            " you end your turn, or it is gone from her card.]")
+
+
 # --- Done: a finished session closes itself, unless she keeps it -------------
 # A session whose job is finished says so through scripts/session_done.py. That
 # stamps `done_at` and `closes_at` on its entry; the card shows "done — closes
@@ -3636,6 +3652,7 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
     else:
         ask = text
 
+    cleared_questions = []
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
@@ -3677,8 +3694,11 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
             # flag and its questions, so the card stops glowing the moment she
             # replies. (Request-for-input — see request_input().)
             # A system reminder isn't her answer, so it leaves both alone.
+            # Clearing isn't forgetting: the questions go into this turn
+            # (_reopen_note), since her message may be about something else.
+            cleared_questions = (entry.pop("awaiting_questions", None)
+                                 or [entry.get("awaiting_input") or ""])
             entry.pop("awaiting_input", None)
-            entry.pop("awaiting_questions", None)
             # ...and any unresolved gated-command card (see _dismiss_pending).
             _dismiss_pending(conv_id)
         # A fresh attempt clears the red: whatever went wrong last time is
@@ -3854,7 +3874,10 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
     # worker (see the _spawn_host block up top for the measurements that
     # forced this). The caller's only remaining job is to watch it like
     # anybody else.
-    if not _spawn_host(config, text, resume_sid, conv_id, log_path):
+    # Tell the agent which open questions her message just cleared. What it
+    # reads gets the note; the transcript and journal keep her words alone.
+    agent_text = text + _reopen_note(cleared_questions)
+    if not _spawn_host(config, agent_text, resume_sid, conv_id, log_path):
         if not fallback:
             return _refuse(502, {"error": "could not start the turn process"})
         # Belt-and-braces, same shape spinoff_runner.py uses: if the host
@@ -3863,7 +3886,7 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         # exit — so a failure to launch degrades to what every turn used to
         # do, and never to nothing.
         try:
-            proc, stderr_f = _spawn(config, text, resume_sid,
+            proc, stderr_f = _spawn(config, agent_text, resume_sid,
                                     cwd_override=config.get("cwd"))
         except OSError as e:
             msg = f"could not start claude: {e}"
