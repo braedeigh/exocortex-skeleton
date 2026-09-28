@@ -1,8 +1,10 @@
 /**
- * EcosystemPage.tsx — the ECOSYSTEM tab: a map of where her food comes from.
+ * EcosystemPage.tsx — the Food area's map (/food): where her food comes from.
  * React port of templates/index.html #tab-ecosystem + static/js/ecosystem.js.
+ * The same page is the public /food-map and its ?embed=1 exhibit.
  *
- * Layout (top to bottom): section title + subtitle, controls, the
+ * Layout (top to bottom): section title + subtitle, the Food area's row of
+ * doors (FoodNav — on /food only, never on the public map), controls, the
  * persistent Leaflet map, legend, the "one food" banner, the open source's
  * panel, recipe-trace panel, inline add form, the Foods panel (every food,
  * traced or not), and the source list. Editing an existing source opens the
@@ -13,7 +15,9 @@
  * ("Details"), a food's chip, or a traced recipe line; a food shows only its
  * sources on the map. The open source and food ride in the address
  * (?source=<id>, ?food=<id>) so a view can be bookmarked or shared, and a
- * food's page under Research links straight here.
+ * food's page (/food/foods/<name>) links straight here. A food with no
+ * source yet gets the shared "Request linking" button in its banner, which
+ * queues it for research without linking anything.
  *
  * The data is SQL now (sourcestore.py via /api/data/ecosystem): sources carry
  * their links to foods and products, and every recipe line carries its food,
@@ -28,12 +32,15 @@ import type { EcoView } from './EcoControls';
 import { EcoLegend } from './EcoLegend';
 import { EcoMap } from './EcoMap';
 import type { EcoMapHandle } from './EcoMap';
+import { FoodNav } from './FoodNav';
 import { FoodsPanel } from './FoodsPanel';
 import type { FoodFilter } from './FoodsPanel';
 import { RecipePanel } from './RecipePanel';
+import { RequestLinkButton } from './RequestLinkButton';
+import { isFoodRequested } from './requestLink';
 import { SourceEditor } from './SourceEditor';
 import { SourceList } from './SourceList';
-import { SourcePanel } from './SourcePanel';
+import { SourcePanel, foodPageHref } from './SourcePanel';
 import type { SourcePayload } from './api';
 import { ecoRecipeSourceIds, ecoRecipeSourcing } from './ecoMatch';
 import { ECO_TX, ECO_TX_ORDER } from './axes';
@@ -85,11 +92,14 @@ export function EcosystemPage({
   initialSourceId = '',
   initialFoodId = null,
   embed = false,
+  nav = false,
 }: {
   initialRecipeId?: string;
   initialSourceId?: string;
   initialFoodId?: number | null;
   embed?: boolean;
+  /** Show the Food area's row of doors — /food sets it, /food-map doesn't. */
+  nav?: boolean;
 } = {}) {
   const { data, isLoading, error } = useEcosystemData();
   const { toasts, push, dismiss } = useToasts();
@@ -426,11 +436,12 @@ export function EcosystemPage({
 
   return (
     <div className={styles.page}>
-      <div className={styles.sectionTitle}>Ecosystem &middot; Food</div>
+      <div className={styles.sectionTitle}>Food</div>
       <div className={styles.subtitle}>
         Where your food comes from. Add a source, then place it on the map &mdash; a soft circle
         marks a rough region rather than an exact spot.
       </div>
+      {nav && canEdit ? <FoodNav current="map" /> : null}
 
       <EcoControls
         view={view}
@@ -470,11 +481,20 @@ export function EcosystemPage({
                 ＋ Place a source
               </button>
             ) : null}
+            {canEdit && !shownFood.source_ids.length ? (
+              <RequestLinkButton
+                foodId={shownFood.id}
+                foodName={shownFood.name}
+                requested={isFoodRequested(data?.eco_requested, shownFood.id, shownFood.name)}
+                from="map"
+                onError={push}
+              />
+            ) : null}
             {canEdit ? (
               <a
                 className={styles.confirmCancelBtn}
                 style={{ display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
-                href={`/research/foods/${encodeURIComponent(shownFood.name)}`}
+                href={foodPageHref(shownFood.name)}
               >
                 Its page
               </a>

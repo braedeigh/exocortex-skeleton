@@ -53,12 +53,14 @@ export const SECTIONS: Section[] = [
   { id: 'workshop', label: 'Workshop', icon: '🛠', home: '/terrain/workshop', claims: ['/terrain/workshop'] },
   { id: 'activity', label: 'Activity', icon: '🧾', home: '/terrain/activity', claims: ['/terrain/activity'] },
   { id: 'journal', label: 'Journal', icon: '📓', home: '/journal', claims: ['/journal'] },
-  // A dashboard sub-tab promoted to a tab of its own, so the food map can be
-  // pinned to a panel instead of dug out of the Dashboard's sub-tab row. Has
-  // to stay ahead of Dashboard, which claims the same path (see the header).
-  // Prompt: "i want to be able to access my ecosystem map on my tabs on the
-  // right side of the split screen ... i just need it in the dropdown menu"
-  { id: 'ecosystem', label: 'Ecosystem', icon: '🌱', home: '/ecosystem', claims: ['/ecosystem'] },
+  // The Food area — the map, every food, one food's page, the review list —
+  // as one tab. Its id stays 'ecosystem' because saved tab sets store it.
+  // Has to stay ahead of Dashboard, which claims /food too (see the header);
+  // /ecosystem is still claimed because it redirects here.
+  // Prompts: "i want to be able to access my ecosystem map on my tabs on the
+  // right side of the split screen"; then "remaking the frontend to be in one
+  // place" — the map, food profiles and research as one Food area.
+  { id: 'ecosystem', label: 'Food', icon: '🌱', home: '/food', claims: ['/food', '/ecosystem'] },
   // Kitchen, promoted the same way and for the same reason — it has to stay
   // ahead of Dashboard too. Prompt: "currently can't see my kitchen view from
   // the desktop. add a tab to the desktop please such that i can click into it

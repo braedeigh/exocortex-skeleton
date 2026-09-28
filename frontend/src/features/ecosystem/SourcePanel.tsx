@@ -39,9 +39,9 @@ export interface SourcePanelProps {
   onUnlink: (linkId: number) => void;
 }
 
-/** A food's page under Research — the food's profile. */
+/** A food's page in the Food area — the food's profile. */
 export function foodPageHref(name: string): string {
-  return `/research/foods/${encodeURIComponent(name)}`;
+  return `/food/foods/${encodeURIComponent(name)}`;
 }
 
 export function SourcePanel({

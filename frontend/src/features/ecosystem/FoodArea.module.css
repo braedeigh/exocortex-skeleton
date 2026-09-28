@@ -1,0 +1,224 @@
+/* FoodArea.module.css — the pieces the Food area's pages share: the row of
+ * doors at the top (FoodNav), the machine's suggested sources
+ * (ProposalList), and the small map on a food's page (FoodMiniMap).
+ * Touch-first: every door and button is ~40px tall, no text under 12px. */
+
+/* The row of doors: Map · Foods · Review. */
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.navLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill, 999px);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.navActive {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The "N waiting" count on the Review door. */
+.navCount {
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: rgba(214, 140, 60, 0.18);
+  color: var(--orange, #c77a2a);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* One suggested source. A dashed border says "not hers yet". */
+.proposal {
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+.proposalFailed {
+  opacity: 0.8;
+}
+
+.proposalHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.proposalName {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.badge {
+  padding: 2px 9px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badgeUnapproved {
+  background: rgba(124, 92, 191, 0.15);
+  color: var(--accent);
+}
+
+.badgeUnchecked {
+  background: rgba(128, 128, 128, 0.15);
+  color: var(--text-secondary);
+}
+
+.badgePassed {
+  background: rgba(60, 160, 90, 0.15);
+  color: var(--green, #3a9a5a);
+}
+
+.badgeFailed {
+  background: rgba(200, 60, 50, 0.13);
+  color: #c0392b;
+}
+
+.proposalText {
+  margin: 6px 0 2px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.reason {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.details {
+  margin-top: 6px;
+}
+
+.details summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.evidenceList {
+  margin: 0;
+  padding: 0 0 0 16px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.evidenceList li {
+  margin-bottom: 6px;
+}
+
+.evidenceLink {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+/* The small map on a food's page: pans and zooms; a button opens the big map. */
+.miniMap {
+  position: relative;
+  height: 260px;
+  margin: 8px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+/* EcoMap's own host fills this frame instead of its full-page 440px card. */
+.miniMap > div:first-child {
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.miniMapOpen {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 500;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* The review page's filter row. */
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.filterBtn {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill, 999px);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filterBtnOn {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.groupLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}

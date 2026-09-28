@@ -12,6 +12,9 @@
  * a food, or one product of a food.
  */
 
+import type { EcoProposal } from './proposals';
+import type { EcoRequested } from './requestLink';
+
 export type Transparency = 'disclosed' | 'partial' | 'opaque' | 'unrated';
 export type GeoSourceKind = 'placed' | 'proxy' | 'guess' | 'unrated';
 export type Precision = 'point' | 'area';
@@ -100,6 +103,10 @@ export interface EcosystemData {
   eco_foods?: EcoFood[];
   /** origin word → what it means */
   eco_origins?: Record<string, string>;
+  /** Owner only: foods with an open "Request linking" request (requestLink.ts). */
+  eco_requested?: EcoRequested;
+  /** Owner only: the machine's live suggested sources (proposals.ts). */
+  eco_proposals?: EcoProposal[];
   usda_key_set?: boolean;
   server_date?: string;
   [key: string]: unknown;

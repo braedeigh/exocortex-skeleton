@@ -1,22 +1,26 @@
 /**
- * FoodPage.tsx — a page per food under Research: should I buy it organic, and
- * what do my studies say?
+ * FoodPage.tsx — a page per food in the Food area: where does it come from,
+ * should I buy it organic, and what do my studies say?
  *
- * What this file does: two pages. FoodPage (/research/foods/<name>) is one
- * food's profile: where it comes from (every map source linked to the food or
- * one of its products, with its honest labels and where that information came
- * from, each opening on the map), the research verdict with its reasoning, Claude's estimate with its
- * qualifiers, the contaminants it names, and her confirm/dispute; then every
- * claim and measurement her research tables hold about the food, each linking
- * to the claim on the Claims page and out to the original studies. FoodsIndex
- * (/research/foods) lists every food in the catalog with what's known, known
- * ones first. The grocery list's popup (features/kitchen/OrganicVerdict.tsx)
- * opens FoodPage.
+ * What this file does: two pages. FoodPage (/food/foods/<name>) is one
+ * food's profile: where it comes from (a small pan-and-zoom map of every
+ * source linked to the food or one of its products, then each source with its
+ * honest labels and where that information came from, then the machine's
+ * suggested sources, marked not approved by her), the research verdict with
+ * its reasoning, Claude's estimate with its qualifiers, the contaminants it
+ * names, and her confirm/dispute; then every claim and measurement her
+ * research tables hold about the food, each linking to the claim on the Claims
+ * page and out to the original studies. FoodsIndex (/food/foods) lists every
+ * food in the catalog with what's known, known ones first. Both wear the Food
+ * area's row of doors (features/ecosystem/FoodNav.tsx). The grocery list's
+ * popup (features/kitchen/OrganicVerdict.tsx) opens FoodPage; the old
+ * /research/foods addresses redirect here.
  *
  * Server: routes/food.py (GET /api/food/page — its `sources` come from
  * sourcestore.for_food —, /api/food/pages, POST
  * /api/food/estimates/<id>/review) → estimatestore.py. Shapes live in the
- * kitchen feature's types.ts, since the grocery list reads the same rows.
+ * kitchen feature's types.ts, since the grocery list reads the same rows;
+ * the page's `proposals` are typed in features/ecosystem/proposals.ts.
  *
  * Prompt that produced this file: "I want for every food item to have its own
  * page on the research section that the popup ports into." The sources card:
@@ -26,7 +30,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { getFoodIndex, getFoodPage, reviewEstimate } from '../kitchen/api';
 import type {
   EvidenceClaim,
@@ -37,8 +41,15 @@ import type {
   VerdictReview,
 } from '../kitchen/types';
 import { ECO_ORIGIN, geoSourceInfo, metaLabel, originOf, txInfo } from '../ecosystem/axes';
+import { FoodNav } from '../ecosystem/FoodNav';
+import { ProposalList } from '../ecosystem/ProposalList';
+import type { EcoProposal } from '../ecosystem/proposals';
 import pageStyles from './ResearchPage.module.css';
 import styles from './FoodPage.module.css';
+
+// The small map loads on demand, so Leaflet stays out of the page's bundle
+// until a food with sources is opened.
+const FoodMiniMap = lazy(() => import('../ecosystem/FoodMiniMap'));
 
 const VERDICT_CLASS: Record<OrganicVerdict, string> = {
   organic: styles.verdictOrganic,
@@ -64,10 +75,8 @@ export function FoodPage({ name }: { name: string }) {
       <div className={pageStyles.pageHead}>
         <h1 className={pageStyles.pageTitle}>{page?.name ?? name}</h1>
         <span className={pageStyles.pageSub}>where it comes from · buy organic or not</span>
-        <Link to="/research/foods" className={pageStyles.pageHeadLink} title="Every food">
-          All foods
-        </Link>
       </div>
+      <FoodNav current="food" />
       {query.isLoading ? (
         <div className={pageStyles.loading}>Loading&hellip;</div>
       ) : query.isError || !page ? (
@@ -85,16 +94,24 @@ export function FoodPage({ name }: { name: string }) {
   );
 }
 
-/** Where it comes from: every map source this food (or a product of it) is
- * linked to, each with its honest labels and origin record, opening on the
- * map. An untraced food says so and offers the map, where it can be placed. */
+/** Where it comes from: a small map of every source this food (or a product
+ * of it) is linked to, then each source with its honest labels and origin
+ * record, opening on the big map; then the machine's suggested sources, with
+ * a chip to the review list. An untraced food says so and offers the map,
+ * where it can be placed. */
 function SourcesCard({ page }: { page: FoodPageData }) {
   if (!page.food) return null;
   const sources = page.sources || [];
+  const proposals = (page as FoodPageData & { proposals?: EcoProposal[] }).proposals ?? [];
   const foodId = page.food.id;
   return (
     <section className={styles.card}>
       <div className={styles.cardHead}>Where it comes from</div>
+      {sources.length ? (
+        <Suspense fallback={null}>
+          <FoodMiniMap sources={sources} foodId={foodId} />
+        </Suspense>
+      ) : null}
       {sources.length ? (
         <ul className={styles.list}>
           {sources.map((source) => {
@@ -108,7 +125,7 @@ function SourcesCard({ page }: { page: FoodPageData }) {
                   <span
                     style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: tx.color, marginRight: 6 }}
                   />
-                  <Link to="/ecosystem" search={{ source: source.id }} className={styles.sourceLink}>
+                  <Link to="/food" search={{ source: source.id }} className={styles.sourceLink}>
                     {source.name}
                   </Link>
                 </div>
@@ -130,9 +147,20 @@ function SourcesCard({ page }: { page: FoodPageData }) {
       ) : (
         <div className={styles.meta}>Not traced yet — no source on the map is linked to this food.</div>
       )}
-      <Link to="/ecosystem" search={{ food: foodId }} className={styles.linkBtn}>
+      <Link to="/food" search={{ food: foodId }} className={styles.linkBtn}>
         {sources.length ? 'Show on the map →' : 'Place it on the map →'}
       </Link>
+      {proposals.length ? (
+        <>
+          <div className={styles.subHead}>
+            The machine’s suggestions{' '}
+            <Link to="/food/review" search={{ food: foodId }} className={styles.waitingLink}>
+              {proposals.length} waiting →
+            </Link>
+          </div>
+          <ProposalList proposals={proposals} />
+        </>
+      ) : null}
     </section>
   );
 }
@@ -344,11 +372,12 @@ export function FoodsIndex() {
     <div className={pageStyles.page}>
       <div className={pageStyles.pageHead}>
         <h1 className={pageStyles.pageTitle}>Foods</h1>
-        <span className={pageStyles.pageSub}>buy organic or not, food by food</span>
+        <span className={pageStyles.pageSub}>where it comes from and buy organic or not, food by food</span>
         <Link to="/research/claims" search={{}} className={pageStyles.pageHeadLink} title="The claims table">
           &#9776; Claims
         </Link>
       </div>
+      <FoodNav current="foods" />
       <input
         className={styles.filter}
         placeholder="Find a food"
@@ -366,7 +395,7 @@ export function FoodsIndex() {
             const verdict = food.research ?? food.estimate?.verdict ?? null;
             return (
               <li key={food.id}>
-                <Link to="/research/foods/$name" params={{ name: food.name }} className={styles.indexRow}>
+                <Link to="/food/foods/$name" params={{ name: food.name }} className={styles.indexRow}>
                   <span className={styles.indexName}>{food.name}</span>
                   {verdict ? (
                     <span className={`${styles.indexVerdict} ${VERDICT_CLASS[verdict]}`}>

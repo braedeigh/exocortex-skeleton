@@ -224,3 +224,19 @@
   font-size: 13px;
   font-weight: 700;
 }
+
+/* The "N waiting" door beside the machine's suggestions — opens the review
+ * list narrowed to this food. */
+.waitingLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin-left: 6px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(214, 140, 60, 0.15);
+  color: var(--orange);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}

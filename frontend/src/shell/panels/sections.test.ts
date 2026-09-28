@@ -21,12 +21,22 @@ describe('which section a page belongs to', () => {
     expect(sectionForUrl('/travel')?.id).toBe('dashboard');
   });
 
-  it('gives /ecosystem to Ecosystem even though Dashboard claims the same path', () => {
-    // Equal-length claims tie, and the first listed wins — so Ecosystem must
+  it('gives /food to Food even though Dashboard claims the same path', () => {
+    // Equal-length claims tie, and the first listed wins — so Food must
     // stay above Dashboard in SECTIONS or its tab could never light up.
+    expect(sectionForUrl('/food')?.id).toBe('ecosystem');
+    expect(sectionForUrl('/food?recipe=abc')?.id).toBe('ecosystem');
+    expect(pageLabel('/food')).toBe('Food');
+  });
+
+  it('keeps every Food page, and the old /ecosystem address, in the Food section', () => {
+    expect(sectionForUrl('/food/foods/kale')?.id).toBe('ecosystem');
+    expect(sectionForUrl('/food/review')?.id).toBe('ecosystem');
     expect(sectionForUrl('/ecosystem')?.id).toBe('ecosystem');
-    expect(sectionForUrl('/ecosystem?recipe=abc')?.id).toBe('ecosystem');
-    expect(pageLabel('/ecosystem')).toBe('Ecosystem');
+  });
+
+  it('leaves the public /food-map out of the Food section', () => {
+    expect(sectionForUrl('/food-map')?.id).not.toBe('ecosystem');
   });
 
   it('gives /kitchen to Kitchen even though Dashboard claims the same path', () => {

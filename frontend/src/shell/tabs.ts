@@ -45,7 +45,9 @@ export const TAB_META: Record<LegacyTab, TabMeta> = {
   movement: { key: 'movement', label: 'Movement', icon: '🏃' },
   body: { key: 'body', label: 'Body', icon: '🩺' },
   ideas: { key: 'ideas', label: 'Ideas', icon: '💡' },
-  ecosystem: { key: 'ecosystem', label: 'Ecosystem', icon: '🌱' },
+  // The key stays 'ecosystem' (saved tab orders and dev notes are filed under
+  // it); the page is the Food area now.
+  ecosystem: { key: 'ecosystem', label: 'Food', icon: '🌱' },
   housing: { key: 'housing', label: 'Housing', icon: '🏠' },
   people: { key: 'people', label: 'People', icon: '👥' },
   travel: { key: 'travel', label: 'Travel', icon: '🧳' },
@@ -87,7 +89,7 @@ export const TAB_ROUTES: Record<LegacyTab, string> = {
   movement: '/movement',
   body: '/body',
   ideas: '/ideas',
-  ecosystem: '/ecosystem',
+  ecosystem: '/food',
   housing: '/housing',
   people: '/people',
   travel: '/travel',

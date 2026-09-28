@@ -125,7 +125,11 @@ def register(app):
     @app.route("/movement")
     @app.route("/body")
     @app.route("/ideas")
+    # The Food area: the map (/food), every food, one food's page and the
+    # review list (/food/<rest>). /ecosystem is a client-side redirect to /food.
     @app.route("/ecosystem")
+    @app.route("/food")
+    @app.route("/food/<path:rest>")
     @app.route("/housing")
     @app.route("/people")
     @app.route("/travel")

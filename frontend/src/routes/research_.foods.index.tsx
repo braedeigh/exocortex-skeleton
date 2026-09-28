@@ -1,22 +1,11 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { FoodsIndex } from '../features/research/FoodPage';
-import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
- * /research/foods — every food in the catalog with what's known about buying
- * it organic (features/research/FoodPage.tsx). Each row opens the food's own
- * page. Un-nested from /research like /research/claims. Auth-only.
+ * /research/foods — MOVED to /food/foods, inside the Food area. Kept as a
+ * redirect so old links and bookmarks still land on the list of foods.
  */
-
 export const Route = createFileRoute('/research_/foods/')({
   beforeLoad: () => {
-    if (typeof window === 'undefined') return;
-    if (window.VIEW_MODE === 'public') throw redirect({ to: '/' });
+    throw redirect({ to: '/food/foods', replace: true });
   },
-  component: FoodsRoute,
 });
-
-function FoodsRoute() {
-  useDeactivateFrames();
-  return <FoodsIndex />;
-}
