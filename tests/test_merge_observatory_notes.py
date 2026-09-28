@@ -40,12 +40,14 @@ def test_merge_moves_notes_into_date_order_and_empties_observatory(fold):
                     {"id": "c", "text": "last", "created": "2026-03-03 10:00"}])
     assert fold("dev_notes.json") == (1, 3)
     assert [n["id"] for n in _tabs()["terminal"]] == ["a", "b", "c"]
-    assert _tabs()["observatory"] == []
+    # A page with no notes left isn't kept as an empty list — notes are rows
+    # (notestore.py), so an emptied page simply isn't in the document.
+    assert _tabs().get("observatory", []) == []
 
 
 def test_merge_keeps_every_field_on_a_moved_note(fold):
     note = {"id": "b", "text": "lit", "created": "2026-02-02 10:00",
-            "judgments": [{"verdict": "go"}], "night_questions": "which one?"}
+            "judgments": [{"verdict": "approved"}], "night_questions": "which one?"}
     _seed(observatory=[dict(note)], terminal=[])
     fold("dev_notes.json")
     assert _tabs()["terminal"] == [note]
