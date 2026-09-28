@@ -362,19 +362,22 @@ function MealList({ day }: { day: NutritionDay }) {
   );
 }
 
-// Add a packaged food straight into a meal: the scan button sits at the top of Meals so it's found
-// without opening a meal first. The product is saved into the chosen meal at once.
-// Prompt: "i don't see a packaged chip" — "still no button there properly".
+// Add a packaged food to a meal: the scan button sits at the top of Meals so it's found without
+// opening a meal first. Tapping a product only picks it; then a button per meal asks where it goes,
+// and nothing is saved until one is tapped — there's no default meal to land in by accident.
+// Prompt: "i don't see a packaged chip" — "still no button there properly" — "it added it
+// automatically to ice cream breakfast".
 function PackagedAdder({ day, names }: { day: NutritionDay; names: string[] }) {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [target, setTarget] = useState(names[0]);
+  const [picked, setPicked] = useState<MealItem | null>(null);
   const [added, setAdded] = useState('');
-  const mealName = names.includes(target) ? target : names[0];
   const add = useMutation({
-    mutationFn: (item: MealItem) => saveMeal(mealName, [...(day.meals[mealName]?.items ?? []), item]),
-    onSuccess: (_, item) => {
-      setAdded(`Added ${item.label} to ${mealName}.`);
+    mutationFn: ({ meal, item }: { meal: string; item: MealItem }) =>
+      saveMeal(meal, [...(day.meals[meal]?.items ?? []), item]),
+    onSuccess: (_, { meal, item }) => {
+      setAdded(`Added ${item.label} to ${meal}. Open the meal to set its amount.`);
+      setPicked(null);
       client.invalidateQueries({ queryKey: DAY_KEY });
     },
   });
@@ -390,22 +393,48 @@ function PackagedAdder({ day, names }: { day: NutritionDay; names: string[] }) {
   return (
     <div className={styles.packagedAdder}>
       <div className={styles.newMeal}>
-        <label className={styles.adderLabel}>
-          Add to
-          <select className={styles.searchInput} value={mealName} onChange={(event) => setTarget(event.target.value)}>
-            {names.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" className={styles.chip} onClick={() => setOpen(false)}>
+        <span className={styles.adderLabel}>Find the product, then choose its meal.</span>
+        <button
+          type="button"
+          className={styles.chip}
+          onClick={() => {
+            setOpen(false);
+            setPicked(null);
+            setAdded('');
+          }}
+        >
           Close
         </button>
       </div>
-      <PackagedSearch onPick={(item) => add.mutate(item)} />
-      {added ? <p className={styles.muted}>{added} Open the meal to set its amount.</p> : null}
+      {picked ? (
+        <div className={styles.mealChoice}>
+          <p className={styles.adderLabel}>Add {picked.label} to which meal?</p>
+          <div className={styles.mealChoiceButtons}>
+            {names.map((name) => (
+              <button
+                key={name}
+                type="button"
+                className={styles.chip}
+                disabled={add.isPending}
+                onClick={() => add.mutate({ meal: name, item: picked })}
+              >
+                {name}
+              </button>
+            ))}
+            <button type="button" className={styles.chip} onClick={() => setPicked(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <PackagedSearch
+          onPick={(item) => {
+            setPicked(item);
+            setAdded('');
+          }}
+        />
+      )}
+      {added ? <p className={styles.muted}>{added}</p> : null}
       {add.isError ? <p className={styles.error}>{(add.error as Error).message}</p> : null}
     </div>
   );

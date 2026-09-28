@@ -10,7 +10,7 @@
  * grams, else at 100 g; either way the weight is marked a guess until weighed.
  *
  * Shown in two places in Meals (./NutritionPage.tsx): the "Scan a barcode"
- * button at the top (`PackagedAdder`, which saves into a chosen meal at once),
+ * button at the top (`PackagedAdder`, which asks which meal after a product is picked),
  * and a meal's own add-a-food search when "Packaged" is on (`FoodSearch`).
  * Data: GET /api/nutrition/packaged (routes/nutrition.py).
  * The camera is ./BarcodeScanner.tsx, loaded only when opened. A product that

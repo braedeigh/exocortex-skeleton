@@ -333,6 +333,18 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* The pick-a-meal step after a product is chosen: one button per meal, wrapping. */
+.mealChoice {
+  margin: 8px 0;
+}
+
+.mealChoiceButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .adderLabel {
   display: flex;
   flex: 1;
