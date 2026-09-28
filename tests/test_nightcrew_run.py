@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -366,6 +367,39 @@ def test_full_mode_self_queue_green_lights_through_judgments(data_dir):
     assert ([r["id"] for r in rows], devnote_judgments.history(note)[-1]["by"],
             devnote_judgments.is_green_lit(note), "night" in note) == (
         ["old1"], "crew", True, False)
+
+
+def test_failed_test_ids_reads_the_short_summary():
+    lines = ["....", "FAILED tests/a.py::test_x - AssertionError: boom",
+             "FAILED tests/b.py::test_y[1]", "1 failed, 3 passed"]
+    assert nc.failed_test_ids(lines) == ["tests/a.py::test_x", "tests/b.py::test_y[1]"]
+
+
+def _verify_with(monkeypatch, *, worktree_fails, main_fails):
+    """verify() with every gate faked: the worktree's pytest fails
+    `worktree_fails`, and a rerun on main fails `main_fails`."""
+    def fake_run(cmd, cwd=None, **kw):
+        if "pytest" in cmd:
+            failing = main_fails if cwd == str(nc.SKELETON) else worktree_fails
+            out = "\n".join(f"FAILED {t} - boom" for t in failing)
+            return subprocess.CompletedProcess(cmd, 1 if failing else 0, stdout=out, stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+    monkeypatch.setattr(nc.subprocess, "run", fake_run)
+    return nc.verify(Path("/tmp/nightcrew-fake"))
+
+
+def test_a_failure_main_already_has_does_not_redden_the_card(monkeypatch):
+    """The 2026-08-12..16 false reds: one test broken on main failed seven
+    unrelated night runs."""
+    green, tail = _verify_with(monkeypatch, worktree_fails=["tests/a.py::t"],
+                               main_fails=["tests/a.py::t"])
+    assert (green, "also fail on main" in tail) == (True, True)
+
+
+def test_a_failure_only_the_change_has_stays_red(monkeypatch):
+    green, _ = _verify_with(monkeypatch, worktree_fails=["tests/a.py::t", "tests/b.py::u"],
+                            main_fails=["tests/a.py::t"])
+    assert green is False
 
 
 def test_night_workers_are_born_ungated():

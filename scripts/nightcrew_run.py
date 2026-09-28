@@ -494,10 +494,48 @@ def verify(worktree):
         # Last few lines only: the summary is what she'd read, and a full
         # pytest dump would bury the card.
         tail = "\n".join(out[-6:]) if out else "(no output)"
+        if r.returncode != 0 and name == "pytest":
+            inherited = failures_main_shares(failed_test_ids(out), env)
+            if inherited:
+                parts.append(f"pytest: ok — the only failures also fail on main, "
+                             f"so not this change: {', '.join(inherited)}\n{tail}")
+                continue
         if r.returncode != 0:
             green = False
         parts.append(f"{name}: {'ok' if r.returncode == 0 else 'FAILED'}\n{tail}")
     return green, "\n\n".join(parts)
+
+
+def failed_test_ids(lines):
+    """The test ids pytest's short summary lists as failed ("FAILED path::name
+    - message"), in order."""
+    ids = []
+    for line in lines:
+        if line.startswith("FAILED "):
+            ids.append(line[len("FAILED "):].split(" - ", 1)[0].strip())
+    return ids
+
+
+def failures_main_shares(ids, env):
+    """Were these failures already there before the change? Returns the ids
+    when every one of them also fails in the live checkout (main), else [].
+
+    This is the false-red guard again, for tests instead of the build. On
+    2026-08-12..16 seven night runs were marked failed by one observatory test
+    that was broken on main at the time — none of those changes touched it, and
+    the cards said the crew's work had failed. Only the failing ids are rerun,
+    so this costs seconds. An empty list (no ids parsed, a collection error,
+    main passes) means the red stands."""
+    if not ids:
+        return []
+    try:
+        r = subprocess.run([str(SKELETON / "venv/bin/python3"), "-m", "pytest", "-q", *ids],
+                           cwd=str(SKELETON), capture_output=True, text=True,
+                           timeout=300, env=env)
+    except subprocess.TimeoutExpired:
+        return []
+    out = ((r.stdout or "") + (r.stderr or "")).splitlines()
+    return ids if set(failed_test_ids(out)) == set(ids) else []
 
 
 # Belt and braces with make_worktree's exclude file: even if that write fails,
