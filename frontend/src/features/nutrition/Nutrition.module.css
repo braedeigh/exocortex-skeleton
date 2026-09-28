@@ -807,3 +807,23 @@ a.rowNameBtn {
   flex: 0 0 9.5em;
   color: var(--text-muted);
 }
+
+/* The daily-food form (NutritionPage.tsx DailyFoodForm): a name row, then amount × times a day. */
+.dailyField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dailyAmount {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* "Your foods" above an add-a-food search (NutritionPage.tsx YourFoods): her own products and meal foods. */
+.yourFoods {
+  margin: 8px 0;
+}

@@ -9,9 +9,10 @@
  * product joins the meal at one label serving when the label gives it in
  * grams, else at 100 g; either way the weight is marked a guess until weighed.
  *
- * Shown in two places in Meals (./NutritionPage.tsx): the "Scan a barcode"
- * button at the top (`PackagedAdder`, which asks which meal after a product is picked),
- * and a meal's own add-a-food search when "Packaged" is on (`FoodSearch`).
+ * Shown in Meals (./NutritionPage.tsx): the "Scan a barcode" button at the top
+ * (`PackagedAdder`, which asks which meal — or its own daily food — after a product is
+ * picked), and every add-a-food search when "Packaged" is on (`FoodSearch`: a meal's own,
+ * and "Add a daily food").
  * Data: GET /api/nutrition/packaged (routes/nutrition.py).
  * The camera is ./BarcodeScanner.tsx, loaded only when opened. A product that
  * isn't listed can be made from photos of its label (./LabelReader.tsx),
@@ -139,8 +140,9 @@ export function PackagedSearch({ onPick }: { onPick: (item: MealItem) => void })
   );
 }
 
-// A product as a meal item: named with its brand, one label serving when that's in grams.
-function mealItem(food: PackagedFood): MealItem {
+// A product as a meal item: named with its brand, one label serving when that's in grams (else 100 g), a guess.
+// Shared with the "Your foods" row (./NutritionPage.tsx YourFoods).
+export function mealItem(food: PackagedFood): MealItem {
   const brand = brandOf(food);
   const label = brand && !food.description.toLowerCase().includes(brand.toLowerCase())
     ? `${brand} ${food.description}`

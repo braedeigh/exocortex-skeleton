@@ -16,7 +16,9 @@
  * like "1.5 cup" (./AmountInput.tsx) — a food removed, or a USDA food
  * added by search — a whole food, or, with "Packaged" on, a packaged product by name, brand, typed
  * barcode or camera scan (./PackagedSearch.tsx), which also has its own "Scan a barcode" button at the top
- * of Meals that saves straight into a chosen meal; each meal's servings a day set (0 = saved but not counted);
+ * of Meals that saves into a chosen meal (or as its own daily food); an "Add a daily food" button, also at
+ * the top, that adds one food she eats every day straight to her day — a one-food meal, n times a day;
+ * each meal's servings a day set (0 = saved but not counted);
  * a meal started or deleted. A weight nobody has weighed yet is marked "guess".
  * The Food search box (../ecosystem/foodSearch.ts) narrows which meals show;
  * the totals always count every meal.
@@ -47,13 +49,13 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
 import { AmountInput, useMeasures } from './AmountInput';
-import { deleteMeal, getDay, saveMeal, saveServings, saveSettings, searchFoods } from './api';
+import { deleteMeal, getDay, getOwnProducts, saveMeal, saveServings, saveSettings, searchFoods } from './api';
 import { FoldCard } from './FoldCard';
 import { FoodGiftsCard, TopSources } from './FoodShares';
 import { StorageTag } from './StorageNote';
 import { StarredFoods } from './Highlights';
 import { MealPrepPlan } from './MealPrepPlan';
-import { PackagedSearch } from './PackagedSearch';
+import { mealItem, PackagedSearch } from './PackagedSearch';
 import { SingleFoodsChip, useSingleFoods } from './SingleFoods';
 import { barShare, DATASET_TAGS, fdcFoodUrl, formatAmount, GROUP_TITLES, groupRows } from './nutrientMath';
 import type { Meal, MealItem, NutrientRow, NutritionDay, Sex, SexSetting } from './types';
@@ -313,6 +315,7 @@ function MealList({ day }: { day: NutritionDay }) {
     (name) => textMatches(needle, name, ...(day.meals[name]?.items ?? []).map((item) => item.label)),
   );
   const trimmed = newName.trim();
+  const known = knownFoods(day);
 
   // Start a new meal: saved empty, then counted once a day so it shows up in the totals.
   const create = useMutation({
@@ -337,9 +340,10 @@ function MealList({ day }: { day: NutritionDay }) {
           {names.length} of {allNames.length} meals have “{areaSearch.trim()}”; totals still count them all.
         </p>
       ) : null}
+      <DailyFoodAdder day={day} known={known} />
       {allNames.length ? <PackagedAdder day={day} names={allNames} /> : null}
       {names.map((name) => (
-        <MealEditor key={name} name={name} meal={day.meals[name]} servings={servings.get(name) ?? 0} />
+        <MealEditor key={name} name={name} meal={day.meals[name]} servings={servings.get(name) ?? 0} known={known} />
       ))}
       <div className={styles.newMeal}>
         <input
@@ -364,7 +368,8 @@ function MealList({ day }: { day: NutritionDay }) {
 
 // Add a packaged food to a meal: the scan button sits at the top of Meals so it's found without
 // opening a meal first. Tapping a product only picks it; then a button per meal asks where it goes,
-// and nothing is saved until one is tapped — there's no default meal to land in by accident.
+// or "Its own daily food" opens the daily-food form (DailyFoodForm) — nothing is saved until one is
+// tapped, so there's no default meal to land in by accident.
 // Prompt: "i don't see a packaged chip" — "still no button there properly" — "it added it
 // automatically to ice cream breakfast".
 function PackagedAdder({ day, names }: { day: NutritionDay; names: string[] }) {
@@ -372,6 +377,7 @@ function PackagedAdder({ day, names }: { day: NutritionDay; names: string[] }) {
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState<MealItem | null>(null);
   const [added, setAdded] = useState('');
+  const [alone, setAlone] = useState(false);
   const add = useMutation({
     mutationFn: ({ meal, item }: { meal: string; item: MealItem }) =>
       saveMeal(meal, [...(day.meals[meal]?.items ?? []), item]),
@@ -400,13 +406,24 @@ function PackagedAdder({ day, names }: { day: NutritionDay; names: string[] }) {
           onClick={() => {
             setOpen(false);
             setPicked(null);
+            setAlone(false);
             setAdded('');
           }}
         >
           Close
         </button>
       </div>
-      {picked ? (
+      {picked && alone ? (
+        <DailyFoodForm
+          day={day}
+          item={picked}
+          onDone={(message) => {
+            setPicked(null);
+            setAlone(false);
+            if (message) setAdded(message);
+          }}
+        />
+      ) : picked ? (
         <div className={styles.mealChoice}>
           <p className={styles.adderLabel}>Add {picked.label} to which meal?</p>
           <div className={styles.mealChoiceButtons}>
@@ -421,6 +438,9 @@ function PackagedAdder({ day, names }: { day: NutritionDay; names: string[] }) {
                 {name}
               </button>
             ))}
+            <button type="button" className={styles.chip} onClick={() => setAlone(true)}>
+              Its own daily food
+            </button>
             <button type="button" className={styles.chip} onClick={() => setPicked(null)}>
               Cancel
             </button>
@@ -440,7 +460,168 @@ function PackagedAdder({ day, names }: { day: NutritionDay; names: string[] }) {
   );
 }
 
-function MealEditor({ name, meal, servings }: { name: string; meal: Meal; servings: number }) {
+// Add one food she eats every day straight to her day, without a meal to put it in first:
+// find it (USDA or packaged), then say how much each time and how many times a day.
+// Prompt: "i need some kind of UI to add a new daily food too. rather than just adding to other meals".
+function DailyFoodAdder({ day, known }: { day: NutritionDay; known: MealItem[] }) {
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<MealItem | null>(null);
+  const [added, setAdded] = useState('');
+
+  if (!open)
+    return (
+      <>
+        <div className={styles.newMeal}>
+          <button
+            type="button"
+            className={styles.saveBtn}
+            onClick={() => {
+              setOpen(true);
+              setAdded('');
+            }}
+          >
+            Add a daily food
+          </button>
+        </div>
+        {added ? <p className={styles.muted}>{added}</p> : null}
+      </>
+    );
+  return (
+    <div className={styles.packagedAdder}>
+      <div className={styles.newMeal}>
+        <span className={styles.adderLabel}>
+          {picked ? 'How much, and how often?' : 'Find the food — one you eat every day.'}
+        </span>
+        <button
+          type="button"
+          className={styles.chip}
+          onClick={() => {
+            setOpen(false);
+            setPicked(null);
+          }}
+        >
+          Close
+        </button>
+      </div>
+      {picked ? (
+        <DailyFoodForm
+          day={day}
+          item={picked}
+          onDone={(message) => {
+            setPicked(null);
+            if (message) {
+              setAdded(message);
+              setOpen(false);
+            }
+          }}
+        />
+      ) : (
+        <FoodSearch known={known} onPick={setPicked} />
+      )}
+    </div>
+  );
+}
+
+// Save one food as its own daily entry: a meal holding just that food, counted n times a day.
+// That's the shape her day already has ("Milk" is a one-food meal at ×2), so the totals, the
+// meal editor and "What to add" all treat it like any meal. The name starts as the food's own and
+// can be shortened; a "/" is left out because the name is part of the save address.
+function DailyFoodForm({
+  day,
+  item,
+  onDone,
+}: {
+  day: NutritionDay;
+  item: MealItem;
+  onDone: (message: string | null) => void;
+}) {
+  const client = useQueryClient();
+  const [name, setName] = useState(item.label.replace(/\//g, ' ').trim());
+  const [food, setFood] = useState<MealItem>(item);
+  const [timesText, setTimesText] = useState('1');
+  const measures = useMeasures([item.fdc_id]);
+  const trimmed = name.trim();
+  const times = Number(timesText);
+  const taken = trimmed in day.meals;
+  const timesOk = timesText.trim() !== '' && Number.isFinite(times) && times > 0 && times <= 20;
+
+  // Save the meal first, then count it; the same two calls "Add meal" makes.
+  const save = useMutation({
+    mutationFn: async () => {
+      await saveMeal(trimmed, [food]);
+      await saveServings(trimmed, times);
+    },
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: DAY_KEY });
+      onDone(`Added ${trimmed}, ${times === 1 ? 'once' : `${times} times`} a day.`);
+    },
+  });
+
+  return (
+    <div className={styles.mealChoice}>
+      <label className={styles.dailyField}>
+        <span className={styles.gramsUnit}>Name</span>
+        <input className={styles.searchInput} value={name} onChange={(event) => setName(event.target.value)} />
+      </label>
+      {taken ? <p className={styles.error}>There's already a meal called “{trimmed}” — give this one another name.</p> : null}
+      <div className={styles.dailyAmount}>
+        <span className={styles.gramsUnit}>Each time</span>
+        <AmountInput
+          item={food}
+          measures={measures?.[String(item.fdc_id)]}
+          onChange={(grams, measure) =>
+            setFood((current) => {
+              const changed: MealItem = { ...current, grams, grams_guessed: false, measure };
+              if (!measure) delete changed.measure;
+              return changed;
+            })
+          }
+        />
+        <span className={styles.gramsUnit}>×</span>
+        <input
+          className={styles.gramsInput}
+          inputMode="decimal"
+          aria-label="Times a day"
+          value={timesText}
+          onChange={(event) => setTimesText(event.target.value)}
+        />
+        <span className={styles.gramsUnit}>a day</span>
+      </div>
+      {food.grams_guessed ? (
+        <p className={styles.muted}>
+          <span className={styles.guess}>guess</span> Type the amount you eat, in grams or like “1 cup”.
+        </p>
+      ) : null}
+      <div className={styles.mealActions}>
+        <button
+          type="button"
+          className={styles.saveBtn}
+          disabled={!trimmed || name.includes('/') || taken || !timesOk || !(food.grams > 0) || save.isPending}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? 'Saving…' : 'Add to my day'}
+        </button>
+        <button type="button" className={styles.chip} onClick={() => onDone(null)}>
+          Back
+        </button>
+      </div>
+      {name.includes('/') ? <p className={styles.error}>A name can't have a “/” in it.</p> : null}
+      {save.isError ? <p className={styles.error}>{(save.error as Error).message}</p> : null}
+    </div>
+  );
+}
+
+function MealEditor({
+  name,
+  meal,
+  servings,
+  known,
+}: {
+  name: string;
+  meal: Meal;
+  servings: number;
+  known: MealItem[];
+}) {
   const client = useQueryClient();
   const [items, setItems] = useState<MealItem[]>(meal.items ?? []);
   const [open, setOpen] = useState(false);
@@ -540,7 +721,7 @@ function MealEditor({ name, meal, servings }: { name: string; meal: Meal; servin
               </li>
             ))}
           </ul>
-          <FoodSearch onPick={(item) => setItems((current) => [...current, item])} />
+          <FoodSearch known={known} onPick={(item) => setItems((current) => [...current, item])} />
           <div className={styles.mealActions}>
             <button type="button" className={styles.saveBtn} disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
               {save.isPending ? 'Saving…' : 'Save'}
@@ -569,8 +750,9 @@ function MealEditor({ name, meal, servings }: { name: string; meal: Meal; servin
   );
 }
 
-// Add a USDA food by name: type, pick one, it joins the meal at 100 g (a guess).
-function FoodSearch({ onPick }: { onPick: (item: MealItem) => void }) {
+// Add a USDA food by name: type, pick one, it joins the meal at 100 g (a guess). Her own foods
+// (YourFoods) sit above the results, so one she's had before is a tap away.
+function FoodSearch({ known, onPick }: { known: MealItem[]; onPick: (item: MealItem) => void }) {
   const [text, setText] = useState('');
   const [debounced, setDebounced] = useState('');
   const [singleOnly, setSingleOnly] = useSingleFoods();
@@ -600,6 +782,7 @@ function FoodSearch({ onPick }: { onPick: (item: MealItem) => void }) {
   if (packaged)
     return (
       <>
+        <YourFoods known={known} text="" onPick={onPick} />
         {packagedChip}
         <PackagedSearch onPick={onPick} />
       </>
@@ -615,6 +798,14 @@ function FoodSearch({ onPick }: { onPick: (item: MealItem) => void }) {
       />
       <SingleFoodsChip on={singleOnly} onChange={setSingleOnly} />
       {packagedChip}
+      <YourFoods
+        known={known}
+        text={text}
+        onPick={(item) => {
+          onPick(item);
+          setText('');
+        }}
+      />
       {debounced.length >= 2 && results.data ? (
         <ul className={styles.results}>
           {results.data.foods.map((food) => (
@@ -635,6 +826,59 @@ function FoodSearch({ onPick }: { onPick: (item: MealItem) => void }) {
           {!results.data.foods.length ? <li className={styles.muted}>No USDA food by that name.</li> : null}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+// Every food already in her meals, once each (by USDA id), in the day's order, with the amount she set there.
+function knownFoods(day: NutritionDay): MealItem[] {
+  const counted = day.day.map((slot) => slot.meal);
+  const names = [...counted, ...Object.keys(day.meals).filter((name) => !counted.includes(name))];
+  const seen = new Map<number, MealItem>();
+  for (const name of names)
+    for (const item of day.meals[name]?.items ?? []) if (!seen.has(item.fdc_id)) seen.set(item.fdc_id, item);
+  return [...seen.values()];
+}
+
+// Her own foods, one tap to add: products she's saved (a label photo, an Open Food Facts copy), newest
+// first, then the foods already in her meals. A food she's eaten before comes with her amount from
+// there; a product not in any meal yet comes at one label serving, a guess. Typing narrows the list.
+// Prompt: "i want it such that on the new meal add, i can add from previous recipes or from recent
+// foods, for example i added "milk twice daily" and just want to add heb milk to it easily".
+function YourFoods({ known, text, onPick }: { known: MealItem[]; text: string; onPick: (item: MealItem) => void }) {
+  const products = useQuery({
+    queryKey: ['nutrition', 'own-products'],
+    queryFn: ({ signal }) => getOwnProducts(signal),
+  });
+  const knownById = new Map(known.map((item) => [item.fdc_id, item]));
+  const fromProducts = (products.data?.foods ?? []).map((food) => knownById.get(food.fdc_id) ?? mealItem(food));
+  const productIds = new Set(fromProducts.map((item) => item.fdc_id));
+  const needle = normalizeQuery(text);
+  const shown = [...fromProducts, ...known.filter((item) => !productIds.has(item.fdc_id))]
+    .filter((item) => textMatches(needle, item.label))
+    .slice(0, 8);
+  if (!shown.length) return null;
+
+  return (
+    <div className={styles.yourFoods}>
+      <span className={styles.adderLabel}>Your foods</span>
+      <ul className={styles.results}>
+        {shown.map((item) => (
+          <li key={item.fdc_id}>
+            <button
+              type="button"
+              className={styles.result}
+              onClick={() => onPick({ ...item, grams_guessed: Boolean(item.grams_guessed) })}
+            >
+              {item.label}
+              <span className={styles.resultTag}>
+                {item.measure ?? `${formatAmount(item.grams)} g`}
+                {item.grams_guessed ? ' · guess' : ''}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

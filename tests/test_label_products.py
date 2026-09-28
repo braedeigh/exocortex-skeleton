@@ -125,3 +125,10 @@ def test_a_product_photo_is_served_by_its_number(client):
     (label_products.labels_dir() / "label-1.jpg").write_bytes(b"jpeg")
     client.post("/api/nutrition/label-products", json={"draft": MILK, "photo": "label-1.jpg"})
     assert client.get("/api/nutrition/label-products/1/photo").data == b"jpeg"
+
+
+def test_own_products_route_lists_her_products_newest_first(client):
+    label_products.save_product(MILK)
+    label_products.save_product(dict(MILK, name="Oat Milk"))
+    foods = client.get("/api/nutrition/own-products").get_json()["foods"]
+    assert [(food["fdc_id"], food["description"]) for food in foods] == [(-2, "Oat Milk"), (-1, "Whole Milk")]

@@ -223,6 +223,23 @@ the nearest quarter of the biggest unit that fits, each linked to its USDA or NI
 A volume weight is the density of that food as USDA measured it, so a heaped or packed
 cup will differ.
 
+## Daily foods: one food, straight into her day
+
+A food she eats every day on its own (a glass of milk) doesn't need a meal invented for it.
+"Add a daily food" at the top of Meals searches USDA foods (or packaged, with the Packaged
+switch), then asks the amount each time (grams or "1 cup") and how many times a day. It saves
+as a **one-food meal** named after the food (editable), counted that many times a day:
+the same `POST /meals/<name>` then `POST /servings/<name>` pair "Add meal" uses, so there's
+no separate store and the totals, meal editor and "What to add" treat it like any meal. The
+"Scan a barcode" adder's which-meal step offers "Its own daily food" too. A name can't hold
+"/", since the name is part of the save address.
+
+**Your foods.** Every add-a-food search (a meal's own and "Add a daily food") lists her own
+foods above the results, one tap each: the products she's saved (label photos, Open Food
+Facts copies; `GET /api/nutrition/own-products`), newest first, then every food already in
+her meals, once each by FDC id. A food already in a meal comes with the amount she set there;
+a product in no meal yet comes at one label serving, marked a guess. Typing narrows the list.
+
 ## Rules the arithmetic keeps
 
 - **Unknown is not zero.** Foundation foods lack many nutrients. Rolled oats, for example,
@@ -351,6 +368,8 @@ Personal facts (her age, why "both") stay in those vault files, never in this re
   filtered before the limit.
 - `GET /api/nutrition/nutrient/<key>`: `{row, sexes, facts, storage}`, the day's row for one
   nutrient plus the ODS sections and the stored-or-steady reading.
+- `GET /api/nutrition/own-products`: her saved products (label photo / Open Food Facts copy),
+  newest first, as packaged-search results.
 - `GET /api/nutrition/measures?ids=`: grams in one cup / tbsp / count of each food
   (`measures.py`), each with its source and link.
 - `GET /api/nutrition/highlights`, `POST /api/nutrition/highlights/<fdc_id>` `{on, description}`:

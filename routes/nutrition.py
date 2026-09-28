@@ -15,6 +15,9 @@ Bad input comes back as a 400 with the reason.
                                           a barcode nobody here has is asked of Open Food Facts
                                           (openfoodfacts.py) -> {foods, open_food_facts: found|missing|
                                           unreachable|null}
+    GET  /api/nutrition/own-products   -> {foods}: every product she's saved (label photo or Open Food Facts
+                                          copy), newest first, as packaged-search results — the add-a-food
+                                          searches' "Your foods" row
     POST /api/nutrition/labels         multipart photo(s) [+ barcode] -> {job}: the photos saved and a helper
                                           Claude session sent to read them (label_products.reading_brief)
     GET  /api/nutrition/labels/<job>   -> {status: reading|ready|failed|missing, draft?, error?}
@@ -287,6 +290,13 @@ def register(app):
         if not foods and digits.isdigit() and len(digits) >= 8:
             foods, open_food_facts = openfoodfacts.lookup(digits)
         return jsonify({"foods": foods, "open_food_facts": open_food_facts})
+
+    @app.route("/api/nutrition/own-products")
+    def nutrition_own_products():
+        # Her saved products, newest first, so she can pick one again without a search or a scan.
+        found = sorted(label_products.products(), key=lambda product: (product.get("added") or "", -product["id"]),
+                       reverse=True)
+        return jsonify({"foods": [label_products.as_result(product) for product in found]})
 
     @app.route("/api/nutrition/labels", methods=["POST"])
     def nutrition_label_read():

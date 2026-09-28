@@ -100,6 +100,11 @@ export function searchPackaged(text: string, signal?: AbortSignal) {
   return api.get<{ foods: PackagedFood[]; open_food_facts: 'found' | 'missing' | 'unreachable' | null }>(`/api/nutrition/packaged?${new URLSearchParams({ q: text })}`, signal);
 }
 
+/** Every product she's saved (label photo or Open Food Facts copy), newest first. */
+export function getOwnProducts(signal?: AbortSignal) {
+  return api.get<{ foods: PackagedFood[] }>('/api/nutrition/own-products', signal);
+}
+
 /** Send label photos to be read by a helper Claude session; answers with the job to watch. */
 export async function readLabel(photos: File[], barcode: string) {
   const form = new FormData();
