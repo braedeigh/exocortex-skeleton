@@ -67,6 +67,8 @@ import { coilWindowLabel, windowCoils } from './coilFolders';
 import { addTableNodes } from './tableNodes';
 import { tableCodeLinks } from './tableMentions';
 import { lineageLinks } from './terrainLineage';
+import { swarmGroups } from './terrainSwarms';
+import { useSwarms } from '../observatory/swarmApi';
 import { tapStage } from './hoverSelection';
 import { TerrainTableWindow } from './TerrainTableWindow';
 import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
@@ -962,6 +964,17 @@ export function TerrainPage() {
     engineRef.current?.setLineage(spinoffLinks);
   }, [spinoffLinks]);
 
+  // The swarm outlines: which agents have been messaging each other. Same
+  // hand-over as the spinoff arrows, ref included (terrainCanvas.ts setSwarms).
+  // The owner's only — a visitor never asks.
+  const swarmsQuery = useSwarms(!visitor);
+  const swarmList = useMemo(() => swarmGroups(swarmsQuery.data ?? []), [swarmsQuery.data]);
+  const swarmListRef = useRef(swarmList);
+  swarmListRef.current = swarmList;
+  useEffect(() => {
+    engineRef.current?.setSwarms(swarmList);
+  }, [swarmList]);
+
   // The replay runner. Frames are pre-batched (beats within 40ms share one
   // flash); each frame flashes its dots and appends its threads to the lit
   // set, which stays up for a few seconds after the last beat so the whole
@@ -1243,6 +1256,7 @@ export function TerrainPage() {
     const engine = new TerrainCanvas(canvas, initialInk, { remember: true });
     engineRef.current = engine;
     engine.setLineage(spinoffLinksRef.current);
+    engine.setSwarms(swarmListRef.current);
     engine.onPins = setPinnedCount;
     setInk(initialInk);
     engine.resize(wrap.clientWidth, wrap.clientHeight);

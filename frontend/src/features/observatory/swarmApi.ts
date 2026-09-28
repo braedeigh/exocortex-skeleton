@@ -9,7 +9,8 @@
  * ONE request however many rooms are showing.
  *
  * Touches: routes/swarms.py (the endpoints), SwarmCard.tsx and SessionLane.tsx
- * (the cards in each room), SwarmPage.tsx (one swarm's page).
+ * (the cards in each room), SwarmPage.tsx (one swarm's page), and
+ * terrain/TerrainPage.tsx (the outlines around swarm members on the map).
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
@@ -21,6 +22,9 @@ export interface SwarmMember {
   title: string;
   lane: string;
   state: MemberState;
+  /** Archived, or handed its work on to a successor. Absent from an older
+   * server, so treat it as optional. */
+  retired?: boolean;
   joined_at: string;
   summary: string | null;
   summary_at: string | null;
@@ -67,9 +71,11 @@ export interface SwarmDetail extends Swarm {
 }
 
 /** Every live swarm — one shared, polled query for the whole page. */
-export function useSwarms() {
+export function useSwarms(enabled = true) {
   return useQuery({
     queryKey: ['swarms'] as const,
+    // Off for a logged-out visitor on Terrain: swarms are the owner's.
+    enabled,
     queryFn: async ({ signal }) => (await api.get<{ swarms: Swarm[] }>('/api/swarms', signal)).swarms,
     staleTime: 4_000,
     refetchInterval: 5_000,

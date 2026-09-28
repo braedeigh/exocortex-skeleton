@@ -198,6 +198,7 @@ import {
 import type { TerrainThread } from './terrainThreads';
 import type { TableCodeLink } from './tableMentions';
 import { lineageArrow, type LineageLink } from './terrainLineage';
+import { swarmHull, swarmNameAnchor, type SwarmGroup } from './terrainSwarms';
 import { homeChain, wiringTarget } from './hoverSelection';
 import { nearestExit, placeOrbNames, spreadOrbs, type Box, type NameAsk } from './agentLayout';
 import { spiralSpots, tipCurve, type SpiralArrangement } from './spiralLayout';
@@ -1306,6 +1307,10 @@ export class TerrainCanvas {
    * Drawn as arrows between orbs, never handed to the physics — a spring
    * between two agents would drag each away from the files it works on. */
   private lineage: readonly LineageLink[] = [];
+  /** Swarms: which agents have been messaging each other (terrainSwarms.ts).
+   * Drawn as a soft outline around their orbs, never handed to the physics —
+   * pulling a swarm together would drag each agent off the files it works on. */
+  private swarms: readonly SwarmGroup[] = [];
   /** Either end of a rope → the node ids at its other ends. The hover reads
    * this; it is rebuilt only when the ropes or the graph change. */
   private codeLinkKin = new Map<string, Set<string>>();
@@ -2184,6 +2189,41 @@ export class TerrainCanvas {
   setLineage(links: readonly LineageLink[]): void {
     this.lineage = links;
     this.requestDraw();
+  }
+
+  /**
+   * Hand over the swarms: which agents belong together.
+   *
+   * Same contract as setLineage — stored and drawn, never given to the
+   * physics. Members that aren't on the map are left out of the outline, and
+   * a swarm with none on the map draws nothing.
+   */
+  setSwarms(groups: readonly SwarmGroup[]): void {
+    this.swarms = groups;
+    this.requestDraw();
+  }
+
+  /** Each swarm's outline this frame, in world units, with the members it
+   * holds. Worked out from where the orbs are right now, so the shape follows
+   * them as they drift. */
+  private swarmOutlines(transform: ZoomTransform): { group: SwarmGroup; hull: { x: number; y: number }[] }[] {
+    if (this.swarms.length === 0) return [];
+    const orbs = new Map<string, SimNode>();
+    for (const n of this.simNodes) {
+      if (n.node.kind === 'session' && n.node.session?.id) orbs.set(n.node.session.id, n);
+    }
+    const minR = MIN_NODE_PX / transform.k;
+    const padding = 18 / transform.k;
+    const outlines: { group: SwarmGroup; hull: { x: number; y: number }[] }[] = [];
+    for (const group of this.swarms) {
+      const members = group.memberIds
+        .map((id) => orbs.get(id))
+        .filter((n): n is SimNode => n !== undefined)
+        .map((n) => ({ x: n.x ?? 0, y: n.y ?? 0, radius: Math.max(n.radius, minR) }));
+      if (members.length === 0) continue;
+      outlines.push({ group, hull: swarmHull(members, padding) });
+    }
+    return outlines;
   }
 
   /** Everything a given body is wired to, itself included — its "answer".
@@ -4257,6 +4297,67 @@ export class TerrainCanvas {
     ctx.globalAlpha = 1;
   }
 
+  /**
+   * Draw each swarm as a soft outline around its member orbs.
+   *
+   * Under everything but the pond, because a swarm is a grouping, not a mark:
+   * a faint wash of the orbs' own accent with a thin edge. Under an agent
+   * hover, that agent's swarm stays up and the others drop back — the same
+   * split the arrows make.
+   */
+  private drawSwarmHulls(
+    ctx: CanvasRenderingContext2D,
+    transform: ZoomTransform,
+    hover: string | null,
+    dimmed: boolean,
+  ): void {
+    const outlines = this.swarmOutlines(transform);
+    if (outlines.length === 0) return;
+    ctx.fillStyle = this.orbStroke;
+    ctx.strokeStyle = this.orbStroke;
+    ctx.lineWidth = 1.2 / transform.k;
+    for (const { group, hull } of outlines) {
+      if (hull.length < 3) continue;
+      const mine = hover !== null && group.memberIds.includes(hover);
+      const presence = hover !== null ? (mine ? 1 : 0.3) : dimmed ? 0.4 : 1;
+      ctx.beginPath();
+      ctx.moveTo(hull[0].x, hull[0].y);
+      for (const p of hull.slice(1)) ctx.lineTo(p.x, p.y);
+      ctx.closePath();
+      ctx.globalAlpha = 0.07 * presence;
+      ctx.fill();
+      ctx.globalAlpha = 0.35 * presence;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * Name each swarm, centred just above its outline, in screen space so the
+   * name never drops below the 12px floor. Accent ink, so it reads as
+   * belonging to the outline and not to an orb.
+   */
+  private drawSwarmNames(transform: ZoomTransform, hover: string | null, dimmed: boolean): void {
+    const outlines = this.swarmOutlines(transform);
+    if (outlines.length === 0) return;
+    const { ctx } = this;
+    ctx.font = `600 ${LABEL_PX}px ${this.fontFamily}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = this.orbStroke;
+    for (const { group, hull } of outlines) {
+      const anchor = swarmNameAnchor(hull);
+      if (!anchor) continue;
+      const sx = anchor.x * transform.k + transform.x;
+      const sy = anchor.y * transform.k + transform.y - 3;
+      if (sx < -200 || sx > this.width + 200 || sy < -20 || sy > this.height + 40) continue;
+      const mine = hover !== null && group.memberIds.includes(hover);
+      ctx.globalAlpha = hover !== null ? (mine ? 0.95 : 0.25) : dimmed ? 0.35 : 0.8;
+      ctx.fillText(group.name, sx, sy);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   private activeHover(): string | null {
     return this.footprint === null ? this.hoverAgent : null;
   }
@@ -4488,6 +4589,9 @@ export class TerrainCanvas {
       ctx.arc(pond.x, pond.y, pond.r, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // -- swarms: which agents have been talking to each other --
+    this.drawSwarmHulls(ctx, transform, hover, dimmed);
 
     // -- threads: what one file makes, another one eats --
     //
@@ -5406,6 +5510,7 @@ export class TerrainCanvas {
     }
 
     this.drawOrbNames(orbNames);
+    this.drawSwarmNames(transform, hover, dimmed);
     this.drawTableLabels(dimmed);
 
     // Last, so the anchor it reports is the one this frame actually drew.
