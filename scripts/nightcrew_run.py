@@ -4,8 +4,9 @@
 Plain English: while she sleeps, this works the dev-note backlog. It attempts
 notes she has green-lit (the moon tap). Its own initiative is a three-rung
 ladder (see pick_mode): off / picks / full. The current rung is PICKS — each
-night it PROPOSES up to five notes as "picked" cards (oldest never-answered
-gate-passers, tools/nightcrew/nominate.py) and works none of them; she judges
+night it PROPOSES up to five notes as "picked" cards (the newest
+never-answered gate-passers from the last week, tools/nightcrew/nominate.py)
+and works none of them; she judges
 the picks in the morning (would-want / not-this, with a why), so the picking
 policy is tuned on real judgments before any tokens act on it. Her own moons
 still run as always. For each note it works, it makes a throwaway copy of the
@@ -289,7 +290,8 @@ def record_picks(tabs):
         record({"id": f"p-{datetime.now():%m%d-%H%M}-{p['id'][:8]}",
                 "status": "picked", "note_id": p["id"], "tab": p["tab"],
                 "note_text": p["text"], "note_created": p["created"],
-                "pick_reason": f"oldest never-answered note that passes the "
+                "pick_reason": f"newest never-answered note from the last "
+                               f"{nominate.WINDOW_DAYS} days that passes the "
                                f"gate — #{i + 1} of {total} candidates",
                 "finished": now()})
         log(f"picked [{p['id']}] ({p['tab']}, {p['created'] or 'undated'}) "

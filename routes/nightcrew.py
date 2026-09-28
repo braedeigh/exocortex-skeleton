@@ -12,8 +12,10 @@ live again, so trying a change on the real site is a safe way to review it.
 Two files back it, both in the vault:
   - dev_notes.json  — her notes; an `approved` judgment is the green light (lock 1).
     Set by her moon tap OR by the crew nominating for itself
-    (tools/nightcrew/nominate.py, oldest never-answered notes first); either
-    way the moon shows lit and un-mooning is a permanent no. A worker that
+    (tools/nightcrew/nominate.py, the newest never-answered notes from the
+    last week); either way the moon shows lit. Un-mooning appends `open`, so
+    the note can be proposed again — only approved / unsure / denied stop
+    the nominator. A worker that
     found a note ambiguous leaves `night_questions` on it; she answers by
     editing the note, which clears the questions and re-queues it.
   - night_runs.json — one record per attempt, written by the overnight worker

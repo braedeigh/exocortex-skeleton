@@ -316,6 +316,11 @@ def test_pick_mode_ladder_reads_off_the_registry(data_dir):
     assert nc.pick_mode() == "full"
 
 
+def _days_ago(days):
+    """A `created` stamp inside the nominator's one-week window."""
+    return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d 09:00")
+
+
 def test_picks_mode_proposes_without_touching_the_notes(data_dir):
     """A pick is a card, not work and not a moon: the note itself must be
     untouched (approval lives on the card until making turns on), and the
@@ -323,17 +328,17 @@ def test_picks_mode_proposes_without_touching_the_notes(data_dir):
     picking-policy feedback aims at."""
     import store
     store.write("dev_notes.json", {"tabs": {"today": [
-        {"id": "old1", "text": "Add a search for to-dos", "created": "2026-05-01 09:00"},
-        {"id": "new1", "text": "Re add edit button to habits", "created": "2026-07-23 08:02"},
+        {"id": "old1", "text": "Add a search for to-dos", "created": _days_ago(3)},
+        {"id": "new1", "text": "Re add edit button to habits", "created": _days_ago(1)},
     ]}})
     store.write("night_runs.json", {"runs": []})
     n = nc.record_picks(store.read("dev_notes.json", {})["tabs"])
     assert n == 2
     runs = store.read("night_runs.json", {})["runs"]
-    assert [r["note_id"] for r in runs] == ["old1", "new1"], "oldest first"
+    assert [r["note_id"] for r in runs] == ["new1", "old1"], "newest first"
     assert runs[0]["status"] == "picked"
     assert "#1 of 2" in runs[0]["pick_reason"]
-    assert runs[0]["note_created"] == "2026-05-01 09:00"
+    assert runs[1]["note_created"] == _days_ago(3)
     notes = store.read("dev_notes.json", {})["tabs"]["today"]
     assert all("night" not in x for x in notes), "no moon was flipped"
 
@@ -344,7 +349,7 @@ def test_a_note_once_picked_is_never_proposed_again(data_dir):
     moves down the backlog instead."""
     import store
     store.write("dev_notes.json", {"tabs": {"today": [
-        {"id": "old1", "text": "Add a search for to-dos", "created": "2026-05-01 09:00"},
+        {"id": "old1", "text": "Add a search for to-dos", "created": _days_ago(3)},
     ]}})
     store.write("night_runs.json", {"runs": [
         {"id": "p-1", "status": "picked", "note_id": "old1"},
@@ -360,7 +365,7 @@ def test_full_mode_self_queue_green_lights_through_judgments(data_dir):
     import store
     import devnote_judgments
     store.write("dev_notes.json", {"tabs": {"today": [
-        {"id": "old1", "text": "Add a search for to-dos", "created": "2026-05-01 09:00"},
+        {"id": "old1", "text": "Add a search for to-dos", "created": _days_ago(3)},
     ]}})
     rows = nc.self_queue(store.read("dev_notes.json", {})["tabs"], 1)
     note = store.read("dev_notes.json", {})["tabs"]["today"][0]
