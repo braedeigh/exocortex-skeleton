@@ -49,4 +49,8 @@ def main():
 
 
 if __name__ == "__main__":
+    # Put this run on the runtime map (runtime_sensor.py), same as the other
+    # standalone scripts.
+    import runtime_sensor
+    runtime_sensor.attach()
     main()

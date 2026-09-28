@@ -55,6 +55,10 @@ def fold_observatory_into_terminal(filename):
 
 
 if __name__ == "__main__":
+    # Put this run on the runtime map (runtime_sensor.py), same as the other
+    # standalone scripts.
+    import runtime_sensor
+    runtime_sensor.attach()
     for filename, label in (("dev_notes.json", "dev note"), ("idea_notes.json", "idea")):
         moved_count, total = fold_observatory_into_terminal(filename)
         print(f"Merged {moved_count} observatory {label}(s) into 'terminal' ({total} total).")

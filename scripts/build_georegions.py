@@ -20,4 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import georegions  # noqa: E402
 
 if __name__ == "__main__":
+    # Put this run on the runtime map (runtime_sensor.py), same as the other
+    # standalone scripts.
+    import runtime_sensor
+    runtime_sensor.attach()
     print(f"wrote {georegions.build()} regions to {georegions.derived_dir()}")
