@@ -89,6 +89,8 @@ STREAMS = {
     # ---- hidden (key dropped entirely) ----
     # Her "find where this comes from" requests — her queue, not the map's.
     "eco_requested": "hidden",
+    # The machine's proposed sources — unconfirmed, and only ever for her.
+    "eco_proposals": "hidden",
     "contacts": "hidden",
     "applications": "hidden",       # shrike_applied
     "dev_notes": "hidden",

@@ -297,6 +297,37 @@ def test_food_page_lists_where_it_comes_from(data_dir):
     assert [s["id"] for s in page["sources"]] == [sid]
 
 
+def _propose_for(food_id, name="Onions — Vidalia"):
+    import proposalstore
+    return proposalstore.add({"food_id": food_id},
+                             {"name": name, "lat": 32.2, "lng": -82.4, "precision": "area", "radius_km": 40,
+                              "area_kind": "circle",
+                              "transparency": "partial", "geo_source": "guess",
+                              "origin": "unknown"})
+
+
+def test_food_page_lists_the_machines_live_proposals_apart_from_her_sources(data_dir):
+    from routes import food as food_routes
+    app = Flask(__name__)
+    food_routes.register(app)
+    onion = foodstore.add_food("onion")
+    _propose_for(onion, "old answer")
+    newer = _propose_for(onion)
+    page = app.test_client().get("/api/food/page?name=onion").get_json()
+    assert ([p["id"] for p in page["proposals"]], page["sources"]) == ([newer], [])
+
+
+def test_map_payload_carries_proposals_for_her_but_never_the_public(data_dir):
+    import server
+    pid = _propose_for(foodstore.add_food("onion"))
+    client = server.app.test_client()
+    public = client.get("/api/data/ecosystem").get_json()
+    with client.session_transaction() as sess:
+        sess["authed"] = True
+    owner = client.get("/api/data/ecosystem").get_json()
+    assert ("eco_proposals" in public, [p["id"] for p in owner["eco_proposals"]]) == (False, [pid])
+
+
 # --- the machine's proposals (rung 34) ----------------------------------------
 
 def test_a_proposal_may_never_claim_a_confirmed_place(data_dir):

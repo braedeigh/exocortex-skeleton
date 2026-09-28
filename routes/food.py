@@ -27,7 +27,8 @@ Buy-organic-or-not for the grocery list (estimatestore.py):
                                       whether a run is going, and the last run
     GET  /api/food/page?name=         one food's page under Research: verdict,
                                       estimate, claims and measurements, and
-                                      the map sources it comes from
+                                      the map sources it comes from, and the
+                                      machine's live proposals (proposalstore)
     GET  /api/food/pages              every food with what's known about it
     POST /api/food/estimates/run      {force?} — start scripts/estimate_organic.py
     POST /api/food/estimates/<id>/review   {review: unreviewed|confirmed|disputed}
@@ -45,6 +46,7 @@ from flask import jsonify, request
 
 import estimatestore
 import foodstore
+import proposalstore
 import sourcestore
 import store
 
@@ -179,6 +181,9 @@ def register(app):
         food = view.get("food")
         view["sources"] = sourcestore.for_food(food["id"]) if food else []
         view["origins"] = sourcestore.ORIGINS
+        # The machine's live proposals for this food and its products, shown
+        # apart from her sources and marked with the checker's verdict.
+        view["proposals"] = proposalstore.live(food["id"]) if food else []
         return jsonify(view)
 
     @app.route("/api/food/pages")

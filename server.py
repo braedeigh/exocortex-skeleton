@@ -980,6 +980,13 @@ def get_data_ecosystem():
     data["eco_origins"] = sourcestore.ORIGINS
     # Which foods she has asked to have traced — the "Requested ✓" state.
     data["eco_requested"] = sourcestore.requested()
+    # The machine's proposals for where foods come from (proposalstore.py):
+    # only the live ones (no replacement yet), each with its check_status,
+    # counties, parts and evidence. The map draws them as their own layer —
+    # "checked by machine, not by you". Hers only; the public view drops the key.
+    if owner:
+        import proposalstore
+        data["eco_proposals"] = proposalstore.live()
     _eco_cfg = store.read("ecosystem_config", {})
     data["usda_key_set"] = bool((_eco_cfg.get("usda_key") or os.environ.get("EXOCORTEX_USDA_KEY") or "").strip())
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("ecosystem", [])
