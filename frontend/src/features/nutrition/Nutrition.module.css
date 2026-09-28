@@ -225,6 +225,24 @@
   font-weight: 700;
 }
 
+.mealTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mealTop .mealHead {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+.newMeal {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .mealServings {
   margin-left: auto;
   font-size: 13px;

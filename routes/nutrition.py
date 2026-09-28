@@ -9,6 +9,9 @@ Bad input comes back as a 400 with the reason.
     GET  /api/nutrition/day            -> {report, meals, day, settings}
     GET  /api/nutrition/search?q=      -> USDA foods whose name holds every word
     POST /api/nutrition/meals/<name>   {items: [{label, fdc_id, grams, grams_guessed?, fill_from?}]}
+                                       (a new name makes a new meal)
+    DELETE /api/nutrition/meals/<name> -> the meal gone, and out of her day
+    POST /api/nutrition/servings/<name> {servings: n ≥ 0} — how many a day; 0 = not counted
     POST /api/nutrition/settings       {sex?: female|male|both, age?: int}
 
 No feature gate: these are her own reads, and server.py's auth gate closes
@@ -83,6 +86,38 @@ def register(app):
             meal = data.setdefault("meals", {}).setdefault(name, {})
             meal["items"] = items
         return jsonify({"ok": True, "meal": meal})
+
+    @app.route("/api/nutrition/meals/<name>", methods=["DELETE"])
+    def nutrition_meal_delete(name):
+        # Delete a meal, and take it out of her usual day with it.
+        with store.mutate(nutrition.MEALS, {}) as data:
+            if name not in (data.get("meals") or {}):
+                return _refused(f"no meal called {name}")
+            del data["meals"][name]
+            data["day"] = [slot for slot in data.get("day") or [] if slot.get("meal") != name]
+        return jsonify({"ok": True})
+
+    @app.route("/api/nutrition/servings/<name>", methods=["POST"])
+    def nutrition_servings(name):
+        # Set how many of a meal she eats a day. The day keeps its order; a meal
+        # newly counted joins the end, and 0 takes it out of the day (the meal stays saved).
+        body = request.get_json(silent=True) or {}
+        servings = body.get("servings")
+        if isinstance(servings, bool) or not isinstance(servings, (int, float)) or not 0 <= servings <= 20:
+            return _refused("servings must be a number from 0 to 20")
+        with store.mutate(nutrition.MEALS, {}) as data:
+            if name not in (data.get("meals") or {}):
+                return _refused(f"no meal called {name}")
+            day = [slot for slot in data.get("day") or []]
+            slot = next((slot for slot in day if slot.get("meal") == name), None)
+            if servings == 0:
+                day = [other for other in day if other is not slot]
+            elif slot:
+                slot["servings"] = servings
+            else:
+                day.append({"meal": name, "servings": servings})
+            data["day"] = day
+        return jsonify({"ok": True, "day": day})
 
     @app.route("/api/nutrition/settings", methods=["POST"])
     def nutrition_settings():

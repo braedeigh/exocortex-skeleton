@@ -9,7 +9,10 @@
  * target, foods with no figure, foods whose figure was filled in from USDA's
  * survey data, a UL that doesn't count food); then her
  * meals, where each food's grams can be fixed, a food removed, or a USDA food
- * added by search. A weight nobody has weighed yet is marked "guess".
+ * added by search; each meal's servings a day set (0 = saved but not counted);
+ * a meal started or deleted. A weight nobody has weighed yet is marked "guess".
+ *
+ * Prompt for the meal editing: "make sure there's a UI to be able to edit things".
  *
  * Data: GET /api/nutrition/day (routes/nutrition.py → nutrition.py).
  * Touches: ./api.ts, ./types.ts, ./nutrientMath.ts, ./Nutrition.module.css,
@@ -22,7 +25,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
-import { getDay, saveMeal, saveSettings, searchFoods } from './api';
+import { deleteMeal, getDay, saveMeal, saveServings, saveSettings, searchFoods } from './api';
 import { barShare, formatAmount, GROUP_TITLES, groupRows } from './nutrientMath';
 import type { FdcFood, Meal, MealItem, NutrientRow, NutritionDay, Sex, SexSetting } from './types';
 import pageStyles from '../research/ResearchPage.module.css';
@@ -203,14 +206,50 @@ function NutrientLine({ row, sexes }: { row: NutrientRow; sexes: Sex[] }) {
 
 // --- her meals -----------------------------------------------------------------------
 
+// Her meals: the ones counted in her day first, in the day's order, then the saved-but-not-counted ones.
 function MealList({ day }: { day: NutritionDay }) {
+  const client = useQueryClient();
+  const [newName, setNewName] = useState('');
   const servings = new Map(day.day.map((slot) => [slot.meal, slot.servings]));
+  const counted = day.day.map((slot) => slot.meal).filter((name) => day.meals[name]);
+  const names = [...counted, ...Object.keys(day.meals).filter((name) => !servings.has(name))];
+  const trimmed = newName.trim();
+
+  // Start a new meal: saved empty, then counted once a day so it shows up in the totals.
+  const create = useMutation({
+    mutationFn: async () => {
+      await saveMeal(trimmed, []);
+      await saveServings(trimmed, 1);
+    },
+    onSuccess: () => {
+      setNewName('');
+      client.invalidateQueries({ queryKey: DAY_KEY });
+    },
+  });
+
   return (
     <section className={styles.card}>
       <div className={styles.cardHead}>Meals in your usual day</div>
-      {Object.entries(day.meals).map(([name, meal]) => (
-        <MealEditor key={name} name={name} meal={meal} servings={servings.get(name) ?? 0} />
+      {names.map((name) => (
+        <MealEditor key={name} name={name} meal={day.meals[name]} servings={servings.get(name) ?? 0} />
       ))}
+      <div className={styles.newMeal}>
+        <input
+          className={styles.searchInput}
+          placeholder="New meal — e.g. lunch"
+          value={newName}
+          onChange={(event) => setNewName(event.target.value)}
+        />
+        <button
+          type="button"
+          className={styles.saveBtn}
+          disabled={!trimmed || trimmed in day.meals || create.isPending}
+          onClick={() => create.mutate()}
+        >
+          Add meal
+        </button>
+      </div>
+      {create.isError ? <p className={styles.error}>{(create.error as Error).message}</p> : null}
     </section>
   );
 }
@@ -225,6 +264,23 @@ function MealEditor({ name, meal, servings }: { name: string; meal: Meal; servin
     mutationFn: () => saveMeal(name, items),
     onSuccess: () => client.invalidateQueries({ queryKey: DAY_KEY }),
   });
+  const remove = useMutation({
+    mutationFn: () => deleteMeal(name),
+    onSuccess: () => client.invalidateQueries({ queryKey: DAY_KEY }),
+  });
+
+  // Servings a day, saved when the box loses focus; 0 keeps the meal but stops counting it.
+  const [servingsText, setServingsText] = useState(String(servings));
+  useEffect(() => setServingsText(String(servings)), [servings]);
+  const servingsSave = useMutation({
+    mutationFn: (value: number) => saveServings(name, value),
+    onSuccess: () => client.invalidateQueries({ queryKey: DAY_KEY }),
+  });
+  const commitServings = () => {
+    const value = Number(servingsText);
+    if (servingsText.trim() === '' || !Number.isFinite(value) || value < 0) setServingsText(String(servings));
+    else if (value !== servings) servingsSave.mutate(value);
+  };
 
   // Change one food's grams; a typed weight is no longer a guess.
   const setGrams = (index: number, text: string) =>
@@ -234,11 +290,27 @@ function MealEditor({ name, meal, servings }: { name: string; meal: Meal; servin
 
   return (
     <div className={styles.meal}>
-      <button type="button" className={styles.mealHead} onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span>{open ? '▾' : '▸'}</span>
-        <span className={styles.mealName}>{name}</span>
-        <span className={styles.mealServings}>× {servings} a day</span>
-      </button>
+      <div className={styles.mealTop}>
+        <button type="button" className={styles.mealHead} onClick={() => setOpen(!open)} aria-expanded={open}>
+          <span>{open ? '▾' : '▸'}</span>
+          <span className={styles.mealName}>{name}</span>
+          {servings === 0 ? <span className={styles.mealServings}>not counted</span> : null}
+        </button>
+        <span className={styles.gramsUnit}>×</span>
+        <input
+          className={styles.gramsInput}
+          inputMode="decimal"
+          aria-label={`${name} servings a day`}
+          value={servingsText}
+          onChange={(event) => setServingsText(event.target.value)}
+          onBlur={commitServings}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+          }}
+        />
+        <span className={styles.gramsUnit}>a day</span>
+      </div>
+      {servingsSave.isError ? <p className={styles.error}>{(servingsSave.error as Error).message}</p> : null}
       {open ? (
         <>
           {meal.note ? <p className={styles.muted}>{meal.note}</p> : null}
@@ -281,7 +353,18 @@ function MealEditor({ name, meal, servings }: { name: string; meal: Meal; servin
                 Undo changes
               </button>
             ) : null}
+            <button
+              type="button"
+              className={styles.chip}
+              disabled={remove.isPending}
+              onClick={() => {
+                if (window.confirm(`Delete the meal “${name}” and all its foods?`)) remove.mutate();
+              }}
+            >
+              Delete meal
+            </button>
           </div>
+          {remove.isError ? <p className={styles.error}>{(remove.error as Error).message}</p> : null}
           {save.isError ? <p className={styles.error}>{(save.error as Error).message}</p> : null}
         </>
       ) : null}

@@ -123,6 +123,32 @@ def test_meal_with_negative_grams_is_refused(client):
     assert response.status_code == 400
 
 
+def test_servings_change_a_counted_meal(client):
+    client.post("/api/nutrition/servings/bowl", json={"servings": 2.5})
+    assert store.read(nutrition.MEALS)["day"] == [{"meal": "bowl", "servings": 2.5}]
+
+
+def test_zero_servings_leaves_the_day_but_keeps_the_meal(client):
+    client.post("/api/nutrition/servings/bowl", json={"servings": 0})
+    data = store.read(nutrition.MEALS)
+    assert data["day"] == [] and "bowl" in data["meals"]
+
+
+def test_a_new_meal_joins_the_day_when_given_servings(client):
+    client.post("/api/nutrition/meals/snack", json={"items": []})
+    client.post("/api/nutrition/servings/snack", json={"servings": 1})
+    assert [slot["meal"] for slot in store.read(nutrition.MEALS)["day"]] == ["bowl", "snack"]
+
+
+def test_servings_for_an_unknown_meal_are_refused(client):
+    assert client.post("/api/nutrition/servings/nope", json={"servings": 1}).status_code == 400
+
+
+def test_deleting_a_meal_takes_it_out_of_the_day(client):
+    client.delete("/api/nutrition/meals/bowl")
+    assert store.read(nutrition.MEALS) == {"meals": {}, "day": []}
+
+
 def test_settings_refuse_an_unknown_sex(client):
     assert client.post("/api/nutrition/settings", json={"sex": "other"}).status_code == 400
 
