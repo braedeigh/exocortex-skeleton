@@ -26,6 +26,10 @@ Tables:
                        to every conversation filed under it
   conversations_fts    full-text index of title + every message, for search
 
+Beside the database sit two small files for the sorter, which runs as its
+own process: `transcripts.sort.json` (its progress, which the page polls) and
+`transcripts.sort.lock` (one sort at a time).
+
 Times are turned into a day and a clock time in the SERVER's local zone
 (`_local`). For a desktop install that is the user's own zone; for a hosted
 one it's the host's.
@@ -40,6 +44,8 @@ links back to its source conversations."
 """
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import fcntl
+import json
 import re
 import sqlite3
 
@@ -159,13 +165,18 @@ def save(conversations):
 
 # --- sorting -----------------------------------------------------------------
 
-def unsorted(limit=None):
-    """Conversations waiting to be filed, oldest first: [{id, title, messages}]."""
+def unsorted(limit=None, exclude=()):
+    """Conversations waiting to be filed, oldest first: [{id, title, messages}].
+    `exclude` skips ids the sorter already gave up on this run."""
+    exclude = [int(i) for i in exclude]
+    where = "sorted_at IS NULL"
+    if exclude:
+        where += f" AND id NOT IN ({','.join('?' * len(exclude))})"
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, title FROM conversations WHERE sorted_at IS NULL"
+            f"SELECT id, title FROM conversations WHERE {where}"
             " ORDER BY created_at, id" + (" LIMIT ?" if limit else ""),
-            (limit,) if limit else ()).fetchall()
+            (*exclude, limit) if limit else tuple(exclude)).fetchall()
         return [{"id": r["id"], "title": r["title"], "messages": _messages(conn, r["id"])}
                 for r in rows]
 
@@ -199,6 +210,63 @@ def file_under(conversation_id, names, summary=""):
         conn.execute("UPDATE conversations SET sorted_at = ?, summary = ? WHERE id = ?",
                      (_now(), str(summary)[:400], conversation_id))
         conn.execute("DELETE FROM topics WHERE id NOT IN (SELECT topic_id FROM conversation_topics)")
+
+
+# The sorter's progress and lock. The sort runs as its own process (started
+# by routes/transcripts.py), so the page can't ask it how it's doing — it
+# writes a small JSON file instead, and the page reads that. The lock is an
+# flock on a file beside the database: the kernel drops it the moment the
+# process dies, so a crashed sort can never leave the button stuck.
+
+def _status_path():
+    return store.DATA_DIR / "transcripts.sort.json"
+
+
+def write_sort_status(**status):
+    """Record the sorter's progress: state (running|done|failed), done, total, error."""
+    status["at"] = _now()
+    path = _status_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(status))
+    tmp.replace(path)
+
+
+def sort_status():
+    """The last progress the sorter wrote, plus whether one is running right now."""
+    try:
+        status = json.loads(_status_path().read_text())
+    except (OSError, ValueError):
+        status = {"state": "idle"}
+    running = sort_running()
+    # A 'running' file with no process holding the lock is a sort that died.
+    if status.get("state") == "running" and not running:
+        status["state"] = "stopped"
+    status["running"] = running
+    return status
+
+
+@contextmanager
+def sort_lock():
+    """Hold the one-sort-at-a-time lock; yields False if another sort has it."""
+    path = store.DATA_DIR / "transcripts.sort.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def sort_running():
+    """True while some process holds the sort lock."""
+    with sort_lock() as held:
+        return not held
 
 
 # --- reading -----------------------------------------------------------------

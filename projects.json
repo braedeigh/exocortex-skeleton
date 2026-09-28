@@ -596,7 +596,9 @@
       "routes": [],
       "frontend": [],
       "tools": [],
-      "scripts": [],
+      "scripts": [
+        "sort_transcripts.py"
+      ],
       "tables": [],
       "collections": [],
       "dev_note_tabs": []
