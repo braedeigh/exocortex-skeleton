@@ -14,13 +14,12 @@
  *     conversation is one line and not two laid on top of each other;
  *   - the green talk lines are member-to-member messages only. The helper
  *     gets a seat of its own instead: the middle of the members (the centre
- *     of the circle, halfway between two, beside a lone one), and a line's
- *     message count slides off the middle when that middle is where the
- *     helper sits;
+ *     of the circle, halfway between two, beside a lone one);
  *   - the helper's own threads: a straight line from its seat to each
- *     member it has sent messages to, carrying how many. The count sits
- *     nearer the member than the helper, so the counts don't crowd the
- *     middle;
+ *     member it has sent messages to, carrying how many;
+ *   - placing the message counts so none covers another count, a ring, or
+ *     a name: each tries spots along its own line, then just beside it,
+ *     and takes the first clear one (placeCounts);
  *   - a continuation (one session taking over from another) is its own kind
  *     of line, since it's a handover rather than talk.
  *
@@ -79,8 +78,6 @@ export interface HelperThread {
   /** Where the member sits — the line runs from the helper's seat to here. */
   x: number;
   y: number;
-  /** Where its message count sits: two-thirds of the way to the member. */
-  label: { x: number; y: number };
 }
 
 /** Place the rings: side by side for two, evenly round a circle for more. */
@@ -95,9 +92,9 @@ export function placeRings(count: number): { x: number; y: number; height: numbe
       { x: middle + 170, y: MARGIN_TOP, height },
     ];
   }
-  // The circle grows with the count so neighbouring labels keep ~120 units
+  // The circle grows with the count so neighbouring labels keep ~170 units
   // apart along the rim, but never spills past the drawing's width.
-  const radius = Math.min(NETWORK_WIDTH / 2 - 90, Math.max(120, (count * 120) / (2 * Math.PI)));
+  const radius = Math.min(NETWORK_WIDTH / 2 - 90, Math.max(120, (count * 170) / (2 * Math.PI)));
   const height = MARGIN_TOP + radius * 2 + MARGIN_BOTTOM;
   const centreY = MARGIN_TOP + radius;
   return Array.from({ length: count }, (_, i) => {
@@ -120,18 +117,6 @@ export function centreOf(seats: { x: number; y: number }[]): { x: number; y: num
   return { x: Math.round(x), y: Math.round(y) };
 }
 
-/** Where a line's message count sits: its middle, unless the helper sits
- * there — then a third of the way along, so the two don't overlap. */
-export function countSpot(
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-  centre: { x: number; y: number },
-): { x: number; y: number } {
-  const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  if (Math.hypot(middle.x - centre.x, middle.y - centre.y) > 50) return middle;
-  return { x: a.x + (b.x - a.x) / 3, y: a.y + (b.y - a.y) / 3 };
-}
-
 /** Fold per-direction message counts into one line per pair of members. */
 export function foldLinks(links: Swarm['links'], members: Set<string>): NetworkLine[] {
   const byPair = new Map<string, NetworkLine>();
@@ -149,13 +134,10 @@ export function foldLinks(links: Swarm['links'], members: Set<string>): NetworkL
 }
 
 /** Draw the helper's threads: one straight line from its seat to each
- * member it has messaged, with the count two-thirds of the way along —
- * away from the crowded middle, and off the halfway point where a
- * two-member swarm's talk count sits. */
+ * member it has messaged. Where its count goes is placeCounts' job. */
 export function helperThreads(
   links: Swarm['helper_links'],
   nodes: { conv: string; x: number; y: number }[],
-  centre: { x: number; y: number },
 ): HelperThread[] {
   const at = new Map(nodes.map((n) => [n.conv, n] as const));
   const threads: HelperThread[] = [];
@@ -167,10 +149,6 @@ export function helperThreads(
       messages: link.messages,
       x: node.x,
       y: node.y,
-      label: {
-        x: Math.round(centre.x + ((node.x - centre.x) * 2) / 3),
-        y: Math.round(centre.y + ((node.y - centre.y) * 2) / 3),
-      },
     });
   }
   return threads;
@@ -200,7 +178,7 @@ export function layoutSwarm(
     talk: foldLinks(swarm.links, members),
     continues: (swarm.continues ?? []).filter((c) => members.has(c.from) && members.has(c.to)),
     centre,
-    helperThreads: helperThreads(swarm.helper_links, nodes, centre),
+    helperThreads: helperThreads(swarm.helper_links, nodes),
   };
 }
 
@@ -210,4 +188,120 @@ export function shortTitle(title: string, max = 24): string {
   const cut = title.slice(0, max - 1);
   const space = cut.lastIndexOf(' ');
   return `${space > max / 2 ? cut.slice(0, space) : cut}…`;
+}
+
+/* ---- Placing the message counts so nothing overlaps ----
+   The rings, names and counts are HTML in real pixels, laid over a drawing
+   that scales, so how much of the drawing a name covers depends on how wide
+   it's shown. Everything below works in drawing units, told how many screen
+   pixels one unit is (pxPerUnit), and sizes things from the CSS
+   (SwarmNetwork.module.css): a .node is up to 132px wide with its ring's
+   centre 20px from its top; a name wraps at ~124px in lines ~17.5px tall. */
+
+/** A rectangle in drawing units. */
+export interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** Roughly how wide a name runs in pixels — about 7.5px a character at the
+ * small font, wrapping at the node's inner width. */
+const NAME_WRAP_PX = 124;
+const CHARACTER_PX = 7.5;
+
+/** What one agent covers on screen: its ring, and its name hanging below.
+ * Two boxes, since the name is usually wider than the ring. */
+export function nodeBoxes(
+  at: { x: number; y: number },
+  name: string,
+  pxPerUnit: number,
+): Box[] {
+  const unit = (px: number) => px / pxPerUnit;
+  const textPx = name.length * CHARACTER_PX;
+  const lines = Math.max(1, Math.ceil(textPx / NAME_WRAP_PX));
+  const halfName = unit(Math.min(NAME_WRAP_PX, textPx) / 2 + 4);
+  const ring = unit(18);
+  return [
+    { left: at.x - ring, top: at.y - ring, right: at.x + ring, bottom: at.y + ring },
+    { left: at.x - halfName, top: at.y + ring, right: at.x + halfName,
+      bottom: at.y + unit(18 + lines * 17.5 + 4) },
+  ];
+}
+
+/** A count chip's size in pixels, with a few pixels' breathing room: at
+ * least 24px of text box plus padding and border, 24px tall. */
+function chipPx(text: string): { width: number; height: number } {
+  return { width: Math.max(24, text.length * 9) + 14 + 6, height: 24 + 6 };
+}
+
+function overlapArea(a: Box, b: Box): number {
+  const width = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+  const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+  return width > 0 && height > 0 ? width * height : 0;
+}
+
+export interface CountLine {
+  key: string;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  text: string;
+  /** Where along the line (0 = from, 1 = to) it would most like to sit. */
+  prefer: number;
+}
+
+/** Place every count chip so it covers no ring, name or other chip.
+ * This is a greedy placement: lines are taken in order, and each tries
+ * spots along its line — its preferred spot first, then stepping outward
+ * both ways — then the same spots nudged to either side of the line. The
+ * first spot that's clear (and inside the drawing) wins; if none is, the one
+ * covering least. Each placed chip becomes something the next must avoid. */
+export function placeCounts(
+  lines: CountLine[],
+  obstacles: Box[],
+  pxPerUnit: number,
+  bounds: { width: number; height: number },
+): Map<string, { x: number; y: number }> {
+  const placed = new Map<string, { x: number; y: number }>();
+  const taken = [...obstacles];
+  const steps = [0, 0.08, -0.08, 0.16, -0.16, 0.24, -0.24, 0.32, -0.32, 0.4, -0.4];
+  for (const line of lines) {
+    const chip = chipPx(line.text);
+    const halfWidth = chip.width / pxPerUnit / 2;
+    const halfHeight = chip.height / pxPerUnit / 2;
+    const dx = line.to.x - line.from.x;
+    const dy = line.to.y - line.from.y;
+    const length = Math.hypot(dx, dy) || 1;
+    // Sideways, square to the line, one chip-height per nudge.
+    const side = { x: -dy / length, y: dx / length };
+    const nudge = chip.height / pxPerUnit;
+    let best: { x: number; y: number } | null = null;
+    let bestCover = Infinity;
+    search: for (const sideways of [0, 1, -1, 2, -2, 3, -3]) {
+      for (const step of steps) {
+        const t = line.prefer + step;
+        if (t < 0.1 || t > 0.9) continue;
+        const spot = {
+          x: line.from.x + dx * t + side.x * nudge * sideways,
+          y: line.from.y + dy * t + side.y * nudge * sideways,
+        };
+        const box = { left: spot.x - halfWidth, top: spot.y - halfHeight,
+          right: spot.x + halfWidth, bottom: spot.y + halfHeight };
+        const outside = box.left < 0 || box.top < 0 || box.right > bounds.width || box.bottom > bounds.height;
+        const cover = taken.reduce((sum, other) => sum + overlapArea(box, other), 0) + (outside ? 1e6 : 0);
+        if (cover < bestCover) {
+          best = spot;
+          bestCover = cover;
+        }
+        if (cover === 0) break search;
+      }
+    }
+    const spot = best ?? { x: line.from.x + dx * line.prefer, y: line.from.y + dy * line.prefer };
+    const rounded = { x: Math.round(spot.x), y: Math.round(spot.y) };
+    placed.set(line.key, rounded);
+    taken.push({ left: rounded.x - halfWidth, top: rounded.y - halfHeight,
+      right: rounded.x + halfWidth, bottom: rounded.y + halfHeight });
+  }
+  return placed;
 }

@@ -38,11 +38,29 @@
  * swarm display." Then: "make it such that the helper is connected to other
  * agents in the swarm with the threads for messages it sends."
  */
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { makeStickyToggle } from '../terrain/codeHeatPref';
 import styles from './SwarmNetwork.module.css';
 import type { Swarm } from './swarmApi';
-import { countSpot, layoutSwarm, lineWidth, shortTitle } from './swarmNetworkMath';
+import {
+  layoutSwarm, lineWidth, nodeBoxes, NETWORK_WIDTH, placeCounts, shortTitle, type CountLine,
+} from './swarmNetworkMath';
+
+/** How wide the drawing is shown, in pixels, kept up to date as the page
+ * resizes (a ResizeObserver). Until it's measured, assume its narrowest:
+ * the canvas's min-width, 460px. */
+function useShownWidth() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(460);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width || 460));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width] as const;
+}
 
 /* The "hide retired" switch: a toggle that stays (localStorage), shared by
    every swarm drawing on every page, so hiding them once hides them
@@ -67,7 +85,26 @@ export function SwarmNetwork({
   const layout = layoutSwarm({ ...swarm, members });
   // The helper's threads only show when its seat does.
   const threads = swarm.helper_conv ? layout.helperThreads : [];
+  const [canvasRef, shownWidth] = useShownWidth();
   const at = new Map(layout.nodes.map((n) => [n.conv, n] as const));
+
+  // Place every message count where it covers no ring, name or other
+  // count (placeCounts). Talk counts go first and prefer their line's
+  // middle; the helper's prefer a little past halfway toward the member.
+  const pxPerUnit = shownWidth / NETWORK_WIDTH;
+  const obstacles = [
+    ...layout.nodes.flatMap((n) => nodeBoxes(n, shortTitle(n.title), pxPerUnit)),
+    ...(swarm.helper_conv ? nodeBoxes(layout.centre, 'Helper', pxPerUnit) : []),
+  ];
+  const countLines: CountLine[] = [
+    ...layout.talk.map((t) => ({
+      key: `t-${t.a}-${t.b}`, from: at.get(t.a)!, to: at.get(t.b)!, text: String(t.messages), prefer: 0.5,
+    })),
+    ...threads.map((t) => ({
+      key: `h-${t.conv}`, from: layout.centre, to: t, text: String(t.messages), prefer: 0.6,
+    })),
+  ];
+  const countAt = placeCounts(countLines, obstacles, pxPerUnit, layout);
   const titleOf = (conv: string) => at.get(conv)?.title ?? conv;
   // Place HTML over the drawing by percentage of its box.
   const place = (x: number, y: number): CSSProperties => ({
@@ -81,7 +118,7 @@ export function SwarmNetwork({
 
   return (
     <div className={styles.scroller}>
-      <div className={styles.canvas} style={{ aspectRatio: `${layout.width} / ${layout.height}` }}>
+      <div ref={canvasRef} className={styles.canvas} style={{ aspectRatio: `${layout.width} / ${layout.height}` }}>
         {/* The lines, underneath. Stroke widths stay in screen pixels. */}
         <svg
           className={styles.lines}
@@ -111,11 +148,9 @@ export function SwarmNetwork({
           })}
         </svg>
 
-        {/* How many messages each line carries, at its middle. */}
+        {/* How many messages each line carries, on its line, clear of the rest. */}
         {layout.talk.map((t) => {
-          const a = at.get(t.a)!;
-          const b = at.get(t.b)!;
-          const spot = countSpot(a, b, layout.centre);
+          const spot = countAt.get(`t-${t.a}-${t.b}`)!;
           return (
             <span
               key={`n-${t.a}-${t.b}`}
@@ -133,7 +168,7 @@ export function SwarmNetwork({
           <span
             key={`hn-${t.conv}`}
             className={[styles.count, styles.helperCount].join(' ')}
-            style={place(t.label.x, t.label.y)}
+            style={place(countAt.get(`h-${t.conv}`)!.x, countAt.get(`h-${t.conv}`)!.y)}
             title={`Helper → ${titleOf(t.conv)}: ${t.messages}`}
           >
             {t.messages}

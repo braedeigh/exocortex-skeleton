@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SwarmMember } from './swarmApi';
-import { centreOf, countSpot, foldLinks, layoutSwarm, lineWidth, NETWORK_WIDTH, placeRings, shortTitle } from './swarmNetworkMath';
+import { centreOf, foldLinks, nodeBoxes, placeCounts, layoutSwarm, lineWidth, NETWORK_WIDTH, placeRings, shortTitle } from './swarmNetworkMath';
 
 function member(conv: string): SwarmMember {
   return { conv, title: `title ${conv}`, lane: 'coding', state: 'silent', joined_at: '', summary: null, summary_at: null };
@@ -74,17 +74,6 @@ describe('the helper seat', () => {
     const [a, b] = placeRings(2);
     expect(centreOf([a, b])).toEqual({ x: (a.x + b.x) / 2, y: a.y });
   });
-
-  it('moves a message count off the middle when the helper sits there', () => {
-    const [a, b] = placeRings(2);
-    const spot = countSpot(a, b, centreOf([a, b]));
-    expect(spot.x).not.toBe((a.x + b.x) / 2);
-  });
-
-  it('leaves a message count at the middle when the helper is elsewhere', () => {
-    const spot = countSpot({ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 50, y: 300 });
-    expect(spot).toEqual({ x: 50, y: 0 });
-  });
 });
 
 describe('the helper threads', () => {
@@ -98,10 +87,33 @@ describe('the helper threads', () => {
     expect(layout.helperThreads.map((t) => [t.conv, t.messages])).toEqual([['a', 3]]);
   });
 
-  it('puts the count two-thirds of the way from the helper to the member', () => {
-    const layout = layoutSwarm({ members, links: [], continues: [], helper_links: [{ to: 'b', messages: 1 }] });
-    const [thread] = layout.helperThreads;
-    const b = layout.nodes[1];
-    expect(thread.label.x).toBe(Math.round(layout.centre.x + ((b.x - layout.centre.x) * 2) / 3));
+});
+
+describe('placing the message counts', () => {
+  const bounds = { width: NETWORK_WIDTH, height: 400 };
+  const overlaps = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+    Math.abs(a.x - b.x) < 30 && Math.abs(a.y - b.y) < 24;
+
+  it('keeps its preferred spot when nothing is in the way', () => {
+    const spots = placeCounts(
+      [{ key: 'a', from: { x: 100, y: 100 }, to: { x: 300, y: 100 }, text: '3', prefer: 0.5 }], [], 1, bounds);
+    expect(spots.get('a')).toEqual({ x: 200, y: 100 });
+  });
+
+  it('moves a count off a name it would cover', () => {
+    const name = nodeBoxes({ x: 200, y: 60 }, 'a fairly long session title', 1);
+    const spot = placeCounts(
+      [{ key: 'a', from: { x: 200, y: 60 }, to: { x: 200, y: 260 }, text: '1', prefer: 0.2 }], name, 1, bounds).get('a')!;
+    expect(name.every((box) => spot.y - 15 >= box.bottom || spot.y + 15 <= box.top
+      || spot.x + 22 <= box.left || spot.x - 22 >= box.right)).toBe(true);
+  });
+
+  it('never stacks two counts on one another', () => {
+    const lines = [
+      { key: 'talk', from: { x: 100, y: 200 }, to: { x: 500, y: 200 }, text: '2', prefer: 0.5 },
+      { key: 'helper', from: { x: 300, y: 200 }, to: { x: 500, y: 200 }, text: '1', prefer: 0 + 0.1 },
+    ];
+    const spots = placeCounts(lines, [], 1, bounds);
+    expect(overlaps(spots.get('talk')!, spots.get('helper')!)).toBe(false);
   });
 });
