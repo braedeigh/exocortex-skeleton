@@ -448,6 +448,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               heading={LANE_LABEL[lane]}
               blurb={LANE_INTRO[lane]}
               sessions={byLane(lane)}
+              roster={ordered}
               terrain={terrain}
               opened={opened}
               emptyNote={emptyNote}

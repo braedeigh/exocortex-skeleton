@@ -37,11 +37,16 @@ import styles from './SessionLane.module.css';
    like. Adding a state is a row in each table and a rule in the stylesheet —
    never another branch buried in the markup.
 
-   'rest' has no card class on purpose: a cold card is the plain card. */
+   'rest' has no card class on purpose: a cold card is the plain card. 'unread'
+   has none either: an unread reply is a plain grey card whose DOT stays orange
+   — only a session that needs her answer wears the orange card. (An asking
+   session normally draws as AwaitingCard/ApprovalCard; the row is here so the
+   table stays total.) */
 const CARD_CLASS: Record<CardState, string> = {
   error: 'cardError',
   running: 'cardLive',
-  unread: 'cardUnread',
+  asking: 'cardUnread',
+  unread: '',
   recent: 'cardRecent',
   rest: '',
 };
@@ -49,6 +54,7 @@ const CARD_CLASS: Record<CardState, string> = {
 const DOT_CLASS: Record<CardState, string> = {
   error: 'errorDot',
   running: 'liveDot',
+  asking: 'readyDot',
   unread: 'readyDot',
   recent: 'recentDot',
   rest: 'restDot',

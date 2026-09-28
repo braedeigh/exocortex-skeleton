@@ -1,10 +1,11 @@
 import { useNavigate } from '@tanstack/react-router';
 import { type SessionMeta } from './api';
-import { orchestraRows } from './orchestra';
+import { orchestraRows, type OrchestraRow } from './orchestra';
 import { ApprovalCard, AwaitingCard, SessionCard } from './SessionCard';
 import { LaneHead, useLaneOpen } from './LaneHead';
 import { SwarmCard } from './SwarmCard';
-import { swarmState, useSwarms } from './swarmApi';
+import { useSwarms } from './swarmApi';
+import { orderRoom, sessionTier, swarmTier, swarmView, type RoomPlace, type SwarmView } from './roomOrder';
 import type { TerrainData } from '../terrain/api';
 import styles from './SessionLane.module.css';
 
@@ -56,14 +57,19 @@ import styles from './SessionLane.module.css';
  *
  * SWARMS FOLD. Sessions that have messaged each other form a swarm
  * (swarms.py); in the room the swarm lives in, its members and its helper
- * leave the list and one SwarmCard stands for them, first in the room. The
+ * leave the list and one SwarmCard stands for them. The
  * swarm's own page reuses this same component for its members with
  * `swarmId` set, which shows them as ordinary cards instead of folding them.
  * The room's census still counts swarm members, so a shut room says so when
  * one of them needs her. Swarms come from one shared poll (swarmApi.useSwarms)
  * however many rooms are showing.
+ *
+ * ORANGE FIRST, LONGEST-WAITING ON TOP. Every card in a room — session or
+ * swarm — stands in one order: the ones stopped on her (orange) with the one
+ * that has waited longest first, then broken (red), then working (purple),
+ * then idle (grey), the last three in the page's own order. roomOrder.ts owns
+ * the rule; the swarm's own page gets it through this same component.
  */
-const STATE_RANK = { needs_input: 0, working: 1, silent: 2 } as const;
 
 export function SessionLane({
   laneKey,
@@ -82,6 +88,7 @@ export function SessionLane({
   onChanged,
   onClose,
   swarmId,
+  roster,
 }: {
   /** Which room this is — the key its open/shut state is remembered under, so
    * collapsing Coding doesn't also collapse Personal. */
@@ -121,6 +128,9 @@ export function SessionLane({
   /** Set on a swarm's own page: this lane IS the swarm, so its members show
    * as ordinary cards rather than folding into a swarm card. */
   swarmId?: number;
+  /** Every session the page knows, to read swarm members' colours from —
+   * members can live in other rooms. Defaults to this room's own sessions. */
+  roster?: SessionMeta[];
 }) {
   const navigate = useNavigate();
   // The Keeper's slot is never shut — it has no chevron to shut it with. The
@@ -135,7 +145,12 @@ export function SessionLane({
   // folds: it's the one card that must not hide.
   const { data: allSwarms } = useSwarms();
   const folding = !keeper && !bare && swarmId === undefined;
-  const swarmsHere = folding ? (allSwarms ?? []).filter((s) => s.lane === laneKey) : [];
+  // Each swarm read through the roster, so its colour follows the same rule as
+  // the session cards and its retired members drop out (roomOrder.swarmView).
+  const rosterById = new Map((roster ?? sessions).map((s) => [s.id, s]));
+  const swarmsHere: SwarmView[] = folding
+    ? (allSwarms ?? []).filter((s) => s.lane === laneKey).map((s) => swarmView(s, rosterById, opened))
+    : [];
   const inASwarm = new Set(
     !folding
       ? []
@@ -147,17 +162,34 @@ export function SessionLane({
   );
   const byId = new Map(sessions.map((s) => [s.id, s]));
 
-  // Urgency order, top to bottom: a gated command needing her OK (nothing moves
-  // until she taps) > waiting-on-her (a reply) > everything else, in lane order.
-  const approvals = rows.filter((r) => r.pendingApproval);
-  const waiting = rows.filter((r) => !r.pendingApproval && r.awaiting);
-  const rest = rows.filter((r) => !r.pendingApproval && !r.awaiting);
+  // Place every card in the room's one order (roomOrder.ts): sessions by their
+  // tier, swarms by theirs, each orange one by how long it has waited.
+  type Placed = { kind: 'row'; row: OrchestraRow } | { kind: 'swarm'; view: SwarmView };
+  const places: RoomPlace<Placed>[] = [
+    ...swarmsHere.map((view) => ({
+      item: { kind: 'swarm' as const, view },
+      tier: swarmTier(view),
+      waitingSince: view.waitingSince,
+    })),
+    ...rows.flatMap((row) => {
+      const meta = byId.get(row.id);
+      if (!meta) return [];
+      return [{
+        item: { kind: 'row' as const, row },
+        tier: sessionTier(meta, opened[row.id]),
+        waitingSince: meta.last_at,
+      }];
+    }),
+  ];
+  const ordered = orderRoom(places);
 
   // The census counts swarm members too, so a shut room still says a swarm
   // member needs her.
-  const needing =
-    approvals.length + waiting.length + swarmsHere.reduce((n, s) => n + s.counts.needs_input, 0);
-  const running = rest.filter((r) => r.running).length + swarmsHere.reduce((n, s) => n + s.counts.working, 0);
+  const asking = rows.filter((r) => r.pendingApproval || r.awaiting);
+  const needing = asking.length + swarmsHere.reduce((n, s) => n + s.counts.needs_input, 0);
+  const running =
+    rows.filter((r) => r.running && !r.pendingApproval && !r.awaiting).length +
+    swarmsHere.reduce((n, s) => n + s.counts.working, 0);
   // Drives the memory poll's cadence: quick while a turn is moving so a start
   // is caught in a couple of seconds, slow when the room is at rest.
   const anyRunning = rows.some((r) => r.running);
@@ -212,33 +244,26 @@ export function SessionLane({
       {head}
       {keeper || bare ? null : <p className={styles.blurb}>{blurb}</p>}
 
-      {swarmsHere.length > 0 ? (
-        <div className={styles.rows}>
-          {/* Swarms needing her first, then working, then resting. */}
-          {[...swarmsHere]
-            .sort((a, b) => STATE_RANK[swarmState(a)] - STATE_RANK[swarmState(b)])
-            .map((s) => (
-              <SwarmCard key={s.id} swarm={s} />
-            ))}
-        </div>
-      ) : null}
-
-      {rows.length === 0 && swarmsHere.length > 0 ? null : rows.length === 0 ? (
+      {ordered.length === 0 ? (
         <div className={styles.idle}>
           <span className={styles.idleDot} aria-hidden="true" />
           {emptyNote ?? 'Nothing here yet — tap + beside the heading to start one.'}
         </div>
       ) : (
         <div className={styles.rows}>
-          {approvals.map((row) => (
-            <ApprovalCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />
-          ))}
-
-          {waiting.map((row) => (
-            <AwaitingCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />
-          ))}
-
-          {rest.map((row) => {
+          {/* One card per place, drawn by what it is: a swarm, a gated
+              command, a question, or an ordinary session. */}
+          {ordered.map((placed) => {
+            if (placed.kind === 'swarm') {
+              return <SwarmCard key={`swarm-${placed.view.swarm.id}`} view={placed.view} />;
+            }
+            const { row } = placed;
+            if (row.pendingApproval) {
+              return <ApprovalCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />;
+            }
+            if (row.awaiting) {
+              return <AwaitingCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />;
+            }
             const meta = byId.get(row.id);
             if (!meta) return null;
             return (

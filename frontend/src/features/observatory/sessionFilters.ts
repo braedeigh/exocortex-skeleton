@@ -7,7 +7,8 @@
  *
  *   purple  RUNNING — a turn is in flight this second (the breathing one)
  *   purple  ACTIVE  — running, or it did anything in the last hour (steady)
- *   orange  UNREAD  — output she hasn't opened, or a session stopped to ask her
+ *   orange  UNREAD  — a session stopped to ask her (an orange card), or output
+ *                     she hasn't opened (a grey card with an orange dot)
  *   red     ERROR   — the last turn ended in failure / was aborted
  *
  * RUNNING nests inside ACTIVE rather than competing with it — same colour, and
@@ -89,7 +90,7 @@ export function sessionIs(
     case 'unread':
       // A session that stopped to ask counts as unread even if she has opened
       // it since: the ask is still standing there unanswered.
-      if (meta.awaiting_input || meta.awaiting_approval) return true;
+      if (isAsking(meta)) return true;
       return isUnread(meta.last_at, openedAt);
     case 'error':
       return typeof meta.last_error === 'string' && meta.last_error !== '';
@@ -103,13 +104,21 @@ export function sessionIs(
  *
  *   error    red     the last turn failed — broken beats everything
  *   running  purple  a turn is going right now; the card breathes
- *   unread   orange  she hasn't read it, or it stopped to ask — her move
+ *   asking   orange  it stopped to ask her something, or a command waits for
+ *                    her Approve/Deny — the only state that's truly orange
+ *   unread   grey    a reply she hasn't opened: a grey card with an orange dot
  *   recent   purple  used inside the hour but idle and read — warm, still
  *   rest     grey    cold
  *
  * ONE state per card, because a card can honestly be several of these at once
  * and stacking their glows would just muddy all of them. The order is by
  * urgency: what's broken beats what's busy beats what wants her.
+ *
+ * `asking` and `unread` used to be one orange state. Orange is now kept for
+ * the sessions that can't move until she answers; a reply merely waiting to be
+ * read goes quiet — grey, with only its dot still orange so it's findable.
+ * [prompt: "i want the orange ones to only be those that need input. if they
+ * are unread ... make them grey with an orange circle or something."]
  *
  * `recent` is the rung that was missing. The purple button counted these and
  * the card showed them grey — so the rail said "3 active" and the roster looked
@@ -121,7 +130,14 @@ export function sessionIs(
  * activated by the filter, like active within the last hour, glow purple also
  * on the cards and tied together procedurally".
  */
-export type CardState = 'error' | 'running' | 'unread' | 'recent' | 'rest';
+export type CardState = 'error' | 'running' | 'asking' | 'unread' | 'recent' | 'rest';
+
+/** Is this session stopped on her — a question it filed, or a gated command
+ * waiting for her tap. What makes a card orange, and what floats it to the top
+ * of its room (roomOrder.ts). */
+export function isAsking(meta: Pick<SessionMeta, 'awaiting_input' | 'awaiting_approval'>): boolean {
+  return Boolean(meta.awaiting_input || meta.awaiting_approval);
+}
 
 export function cardState(
   meta: SessionMeta,
@@ -130,6 +146,7 @@ export function cardState(
 ): CardState {
   if (sessionIs(meta, openedAt, 'error', nowMs)) return 'error';
   if (sessionIs(meta, openedAt, 'running', nowMs)) return 'running';
+  if (isAsking(meta)) return 'asking';
   if (sessionIs(meta, openedAt, 'unread', nowMs)) return 'unread';
   // Everything the purple button counts EXCEPT the running half, which already
   // has its own louder state above.
@@ -168,7 +185,8 @@ export function cardState(
 const FILTER_PAINT: Record<StateFilter, CardState[]> = {
   running: ['running'],
   active: ['running', 'recent'],
-  unread: ['unread'],
+  // Both carry orange: the asking card is orange, the unread card's dot is.
+  unread: ['asking', 'unread'],
   error: ['error'],
 };
 

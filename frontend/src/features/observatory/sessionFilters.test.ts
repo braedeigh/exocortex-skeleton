@@ -157,15 +157,27 @@ describe('cardState', () => {
     const busyAndUnread = session('b', { running: true, last_at: ago(1 * MIN) });
     expect(cardState(busyAndUnread, ago(90 * MIN), NOW)).toBe('running');
 
-    // Unread AND inside the hour — orange wins, because it wants something
-    // from her and 'recent' doesn't.
+    // Unread AND inside the hour — unread wins (a grey card with an orange
+    // dot), because it wants something from her and 'recent' doesn't.
     const unreadAndRecent = session('c', { last_at: ago(2 * MIN) });
     expect(cardState(unreadAndRecent, ago(90 * MIN), NOW)).toBe('unread');
   });
 
   it('keeps a session that stopped to ask orange even once opened', () => {
     const asking = session('a', { awaiting_input: 'which one?', last_at: ago(2 * MIN) });
-    expect(cardState(asking, ago(0), NOW)).toBe('unread');
+    expect(cardState(asking, ago(0), NOW)).toBe('asking');
+  });
+
+  it('keeps orange for asking — a reply merely unread is its own quieter state', () => {
+    const gated = session('a', { awaiting_approval: { command: 'rm -rf x' } as SessionMeta['awaiting_approval'] });
+    expect(cardState(gated, undefined, NOW)).toBe('asking');
+    expect(cardState(session('b'), undefined, NOW)).toBe('unread');
+  });
+
+  it('lets the orange button return both the asking cards and the unread ones', () => {
+    const asking = session('a', { awaiting_input: 'which?' });
+    const unread = session('b');
+    expect(applyFilter([asking, unread], {}, ['unread'], NOW)).toHaveLength(2);
   });
 
   it('reads the opened stamp for the session it belongs to', () => {

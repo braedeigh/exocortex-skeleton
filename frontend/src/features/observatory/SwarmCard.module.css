@@ -103,8 +103,25 @@
 
 .memberNeeds {
   border-left-color: var(--orange);
+  border-color: color-mix(in srgb, var(--orange) 55%, var(--border));
+  background: color-mix(in srgb, var(--orange) 8%, transparent);
 }
 
+/* Idle or done: grey all through, text included, so the working and waiting
+   chips are what the eye lands on. */
 .memberSilent {
   border-left-color: var(--border);
+  color: var(--text-secondary);
+}
+
+/* A silent member with a reply she hasn't read: the chip stays grey and only
+   this dot is orange — the same treatment as an unread session card. */
+.unreadDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--orange);
+  vertical-align: middle;
 }

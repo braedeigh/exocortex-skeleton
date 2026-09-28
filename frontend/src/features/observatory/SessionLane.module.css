@@ -658,25 +658,22 @@
   border-left-color: color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
-/* Output she hasn't opened yet. Orange, like everything else in this section
-   that wants her — but STEADY where .awaiting pulses, and without the filled
-   wash. "Needs an answer" and "needs reading" are the same family of thing;
-   the pulse is what separates the one that's blocked from the one that's just
-   sitting there. A left rule alone (what this used to be) lost that fight
-   against the live cards' breathing purple.
+/* A card that needs her answer, drawn as a plain card rather than as the
+   pulsing .awaiting box — a swarm card with a member waiting on her
+   (SwarmCard.tsx), or the rare asking session that reaches SessionCard. Orange,
+   but STEADY where .awaiting pulses, and without the filled wash.
 
-   Prompt that produced it: "the session card should glow orange if I haven't
-   opened it yet since it made an output". */
+   The class keeps its old name from when it also meant "unread". Unread
+   replies no longer wear it: they're plain grey cards with an orange dot, so
+   orange cards are only the ones that can't move until she answers
+   (sessionFilters.cardState). */
 .cardUnread {
   border-left-color: var(--orange);
   /* The rule carries most of the weight for the two states that need her eyes
      but aren't moving. A running card doesn't need it — it has its breath. */
   border-left-width: 5px;
   border-color: color-mix(in srgb, var(--orange) 55%, var(--border));
-  /* A WHISPER of wash — .awaiting sits at 9%. Unread is the common state (a
-     roster of a dozen-plus sessions is unread more often than not), so a full
-     wash would make the whole lane orange and leave the rare "nothing moves
-     until you act" card with nothing left to outrank it. */
+  /* A whisper of wash — .awaiting sits at 9%, and stays the loudest. */
   background: color-mix(in srgb, var(--orange) 4%, var(--card-bg));
   box-shadow: var(--shadow-card), 0 0 16px color-mix(in srgb, var(--glow-orange) 40%, transparent);
 }
