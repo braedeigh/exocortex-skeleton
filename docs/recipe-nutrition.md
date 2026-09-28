@@ -82,4 +82,45 @@ are shown, the stricter (lower) percentage is used.
 - `POST /api/food/foods/<id>/usda` `{fdc_id|null}` — which USDA entry a food is.
 
 All of it is hers: nothing here is in `public_config.PUBLIC_PATHS`, and the kitchen
-components don't fetch it for a visitor.
+components don't fetch it for a visitor. Shared recipes, below, are the one door out.
+
+## Sharing (recipe_shares.py, routes/recipe_share.py)
+
+Her decisions (2026-09-28): popular recipes are the ones people **explicitly share**
+(no outside recipe API); a shared link should reach people **outside the tailnet**,
+but through a public website that comes later; a shared recipe shows the
+**recipient's own** nutrient fit per serving.
+
+- **A share is a token.** `POST /api/recipes/<id>/share` gives the recipe's open
+  token, or makes one (`secrets.token_urlsafe`). `unshare` closes every open token
+  for it, and sharing again makes a new one, so a closed link never comes back.
+  Kept in `recipe_shares.json` (store.py, not SQL): `{shares: {token: {recipe_id,
+  created_at, revoked_at, views}}}`.
+- **What a visitor sees is an allow-list**: name, servings, prep/cook minutes,
+  source URL, ingredients (item, qty, note), steps (instructions and sections).
+  Never `my_notes`, `notes` or `tags`, her food guide, catalog safety, her USDA
+  choices' ids, or her targets. `recipe_nutrition.for_visitor` resolves the lines
+  with an empty guide and strips each line to text/amount/grams/USDA description/
+  histamine.
+- **Their targets, not hers.** The visitor types an age and sex. They ride as query
+  parameters and are never stored. `nutrition.report` is always called with an
+  explicit sex (`both` by default) and age (0 when none is given, which means no
+  targets), so her settings are never the fallback.
+- **A visitor never writes to the database.** Their requests skip
+  `foodstore.rebuild()` and read the recipe rows her own views last rebuilt. Sharing
+  rebuilds them, so a recipe is current when shared. An edit made after sharing
+  shows up once she next opens Kitchen.
+- **Popular** = every open share, most opened first. A view is counted when the page
+  first opens a recipe (`count=1`), not when the age box changes. It's a ranking
+  hint, not a measure: reloading on purpose inflates it.
+- **The visitor's filters** run in their page and aren't saved. "Foods you avoid"
+  matches whole words, singular or plural, against the ingredient items. "Low
+  histamine" hides recipes with a SIGHI-high line, and "Good for…" sorts by their
+  own % of target.
+- **Pages**: `/share/r/<token>` and `/share/recipes` are SPA routes drawn without the
+  shell (`routes/__root.tsx`). `/share/` and `/api/share/` are prefixes in
+  `public_config.PUBLIC_PATHS`, so they open without login. Her side
+  (`/api/recipes/shares`, `/share`, `/unshare`) stays behind it.
+- **Not yet**: reach beyond the tailnet (the public website), and recipes shared
+  from *other* exocortexes showing up in Popular (needs the Shape 1 grants and
+  Shape 3 exchange in dev_todo).

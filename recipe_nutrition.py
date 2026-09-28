@@ -32,7 +32,9 @@ Touches: `foodstore.py` (the recipe rows, the catalog, and the two tables this
 reads — `food_usda`, `recipe_line_grams`, rung 39 in `sqlstore.py`),
 `fdcdb.py` (entries and portions), `nutrition.py` (report, day_items,
 is_single_food), `histamine.py`, `store.py` (the food guide),
-`routes/recipe_nutrition.py` (the HTTP door),
+`routes/recipe_nutrition.py` (the HTTP door), `recipe_shares.py` (which
+reads `for_visitor`: a shared recipe worked out against someone else's targets,
+with nothing of hers in it),
 `tests/test_recipe_nutrition.py`. Design: docs/recipe-nutrition.md.
 
 Prompt that produced this file: "i'll want it to have shareable recipes and
@@ -432,6 +434,68 @@ def recipe(recipe_id):
                         "grams": sum(1 for line in lines if line["grams_source"] == "usda_portion")},
             "flags": _flags(lines), "gaps": gaps,
             "histamine_source": dict(source, loaded=bool(sighi))}
+
+
+def _context_for_visitor():
+    """What a visitor's view reads: no guide (hers stays hers), SIGHI, and no rebuild.
+
+    A visitor's request never writes. The recipe rows are the ones her own
+    views last rebuilt, and sharing a recipe rebuilds them (recipe_shares.share).
+    """
+    return (set(), set()), histamine.names(), histamine.SOURCE
+
+
+def _visitor_line(line):
+    """One resolved line with only what the recipe itself says: no catalog id, no flags of hers."""
+    usda = line["usda"]
+    return {"text": line["text"], "amount": line["amount"], "grams": line["grams"],
+            "grams_how": line["grams_how"],
+            "usda": {"description": usda["description"], "confirmed": usda["confirmed"]} if usda else None,
+            "histamine": line["histamine"]}
+
+
+def _visitor_report(commons, items, sex, age):
+    """nutrition.report for the visitor's own sex and age — never her settings.
+
+    An age of 0 means none given: totals come back, no targets. The report
+    then carries the visitor's own answer back, not the stand-in.
+    """
+    report = nutrition.report(commons, items, sex=sex or "both", age=age or 0)
+    report["age"] = age or None
+    return report
+
+
+def for_visitor(recipe_ids, sex=None, age=None):
+    """Shared recipes worked out for someone else, against THEIR targets.
+
+    Returns {recipe_id: {servings, per, lines, report, not_counted, flags,
+    histamine_source}}; unknown or archived ids are left out. Nothing of hers
+    rides along: no food guide flags, no catalog ids, no stale weights, no
+    targets from her settings. `sex` is 'female', 'male' or 'both'; `age` an
+    int or None. Used by recipe_shares.py.
+    """
+    guide, sighi, source = _context_for_visitor()
+    conn = sqlstore.open_db()
+    try:
+        recipes, own = _lines(conn, list(recipe_ids))
+        foods = _catalog(conn)
+    finally:
+        conn.close()
+    out = {}
+    with fdcdb.session() as commons:
+        fdc = functools.lru_cache(maxsize=None)(lambda fdc_id: fdcdb.food(commons, fdc_id))
+        for rid, one in recipes.items():
+            lines = _resolve(one, own, foods, guide, sighi, fdc)
+            flags = _flags(lines)
+            out[rid] = {
+                "servings": one["servings"], "per": "serving" if one["servings"] else "recipe",
+                "lines": [_visitor_line(line) for line in lines],
+                "report": _visitor_report(commons, _serving_items(one, lines), sex, age),
+                "not_counted": [line["text"] for line in lines if line["grams"] is None or not line["usda"]],
+                "flags": {key: flags[key] for key in
+                          ("histamine_high", "histamine_moderate", "histamine_unrated")},
+                "histamine_source": dict(source, loaded=bool(sighi))}
+    return out
 
 
 def overview():

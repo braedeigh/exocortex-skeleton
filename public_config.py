@@ -342,6 +342,12 @@ PRESENTABLE_PATHS = (
     # every write endpoint.
     "/food-map",
     "/api/data/ecosystem",
+    # Shared recipes (routes/recipe_share.py): a recipe she chose to share,
+    # opened by its link, and the list of every recipe she's shared. What a
+    # visitor may see of one is an allow-list in recipe_shares.py; a closed
+    # link 404s. Prefixes on purpose: every token is its own path.
+    "/share/",
+    "/api/share/",
 )
 
 _NOT_YET_PRESENTABLE = (

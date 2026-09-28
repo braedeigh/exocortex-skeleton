@@ -33,7 +33,7 @@ from routes import (
     observatory, swarms, terrain, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
     branches, worktree_map, sudo, recordings, research_room,
     sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
-    exposure, nutrition, georegions, transcripts, recipe_nutrition,
+    exposure, nutrition, georegions, transcripts, recipe_nutrition, recipe_share,
 )
 from routes.shell import VALID_TABS
 
@@ -1314,6 +1314,7 @@ swarms.register(app)
 exposure.register(app)
 nutrition.register(app)
 recipe_nutrition.register(app)
+recipe_share.register(app)
 georegions.register(app)
 transcripts.register(app)
 

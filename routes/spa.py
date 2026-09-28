@@ -163,6 +163,10 @@ def register(app):
     # hits Flask first — and the catch-all below only serves loose files out of
     # dist/, so without this line those all 404.
     @app.route("/build")
+    # Shared recipes: one by its link, and the list of all shared ones. Open
+    # to visitors (public_config.PUBLIC_PATHS); the page draws without the shell.
+    @app.route("/share/recipes")
+    @app.route("/share/r/<rest>")
     def spa_shell(tab=None, slug=None, rest=None):
         return _spa_response()
 

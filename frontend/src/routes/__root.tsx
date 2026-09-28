@@ -1,4 +1,4 @@
-import { createRootRoute, Outlet } from '@tanstack/react-router';
+import { createRootRoute, Outlet, useRouterState } from '@tanstack/react-router';
 import { SudoHost } from '../features/sudo/SudoHost';
 import { ApprovalsHost } from '../features/approvals';
 import { TopTabs } from '../shell/TopTabs';
@@ -29,7 +29,10 @@ export const Route = createRootRoute({
  * poll several times over and pop one approval sheet per tile.
  */
 function RootLayout() {
-  return useInPanel() ? <PanelRoot /> : <WindowRoot />;
+  // A shared recipe (/share/...) is someone else's page: no tabs, no shell.
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const inPanel = useInPanel();
+  return inPanel || pathname.startsWith('/share/') ? <PanelRoot /> : <WindowRoot />;
 }
 
 /** A tile: just the page, filling the tile's body. */

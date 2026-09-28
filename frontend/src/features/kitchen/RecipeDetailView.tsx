@@ -14,7 +14,8 @@
  * map's sources, the recipe with its lines resolved to foods (eco_recipes) and
  * the open requests (eco_requested). Below it, for her only, "Nutrients per
  * serving" (./RecipeNutrients.tsx): one serving against her daily targets,
- * and how each line was counted.
+ * and how each line was counted. Her Share button (./ShareRecipe.tsx) sits
+ * beside Edit and hands out a link to the recipe.
  */
 import { Link } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
@@ -24,6 +25,7 @@ import type { EcoRecipe } from '../ecosystem/types';
 import { SourceDot, SourceLink } from './ComesFrom';
 import { walkRecipeChain } from './recipeHelpers';
 import { RecipeNutrients } from './RecipeNutrients';
+import { ShareRecipe } from './ShareRecipe';
 import { Section } from './Section';
 import { isLinkRequested } from './requestState';
 import { traceSummary } from './traceSummary';
@@ -121,6 +123,7 @@ export function RecipeDetailView({
                 Send to list
               </button>
             </div>
+            <ShareRecipe recipeId={recipe.id} />
             <button
               type="button"
               className={styles.mutedBtn}

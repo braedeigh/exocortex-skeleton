@@ -177,14 +177,15 @@
         "georegions.py",
         "measures.py",
         "fdcdb.py", "dri.py", "nutrition.py", "nutrient_facts.py", "nutrient_storage.py", "histamine.py",
-        "recipe_nutrition.py"
+        "recipe_nutrition.py", "recipe_shares.py"
       ],
       "routes": [
         "kitchen",
         "food.py",
         "nutrition.py",
         "georegions.py",
-        "recipe_nutrition.py"
+        "recipe_nutrition.py",
+        "recipe_share.py"
       ],
       "frontend": [
         "kitchen",
