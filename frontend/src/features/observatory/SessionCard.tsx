@@ -17,6 +17,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { dispatchIntent } from '../../shell/panels/windowBus';
 import {
   forkConversation,
+  keepConversation,
   stopConversation,
   streamSend,
   type SessionMeta,
@@ -159,6 +160,47 @@ export function ApprovalCard({
         command={row.pendingApproval?.command ?? ''}
         onChanged={onChanged}
       />
+    </div>
+  );
+}
+
+/** "Done — closes at 8:15 PM", its note, and the Keep open button. */
+function DoneNote({
+  meta,
+  convId,
+  onChanged,
+}: {
+  meta: SessionMeta;
+  convId: string;
+  onChanged?: () => void;
+}) {
+  const [keeping, setKeeping] = useState(false);
+  const closesAt = new Date(meta.closes_at ?? '');
+  const when = Number.isNaN(closesAt.getTime())
+    ? 'soon'
+    : closesAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return (
+    <div className={styles.doneNote}>
+      <div className={styles.doneText}>
+        <strong>Done</strong> — closes itself at {when}
+        {meta.done_note ? <div className={styles.doneWhat}>{meta.done_note}</div> : null}
+      </div>
+      <button
+        type="button"
+        className={styles.keepBtn}
+        disabled={keeping}
+        onClick={() => {
+          setKeeping(true);
+          keepConversation(convId)
+            .then(() => onChanged?.())
+            .catch(() => {
+              /* a failed keep leaves the countdown showing — the poll re-syncs */
+            })
+            .finally(() => setKeeping(false));
+        }}
+      >
+        Keep open
+      </button>
     </div>
   );
 }
@@ -482,6 +524,14 @@ export function SessionCard({
           broke", which sends her into the session to find out what — the
           whole point of the card is to answer that from the lane. */}
       {row.error ? <div className={styles.errorNote}>{row.error}</div> : null}
+      {/* Done, and about to close itself. The session said its work is
+          finished (scripts/session_done.py); the server closes it at the time
+          shown unless she taps Keep open or anything starts a new turn in it.
+          [prompt: "make sure that sessions that are completely done get auto
+          closed"] */}
+      {meta.done_at && !row.running ? (
+        <DoneNote meta={meta} convId={row.id} onChanged={onChanged} />
+      ) : null}
       {/* One tap to put the session back on its feet. No confirm — it's a
           retry, not a destructive act.
 

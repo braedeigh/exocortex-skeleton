@@ -999,3 +999,48 @@
     animation: none;
   }
 }
+
+/* Done, closing itself soon: the session said its work is finished. Quiet
+   green, with Keep open at full tap size so cancelling is easy. */
+.doneNote {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--green) 45%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+}
+
+.doneText {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  line-height: 1.4;
+}
+
+.doneWhat {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.keepBtn {
+  flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.keepBtn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}

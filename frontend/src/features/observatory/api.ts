@@ -178,6 +178,14 @@ export interface SessionMeta {
    * via scripts/request_input.py — the question text. Its Orchestra card glows
    * orange until her next send into the session clears it (server-side). */
   awaiting_input?: string;
+  /** The session said its work is finished (scripts/session_done.py) at this
+   * time. A new turn starting, or her Keep open, clears it along with
+   * closes_at and done_note (routes/observatory.py). */
+  done_at?: string;
+  /** When the minute tick will close it, set with done_at. */
+  closes_at?: string;
+  /** Its one line about what was finished, when it gave one. */
+  done_note?: string;
   /** Which model this session's next turn will actually run on — its own pin
    * if it has one, else the CLI's own default, resolved server-side. Absent
    * only when neither says anything. Read-only, for SHOWING: the ✎ dialog seeds
@@ -395,6 +403,11 @@ export function journalHighlight(
  * pinned Keeper session refuses (400). */
 export function closeConversation(id: string): Promise<{ ok: true }> {
   return api.post(`/api/observatory/conversation/${encodeURIComponent(id)}/close`, {});
+}
+
+/** Keep open: cancel a finished session's countdown to closing itself. */
+export function keepConversation(id: string): Promise<{ ok: true }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(id)}/keep`, {});
 }
 
 /** Stop a running turn on purpose — the stop button's door. This is the only

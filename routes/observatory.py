@@ -38,7 +38,7 @@ Headless mode authenticates exactly like interactive Claude Code (the owner's
 subscription login, or an API key on a fresh install) — no separate billing.
 """
 from flask import request, jsonify, Response, has_request_context
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import fcntl
 import json
@@ -1504,6 +1504,245 @@ def request_input(conv_id, question):
     return {"ok": True, "awaiting_input": question}, 200
 
 
+# --- Done: a finished session closes itself, unless she keeps it -------------
+# A session whose job is finished says so through scripts/session_done.py. That
+# stamps `done_at` and `closes_at` on its entry; the card shows "done — closes
+# at …" with a Keep open button, and the minute tick
+# (scripts/coming_up_dispatcher.py) closes it once `closes_at` has passed,
+# DONE_GRACE_MINUTES after the stamp. Any turn starting in the session —
+# her reply, a peer's message, a finished job waking it — clears the stamp, so
+# "not done after all" needs no separate gesture. Closing is the same close her
+# × does (close_conversation), and sending into a closed session reopens it.
+#
+# Prompt: "also need to make sure that sessions that are completely done get
+# auto closed."
+
+DONE_GRACE_MINUTES = 120
+_DONE_NOTE_MAX = 300
+# Where scripts/run_detached.py keeps its jobs — the same env override and
+# default as that script's JOBS_DIR, read here so a session with a job still
+# running is never closed under it.
+_JOBS_DIR = Path(os.environ.get("EXOCORTEX_JOBS_DIR") or "/var/tmp/exo-jobs")
+
+
+def _unfinished_jobs(conv_id):
+    """Detached jobs this conversation launched that haven't finished yet."""
+    jobs = []
+    try:
+        for meta_path in _JOBS_DIR.glob("*/meta.json"):
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if meta.get("conv_id") == conv_id and not meta.get("finished_at"):
+                jobs.append(meta.get("label") or meta.get("id"))
+    except OSError:
+        pass
+    return jobs
+
+
+def _why_not_done(conv_id, entry):
+    """The reason a session can't be marked done or closed yet, or None."""
+    if entry.get("pinned"):
+        return "the pinned Keeper session stays open"
+    if entry.get("awaiting_input"):
+        return "it is still waiting on an answer from the owner"
+    if entry.get("spinoff_offer"):
+        return "it has a Go button waiting for the owner"
+    if _read_approvals(conv_id).get("pending"):
+        return "it has a command waiting for the owner's approval"
+    jobs = _unfinished_jobs(conv_id)
+    if jobs:
+        return "a detached job is still running: " + ", ".join(jobs)
+    return None
+
+
+def mark_done(conv_id, note=""):
+    """Stamp a session done, starting its countdown to closing. The one door
+    scripts/session_done.py uses. Returns (payload, status): 400 on a bad id
+    or a reason it can't be done yet, 404 on an unknown conversation."""
+    if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
+        return {"error": "invalid conversation id"}, 400
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        reason = _why_not_done(conv_id, entry)
+        if reason:
+            return {"error": f"not done: {reason}"}, 400
+        entry["done_at"] = _now()
+        entry["closes_at"] = (datetime.now() + timedelta(minutes=DONE_GRACE_MINUTES)
+                              ).isoformat(timespec="seconds")
+        note = (note or "").strip()[:_DONE_NOTE_MAX]
+        if note:
+            entry["done_note"] = note
+        else:
+            entry.pop("done_note", None)
+    return {"ok": True, "done_at": entry["done_at"],
+            "closes_at": entry["closes_at"]}, 200
+
+
+def keep_open(conv_id):
+    """Cancel a done countdown — her Keep open button. Returns (payload, status)."""
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        entry.pop("done_at", None)
+        entry.pop("done_note", None)
+        entry.pop("closes_at", None)
+    return {"ok": True}, 200
+
+
+def close_conversation(conv_id):
+    """Close a session: stop any live turn, take it off the roster, clean up.
+    Nothing is deleted — the jsonl log and index entry stay. The pinned Keeper
+    session always stays open. Returns (payload, status).
+
+    Closing STOPS a running turn (same kill path as /stop): the subprocess is
+    killed if this worker owns it, else the owning worker is flagged via
+    stop_requested. Pinned is checked FIRST, so refusing to close the Keeper
+    never kills its turn."""
+    _chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        if entry.get("pinned"):
+            return {"error": "the pinned Keeper session stays open"}, 400
+        if not _kill_local_proc(conv_id) and entry.get("running"):
+            entry["stop_requested"] = _now()
+        entry["archived"] = _now()
+        entry.pop("done_at", None)
+        entry.pop("done_note", None)
+        entry.pop("closes_at", None)
+        reap = entry.get("worktree")
+        filed = entry.get("spinoff_slug")
+    # Outside the lock (git is slow, every send wants this lock). Closing is
+    # the ONE moment a worktree can be removed safely: it's the session's
+    # cwd, and a conversation can only ever be resumed from the directory it
+    # was born in — so while the session is open, deleting the copy would
+    # silently make it unresumable forever. The BRANCH survives; that's
+    # where the work is until it's merged.
+    if reap:
+        worktrees.remove(reap)
+    # Closing is also when the brief stops being live work and becomes a
+    # record. It is MOVED, never deleted — the brief is the only thing that
+    # says what this session was asked to do, and git can show what changed
+    # but never what was wanted. Import here, not at module top: spinoff
+    # imports this module.
+    if filed:
+        from routes.spinoff import archive_spinoff
+        archive_spinoff(filed)
+    return {"ok": True}, 200
+
+
+def close_done_sessions(now=None):
+    """Close every session whose done countdown has run out. Returns the ids
+    closed. Called once a minute by scripts/coming_up_dispatcher.py.
+
+    Re-checks at close time what mark_done checked, plus that no turn is
+    running: something may have started since the stamp (a turn clears it
+    anyway, but a job or an approval can appear without one)."""
+    now = now or datetime.now()
+    due = []
+    for conv_id, entry in store.read("bot_chats/index", {}).items():
+        if not isinstance(entry, dict) or entry.get("archived"):
+            continue
+        try:
+            closes_at = datetime.fromisoformat(str(entry.get("closes_at")))
+        except ValueError:
+            continue
+        if closes_at <= now and not _effective_running(conv_id, entry) \
+                and not _why_not_done(conv_id, entry):
+            due.append(conv_id)
+    closed = []
+    for conv_id in due:
+        _, status = close_conversation(conv_id)
+        if status == 200:
+            closed.append(conv_id)
+    return closed
+
+
+# --- Idle check: a session quiet for a day asks itself whether it's done ------
+# The backstop for sessions that finished without running session_done.py.
+# Once a session has sat idle IDLE_CHECK_HOURS, the minute tick wakes it with
+# one System message asking it to look at its own job: finished → it runs
+# session_done.py (the usual countdown and Keep open button follow); not
+# finished → it says in a line what's left, and stays. `idle_check_at` marks
+# the ask, so each quiet spell is asked about once; the woken turn moves
+# `last_at`, so a session that stays gets asked again a day later. Sessions
+# that can't be done anyway (_why_not_done) and ones already counting down
+# are skipped. At most IDLE_CHECKS_PER_TICK wake per minute, oldest first, so
+# a backlog of old sessions trickles in instead of starting all at once.
+#
+# Prompt: "1 day i think it will check itself and see if it should still be
+# running and if not close itself"
+
+IDLE_CHECK_HOURS = 24
+IDLE_CHECKS_PER_TICK = 2
+IDLE_CHECK_SOURCE = "idle-check"
+
+
+def idle_check_message(idle_hours):
+    """What the woken session is told, and how the chat and journal show it.
+    Returns (text, system) — the follow-up queue's pair, as in
+    scripts/run_detached.py wake_message."""
+    done_script = Path(__file__).resolve().parents[1] / "scripts" / "session_done.py"
+    python = Path(__file__).resolve().parents[1] / "venv" / "bin" / "python3"
+    summary = f"Idle check — no activity for {idle_hours} hours; is this session done?"
+    text = (
+        f"[Idle check — this session has had no activity for {idle_hours} hours]\n"
+        "Look at what this session was started for and where it stands. "
+        "Don't start new work.\n"
+        "- If the job is completely finished (work committed, result reported, "
+        "nothing waiting on the owner), close it: "
+        f'`{python} {done_script} "<one line: what was finished>"`.\n'
+        "- If it isn't, say in one or two lines what's left and why this "
+        "session should stay open, then end the turn."
+    )
+    system = {"display": summary, "journal": summary, "source": IDLE_CHECK_SOURCE,
+              "item_id": None}
+    return text, system
+
+
+def idle_check_sessions(now=None):
+    """Wake sessions idle past IDLE_CHECK_HOURS with the idle-check question.
+    Returns the ids woken. Called once a minute by
+    scripts/coming_up_dispatcher.py."""
+    now = now or datetime.now()
+    cutoff = now - timedelta(hours=IDLE_CHECK_HOURS)
+    # Pick the sessions that are idle, unasked since, and could be done.
+    candidates = []
+    for conv_id, entry in store.read("bot_chats/index", {}).items():
+        if not isinstance(entry, dict) or entry.get("archived") or entry.get("done_at"):
+            continue
+        last_seen = str(entry.get("last_at") or entry.get("started") or "")
+        try:
+            last = datetime.fromisoformat(last_seen)
+        except ValueError:
+            continue
+        if last > cutoff or str(entry.get("idle_check_at") or "") >= last_seen:
+            continue
+        if _effective_running(conv_id, entry) or _why_not_done(conv_id, entry):
+            continue
+        candidates.append((last, conv_id))
+    # Stamp the ask BEFORE queueing, so a crash between the two costs one
+    # check rather than a check every minute.
+    woken = []
+    for last, conv_id in sorted(candidates)[:IDLE_CHECKS_PER_TICK]:
+        with store.mutate("bot_chats/index", {}) as index:
+            entry = index.get(conv_id)
+            if not isinstance(entry, dict):
+                continue
+            entry["idle_check_at"] = _now()
+        idle_hours = int((now - last).total_seconds() // 3600)
+        text, system = idle_check_message(idle_hours)
+        queue_followup(conv_id, text, system=system)
+        woken.append(conv_id)
+    return woken
+
+
 # --- Act-vs-ask APPROVALS: the inline Approve/Deny for a gated command -------
 # When the gate (tools/act_ask_gate.py) would deny a Bash command in a real
 # spawned turn, it records it as `pending` in a per-conversation sidecar
@@ -2476,43 +2715,15 @@ def register(app):
     @app.route("/api/observatory/conversation/<conv_id>/close", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/close", methods=["POST"])
     def bot_conv_close(conv_id):
-        """Close a session: it stops any live turn, then leaves the roster.
-        Nothing is deleted — the jsonl log and index entry stay (her record is
-        the record). The pinned Keeper session always stays open.
+        """Close a session by hand — her ×. The work is close_conversation."""
+        payload, status = close_conversation(conv_id)
+        return jsonify(payload), status
 
-        Closing STOPS a running turn (same kill path as /stop): the subprocess
-        is killed if this worker owns it, else the owning worker is flagged via
-        stop_requested. Pinned is checked FIRST, so refusing to close the Keeper
-        never kills its turn."""
-        _chats_dir()
-        with store.mutate("bot_chats/index", {}) as index:
-            entry = index.get(conv_id)
-            if not isinstance(entry, dict):
-                return jsonify({"error": "not found"}), 404
-            if entry.get("pinned"):
-                return jsonify({"error": "the pinned Keeper session stays open"}), 400
-            if not _kill_local_proc(conv_id) and entry.get("running"):
-                entry["stop_requested"] = _now()
-            entry["archived"] = _now()
-            reap = entry.get("worktree")
-            filed = entry.get("spinoff_slug")
-        # Outside the lock (git is slow, every send wants this lock). Closing is
-        # the ONE moment a worktree can be removed safely: it's the session's
-        # cwd, and a conversation can only ever be resumed from the directory it
-        # was born in — so while the session is open, deleting the copy would
-        # silently make it unresumable forever. The BRANCH survives; that's
-        # where the work is until it's merged.
-        if reap:
-            worktrees.remove(reap)
-        # Closing is also when the brief stops being live work and becomes a
-        # record. It is MOVED, never deleted — the brief is the only thing that
-        # says what this session was asked to do, and git can show what changed
-        # but never what was wanted. Import here, not at module top: spinoff
-        # imports this module.
-        if filed:
-            from routes.spinoff import archive_spinoff
-            archive_spinoff(filed)
-        return jsonify({"ok": True})
+    @app.route("/api/observatory/conversation/<conv_id>/keep", methods=["POST"])
+    def bot_conv_keep(conv_id):
+        """Keep open: cancel a done session's countdown to closing."""
+        payload, status = keep_open(conv_id)
+        return jsonify(payload), status
 
     @app.route("/api/observatory/conversation/<conv_id>/evidence", methods=["GET"])
     def observatory_conv_evidence(conv_id):
@@ -3366,6 +3577,12 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         # /atlas already shows archived sessions and navigates into them,
         # so the only missing half was making them live again on contact.)
         entry.pop("archived", None)
+        # A turn starting means the session isn't done after all — her reply,
+        # a peer's message, a job waking it. The countdown to closing stops;
+        # the session can mark itself done again when it really is.
+        entry.pop("done_at", None)
+        entry.pop("done_note", None)
+        entry.pop("closes_at", None)
         # A staged kickoff (from /spinoff or a saved draft) is consumed
         # by the first send that fires it. `autostart` (set by /spinoff so
         # the Observatory auto-fires the kickoff on open) is cleared on the

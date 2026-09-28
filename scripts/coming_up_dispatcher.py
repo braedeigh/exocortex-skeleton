@@ -27,7 +27,11 @@ Rules, in order:
 Then, as a safety net, it starts any follow-up that's still waiting on an
 idle conversation — e.g. an approval whose turn process was killed — and
 does the same for the agents' mailbox (peermail.py): a message waiting for a
-session that's idle starts its turn here if nothing else did.
+session that's idle starts its turn here if nothing else did. The same
+minute also closes finished sessions whose done countdown has run out
+(scripts/session_done.py marks them; routes/observatory.py close_done_sessions),
+and wakes any session idle for a day to ask itself whether it's done
+(idle_check_sessions).
 
 Run by cron (the owner wires the crontab):
 
@@ -36,7 +40,8 @@ Run by cron (the owner wires the crontab):
         /opt/exocortex/skeleton/scripts/coming_up_dispatcher.py >> ...log 2>&1
 
 Touches: `comingup.py` (what's due, marking it), `routes/observatory.py`
-(queue_followup / drain_all_followups / drain_all_inbox), `scripts/keeper_rollover.py` (finding
+(queue_followup / drain_all_followups / drain_all_inbox /
+close_done_sessions / idle_check_sessions), `scripts/keeper_rollover.py` (finding
 the pinned Keeper, the rollover lock), `tests/test_coming_up_dispatcher.py`.
 
 Prompt that produced this: "I'm also wanting something that can inject a
@@ -145,6 +150,24 @@ def main():
             _log(f"started {ran} swarm helper run(s)")
     except Exception as e:
         _log(f"swarm helper tick failed: {e}")
+    # Finished sessions whose countdown has run out close here
+    # (routes/observatory.py close_done_sessions). Ahead of the Coming up
+    # switch for the same reason as the mailbox: it isn't a reminder.
+    try:
+        closed = rr.close_done_sessions()
+        if closed:
+            _log(f"closed {len(closed)} finished session(s): {', '.join(closed)}")
+    except Exception as e:
+        _log(f"closing finished sessions failed: {e}")
+    # Sessions idle for a day get asked whether they're done
+    # (routes/observatory.py idle_check_sessions) — the backstop for the ones
+    # that finished without saying so.
+    try:
+        asked = rr.idle_check_sessions()
+        if asked:
+            _log(f"idle check woke {len(asked)} session(s): {', '.join(asked)}")
+    except Exception as e:
+        _log(f"idle check failed: {e}")
     if not _is_enabled():
         return 0
     if keeper_rollover.rollover_running():

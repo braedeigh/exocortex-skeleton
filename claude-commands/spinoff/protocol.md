@@ -33,3 +33,6 @@ in the chat was the brief. In order:
    the conversation, not in a file. Short: what changed, what it could break,
    what you're not sure about. Don't claim your work passes; say what you
    actually ran. Say it even if you parked or failed; especially then.
+   If the job is completely finished and nothing waits on the owner, end by
+   running `scripts/session_done.py "<what was finished>"` so the session
+   closes itself (see CLAUDE.md). Parked or waiting on an answer: don't.
