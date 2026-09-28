@@ -593,7 +593,9 @@
         "transcript_import.py",
         "transcriptstore.py"
       ],
-      "routes": [],
+      "routes": [
+        "transcripts.py"
+      ],
       "frontend": [],
       "tools": [],
       "scripts": [
