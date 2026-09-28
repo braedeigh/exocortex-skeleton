@@ -10,6 +10,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Button } from '../../ui';
 import type { AddCategoryPayload, AddExpensePayload } from './api';
+import { promptNewCategory } from './newCategory';
 import { suggestCategory } from './quickCategory';
 import type { Budget, Expense } from './types';
 import styles from './money.module.css';
@@ -54,21 +55,12 @@ export function QuickExpense({ budget, todayStr, expenses, onAdd, onAddCategory 
     setPickedCategory('');
   }
 
-  // Add a category right here instead of in Budget setup, then select it.
-  // window.prompt matches the statement preview's + button.
+  // Add a category right here instead of in Budget setup, then select it
+  // (newCategory.ts, shared with the Spending-by-month drill-down).
   // Prompt: "first add the ability to add a category and then i can go back and reorganize."
   async function newCategory() {
-    const name = (window.prompt('New category name:', '') || '').trim();
-    if (!name) return;
-    const existing = offered.find((c) => c.toLowerCase() === name.toLowerCase());
-    if (!existing) {
-      try {
-        await onAddCategory({ name, planned: 0, type: 'variable' });
-      } catch {
-        return; // failure already toasted
-      }
-    }
-    setPickedCategory(existing || name);
+    const name = await promptNewCategory(offered, onAddCategory);
+    if (name) setPickedCategory(name);
   }
 
   function onEnter(e: React.KeyboardEvent) {

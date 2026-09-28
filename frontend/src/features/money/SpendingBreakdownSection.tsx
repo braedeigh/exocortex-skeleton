@@ -3,13 +3,17 @@
  * Each month opens to an earned-vs-spent gauge, then a split by kind
  * (Recurring / Can cut back / One-time / Not sorted), then one bar per
  * category. Tapping a category bar drills into its transactions, where each
- * can be renamed, recategorized, or given a receipt photo.
+ * can be renamed, recategorized, or given a receipt photo. The category
+ * dropdown ends with "+ New category…", which makes the category and files
+ * the expense under it in one go (newCategory.ts).
  *
  * The math lives in moneyMath.ts (groupByMonth, incomeGauge, monthKindSplit,
  * monthBars). A category's kind is set in Budget setup (BudgetConfigSection.tsx);
  * one-time things are marked in the statement preview or Recent expenses.
  */
 import { useState } from 'react';
+import type { AddCategoryPayload } from './api';
+import { NEW_CATEGORY_OPTION, promptNewCategory } from './newCategory';
 import { Section } from './Section';
 import {
   drillTransactions,
@@ -34,6 +38,8 @@ export interface SpendingBreakdownSectionProps {
   categories: BudgetCategory[];
   onUpdateExpense: (patch: { id: string; category?: string; title?: string; learn_label_rule?: boolean }) => void;
   onUploadReceipt: (id: string, file: File) => void;
+  /** Saves a new budget category (the same call Budget setup's Add makes). */
+  onAddCategory: (payload: AddCategoryPayload) => Promise<unknown>;
 }
 
 interface Drill {
@@ -110,11 +116,24 @@ function DrillTable({
   knownCategories,
   onUpdateExpense,
   onUploadReceipt,
+  onAddCategory,
 }: {
   items: Expense[];
   category: string;
 } & Omit<SpendingBreakdownSectionProps, 'expenses' | 'categories'>) {
   const matching = drillTransactions(items, category);
+
+  // Recategorize an expense, or make a new category and file it there.
+  // Prompt: "there is still no way to add from the uncategorized dropdown on the monthly spending"
+  async function pickCategory(expenseId: string, value: string) {
+    if (value !== NEW_CATEGORY_OPTION) {
+      onUpdateExpense({ id: expenseId, category: value });
+      return;
+    }
+    const name = await promptNewCategory(knownCategories, onAddCategory);
+    if (name) onUpdateExpense({ id: expenseId, category: name });
+  }
+
   if (!matching.length) {
     return <div className={styles.drillEmpty}>No transactions.</div>;
   }
@@ -146,7 +165,7 @@ function DrillTable({
                     className={styles.drillSelect}
                     value={e.category || 'Uncategorized'}
                     aria-label="Category"
-                    onChange={(ev) => onUpdateExpense({ id: e.id, category: ev.target.value })}
+                    onChange={(ev) => pickCategory(e.id, ev.target.value)}
                   >
                     <option value="Uncategorized">— Uncategorized —</option>
                     {knownCategories
@@ -156,6 +175,7 @@ function DrillTable({
                           {c}
                         </option>
                       ))}
+                    <option value={NEW_CATEGORY_OPTION}>+ New category…</option>
                   </select>
                 </td>
               </tr>
@@ -249,6 +269,7 @@ export function SpendingBreakdownSection({
   categories,
   onUpdateExpense,
   onUploadReceipt,
+  onAddCategory,
 }: SpendingBreakdownSectionProps) {
   const [drill, setDrill] = useState<Drill | null>(null);
   if (!expenses.length) return null;
@@ -324,6 +345,7 @@ export function SpendingBreakdownSection({
                       knownCategories={knownCategories}
                       onUpdateExpense={onUpdateExpense}
                       onUploadReceipt={onUploadReceipt}
+                      onAddCategory={onAddCategory}
                     />
                   ) : null}
                 </div>

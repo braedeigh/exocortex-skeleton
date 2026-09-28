@@ -137,6 +137,7 @@ export function MoneyPage() {
           categories={budgetView.categories || []}
           onUpdateExpense={expenseActions.update}
           onUploadReceipt={expenseActions.uploadReceipt}
+          onAddCategory={budgetActions.addCategory}
         />
 
         <ThisMonthSection budget={budgetView} expenses={expenses} masked={masked} />
