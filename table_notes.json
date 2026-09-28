@@ -1287,6 +1287,113 @@
       }
     }
   },
+  "session_summaries": {
+    "holds": "The room helper's summary of each session working alone — what it's doing now and what it's waiting on. Swarm members' summaries live on swarm_members; this is the same thing for everyone else.",
+    "source": "Written by the room helper (room_helper.py) each time it runs; each new summary replaces the old.",
+    "kind": "record",
+    "time_column": "summary_at",
+    "columns": {
+      "conv": {
+        "holds": "The session."
+      },
+      "summary": {
+        "holds": "The summary."
+      },
+      "summary_at": {
+        "holds": "When it was written."
+      }
+    }
+  },
+  "swarm_pins": {
+    "holds": "Where the room helper placed a session: in a swarm, or released to work alone. A placement overrides the messages the session exchanged before it, so a swarm glued together by old messages can come apart.",
+    "source": "Written by swarms.place when the room helper (or scripts/room_moves.py) makes a move; put back by an undo.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "conv": {
+        "holds": "The session."
+      },
+      "swarm_id": {
+        "holds": "The swarm it was placed in; empty means released to work alone."
+      },
+      "at": {
+        "holds": "When — messages sent at or before this no longer link it."
+      },
+      "move_id": {
+        "holds": "The move that placed it (room_moves)."
+      }
+    }
+  },
+  "room_moves": {
+    "holds": "Every move the room helper made — forming, joining, splitting or releasing swarms — with its reason and what it replaced, so any move can be undone.",
+    "source": "Written by room_helper.execute, from its runs or from scripts/room_moves.py; undone_at set by an undo.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "The move's number — what an undo names."
+      },
+      "at": {
+        "holds": "When it was made."
+      },
+      "room": {
+        "holds": "Which room."
+      },
+      "kind": {
+        "holds": "form, join, split or release."
+      },
+      "convs": {
+        "holds": "The sessions moved, as a JSON list, continuations included."
+      },
+      "from_swarm": {
+        "holds": "The swarm they left, if any."
+      },
+      "to_swarm": {
+        "holds": "The swarm they went to; empty for a release."
+      },
+      "reason": {
+        "holds": "Why, in plain words."
+      },
+      "before": {
+        "holds": "Each session's placement before the move, as JSON — what an undo puts back."
+      },
+      "undone_at": {
+        "holds": "When she undid it, if she did."
+      }
+    }
+  },
+  "room_helper_runs": {
+    "holds": "Every time a room's helper ran: what started it, the exact input it was given, what it wrote back, what it cost, and any error — so what the helper used is always visible.",
+    "source": "Written by the room helper runner each time it runs.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "The run's number."
+      },
+      "room": {
+        "holds": "Which room."
+      },
+      "at": {
+        "holds": "When it ran."
+      },
+      "trigger": {
+        "holds": "What woke it."
+      },
+      "input": {
+        "holds": "Everything the helper was given, verbatim."
+      },
+      "output": {
+        "holds": "What it wrote back, verbatim."
+      },
+      "cost_usd": {
+        "holds": "What the run cost."
+      },
+      "error": {
+        "holds": "What went wrong, if it failed."
+      }
+    }
+  },
   "tool_calls": {
     "holds": "Every tool an agent ran: when, which tool, what it was pointed at (the file, the command, the search pattern), the full input as JSON (capped), and once the result came back, how long it took, how big the result was and whether it errored. Subagent calls carry the call that spawned them.",
     "source": "Built by toolcallstore.py by reading the Observatory's conversation logs under the data folder's bot_chats/ and Claude Code's own transcripts under ~/.claude/projects. Re-readable at any time, so it can be dropped and rebuilt with scripts/usage_events.py --rebuild.",

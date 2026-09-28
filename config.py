@@ -141,6 +141,15 @@ SWARM_HELPER_TIMEOUT_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_TIMEOUT_SE
 # The helper's chat (helper_chat.py) starts every turn fresh, seeded with the
 # swarm, the chat summary, and this many of the owner's latest messages word for word.
 HELPER_CHAT_MESSAGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_MESSAGES", "10"))
+# The room helper (room_helper.py), a layer above the swarm helpers: the rooms
+# that have one, how often at most it runs (only when something in the room
+# has happened since), and the window within which members who messaged each
+# other count as one cluster — clusters active together within it are never split.
+ROOM_HELPER_ROOMS = tuple(
+    room.strip() for room in os.environ.get("EXOCORTEX_ROOM_HELPER_ROOMS", "coding").split(",")
+    if room.strip())
+ROOM_HELPER_MIN_SEC = int(os.environ.get("EXOCORTEX_ROOM_HELPER_MIN_SEC", "900"))
+ROOM_HELPER_QUIET_HOURS = float(os.environ.get("EXOCORTEX_ROOM_HELPER_QUIET_HOURS", "2"))
 
 # The privileged commands an agent may ask the owner to run for it (sudo_requests.py,
 # routes/sudo.py). An agent names one of these KEYS, never a command line — the list

@@ -445,7 +445,7 @@
         "worktrees.py",
         "procmem.py",
         "activityfeed.py",
-        "lanes.py", "peermail.py", "swarms.py", "swarm_helper.py", "helper_chat.py", "continuation.py", "sudo_requests.py"
+        "lanes.py", "peermail.py", "swarms.py", "swarm_helper.py", "helper_chat.py", "room_helper.py", "continuation.py", "sudo_requests.py"
       ],
       "routes": [
         "observatory.py",
@@ -486,12 +486,13 @@
         "spinoff_runner.py",
         "backfill_spawned_from.py",
         "spark_morning.py",
-        "sort_bot_chats.py", "peers.py", "sudo_request.py"
+        "sort_bot_chats.py", "peers.py", "sudo_request.py", "room_moves.py"
       ],
       "tables": [
         "notes",
         "note_judgments",
-        "job_runs", "agent_messages", "swarms", "swarm_members", "swarm_helper_runs"
+        "job_runs", "agent_messages", "swarms", "swarm_members", "swarm_helper_runs",
+        "session_summaries", "swarm_pins", "room_moves", "room_helper_runs"
       ],
       "collections": [
         "dev_notes",

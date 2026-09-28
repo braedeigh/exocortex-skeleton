@@ -150,6 +150,15 @@ def main():
             _log(f"started {ran} swarm helper run(s)")
     except Exception as e:
         _log(f"swarm helper tick failed: {e}")
+    # The room helper, a layer above: forms, joins, splits and releases
+    # swarms when something in its room has happened (room_helper.py).
+    try:
+        import room_helper
+        ran = room_helper.tick()
+        if ran:
+            _log(f"started {ran} room helper run(s)")
+    except Exception as e:
+        _log(f"room helper tick failed: {e}")
     # Finished sessions whose countdown has run out close here
     # (routes/observatory.py close_done_sessions). Ahead of the Coming up
     # switch for the same reason as the mailbox: it isn't a reminder.

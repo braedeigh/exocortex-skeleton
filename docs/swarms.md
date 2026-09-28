@@ -48,6 +48,43 @@ lines say what exists *now*.
   showing what the helper read, the messages between members, and its
   summaries — with an input box to talk to the helper.
 
+## The room helper
+
+A layer above the swarm helpers: one helper per room (the Coding room only,
+for now — `config.ROOM_HELPER_ROOMS`), in `room_helper.py`. Her ask: "a helper
+in the coding room at large … reads just the summary of what's going on with
+the swarm and the summaries of the single agents and determines if they
+should be designated as a swarm … or placed into an existing swarm. It also
+can separate out swarms if a cluster is not talking to other clusters anymore
+or move solo sessions out of a swarm into the layer above."
+
+- **What it reads.** Summaries only: each swarm's and its members', each
+  swarm's *clusters* (worked out in code: who messaged whom within
+  `config.ROOM_HELPER_QUIET_HOURS`, plus handoffs, and when each cluster last
+  messaged another), and each session working alone (its own summary of it,
+  kept in `session_summaries`, plus what's new). And its last ten moves.
+- **What it does.** Four moves — **form** a swarm from sessions working alone,
+  **join** sessions to a swarm, **split** a cluster out of a swarm into its
+  own, **release** sessions to work alone. It acts on its own (her decision,
+  2026-09-27), conservatively: never splitting clusters that talked within the
+  quiet window, never redoing a move she undid.
+- **Placements override messages.** Her words: "look at who's connected in
+  the current swarm and you'll see what I mean. Spins could lead to
+  disconnected swarms." A move is stored as a placement (`swarm_pins`): the
+  messages a session exchanged at or before it no longer link it; newer ones
+  do, so a released session that starts talking again is pulled back in
+  naturally. A session's continuations always move with it.
+- **Every move is visible and undoable.** Posted in the room helper's chat
+  with its reason and undo line, stored in `room_moves` with what it
+  replaced; `scripts/room_moves.py undo <id>` (and `list`, and the four moves
+  by hand). Each moved session gets one message, queued for the end of its
+  turn — never an interrupt.
+- **When it runs.** At the minute tick, at most every
+  `config.ROOM_HELPER_MIN_SEC`, only when something in the room happened since.
+  One tool-less Sonnet call; every run in `room_helper_runs`.
+- **Its chat** works like a swarm helper's (helper_chat.py): fresh every turn,
+  seeded with the room overview instead of one swarm.
+
 ## Stages
 
 1. **Token accounting per model call** — a `model_calls` table: one row per
@@ -79,9 +116,14 @@ lines say what exists *now*.
 | Swarms | `swarms.py` (grouping, `swarms` / `swarm_members` tables); `routes/swarms.py`; `SwarmCard.tsx` in each room via `SessionLane.tsx`, coloured from the roster and ordered with the sessions (orange first, longest wait on top; retired members left off) by `roomOrder.ts`; `SwarmPage.tsx` at `/observatory/swarm/<id>`; the network of rings and talk-lines in `SwarmNetwork.tsx` (on the swarm page and under the Worktrees plots); the outline + name around member orbs on Terrain in `terrain/terrainSwarms.ts` (drawn by `terrainCanvas.ts`) |
 | Helper | `swarm_helper.py` (one tool-less Sonnet call per run, structured answer, every run in `swarm_helper_runs`); runs after member turns (debounced by `config.SWARM_HELPER_MIN_SEC`), on the minute tick, when a swarm forms, and straight away when messaged |
 | Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) and the running notes (`rewrite_notes`, called by `after_turn`; the chat summary, stored as `helper_notes` on the helper's index entry); `config.HELPER_CHAT_MESSAGES`; exempt in `continuation.due` |
+| Room helper | `room_helper.py` (runs, moves, undo, the room overview); placements in `swarms.py` (`place`, `unplace`, `new_swarm`, `line_of_work`; `links` cuts pre-placement messages); `swarm_pins`, `room_moves`, `session_summaries`, `room_helper_runs` (sqlstore rung 37); `scripts/room_moves.py`; ticked by `scripts/coming_up_dispatcher.py` |
 | Closing check | `swarms.retired`; `swarm_helper.watch_retirement` / `close_out` / `closing_report`, run by `swarm_helper.tick` on the minute tick |
 
 ## Status
+
+- The room helper: built and tested (`tests/test_room_helper.py`, placements
+  in `tests/test_swarms.py`). No page for it yet beyond its chat card; undo is
+  through the chat or `scripts/room_moves.py`.
 
 - Mailbox, token accounting, continuation, swarms and the helper: built and
   tested.

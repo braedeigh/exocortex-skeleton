@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 36
+_SCHEMA_VERSION = 37
 
 
 def _db_path():
@@ -197,6 +197,7 @@ _EXPECTED_TABLES = (
     "food_judgments", "judgment_grounds", "hazard_history", "research_tables",
     # The agents' mailbox, token accounting per model call, and swarms.
     "agent_messages", "model_calls", "swarms", "swarm_members", "swarm_helper_runs",
+    "session_summaries", "swarm_pins", "room_moves", "room_helper_runs",
     # Verifiable exposure scores (rung 36).
     "hazard_facts", "food_pdp_codes", "data_pulls", "exposure_scores", "exposure_terms",
     "source_files", "passage_pages",
@@ -2764,6 +2765,64 @@ def _run_ladder(conn):
             "  annotation_id TEXT PRIMARY KEY"
             "    REFERENCES research_annotations(id) ON DELETE CASCADE,"
             "  page INTEGER NOT NULL"
+            ")"
+        )
+    if version < 37:
+        # Rung 37: the room helper (room_helper.py) — one helper per room, a
+        # layer above the swarm helpers, that forms, joins, splits and
+        # releases swarms. RECORDS, all of them: nothing here can be rebuilt.
+        #
+        # Its summary of each session working alone. Swarm members' summaries
+        # live on swarm_members; this is the same thing for everyone else.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS session_summaries ("
+            "  conv TEXT PRIMARY KEY,"
+            "  summary TEXT,"
+            "  summary_at TEXT"
+            ")"
+        )
+        # Where the room helper put a session. A placement OVERRIDES who has
+        # messaged whom: messages between this session and anyone, sent at
+        # or before `at`, no longer link it (swarms.sync). swarm_id NULL means
+        # released — working alone. One row per session; the latest wins.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarm_pins ("
+            "  conv TEXT PRIMARY KEY,"
+            "  swarm_id INTEGER REFERENCES swarms(id),"
+            "  at TEXT NOT NULL,"
+            "  move_id INTEGER"
+            ")"
+        )
+        # Every move the room helper made, with its reason and what it
+        # replaced, so any move can be undone.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS room_moves ("
+            "  id INTEGER PRIMARY KEY,"
+            "  at TEXT NOT NULL,"
+            "  room TEXT NOT NULL,"
+            # form (a new swarm from sessions working alone), join, split, release.
+            "  kind TEXT NOT NULL,"
+            # JSON list of the sessions moved, continuation chains included.
+            "  convs TEXT NOT NULL,"
+            "  from_swarm INTEGER,"
+            "  to_swarm INTEGER,"
+            "  reason TEXT,"
+            # JSON {conv: [swarm_id, at] or null}: each session's placement
+            # before this move — what an undo puts back.
+            "  before TEXT NOT NULL,"
+            "  undone_at TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS room_helper_runs ("
+            "  id INTEGER PRIMARY KEY,"
+            "  room TEXT NOT NULL,"
+            "  at TEXT NOT NULL,"
+            "  trigger TEXT,"
+            "  input TEXT,"
+            "  output TEXT,"
+            "  cost_usd REAL,"
+            "  error TEXT"
             ")"
         )
     if version < _SCHEMA_VERSION:

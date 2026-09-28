@@ -13,19 +13,25 @@ summaries (swarm_helper.py). These routes hand that to the page:
                                   messages between members, and where the
                                   helper saw their work differ.
     POST /api/swarms/<id>/refresh ask the helper to update now.
+    GET  /api/swarms/room/<room>  the room seen from above, for the room map:
+                                  the room helper's session, the sessions
+                                  working alone (with its summary of each),
+                                  and its recent moves (room_helper.py).
 
 Messages TO the helper don't need a route of their own: the helper is a
 session, so the chat's normal mailbox (POST
 /api/observatory/conversation/<helper>/inbox) reaches it.
 
-Touches: swarms.py, swarm_helper.py, the agent_messages and
-swarm_helper_runs tables, tests/test_swarm_routes.py. Design: docs/swarms.md.
+Touches: swarms.py, swarm_helper.py, room_helper.py, the agent_messages,
+swarm_helper_runs and session_summaries tables, tests/test_swarm_routes.py. Design: docs/swarms.md.
 """
 import json
 
 from flask import jsonify
 
+import room_helper
 import sqlstore
+import store
 import swarm_helper
 import swarms
 
@@ -66,6 +72,23 @@ def detail(swarm_id):
             "differences": latest.get("differences") or []}
 
 
+def room(room_name):
+    """The room from above: its helper, who's working alone, the recent moves."""
+    index = store.read("bot_chats/index", {})
+    index = index if isinstance(index, dict) else {}
+    cards = [c for c in swarms.overview() if c["lane"] == room_name]
+    solos = room_helper.solo_sessions(room_name, index, cards)
+    summaries = room_helper._stored_summaries(solos)
+    return {
+        "room": room_name,
+        "helper_conv": room_helper.find_helper(room_name, index),
+        "solos": [{"conv": conv, "title": index[conv].get("title") or conv,
+                   "state": swarms._status(index[conv]),
+                   "summary": summaries.get(conv, (None,))[0]} for conv in solos],
+        "moves": room_helper.recent_moves(room_name),
+    }
+
+
 def register(app):
     @app.route("/api/swarms")
     def swarms_list():
@@ -77,6 +100,10 @@ def register(app):
         if found is None:
             return jsonify({"error": "not found"}), 404
         return jsonify(found)
+
+    @app.route("/api/swarms/room/<room_name>")
+    def swarm_room(room_name):
+        return jsonify(room(room_name))
 
     @app.route("/api/swarms/<int:swarm_id>/refresh", methods=["POST"])
     def swarm_refresh(swarm_id):

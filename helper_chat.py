@@ -1,5 +1,5 @@
-"""The swarm helper's chat — one conversation for the swarm's whole life, with a
-rolling context instead of a growing one.
+"""A helper's chat — the swarm helper's, and the room helper's — one conversation
+for its whole life, with a rolling context instead of a growing one.
 
 **What this is, in plain English.** Every swarm has a helper session
 (swarm_helper.py), and the owner can talk to it in its chat. A normal session
@@ -22,6 +22,10 @@ with a document written here just before the turn starts:
      only. The helper's replies, agents' mail and system notices are not
      replayed; the chat summary carries what mattered in them.
 
+The room helper (room_helper.py) has the same chat, with its own first
+paragraph (ROOM_LEAD) and the room overview — every swarm, every session
+working alone, its recent moves — in place of part 2.
+
 So the seed stays about the same size however long the swarm runs, and to
 her it's one continuous chat: same card, same conversation id, the whole
 transcript still on disk for the helper to search. Only what the model is
@@ -32,7 +36,7 @@ always be opened and read.
 Touches: routes/observatory.py (begin_turn writes the seed and passes it as
 the turn's system prompt file; after_turn calls rewrite_notes), swarm_helper.py
 (ask_model — the same tool-less, structured model call its runs use),
-swarms.py (the summaries), the session index (`helper_notes`,
+swarms.py (the summaries), room_helper.py (the room overview), the session index (`helper_notes`,
 `helper_notes_at` on the helper's entry — the chat summary), config.py
 (HELPER_CHAT_MESSAGES),
 continuation.py (which never continues this chat),
@@ -65,15 +69,27 @@ _REPO = Path(__file__).resolve().parent
 # point, but one pasted log shouldn't crowd out the other exchanges.
 _MESSAGE_CHARS = 6000
 
-CHAT_PROMPT = """You are the helper for a swarm of AI coding agents working on one person's \
+SWARM_LEAD = """You are the helper for a swarm of AI coding agents working on one person's \
 app — the owner, who talks to you in this chat. The agents became a swarm by messaging each \
 other. You keep track of what all of them are doing, notice where their work overlaps or \
-collides, and answer the owner's questions about the swarm.
+collides, and answer the owner's questions about the swarm."""
+
+ROOM_LEAD = """You are the room helper for the {room} room of one person's app — the owner, \
+who talks to you in this chat. AI coding agents work there in sessions; sessions that message \
+each other form swarms, each with its own helper. You sit a layer above: on your own runs you \
+form swarms from sessions working alone, join sessions to swarms, split swarms whose clusters \
+stopped talking, and release sessions to work alone — each move posted here with its reason. \
+In this chat you answer her questions about the room and make or undo moves when she asks, \
+with `./venv/bin/python3 scripts/room_moves.py list | undo <id> | form <conv>... | \
+join <swarm> <conv>... | split <swarm> <conv>... | release <conv>... --reason "…"` (add \
+`--by-owner` when she asked for it). A session's continuations always move with it."""
+
+CHAT_PROMPT = """{lead}
 
 How your view is shaped: every turn of this chat starts fresh. You are NOT resuming a \
 conversation. You are handed exactly four things, and nothing else:
 1. these instructions;
-2. the swarm now — its summary and one summary per agent, written by a summarizer model;
+2. {world_line};
 3. the chat summary — one summary of this whole chat so far (her decisions, what you last \
 told her, your promises, the open threads), rewritten after every turn;
 4. her own last few messages, word for word. Your replies to them, agents' mail to you and \
@@ -90,17 +106,17 @@ finds which sessions talked about something.
 - One session's recent asks, replies and tool calls: `./venv/bin/python3 scripts/peers.py show <id>`.
 - The database (read-only SQL): `EXOCORTEX_DATA_DIR={data} ./venv/bin/python3 scripts/exo_query.py \
 query "<select>"`. `agent_messages` holds every message between sessions (and hers sent \
-mid-turn); `tool_calls` every tool any agent ran; `swarms` the swarm summaries. \
+mid-turn); `tool_calls` every tool any agent ran; `swarms` the swarm summaries; `room_moves` the room helper's moves. \
 `exo_query.py schema <table>` lists a table's columns.
 - Git in {repo} is the truth about what shipped.
 Say when an answer comes from a search rather than from what you were handed.
 
 Plain words; the owner reads everything you write."""
 
-NOTES_PROMPT = """You keep the chat summary for a swarm helper's chat with its owner. Every \
+NOTES_PROMPT = """You keep the chat summary for a helper's chat with its owner. Every \
 turn of that chat starts from scratch, and the helper is handed only this summary, the \
-swarm's status and the owner's last few messages — never its own past replies. So this \
-summary is its only memory of what it said, and of anything older.
+status of the swarm or room it watches and the owner's last few messages — never its own \
+past replies. So this summary is its only memory of what it said, and of anything older.
 
 You get the current summary and the latest exchange. Return the complete new summary; it \
 REPLACES the old one. Four sections, markdown bullets:
@@ -237,11 +253,24 @@ def seed_text(conv_id, entry):
     """Everything one chat turn starts from, as one document (see the top of
     the file for the four parts)."""
     chats = store.DATA_DIR / "bot_chats"
-    prompt = CHAT_PROMPT.format(repo=_REPO, chats=chats, conv=conv_id, data=store.DATA_DIR)
+    # The world it watches: a room helper's room, or a swarm helper's swarm.
+    if entry.get("role") == "room_helper":
+        import room_helper
+        room = entry.get("room") or "coding"
+        lead = ROOM_LEAD.format(room=room)
+        world_line = ("the room now — every swarm with its summaries and clusters, every "
+                      "session working alone, and your recent moves")
+        world = [f"# The {room} room now", "", room_helper.room_overview(room)]
+    else:
+        lead = SWARM_LEAD
+        world_line = ("the swarm now — its summary and one summary per agent, written by a "
+                      "summarizer model")
+        world = [f"# The swarm now (swarm {entry.get('swarm_id')})", "",
+                 _swarm_now(entry.get("swarm_id"))]
+    prompt = CHAT_PROMPT.format(lead=lead, world_line=world_line, repo=_REPO, chats=chats,
+                                conv=conv_id, data=store.DATA_DIR)
     mine = her_messages(conv_id, limit=config.HELPER_CHAT_MESSAGES)
-    parts = [prompt, "",
-             f"# The swarm now (swarm {entry.get('swarm_id')})", "",
-             _swarm_now(entry.get("swarm_id")), "",
+    parts = [prompt, "", *world, "",
              f"# The chat summary (last rewritten {entry.get('helper_notes_at') or 'never'})", "",
              entry.get("helper_notes") or "(none yet)", "",
              f"# Her last {len(mine)} messages, word for word", ""]
@@ -278,7 +307,7 @@ def rewrite_notes(conv_id):
     summary, or None when there was nothing to do or the call failed (the old
     one stays, and the failure is written on the entry)."""
     entry = store.read("bot_chats/index", {}).get(conv_id)
-    if not isinstance(entry, dict) or entry.get("role") != "swarm_helper":
+    if not isinstance(entry, dict) or entry.get("role") not in ("swarm_helper", "room_helper"):
         return None
     # The first summary reads further back. With no summary yet (a new chat,
     # or one that ran before summaries existed), it's written from the last

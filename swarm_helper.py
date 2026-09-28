@@ -66,6 +66,11 @@ import swarms
 
 ROLE = "swarm_helper"
 
+# What a helper's chat turn may use: reading and searching, and Bash for the
+# lookups its seed points it at (peers.py show, exo_query.py, git, grep over
+# the transcripts). Shared with the room helper (room_helper.py).
+HELPER_TOOLS = ["Read", "Grep", "Glob", "Bash"]
+
 # How much of each member's new activity one run reads. The helper needs the
 # shape of the work, not every line; the full transcripts are always a
 # `peers.py show` away for the members themselves.
@@ -132,6 +137,12 @@ def ensure_helper(swarm_id):
     helper, name, lane = row
     index = store.read("bot_chats/index", {})
     if helper and helper in index:
+        # Give helpers made before HELPER_TOOLS the tools their seed tells
+        # them to search with — they were made with Read alone.
+        if isinstance(index[helper], dict) and index[helper].get("allowed_tools") != HELPER_TOOLS:
+            with store.mutate("bot_chats/index", {}) as index:
+                if isinstance(index.get(helper), dict):
+                    index[helper]["allowed_tools"] = list(HELPER_TOOLS)
         # Undo a handoff. The helper's chat is one conversation for its
         # swarm's whole life (helper_chat.py), but before that it could be
         # continued like any Coding session — archived, with its mail and
@@ -151,7 +162,7 @@ def ensure_helper(swarm_id):
             "title": f"Swarm helper · {name or f'swarm {swarm_id}'}",
             "started": _now(), "last_at": _now(), "claude_session_id": None,
             "cost_usd": 0.0, "journal": False, "lane": lane or "coding",
-            "cwd": str(store.BUILD_DIR), "allowed_tools": ["Read"],
+            "cwd": str(store.BUILD_DIR), "allowed_tools": list(HELPER_TOOLS),
         }
     conn = sqlstore.open_db()
     try:

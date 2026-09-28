@@ -2243,10 +2243,10 @@ def after_turn(conv_id):
         move_system_followups(conv_id, successor)
         drain_inbox(successor)
         return
-    # A swarm helper's chat is never continued and belongs to no swarm as a
-    # member: its only end-of-turn job is rewriting its chat summary
-    # (helper_chat.py).
-    if isinstance(entry, dict) and entry.get("role") == "swarm_helper":
+    # A helper's chat (a swarm's or the room's) is never continued and
+    # belongs to no swarm as a member: its only end-of-turn job is rewriting
+    # its chat summary (helper_chat.py).
+    if isinstance(entry, dict) and entry.get("role") in ("swarm_helper", "room_helper"):
         try:
             import helper_chat
             helper_chat.rewrite_notes(conv_id)
@@ -3823,10 +3823,11 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
             if card_prompt:
                 entry["last_prompt"] = card_prompt
         resume_sid = entry.get("claude_session_id")
-        # A swarm helper's chat never resumes: each turn starts fresh from a
-        # rolling seed (helper_chat.py), written just below, so its context
-        # can't outgrow the window however long the swarm runs.
-        helper_chat_entry = dict(entry) if entry.get("role") == "swarm_helper" else None
+        # A helper's chat (a swarm's or the room's) never resumes: each turn
+        # starts fresh from a rolling seed (helper_chat.py), written just
+        # below, so its context can't outgrow the window however long it runs.
+        helper_chat_entry = (dict(entry) if entry.get("role") in ("swarm_helper", "room_helper")
+                             else None)
         if helper_chat_entry is not None:
             resume_sid = None
         # Attach the boot package when this send wakes a Keeper. Any chat

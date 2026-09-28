@@ -25,8 +25,8 @@ context size it keeps; queue_followup for the ask; `after_turn` calls check()),
 routes/spinoff.py (open_spinoff), scripts/extract_footprints.py (the files in
 play), swarms.py (who the session works with), scripts/peers.py (the agent's
 `handoff` door), tests/test_continuation.py. Design: docs/swarms.md, stage 2.
-A swarm helper's chat is never continued: it can't outgrow its context
-(helper_chat.py).
+A helper's chat (a swarm's or the room's) is never continued: it can't
+outgrow its context (helper_chat.py).
 
 Prompt that produced this: "let each session create their own unsupervised
 /spinoffs once they reach a token limit and describe what work they need to
@@ -70,10 +70,10 @@ def due(entry):
         return False
     if entry.get("journal") is True or (entry.get("continuation") or {}).get("state"):
         return False
-    # Never a swarm helper's chat. It is one conversation for its swarm's
-    # whole life, and it can't outgrow its context: every turn starts fresh
-    # from a rolling seed (helper_chat.py), so there is nothing to hand off.
-    if entry.get("role") == "swarm_helper":
+    # Never a helper's chat (a swarm's or the room's). It is one
+    # conversation for its whole life, and it can't outgrow its context:
+    # every turn starts fresh from a rolling seed (helper_chat.py), so there is nothing to hand off.
+    if entry.get("role") in ("swarm_helper", "room_helper"):
         return False
     if lanes.derive_lane(entry) not in config.CONTINUE_LANES:
         return False

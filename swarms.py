@@ -13,8 +13,15 @@ else, are one line of work, not a swarm, and get no swarm of their own.
 A swarm keeps its identity as it grows: the same number, the same name, the
 same helper, even as new members join. When two swarms get linked, the older
 one absorbs the younger (its row is kept, marked `merged_into`), so nothing a
-helper wrote is lost. Membership only grows — a session that stops talking is
-still part of the swarm it worked in.
+helper wrote is lost. Left to itself, membership only grows — a session that
+stops talking is still part of the swarm it worked in.
+
+The one thing that overrides the messages is a PLACEMENT (`swarm_pins`), made
+by the room helper (room_helper.py) when it forms, joins, splits or releases
+swarms. A session placed at time T is no longer linked by any message it
+exchanged at or before T; it belongs where it was placed (or nowhere, when
+released), and only messages sent after T can pull it anywhere else. That's
+how a swarm glued together by one old stray message comes apart.
 
 She can also start a session straight into a swarm (the '+' on a swarm's
 page): `join` adds it as a member before it has messaged anyone, and
@@ -23,8 +30,9 @@ page): `join` adds it as a member before it has messaged anyone, and
 This file only works out who belongs where and stores it. Naming the swarm and
 summarising its members is the helper's job (docs/swarms.md, stage 4).
 
-Touches: sqlstore.py (the `swarms`, `swarm_members` and `swarm_helper_runs`
-tables), the `agent_messages` table (peermail.py), the session index
+Touches: sqlstore.py (the `swarms`, `swarm_members`, `swarm_helper_runs` and
+`swarm_pins` tables), the `agent_messages` table (peermail.py), room_helper.py
+(which makes the placements, through `place`), the session index
 (bot_chats/index — lanes and spinoff lineage), tests/test_swarms.py.
 Design and decisions: docs/swarms.md.
 
@@ -40,8 +48,26 @@ import sqlstore
 import store
 
 
+# The helper sessions: a swarm's own, and the room's (room_helper.py). They
+# message everyone they watch, so their messages never link anybody.
+HELPER_ROLES = ("swarm_helper", "room_helper")
+
+
 def _now():
     return datetime.now().isoformat(timespec="seconds")
+
+
+def pins(conn):
+    """Every placement, as {conv: (swarm_id or None, at)}."""
+    return {conv: (swarm_id, at) for conv, swarm_id, at in
+            conn.execute("SELECT conv, swarm_id, at FROM swarm_pins")}
+
+
+def _superseded(swarm_id, conv, joined_at, placed):
+    """Is this stored membership overruled by a later placement elsewhere?
+    A row that joined after the placement stands: new messages put it there."""
+    pin = placed.get(conv)
+    return bool(pin) and pin[0] != swarm_id and (joined_at or "") <= pin[1]
 
 
 def groups(links):
@@ -69,14 +95,44 @@ def groups(links):
 def links(conn, index):
     """Who is linked to whom, as two lists: every pair that exchanged an
     agent message (delivered or not — sending is the interaction), and every
-    session paired with the continuation that took over from it."""
-    # A swarm's helper talks to every member but isn't one of them — linking
-    # through it would make its own swarm out of nothing.
-    helpers = {c for c, e in index.items() if isinstance(e, dict) and e.get("role") == "swarm_helper"}
-    talked = [tuple(row) for row in conn.execute(
-        "SELECT DISTINCT from_conv, to_conv FROM agent_messages"
-        " WHERE kind = 'A' AND status != 'cancelled' AND from_conv IS NOT NULL")
-        if row[0] not in helpers and row[1] not in helpers]
+    session paired with the continuation that took over from it.
+
+    Placements (swarm_pins) bend both lists. A pair is left out when every
+    message between them came at or before either one's placement. And the
+    sessions placed into the same live swarm are linked to each other, and to
+    one of the swarm's other members — that's what holds a swarm the room
+    helper made together before its members have said a word."""
+    # A helper talks to every session it watches but works with none of
+    # them — linking through it would make a swarm out of nothing.
+    helpers = {c for c, e in index.items()
+               if isinstance(e, dict) and e.get("role") in HELPER_ROLES}
+    placed = pins(conn)
+
+    def cut(conv, last):
+        pin = placed.get(conv)
+        return bool(pin) and (last or "") <= pin[1]
+
+    talked = [(a, b) for a, b, last in conn.execute(
+        "SELECT from_conv, to_conv, MAX(at) FROM agent_messages"
+        " WHERE kind = 'A' AND status != 'cancelled' AND from_conv IS NOT NULL"
+        " GROUP BY from_conv, to_conv")
+        if a not in helpers and b not in helpers and not cut(a, last) and not cut(b, last)]
+    # Placed sessions: chained to each other and to one member of their swarm.
+    by_swarm = {}
+    for conv, (swarm_id, _) in placed.items():
+        if swarm_id is not None:
+            by_swarm.setdefault(swarm_id, []).append(conv)
+    for swarm_id, convs in by_swarm.items():
+        live = conn.execute("SELECT 1 FROM swarms WHERE id = ? AND merged_into IS NULL",
+                            (swarm_id,)).fetchone()
+        if not live:
+            continue
+        anchor = next((conv for conv, joined in conn.execute(
+            "SELECT conv, joined_at FROM swarm_members WHERE swarm_id = ?"
+            " ORDER BY joined_at, conv", (swarm_id,))
+            if conv not in convs and not _superseded(swarm_id, conv, joined, placed)), None)
+        chain = sorted(convs) + ([anchor] if anchor else [])
+        talked += list(zip(chain, chain[1:]))
     continued = [(entry["spawned_from"], conv_id) for conv_id, entry in index.items()
                  if isinstance(entry, dict) and entry.get("spawned_via") == "continue"
                  and entry.get("spawned_from")
@@ -108,15 +164,21 @@ def sync():
     conn = sqlstore.open_db()
     try:
         found = found_groups(*links(conn, index))
+        placed = pins(conn)
         sqlstore.begin_immediate(conn)
         try:
-            stored = {}
-            for swarm_id, conv in conn.execute(
-                    "SELECT m.swarm_id, m.conv FROM swarm_members m"
-                    " JOIN swarms s ON s.id = m.swarm_id"
-                    " WHERE s.merged_into IS NULL"):
-                stored.setdefault(swarm_id, set()).add(conv)
             now = _now()
+            stored = {}
+            for swarm_id, conv, joined in conn.execute(
+                    "SELECT m.swarm_id, m.conv, m.joined_at FROM swarm_members m"
+                    " JOIN swarms s ON s.id = m.swarm_id"
+                    " WHERE s.merged_into IS NULL").fetchall():
+                # A placement elsewhere takes the session out of this swarm.
+                if _superseded(swarm_id, conv, joined, placed):
+                    conn.execute("DELETE FROM swarm_members WHERE swarm_id = ? AND conv = ?",
+                                 (swarm_id, conv))
+                    continue
+                stored.setdefault(swarm_id, set()).add(conv)
             live = {}
             for members in found:
                 # Which stored swarms this group already covers. None: a new
@@ -134,7 +196,8 @@ def sync():
                         "INSERT INTO swarms (created_at, updated_at, lane) VALUES (?, ?, ?)",
                         (now, now, _majority_lane(members, index))).lastrowid
                     stored[keep] = set()
-                # Membership only grows (see the top of the file).
+                # Membership only grows (see the top of the file) — except
+                # by a placement, which already took its rows out above.
                 members |= stored[keep]
                 for conv in members - stored[keep]:
                     conn.execute("INSERT OR IGNORE INTO swarm_members (swarm_id, conv,"
@@ -338,6 +401,81 @@ def join(swarm_id, conv_id):
     finally:
         conn.close()
     return True
+
+
+def new_swarm(lane):
+    """A new, empty swarm row in this room. Returns its id. Its members come
+    from `place` — sync dissolves it again if nobody is placed in it."""
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        swarm_id = conn.execute("INSERT INTO swarms (created_at, updated_at, lane)"
+                                " VALUES (?, ?, ?)", (_now(), _now(), lane)).lastrowid
+        conn.execute("COMMIT")
+        return swarm_id
+    finally:
+        conn.close()
+
+
+def place(convs, swarm_id, move_id=None):
+    """Put these sessions into this swarm (None: release them to work alone),
+    overriding every message they've exchanged so far (see the top of the
+    file). Returns what each was before, as {conv: [swarm_id, at] or None},
+    for an undo. Syncs afterwards, so the swarms reflect it at once."""
+    now = _now()
+    conn = sqlstore.open_db()
+    try:
+        before = {c: list(v) for c, v in pins(conn).items() if c in convs}
+        sqlstore.begin_immediate(conn)
+        for conv in convs:
+            conn.execute("INSERT OR REPLACE INTO swarm_pins (conv, swarm_id, at, move_id)"
+                         " VALUES (?, ?, ?, ?)", (conv, swarm_id, now, move_id))
+            if swarm_id is not None:
+                conn.execute("INSERT OR IGNORE INTO swarm_members (swarm_id, conv, joined_at)"
+                             " VALUES (?, ?, ?)", (swarm_id, conv, now))
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
+    sync()
+    return {c: before.get(c) for c in convs}
+
+
+def unplace(before):
+    """Undo `place`: give each session back the placement it had before
+    ({conv: [swarm_id, at] or None} — None removes its placement, so its old
+    messages link it again). Syncs afterwards."""
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        for conv, pin in before.items():
+            if pin:
+                conn.execute("INSERT OR REPLACE INTO swarm_pins (conv, swarm_id, at)"
+                             " VALUES (?, ?, ?)", (conv, pin[0], pin[1]))
+            else:
+                conn.execute("DELETE FROM swarm_pins WHERE conv = ?", (conv,))
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
+    sync()
+
+
+def line_of_work(conv_id, index):
+    """This session and every continuation before and after it — one line of
+    work, which always moves together."""
+    parent = {c: e.get("spawned_from") for c, e in index.items()
+              if isinstance(e, dict) and e.get("spawned_via") == "continue"}
+    root, seen = conv_id, {conv_id}
+    while parent.get(root) in index and parent[root] not in seen:
+        root = parent[root]
+        seen.add(root)
+    line, frontier = {root}, [root]
+    while frontier:
+        here = frontier.pop()
+        for child, p in parent.items():
+            if p == here and child not in line:
+                line.add(child)
+                frontier.append(child)
+    return line | {conv_id}
 
 
 def seed_text(swarm_id):

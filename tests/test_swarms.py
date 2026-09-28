@@ -6,6 +6,11 @@ in its parent's swarm, but a handoff alone makes no swarm; a swarm keeps its
 number as it grows; two swarms that get linked become one, the older
 absorbing the younger; a swarm nothing holds together any more is dissolved
 and its helper archived, as is the helper of an absorbed swarm.
+
+And placements (the room helper's, swarms.place): a placement overrides the
+messages sent before it, so it can split a swarm, release a session or move
+it between swarms; a message sent after it links again; unplace restores;
+a line of work is found whole; helpers' messages never link anyone.
 """
 import peermail
 import store
@@ -139,3 +144,87 @@ def test_overview_marks_handed_off_and_archived_members_retired(data_dir):
     [card] = swarms.overview()
     retired = {m["conv"] for m in card["members"] if m["retired"]}
     assert retired == {"a", "c"}
+
+
+def _backdate_pins(conv_ids, at="2000-01-01T00:00:00"):
+    """Make placements older than every message, as if they were made long ago."""
+    import sqlstore
+    conn = sqlstore.open_db()
+    conn.executemany("UPDATE swarm_pins SET at = ? WHERE conv = ?", [(at, c) for c in conv_ids])
+    conn.commit()
+    conn.close()
+
+
+def _bridged_swarm():
+    """a-b and x-y, glued into one swarm by one message b→x."""
+    _seed("a", "b", "x", "y")
+    peermail.send("b", "hi", from_conv="a")
+    peermail.send("y", "hi", from_conv="x")
+    peermail.send("x", "bridge", from_conv="b")
+    [swarm_id] = swarms.sync()
+    return swarm_id
+
+
+def test_a_placement_overrides_old_messages_and_splits_a_swarm(data_dir):
+    old = _bridged_swarm()
+    new = swarms.new_swarm("coding")
+    swarms.place(["x", "y"], new)
+    live = swarms.sync()
+    assert live == {old: {"a", "b"}, new: {"x", "y"}}
+
+
+def test_a_message_after_the_placement_links_again(data_dir):
+    old = _bridged_swarm()
+    new = swarms.new_swarm("coding")
+    swarms.place(["x", "y"], new)
+    _backdate_pins(["x", "y"])
+    peermail.send("x", "back again", from_conv="a")
+    live = swarms.sync()
+    assert live == {old: {"a", "b", "x", "y"}}
+
+
+def test_release_makes_a_session_work_alone(data_dir):
+    _seed("a", "b", "c")
+    peermail.send("b", "hi", from_conv="a")
+    peermail.send("c", "hi", from_conv="b")
+    [swarm_id] = swarms.sync()
+    swarms.place(["c"], None)
+    assert swarms.sync() == {swarm_id: {"a", "b"}}
+    assert swarms.swarm_of("c") is None
+
+
+def test_join_moves_a_session_between_swarms(data_dir):
+    _seed("a", "b", "x", "y", "z")
+    peermail.send("b", "hi", from_conv="a")
+    [first] = swarms.sync()
+    peermail.send("y", "hi", from_conv="x")
+    peermail.send("z", "hi", from_conv="y")
+    second = next(sid for sid in swarms.sync() if sid != first)
+    swarms.place(["z"], first)
+    assert swarms.sync() == {first: {"a", "b", "z"}, second: {"x", "y"}}
+
+
+def test_unplace_puts_the_old_links_back(data_dir):
+    old = _bridged_swarm()
+    new = swarms.new_swarm("coding")
+    before = swarms.place(["x", "y"], new)
+    assert before == {"x": None, "y": None}
+    swarms.unplace(before)
+    assert swarms.sync() == {old: {"a", "b", "x", "y"}}
+
+
+def test_a_line_of_work_is_every_continuation_before_and_after(data_dir):
+    _seed("a", "other")
+    _seed("a2", spawned_from="a", spawned_via="continue")
+    _seed("a3", spawned_from="a2", spawned_via="continue")
+    index = store.read("bot_chats/index", {})
+    assert swarms.line_of_work("a2", index) == {"a", "a2", "a3"}
+    assert swarms.line_of_work("other", index) == {"other"}
+
+
+def test_a_room_helpers_messages_link_nobody(data_dir):
+    _seed("a", "b")
+    _seed("room", role="room_helper", room="coding")
+    peermail.send("a", "you two should talk", from_conv="room")
+    peermail.send("b", "you two should talk", from_conv="room")
+    assert swarms.sync() == {}

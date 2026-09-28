@@ -2,7 +2,8 @@
 
 What these pin: the list shows a live swarm with its counts; the detail
 carries the helper's runs verbatim and the messages between members;
-unknown swarms 404; refresh starts a helper run.
+unknown swarms 404; refresh starts a helper run; the room view lists the
+sessions working alone and the room helper's moves.
 """
 import json
 
@@ -59,3 +60,13 @@ def test_unknown_swarm_is_404(client):
 def test_refresh_starts_a_run(client):
     [swarm_id] = swarms.sync()
     assert client.post(f"/api/swarms/{swarm_id}/refresh").get_json()["started"] is True
+
+
+def test_the_room_view_lists_who_works_alone(client):
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c"] = {"title": "C", "lane": "coding"}
+        index["h"] = {"title": "Room helper", "lane": "coding", "role": "room_helper",
+                      "room": "coding"}
+    found = client.get("/api/swarms/room/coding").get_json()
+    assert [s["conv"] for s in found["solos"]] == ["c"]
+    assert found["helper_conv"] == "h" and found["moves"] == []
