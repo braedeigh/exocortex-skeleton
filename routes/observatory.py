@@ -953,11 +953,27 @@ def _deliver_midturn(proc, conv_id, log_path, turn_input):
         won = peermail.claim(handable, "injected")
         if not won:
             return False
-        if not turn_input.hand_in(peermail.compose(won)):
+        # Her message clears what was waiting on her, exactly as when it
+        # starts a turn (_her_message_arrived), and the agent reads what it
+        # cleared (_reopen_note). An agent's message alone clears nothing.
+        # It looks first and clears only once the hand-in lands, so a failed
+        # write leaves the questions up for the end-of-turn drain to clear
+        # (with its own note) — and it clears only the set it listed, so a
+        # set the agent re-filed in the meantime stays.
+        hers = any(r["kind"] == "B" for r in won)
+        open_now = (_open_questions(store.read("bot_chats/index", {}).get(conv_id))
+                    if hers else [])
+        text = peermail.compose(won) + _reopen_note(open_now)
+        if not turn_input.hand_in(text):
             # The input shut between the check and the write. Put them back so
             # the end-of-turn drain delivers them rather than losing them.
             peermail.unclaim(won)
             return False
+        if hers:
+            with store.mutate("bot_chats/index", {}) as index:
+                entry = index.get(conv_id)
+                if isinstance(entry, dict):
+                    _her_message_arrived(conv_id, entry, expected=open_now)
         _deliver_lines(conv_id, log_path, won, _journals(conv_id))
     peermail.note_delivered(conv_id, won)
     return False
@@ -1560,6 +1576,51 @@ def _reopen_note(questions):
             " for the owner:\n" + listed + "\nIf it doesn't answer one of them,"
             " re-file every one still open with scripts/request_input.py before"
             " you end your turn, or it is gone from her card.]")
+
+
+def _open_questions(entry):
+    """The questions a session entry has open, as a list — empty when none.
+    Falls back to the single `awaiting_input` line for an older flag."""
+    if not isinstance(entry, dict):
+        return []
+    listed = [q for q in (entry.get("awaiting_questions") or []) if q and q.strip()]
+    if listed:
+        return listed
+    return [entry["awaiting_input"]] if entry.get("awaiting_input") else []
+
+
+def _her_message_arrived(conv_id, entry, expected=None):
+    """Take down everything that was waiting on her, because a message of hers
+    just reached the session. Returns the questions it cleared, for
+    _reopen_note. Caller holds the index mutate and passes the entry.
+    `expected` = clear the questions only if they're still this set (the
+    caller already told the agent about exactly these); a set filed since
+    stays up.
+
+    The same moment has two doors, and both come here: a message that starts
+    a turn (begin_turn) and one handed into a turn already running
+    (_deliver_midturn) — her answer from the roster's orange card takes the
+    second whenever the session is still working.
+      - The open questions and the orange flag come off, so the card stops
+        glowing the moment she replies (request_input). Clearing isn't
+        forgetting: the caller hands them back to the agent (_reopen_note),
+        since her message may be about something else.
+      - Any unresolved gated-command card is dropped (_dismiss_pending).
+      - A done countdown stops: she's still talking to it, so it isn't done;
+        it marks itself done again when it really is (the Done section).
+
+    Prompt: "Answered the question but the popup stuck. Please make it such
+    that if I answer from the front page it marks it answered and continues."
+    """
+    cleared = _open_questions(entry)
+    if expected is None or cleared == expected:
+        entry.pop("awaiting_questions", None)
+        entry.pop("awaiting_input", None)
+    else:
+        cleared = []
+    _dismiss_pending(conv_id)
+    _clear_done(entry)
+    return cleared
 
 
 # --- Done: a finished session closes itself, unless she keeps it -------------
@@ -3721,22 +3782,10 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         entry.pop("draft", None)
         entry.pop("autostart", None)
         if system is None and (batch is None or hers):
-            # Her answer to a request-for-input IS this send: clear the orange
-            # flag and its questions, so the card stops glowing the moment she
-            # replies. (Request-for-input — see request_input().)
-            # A system reminder isn't her answer, so it leaves both alone.
-            # Clearing isn't forgetting: the questions go into this turn
-            # (_reopen_note), since her message may be about something else.
-            cleared_questions = (entry.pop("awaiting_questions", None)
-                                 or [entry.get("awaiting_input") or ""])
-            entry.pop("awaiting_input", None)
-            # ...and any unresolved gated-command card (see _dismiss_pending).
-            _dismiss_pending(conv_id)
-            # Her turn also means the session isn't done after all: the
-            # countdown to closing stops, and the session marks itself done
-            # again when it really is. Anyone else's turn leaves the stamp
-            # (see the Done section).
-            _clear_done(entry)
+            # Her words reached the session: take down what was waiting on
+            # her (_her_message_arrived). A system reminder or another
+            # agent's message alone isn't her answer, so it leaves them up.
+            cleared_questions = _her_message_arrived(conv_id, entry)
         # A fresh attempt clears the red: whatever went wrong last time is
         # no longer the last thing this session did. If THIS turn fails too,
         # _run_turn writes the flag straight back.

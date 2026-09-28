@@ -239,3 +239,69 @@ def test_a_send_with_nothing_open_reaches_the_agent_unchanged(bot_client, monkey
     monkeypatch.setattr(rr, "_spawn_host", lambda config, text, *a, **k: told.append(text) or True)
     rr.begin_turn("c1", "go")
     assert told == ["go"]
+
+
+# --- an answer handed into a running turn clears them too ---------------------
+# Her answer from the roster's orange card goes through the mailbox. If the
+# session is still mid-turn it's handed in between steps (_deliver_midturn),
+# never passing begin_turn — and that path has to take the card down too.
+
+import io
+
+import peermail
+
+
+class _FakeProc:
+    def __init__(self):
+        self.stdin = io.StringIO()
+
+
+def _hand_in_waiting(conv_id):
+    """Run one mailbox check against a turn that's open for input; return
+    what the agent was handed."""
+    proc = _FakeProc()
+    turn_input = rr._TurnInput(proc)
+    log_path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    rr._deliver_midturn(proc, conv_id, log_path, turn_input)
+    return [json.loads(l)["message"]["content"]
+            for l in proc.stdin.getvalue().splitlines()]
+
+
+def test_her_answer_handed_in_mid_turn_clears_the_questions(data_dir):
+    _seed_asker(running=True, awaiting_input="Public repo?",
+                awaiting_questions=["Public repo?"])
+    peermail.send("c1", "public", kind="B")
+    told = _hand_in_waiting("c1")
+    entry = store.read("bot_chats/index", {})["c1"]
+    assert "awaiting_questions" not in entry and "awaiting_input" not in entry
+    # the agent reads her answer, plus what it cleared
+    assert told[0].startswith("public") and "1. Public repo?" in told[0]
+    # the transcript keeps her words alone
+    transcript = (store.DATA_DIR / "bot_chats" / "c1.jsonl").read_text()
+    assert "Public repo?" not in transcript
+
+
+def test_an_agents_message_handed_in_mid_turn_leaves_the_questions(data_dir):
+    _seed_asker(running=True, awaiting_input="Public repo?",
+                awaiting_questions=["Public repo?"])
+    rr._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c2"] = {"title": "peer"}
+    peermail.send("c1", "store.py changed", from_conv="c2")
+    told = _hand_in_waiting("c1")
+    assert store.read("bot_chats/index", {})["c1"]["awaiting_questions"] == ["Public repo?"]
+    assert "Public repo?" not in told[0]
+
+
+def test_her_mid_turn_message_stops_a_done_countdown(data_dir):
+    _seed_asker(running=True, done_at=rr._now(), closes_at=rr._now())
+    peermail.send("c1", "one more thing", kind="B")
+    told = _hand_in_waiting("c1")
+    assert told == ["one more thing"]
+    assert "done_at" not in store.read("bot_chats/index", {})["c1"]
+
+
+def test_a_set_refiled_during_the_hand_in_stays_up(data_dir):
+    entry = {"awaiting_questions": ["new?"], "awaiting_input": "new?"}
+    cleared = rr._her_message_arrived("c1", entry, expected=["old?"])
+    assert cleared == [] and entry["awaiting_questions"] == ["new?"]
