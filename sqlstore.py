@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 34
+_SCHEMA_VERSION = 35
 
 
 def _db_path():
@@ -2542,6 +2542,9 @@ def _run_ladder(conn):
             "  origin_detail TEXT NOT NULL DEFAULT '',"
             "  origin_url TEXT NOT NULL DEFAULT '',"
             "  origin_date TEXT NOT NULL DEFAULT '',"
+            # The USDA NASS commodity (commodity_desc) the county figures were
+            # pulled for, so the checker can re-fetch them.
+            "  usda_commodity TEXT NOT NULL DEFAULT '',"
             "  summary TEXT NOT NULL DEFAULT '',"
             "  worst_trace_seq INTEGER,"
             "  worst_health_seq INTEGER,"
@@ -2610,6 +2613,14 @@ def _run_ladder(conn):
             "  PRIMARY KEY (proposal_id, entry_id)"
             ")"
         )
+    if version < 35:
+        # Rung 35: the USDA commodity on a proposal. Rung 34 creates the column
+        # on a fresh database; one that climbed 34 before it was added gets it
+        # here.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(source_proposals)")}
+        if "usda_commodity" not in columns:
+            conn.execute("ALTER TABLE source_proposals"
+                         " ADD COLUMN usda_commodity TEXT NOT NULL DEFAULT ''")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

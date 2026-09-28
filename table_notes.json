@@ -2913,6 +2913,9 @@
       "origin_date": {
         "holds": "The day the information was looked up (YYYY-MM-DD), or empty."
       },
+      "usda_commodity": {
+        "holds": "The USDA NASS commodity the county figures were pulled for, so the checker can re-fetch them."
+      },
       "country": {
         "holds": "Two-letter country code, for imports."
       },

@@ -170,7 +170,9 @@
       "modules": [
         "foodstore.py",
         "estimatestore.py",
-        "sourcestore.py"
+        "sourcestore.py",
+        "proposalstore.py",
+        "provenance.py"
       ],
       "routes": [
         "kitchen",
@@ -182,7 +184,9 @@
       "tools": [],
       "scripts": [
         "estimate_organic.py",
-        "migrate_ecosystem_sql.py"
+        "migrate_ecosystem_sql.py",
+        "propose_sources.py",
+        "check_proposals.py"
       ],
       "tables": [
         "foods",

@@ -318,3 +318,12 @@ def test_a_proposal_must_be_for_a_food_or_a_product(data_dir):
                          " VALUES ('Onions', 1, 2, 'proxy')")
     finally:
         conn.close()
+
+
+def test_a_proposal_carries_its_usda_commodity(data_dir):
+    conn = sqlstore.open_db()
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(source_proposals)")}
+    finally:
+        conn.close()
+    assert "usda_commodity" in columns
