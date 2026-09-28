@@ -380,7 +380,14 @@ def test_night_workers_are_born_ungated():
 
 # --- branch sweep -----------------------------------------------------------
 
-def test_sweep_deletes_only_branches_past_the_ttl(monkeypatch):
+def _record_branches(*names):
+    import store
+    store.write("night_runs.json",
+                {"runs": [{"id": f"r{i}", "branch": n} for i, n in enumerate(names)]})
+
+
+def test_sweep_deletes_only_branches_past_the_ttl(monkeypatch, data_dir):
+    _record_branches("agent/old", "agent/new")
     old = (datetime.now() - timedelta(days=nc.BRANCH_TTL_DAYS + 3)).isoformat()
     new = (datetime.now() - timedelta(days=1)).isoformat()
     deleted = []
@@ -398,7 +405,27 @@ def test_sweep_deletes_only_branches_past_the_ttl(monkeypatch):
     assert deleted == ["agent/old"]
 
 
-def test_sweep_survives_an_unparseable_date(monkeypatch):
+def test_sweep_leaves_a_spinoff_branch_alone(monkeypatch, data_dir):
+    """Spinoff worktrees share the agent/ prefix; an old one with unmerged
+    commits is her work, not the crew's leftovers."""
+    _record_branches("agent/old")
+    old = (datetime.now() - timedelta(days=nc.BRANCH_TTL_DAYS + 3)).isoformat()
+    deleted = []
+
+    def fake_run(cmd, **kw):
+        if "for-each-ref" in cmd:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=f"agent/old {old}\nagent/food-sql {old}\n", stderr="")
+        if "branch" in cmd and "-D" in cmd:
+            deleted.append(cmd[-1])
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(nc.subprocess, "run", fake_run)
+    nc.sweep_old_branches()
+    assert deleted == ["agent/old"]
+
+
+def test_sweep_survives_an_unparseable_date(monkeypatch, data_dir):
     def fake_run(cmd, **kw):
         if "for-each-ref" in cmd:
             return subprocess.CompletedProcess(cmd, 0, stdout="agent/x notadate\n", stderr="")

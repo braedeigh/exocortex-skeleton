@@ -426,9 +426,17 @@ def drop_worktree(path):
 
 
 def sweep_old_branches():
-    """Delete agent/* branches older than the TTL. Runs before the night's work
-    so a long-abandoned branch never accumulates; skips anything still checked
-    out by a live worktree."""
+    """Delete the crew's own branches once they're older than the TTL. Runs
+    before the night's work so a long-abandoned branch never accumulates.
+
+    Only branches a night run recorded are eligible. Spinoff worktrees share the
+    `agent/` prefix, and a spinoff whose worktree was archived can leave a
+    branch with commits nobody merged — a prefix match would force-delete that
+    work at 14 days. Anything still checked out by a live worktree is refused
+    by git anyway."""
+    ours = {run.get("branch") for run in
+            store.read("night_runs.json", {"runs": []}).get("runs", [])
+            if isinstance(run, dict) and run.get("branch")}
     r = subprocess.run(
         ["git", "-C", str(SKELETON), "for-each-ref", "--format=%(refname:short) %(committerdate:iso8601)",
          "refs/heads/agent/"], capture_output=True, text=True)
@@ -442,7 +450,7 @@ def sweep_old_branches():
             when = datetime.fromisoformat(date.strip()[:19])
         except ValueError:
             continue
-        if when < cutoff:
+        if when < cutoff and name in ours:
             d = subprocess.run(["git", "-C", str(SKELETON), "branch", "-D", name],
                                capture_output=True)
             swept += d.returncode == 0
