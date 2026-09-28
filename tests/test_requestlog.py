@@ -48,5 +48,8 @@ def test_hooked_app_records_api_requests_only(data_dir, monkeypatch):
 
 def test_kill_switch(data_dir, monkeypatch):
     monkeypatch.setenv("EXOCORTEX_REQUEST_LOG_OFF", "1")
+    # Drain what earlier tests queued in the process-wide buffer, so the
+    # count is only what this test recorded.
+    requestlog._pending.clear()
     requestlog.record("GET", "/api/x", 200)
     assert requestlog.flush() == 0
