@@ -178,6 +178,10 @@ export interface SessionMeta {
    * via scripts/request_input.py — the question text. Its Orchestra card glows
    * orange until her next send into the session clears it (server-side). */
   awaiting_input?: string;
+  /** The same ask as a list — every open question the session filed in one
+   * request_input call (it replaces, never appends). Absent on a flag raised
+   * before questions came as a list; read both through openQuestions(). */
+  awaiting_questions?: string[];
   /** The session said its work is finished (scripts/session_done.py) at this
    * time. A new turn starting, or her Keep open, clears it along with
    * closes_at and done_note (routes/observatory.py). */
@@ -221,6 +225,16 @@ export interface SessionMeta {
    * case every session is in until she picks one. Resolved per turn, so
    * changing it takes effect on the next turn with the history intact. */
   model?: string;
+}
+
+/** The questions a session is waiting on her for, as a list — empty when it
+ * isn't waiting. Falls back to the single `awaiting_input` line for a flag
+ * raised before questions came as a list. Shared by the roster's orange card
+ * and the chat's questions card so both number the same set. */
+export function openQuestions(meta: Pick<SessionMeta, 'awaiting_input' | 'awaiting_questions'> | undefined): string[] {
+  const list = (meta?.awaiting_questions ?? []).filter((q) => q.trim() !== '');
+  if (list.length > 0) return list;
+  return meta?.awaiting_input ? [meta.awaiting_input] : [];
 }
 
 export function getSessions(

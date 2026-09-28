@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """request_input.py — the running session's door to ask the owner for input.
 
-A session that hits a real fork it can't resolve calls this to hand the turn
-back to her: it sets `awaiting_input` (the question) on its OWN conversation,
-its Orchestra card glows orange, and her next message answers it (the next
-`--resume` turn — nothing else wakes the session; she is the transport). Same
-narrow-door doctrine as spinoff_open.py: agents never write session state
-directly — one validated entry point, loud precise failures.
+A session that hits real questions it can't resolve calls this to hand the
+turn back to her: it files every open question on its OWN conversation, its
+card glows orange, the questions print on the roster card (with a box she
+answers in) and at the bottom of its chat, and her next message answers them
+(the next `--resume` turn — nothing else wakes the session; she is the
+transport). One argument per question; filing again replaces the earlier set.
+Same narrow-door doctrine as spinoff_open.py: agents never write session
+state directly — one validated entry point, loud precise failures.
 
-    ./venv/bin/python3 scripts/request_input.py "your question for her"
+    ./venv/bin/python3 scripts/request_input.py "first question" "second question"
 
 The conversation id comes from EXOCORTEX_CONV_ID, injected into every Reading
 Room turn's environment by routes/observatory.py `_spawn`. Prints one JSON
@@ -26,14 +28,16 @@ from routes.observatory import request_input  # noqa: E402
 
 
 def main():
-    if len(sys.argv) != 2 or not sys.argv[1].strip():
-        print(json.dumps({"error": 'usage: request_input.py "<question>"'}))
+    # One argument per question; at least one has to say something.
+    questions = sys.argv[1:]
+    if not any(q.strip() for q in questions):
+        print(json.dumps({"error": 'usage: request_input.py "<question>" ["<question>" ...]'}))
         return 2
     conv_id = os.environ.get("EXOCORTEX_CONV_ID")
     if not conv_id:
         print(json.dumps({"error": "no EXOCORTEX_CONV_ID — not a Observatory turn?"}))
         return 2
-    payload, status = request_input(conv_id, sys.argv[1])
+    payload, status = request_input(conv_id, questions)
     print(json.dumps(payload))
     return 0 if status == 200 else 1
 

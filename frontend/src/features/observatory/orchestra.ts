@@ -20,7 +20,7 @@
  * being *produced*, not files merely glanced at — the same writing/creating
  * signal S3 (fork-the-work) will read to seed a take-over spinoff.
  */
-import type { PendingApproval, SessionMeta } from './api';
+import { openQuestions, type PendingApproval, type SessionMeta } from './api';
 import type { TerrainData } from '../terrain/api';
 
 export interface OrchestraFile {
@@ -45,6 +45,9 @@ export interface OrchestraRow {
    * value makes the card glow orange — it's waiting on her, even if its turn
    * has already ended (that's the whole point: the ask outlives the turn). */
   awaiting: string | null;
+  /** The same ask as a numbered list (api.openQuestions) — empty when it
+   * isn't waiting. What the orange card prints above its answer box. */
+  questions: string[];
   /** A gated command the act-ask gate is blocking on this session, or null.
    * Non-null raises the inline Approve/Deny card — the most urgent state, even
    * above awaiting (she can't do anything until she resolves it). */
@@ -80,6 +83,7 @@ export function orchestraRows(
       summary: s.summary ?? null,
       running: s.running === true,
       awaiting: s.awaiting_input ?? null,
+      questions: openQuestions(s),
       pendingApproval: s.awaiting_approval ?? null,
       error: s.last_error ?? null,
       files: [],

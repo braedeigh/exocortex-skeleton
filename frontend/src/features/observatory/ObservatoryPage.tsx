@@ -7,6 +7,7 @@ import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
 import { ConversationApprovals } from '../approvals/ConversationApprovals';
 import { ChatApprovalCard } from './ChatApprovalCard';
+import { QuestionsCard } from './QuestionsCard';
 import { CloseSourcePrompt, SpinoffOffer } from './SpinoffOffer';
 import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
 import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, stopConversation, streamSend } from './api';
@@ -837,6 +838,9 @@ export function ObservatoryPage({
           {/* A /spinoff this agent staged shows up as a Go card here, under its
               latest words: features/observatory/SpinoffOffer. */}
           {convId ? <SpinoffOffer convId={convId} writing={writing} pinned={sessionPinned === true} /> : null}
+          {/* The questions this session filed for her, floating at the bottom
+              of the chat until she answers: features/observatory/QuestionsCard. */}
+          {convId ? <QuestionsCard convId={convId} /> : null}
           {messageQueue.queued.map((q, i) => (
             <div key={i} className={styles.queuedRow}>
               <span className={styles.queuedTag}>queued</span>

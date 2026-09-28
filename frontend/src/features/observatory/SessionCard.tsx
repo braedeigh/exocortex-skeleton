@@ -18,6 +18,7 @@ import { dispatchIntent } from '../../shell/panels/windowBus';
 import {
   forkConversation,
   keepConversation,
+  sendToInbox,
   stopConversation,
   streamSend,
   type SessionMeta,
@@ -205,28 +206,111 @@ function DoneNote({
   );
 }
 
-/** Waiting on her — orange, question in her face, tap to answer. */
+/** Waiting on her — orange, every open question numbered, and a box right
+ * under them that answers into the session without opening it.
+ *
+ * The answer goes through the session's mailbox (sendToInbox), the same door
+ * as typing into its chat while a turn runs: an idle session starts a turn
+ * with it at once, a busy one gets it at its next step. Either way her words
+ * are what clears the orange, server-side — so after a send the card just
+ * says so and waits for the roster poll to take it away, rather than hiding
+ * itself on a guess.
+ *
+ * [prompt: "on the front page, i want the orange sessions to have these
+ * questions printed out with an input box beneath it that i can type directly
+ * into to send into the session"] */
 export function AwaitingCard({
   row,
   onOpen,
+  onChanged,
 }: {
   row: OrchestraRow;
   onOpen: (convId: string) => void;
+  onChanged?: () => void;
 }) {
+  const [answer, setAnswer] = useState('');
+  // 'sending' while it goes out, 'sent' once the mailbox has it, or the
+  // failure text.
+  const [sendState, setSendState] = useState<'sending' | 'sent' | string | null>(null);
+  const questions = row.questions.length > 0 ? row.questions : [row.awaiting ?? ''];
+
+  // Send her answer into the session, keeping the text if it fails.
+  const send = () => {
+    const text = answer.trim();
+    if (!text || sendState === 'sending') return;
+    setSendState('sending');
+    sendToInbox(row.id, text, true)
+      .then(() => {
+        setAnswer('');
+        setSendState('sent');
+        onChanged?.();
+      })
+      .catch((err) => setSendState(err instanceof Error ? err.message : 'could not send'));
+  };
+
   return (
-    <button
-      type="button"
-      className={styles.awaiting}
-      onClick={() => onOpen(row.id)}
-      title="Answer this session"
-    >
+    <div className={styles.awaiting}>
       <div className={styles.awaitTop}>
         <span className={styles.awaitDot} aria-hidden="true" />
         <span className={styles.title}>{row.title}</span>
-        <span className={styles.answerHint}>Answer →</span>
+        <button
+          type="button"
+          className={styles.openLink}
+          onClick={() => onOpen(row.id)}
+          title="Open this session"
+        >
+          open →
+        </button>
       </div>
-      <div className={styles.question}>{row.awaiting}</div>
-    </button>
+      {questions.length === 1 ? (
+        <div className={styles.question}>{questions[0]}</div>
+      ) : (
+        <ol className={styles.questionList}>
+          {questions.map((q, i) => (
+            <li key={i} className={styles.question}>
+              {q}
+            </li>
+          ))}
+        </ol>
+      )}
+      <form
+        className={styles.answerForm}
+        onSubmit={(e) => {
+          e.preventDefault();
+          send();
+        }}
+      >
+        {/* Enter makes a new line, since an answer to several questions is
+            often several lines; Ctrl/Cmd+Enter sends, like the chat. */}
+        <textarea
+          className={styles.answerInput}
+          value={answer}
+          rows={2}
+          placeholder={questions.length > 1 ? 'Answer them here…' : 'Answer here…'}
+          aria-label={`Answer ${row.title}`}
+          disabled={sendState === 'sending'}
+          onChange={(e) => setAnswer(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              send();
+            }
+          }}
+        />
+        <button
+          type="submit"
+          className={styles.answerSend}
+          disabled={!answer.trim() || sendState === 'sending'}
+        >
+          {sendState === 'sending' ? 'Sending…' : 'Send'}
+        </button>
+      </form>
+      {sendState === 'sent' ? (
+        <div className={styles.answerNote}>Sent — it has your answer.</div>
+      ) : sendState && sendState !== 'sending' ? (
+        <div className={styles.errorNote}>{sendState}</div>
+      ) : null}
+    </div>
   );
 }
 

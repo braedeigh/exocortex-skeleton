@@ -235,7 +235,7 @@ export function SessionLane({
           ))}
 
           {waiting.map((row) => (
-            <AwaitingCard key={row.id} row={row} onOpen={onOpen} />
+            <AwaitingCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />
           ))}
 
           {rest.map((row) => {

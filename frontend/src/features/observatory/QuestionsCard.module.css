@@ -1,0 +1,66 @@
+/* QuestionsCard — the open questions, pinned to the bottom of the chat.
+   Sticky inside the transcript column: it sits after the latest words, and
+   when she scrolls up it stays stuck to the bottom edge of the view. It needs
+   an opaque background because the conversation scrolls underneath it. Orange
+   because it's the same "your move" as the roster's waiting card. */
+
+.card {
+  position: sticky;
+  bottom: var(--space-2);
+  z-index: 2;
+  margin: var(--space-4) 0 var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--orange);
+  border-left: 3px solid var(--orange);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--orange) 10%, var(--card-bg, var(--bg)));
+  box-shadow: 0 8px 24px -10px color-mix(in srgb, var(--glow-orange, var(--orange)) 70%, transparent);
+  /* A long list scrolls inside the card rather than covering the chat. */
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--orange);
+}
+
+.eyebrow {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--orange);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.list {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.4em;
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.single {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.hint {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}

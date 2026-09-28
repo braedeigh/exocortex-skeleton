@@ -64,6 +64,50 @@ def test_request_input_caps_a_runaway_question(data_dir):
     assert len(store.read("bot_chats/index", {})["c1"]["awaiting_input"]) == rr._REQUEST_INPUT_MAX
 
 
+def test_request_input_files_several_questions_as_a_list(data_dir):
+    rr._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c1"] = {"title": "worker"}
+    payload, status = rr.request_input("c1", [" Sqlite or postgres? ", "", "Keep the old route?"])
+    entry = store.read("bot_chats/index", {})["c1"]
+    assert status == 200
+    assert entry["awaiting_questions"] == ["Sqlite or postgres?", "Keep the old route?"]
+    # the older readers still get one line of text they can show
+    assert entry["awaiting_input"] == "Sqlite or postgres?\nKeep the old route?"
+
+
+def test_filing_again_replaces_the_earlier_questions(data_dir):
+    rr._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c1"] = {"title": "worker"}
+    rr.request_input("c1", ["first?", "second?"])
+    rr.request_input("c1", ["only this one?"])
+    assert store.read("bot_chats/index", {})["c1"]["awaiting_questions"] == ["only this one?"]
+
+
+def test_request_input_caps_how_many_questions(data_dir):
+    rr._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c1"] = {"title": "worker"}
+    rr.request_input("c1", [f"q{i}?" for i in range(40)])
+    entry = store.read("bot_chats/index", {})["c1"]
+    assert len(entry["awaiting_questions"]) == rr._REQUEST_INPUT_MAX_COUNT
+
+
+def test_a_list_of_only_blanks_is_refused(data_dir):
+    rr._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c1"] = {"title": "worker"}
+    payload, status = rr.request_input("c1", ["  ", ""])
+    assert status == 400
+
+
+def test_every_session_turn_is_told_when_to_stop(data_dir):
+    cmd = rr._build_cmd({"conv_id": "c1", "allowed_tools": []}, None)
+    prompt = cmd[cmd.index("--append-system-prompt") + 1]
+    assert "scripts/request_input.py" in prompt and "Don't stop to ask for approval" in prompt
+
+
 # --- the roster surfaces it, and a send clears it ---------------------------
 
 STUB = """#!/usr/bin/env python3
@@ -122,6 +166,19 @@ def test_a_send_clears_awaiting_input(bot_client):
     _drain(bot_client.post("/api/observatory/conversation/c1/send",
                            json={"text": "use sqlite"}))
     assert "awaiting_input" not in store.read("bot_chats/index", {})["c1"]
+
+
+def test_a_send_clears_the_question_list_too(bot_client):
+    rr._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c1"] = {"bot": "keeper", "started": rr._now(), "last_at": rr._now(),
+                       "claude_session_id": None, "cost_usd": 0.0, "title": "asker",
+                       "journal": False, "cwd": str(store.BUILD_DIR),
+                       "allowed_tools": list(rr._BUILDER_TOOLS),
+                       "awaiting_input": "a?\nb?", "awaiting_questions": ["a?", "b?"]}
+    _drain(bot_client.post("/api/observatory/conversation/c1/send",
+                           json={"text": "a: yes, b: no"}))
+    assert "awaiting_questions" not in store.read("bot_chats/index", {})["c1"]
 
 
 def test_the_turn_gets_its_conv_id_in_the_environment(bot_client):

@@ -548,9 +548,12 @@ def _build_cmd(config, resume_sid):
         cmd += ["--append-system-prompt-file", str(prompt_file)]
     # Tell every Observatory session that the other agents exist and how to
     # reach them (peermail.prompt). Only a turn that knows its own
-    # conversation id gets it: that id is its return address.
+    # conversation id gets it: that id is its return address. The same turns
+    # are told when to stop for her (_QUESTIONS_PROMPT) — they're the ones
+    # whose conversation a question can be filed against.
     if config.get("conv_id"):
-        cmd += ["--append-system-prompt", peermail.prompt(config["conv_id"])]
+        cmd += ["--append-system-prompt",
+                peermail.prompt(config["conv_id"]) + "\n" + _QUESTIONS_PROMPT]
     # Keep the input open for the life of the turn, so messages can be handed
     # in mid-turn (see _TurnInput). `--replay-user-messages` makes the agent
     # echo each message back as it reads it, which is how the turn knows when
@@ -1481,27 +1484,65 @@ def rollover_running():
 # the owner's next send clears it (_send_to_conversation, above). Pure
 # augmentation — nothing wakes the session; her answer IS the next --resume
 # turn. She is the transport (no timer/liveness machinery — that's the trap).
+#
+# SEVERAL QUESTIONS AT ONCE. A session files every open question in one call,
+# and the set REPLACES whatever it filed before — the list is "what's open
+# now", not a log. They're kept as a list (`awaiting_questions`, what the
+# roster card and the in-chat card number) and joined into `awaiting_input`,
+# which everything older reads as a yes/no plus one line of text.
+#
+# Prompt: "i don't have to approve anything if there are no questions. if
+# there are questions, i want them all summarized into a card at the bottom of
+# the session ... and on the front page, i want the orange sessions to have
+# these questions printed out with an input box beneath it".
+
+# What every Observatory turn is told about stopping (see _build_cmd). The rule
+# is that there is no approval without a question: a session doesn't end its
+# turn on "say go and I'll…"; it either keeps working or files real questions.
+_QUESTIONS_PROMPT = (
+    "## When to stop for the owner\n"
+    "Don't stop to ask for approval. If nothing is genuinely undecided, keep"
+    " going: don't end a turn with \"say go and I'll…\", \"shall I?\" or"
+    " \"want me to…?\" — do the thing. Stop only for a real question that she"
+    " alone can answer and that changes what you'd build. Then file ALL your"
+    " open questions in one call, one argument each, and end your turn:\n"
+    "`./venv/bin/python3 scripts/request_input.py \"question 1\" \"question 2\"`"
+    " (from the app checkout). That turns your card orange and prints the"
+    " questions on the roster and at the bottom of your chat, with a box she"
+    " answers in; her answer arrives as your next message. Each question must"
+    " stand on its own — she reads them on a card, away from the chat — so"
+    " name the choice and your recommendation in it. Filing again replaces the"
+    " earlier set.\n"
+)
 
 _REQUEST_INPUT_MAX = 1000   # a question, not an essay
+_REQUEST_INPUT_MAX_COUNT = 12   # a handful she can answer in one reply, not a survey
 
 
-def request_input(conv_id, question):
-    """Set `awaiting_input` (the question) on a conversation — the one validated
-    entry point the agent CLI (and any future HTTP door) share, so agents never
-    write session state directly. Returns (payload, status): 200 on success,
-    400 on a bad id / empty question, 404 on an unknown conversation. Loud,
-    precise failures — same narrow-door doctrine as open_spinoff()."""
+def request_input(conv_id, questions):
+    """Set the open questions on a conversation — the one validated entry point
+    the agent CLI (and any future HTTP door) share, so agents never write
+    session state directly. `questions` is one string or a list of them.
+    Returns (payload, status): 200 on success, 400 on a bad id / no question,
+    404 on an unknown conversation. Loud, precise failures — same narrow-door
+    doctrine as open_spinoff()."""
     if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
         return {"error": "invalid conversation id"}, 400
-    question = (question or "").strip()[:_REQUEST_INPUT_MAX]
-    if not question:
+    # Tidy the questions: trim each, cap each, drop blanks, cap the count.
+    if isinstance(questions, str) or questions is None:
+        questions = [questions]
+    cleaned = [str(q or "").strip()[:_REQUEST_INPUT_MAX] for q in questions]
+    cleaned = [q for q in cleaned if q][:_REQUEST_INPUT_MAX_COUNT]
+    if not cleaned:
         return {"error": "empty question"}, 400
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
             return {"error": "not found"}, 404
-        entry["awaiting_input"] = question
-    return {"ok": True, "awaiting_input": question}, 200
+        entry["awaiting_questions"] = cleaned
+        entry["awaiting_input"] = "\n".join(cleaned)
+    return {"ok": True, "awaiting_input": entry["awaiting_input"],
+            "awaiting_questions": cleaned}, 200
 
 
 # --- Done: a finished session closes itself, unless she keeps it -------------
@@ -3592,10 +3633,11 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         entry.pop("autostart", None)
         if system is None and (batch is None or hers):
             # Her answer to a request-for-input IS this send: clear the orange
-            # "awaiting_input" flag so the Orchestra card stops glowing the
-            # moment she replies. (S2 request-for-input — see request_input().)
+            # flag and its questions, so the card stops glowing the moment she
+            # replies. (Request-for-input — see request_input().)
             # A system reminder isn't her answer, so it leaves both alone.
             entry.pop("awaiting_input", None)
+            entry.pop("awaiting_questions", None)
             # ...and any unresolved gated-command card (see _dismiss_pending).
             _dismiss_pending(conv_id)
         # A fresh attempt clears the red: whatever went wrong last time is

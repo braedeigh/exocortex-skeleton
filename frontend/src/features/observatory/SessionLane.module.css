@@ -81,8 +81,8 @@
 /* --- waiting on her: the orange-glow card (S2) --- */
 /* Warm ALARM, not the working-dot's breath — a different meaning must look
    different. Steady orange border + a faint orange wash + a soft outer glow,
-   so it reads as "your move" from across the page. The whole card is the tap
-   target (it opens the session so she can answer). */
+   so it reads as "your move" from across the page. A container, not a tap
+   target: it holds her answer box, and "open →" is the way into the session. */
 .awaiting {
   display: block;
   width: 100%;
@@ -93,7 +93,6 @@
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--orange) 9%, var(--card-bg));
   font: inherit;
-  cursor: pointer;
   position: relative;
   z-index: 0; /* stacking context, so the ::before glow below stays inside */
 }
@@ -153,11 +152,73 @@
   background: var(--orange);
 }
 
-.answerHint {
+/* Several questions, numbered — the numbers are what she answers by. */
+.questionList {
+  margin: var(--space-1) 0 0;
+  padding-left: 1.4em;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.questionList .question {
+  margin-top: 0;
+}
+
+/* Her answer, typed right on the card: the box and its Send side by side. */
+.answerForm {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.answerInput {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--orange) 45%, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.answerInput:focus {
+  outline: 2px solid color-mix(in srgb, var(--orange) 60%, transparent);
+  outline-offset: 1px;
+}
+
+.answerSend {
   flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--orange) 18%, transparent);
+  color: var(--text);
+  font: inherit;
   font-size: var(--font-size-sm);
   font-weight: 700;
-  color: var(--orange);
+  cursor: pointer;
+}
+
+.answerSend:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--orange) 30%, transparent);
+}
+
+.answerSend:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.answerNote {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
 
 /* --- needs her OK: the act-ask approval card (S4 inline) --- */

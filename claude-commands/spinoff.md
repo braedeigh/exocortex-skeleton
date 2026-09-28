@@ -46,8 +46,8 @@ spawn** — `spinoff_open.py` / the Go button reports which one, so fix it and
 offer again. Very large files aren't pasted; the child is told to read those
 itself.
 
-Don't write a Protocol — the general one (explore, teach, clarify, recap, plan,
-build, say it in the room) is attached to the child's instructions
+Don't write a Protocol — the general one (explore, teach, questions only if
+real ones exist, build, say it in the room) is attached to the child's instructions
 automatically, from `claude-commands/spinoff/protocol.md`. Write a
 `## Protocol` section only when this job genuinely needs a different one; if
 the brief has one, it replaces the general one.
