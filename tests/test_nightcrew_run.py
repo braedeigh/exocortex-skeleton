@@ -351,6 +351,23 @@ def test_a_note_once_picked_is_never_proposed_again(data_dir):
     assert nc.record_picks(store.read("dev_notes.json", {})["tabs"]) == 0
 
 
+def test_full_mode_self_queue_green_lights_through_judgments(data_dir):
+    """When making turns on, a note the crew picks for itself must carry an
+    `approved` judgment by the crew — not the retired `night` flag, which
+    nothing reads any more, so the note would neither pass lock 1 nor count
+    as answered and would be re-picked every night."""
+    import store
+    import devnote_judgments
+    store.write("dev_notes.json", {"tabs": {"today": [
+        {"id": "old1", "text": "Add a search for to-dos", "created": "2026-05-01 09:00"},
+    ]}})
+    rows = nc.self_queue(store.read("dev_notes.json", {})["tabs"], 1)
+    note = store.read("dev_notes.json", {})["tabs"]["today"][0]
+    assert ([r["id"] for r in rows], devnote_judgments.history(note)[-1]["by"],
+            devnote_judgments.is_green_lit(note), "night" in note) == (
+        ["old1"], "crew", True, False)
+
+
 def test_night_workers_are_born_ungated():
     """The act-vs-ask gate raises cards nobody answers at midnight — the first
     real night had workers denied plain grep. The conv entry must carry the

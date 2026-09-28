@@ -93,6 +93,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import devnote_judgments                        # noqa: E402
 import store                                    # noqa: E402
 from routes import observatory as rr            # noqa: E402
 from tools.nightcrew import nominate            # noqa: E402
@@ -268,9 +269,8 @@ PICKS_PER_NIGHT = 5
 
 def record_picks(tabs):
     """One "picked" card per nominee — a proposal, not work. Nothing on the
-    note itself changes (no moon is flipped): approval lives on the card
-    until "we go onto making", and a rejection writes the sticky night:false
-    through the judgment endpoint, not here.
+    note itself changes here: her verdict reaches the note's judgments only
+    when she answers the card (routes/nightcrew.py `/pick`).
 
     Skipped: notes already carrying an unjudged pick card (a proposal she
     hasn't answered must not repeat — that's the pestering the burn's
@@ -295,6 +295,26 @@ def record_picks(tabs):
         log(f"picked [{p['id']}] ({p['tab']}, {p['created'] or 'undated'}) "
             f"— {p['text'][:60]}")
     return len(candidates)
+
+
+def self_queue(tabs, need):
+    """Full rung: the crew lights up to `need` notes for itself and returns them
+    as queue rows. Each gets an `approved` judgment with `by: "crew"`, so the
+    note knows it was lit and by whom — the green light triage.py reads, and the
+    answer that keeps nominate.py from proposing it again."""
+    picked = nominate.nominate(tabs, need) if need > 0 else []
+    if not picked:
+        return []
+    ids = {p["id"] for p in picked}
+    with store.mutate("dev_notes.json", {"tabs": {}}) as data:
+        for notes in (data.get("tabs") or {}).values():
+            for n in notes or []:
+                if isinstance(n, dict) and n.get("id") in ids:
+                    devnote_judgments.append(n, "approved", by="crew")
+    for p in picked:
+        log(f"self-queued [{p['id']}] ({p['tab']}, {p['created'] or 'undated'}) "
+            f"— {p['text'][:60]}")
+    return [{"id": p["id"], "tab": p["tab"], "text": p["text"]} for p in picked]
 
 
 # --- the brief --------------------------------------------------------------
@@ -733,28 +753,16 @@ def main():
     # The crew's own initiative, by rung (see pick_mode):
     #   "picks" — write proposal cards only; her moons below still run, but
     #             nothing the crew picked is worked tonight.
-    #   "full"  — top the night up to MAX_NOTES with the oldest never-answered
-    #             gate-passers, moons flipped for real (un-mooning stays a
-    #             permanent no — nominate.py never re-proposes an answered
-    #             note). Her taps go first; they're fresher intent.
+    #   "full"  — top the night up to MAX_NOTES with nominate.py's picks, each
+    #             approved on the note itself with `by: "crew"` so the record
+    #             shows the crew lit it, not her (devnote_judgments.py). Her
+    #             taps go first; they're fresher intent.
     mode = pick_mode()
     if mode == "picks":
         n = record_picks(tabs)
         log(f"pick-only mode: proposed {n} note(s), worked none of them")
     elif mode == "full":
-        need = MAX_NOTES - len(queued)
-        picked = nominate.nominate(tabs, need) if need > 0 else []
-        if picked:
-            ids = {p["id"] for p in picked}
-            with store.mutate("dev_notes.json", {"tabs": {}}) as data:
-                for notes in (data.get("tabs") or {}).values():
-                    for n in notes or []:
-                        if isinstance(n, dict) and n.get("id") in ids:
-                            n["night"] = True
-            for p in picked:
-                log(f"self-queued [{p['id']}] ({p['tab']}, {p['created'] or 'undated'}) "
-                    f"— {p['text'][:60]}")
-            queued += [{"id": p["id"], "tab": p["tab"], "text": p["text"]} for p in picked]
+        queued += self_queue(tabs, MAX_NOTES - len(queued))
 
     spent, done = 0.0, 0
     for note in queued[:MAX_NOTES]:

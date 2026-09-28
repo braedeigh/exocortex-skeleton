@@ -10,7 +10,7 @@ and a merged card grows a revert tap that undoes exactly that merge and goes
 live again, so trying a change on the real site is a safe way to review it.
 
 Two files back it, both in the vault:
-  - dev_notes.json  — her notes; `night: true` is the green light (lock 1).
+  - dev_notes.json  — her notes; an `approved` judgment is the green light (lock 1).
     Set by her moon tap OR by the crew nominating for itself
     (tools/nightcrew/nominate.py, oldest never-answered notes first); either
     way the moon shows lit and un-mooning is a permanent no. A worker that
@@ -236,7 +236,7 @@ def register(app):
 
     @app.route("/api/nightcrew/notes/<note_id>/greenlight", methods=["POST"])
     def nightcrew_greenlight(note_id):
-        """Her ✓ — lock 1. Flips `night` on one dev note.
+        """Her ✓ — lock 1. Lights or unlights one dev note.
 
         Inline on the note card by design (Terra's cut): a separate triage page
         is a threshold, and thresholds don't get crossed at 11 PM. The tap is
@@ -450,12 +450,12 @@ def register(app):
         """Her judgment on a "picked" card (pick-only mode — the crew proposes,
         works nothing). Two verdicts:
 
-          approve — "would want this": recorded on the card only. Deliberately
-            NOT a moon: the point of the phase is judging the picking, and the
-            approvals become the ready-made queue when she turns making on.
-          reject — "not this": recorded, and writes the sticky night:false on
-            the note itself, so the nominator never proposes it again (the
-            refugium rule — re-proposing a spared note is how trust dies).
+          approve — "would want this": `approved` on the card and on the
+            note's judgments. That is the green light, so the approvals are the
+            ready-made queue for whenever the crew does work.
+          reject — "not this": `unsure` on the note (why, below), so the
+            nominator never proposes it again (the refugium rule —
+            re-proposing a spared note is how trust dies).
 
         Either verdict can carry a why (`note`), same soil as /feedback.
         """

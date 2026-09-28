@@ -2,17 +2,20 @@
 """nominate.py — the night crew picks its own work, oldest first.
 
 Plain English: the owner used to be the only one who could queue a dev note
-for the overnight crew (the moon tap). Now the crew also queues for itself:
-each night it takes the OLDEST notes that (a) she has never said yes or no to,
-and (b) would pass the eligibility gate anyway, and lights their moons for
-her to see. She keeps a standing veto — un-mooning a note writes `night:
-false`, and this module never proposes a note that carries any answer from
-her, so one "no" is permanent (the burn protocol's refugium rule: re-proposing
-something she already declined is how trust in the whole practice dies).
+for the overnight crew (the moon tap). Now the crew also finds work for itself:
+each night it takes the OLDEST notes that (a) she has never ruled on — no
+approved / unsure / denied judgment (devnote_judgments.py) — and (b) would pass
+the eligibility gate anyway. What happens to the picks is the caller's rung
+(scripts/nightcrew_run.py pick_mode): proposal cards she judges, or real work.
+Any answer from her is permanent here: an answered note is never proposed again
+(the burn protocol's refugium rule: re-proposing something she already declined
+is how trust in the whole practice dies). An `unsure` comes back only when she
+edits the note, which appends `open`.
 
-Why oldest first: the point is to work the backlog down until the crew is
-caught up, and the old end of the queue was just re-verified against the code,
-so age is not staleness here.
+Why oldest first: it was the simplest policy to start the tuning with. It is
+known to be wrong in one way — old is not the same as wanted; it resurfaced
+notes she'd been ignoring on purpose — which is why the crew only proposes for
+now, and her verdicts on the proposals are the material for the next policy.
 
 This is a NOMINATOR, not a second gate. Eligibility still belongs entirely to
 triage.py — this module only asks triage "would this pass if it were lit?"
@@ -30,15 +33,13 @@ from tools.nightcrew import triage
 
 
 def nominate(notes_by_tab, count):
-    """Pick up to `count` never-considered, gate-passing notes, oldest first.
+    """Pick up to `count` never-answered, gate-passing notes, oldest first.
 
-    "Never considered" is literal: the note has NO `night` key at all. Both
-    `night: true` (she or a past night lit it) and `night: false` (she un-lit
-    it — her veto) mean the note has an answer already, and an answered note
-    is never proposed again.
+    "Never answered" means the note's current verdict is `open` — no
+    judgments at all, or reopened since the last one.
 
     Returns rows shaped like triage.triage()'s eligible rows ({id, tab, text})
-    plus `created`, so the caller can flip the flags and log what it picked.
+    plus `created`, so the caller can record or queue what it picked.
     """
     if count <= 0:
         return []
@@ -49,7 +50,6 @@ def nominate(notes_by_tab, count):
             # unsure. An `unsure` stops being answered the moment she edits the
             # note to add context (that appends `open`), so it comes back here
             # on its own without ever needing to be re-proposed blind.
-            # (Was "is the `night` key present", which did this job invisibly.)
             if not isinstance(note, dict) or devnote_judgments.is_answered(note):
                 continue
             # Ask the gate the hypothetical: would this pass if she'd lit it?
