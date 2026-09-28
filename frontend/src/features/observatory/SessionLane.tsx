@@ -5,7 +5,7 @@ import { ApprovalCard, AwaitingCard, SessionCard } from './SessionCard';
 import { LaneHead, useLaneOpen } from './LaneHead';
 import { SwarmCard } from './SwarmCard';
 import { useSwarms } from './swarmApi';
-import { orderRoom, sessionTier, swarmTier, swarmView, type RoomPlace, type SwarmView } from './roomOrder';
+import { orderRoom, sessionPlace, swarmPlace, swarmView, type RoomPlace, type SwarmView } from './roomOrder';
 import type { TerrainData } from '../terrain/api';
 import styles from './SessionLane.module.css';
 
@@ -64,11 +64,12 @@ import styles from './SessionLane.module.css';
  * one of them needs her. Swarms come from one shared poll (swarmApi.useSwarms)
  * however many rooms are showing.
  *
- * ORANGE FIRST, LONGEST-WAITING ON TOP. Every card in a room — session or
- * swarm — stands in one order: the ones stopped on her (orange) with the one
- * that has waited longest first, then broken (red), then working (purple),
- * then idle (grey), the last three in the page's own order. roomOrder.ts owns
- * the rule; the swarm's own page gets it through this same component.
+ * WAITING, THEN RUNNING, THEN DONE. Every card in a room, session or swarm,
+ * stands in one order: the ones waiting on her (orange first, then the ones
+ * she's opened, each longest-waiting first), then the ones running now, then
+ * the done and handed-on ones with the most recently finished last.
+ * roomOrder.ts owns the rule; the swarm's own page gets it through this same
+ * component.
  */
 
 export function SessionLane({
@@ -163,21 +164,19 @@ export function SessionLane({
   const byId = new Map(sessions.map((s) => [s.id, s]));
 
   // Place every card in the room's one order (roomOrder.ts): sessions by their
-  // tier, swarms by theirs, each orange one by how long it has waited.
+  // band, swarms by theirs, each ordered inside its band by its own time.
   type Placed = { kind: 'row'; row: OrchestraRow } | { kind: 'swarm'; view: SwarmView };
   const places: RoomPlace<Placed>[] = [
     ...swarmsHere.map((view) => ({
       item: { kind: 'swarm' as const, view },
-      tier: swarmTier(view),
-      waitingSince: view.waitingSince,
+      ...swarmPlace(view),
     })),
     ...rows.flatMap((row) => {
       const meta = byId.get(row.id);
       if (!meta) return [];
       return [{
         item: { kind: 'row' as const, row },
-        tier: sessionTier(meta, opened[row.id]),
-        waitingSince: meta.last_at,
+        ...sessionPlace(meta, opened[row.id]),
       }];
     }),
   ];

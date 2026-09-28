@@ -3,93 +3,100 @@
  * card reads its members.
  *
  * What this is, in plain English: every room (and every swarm's own page)
- * stacks its cards by what they ask of her, top to bottom:
+ * stacks its cards in three bands, top to bottom:
  *
- *   asking   orange  stopped on her — a question, or a command to approve.
- *                    The one that has waited LONGEST goes first.
- *   broken   red     the last turn failed
- *   working  purple  running now, or used inside the last hour
- *   resting  grey    idle — including unread replies (grey, orange dot)
- *   retired  grey    handed its work on to a continuation: at the very
- *                    bottom, out of the way (unless it's still asking)
+ *   waiting  idle and not done, so waiting for her next word. The ones
+ *            wearing orange come first (a question, a command to approve, a
+ *            failed turn, a reply she hasn't read); then the ones she has
+ *            already opened. Each part oldest first, so whatever has waited
+ *            longest is on top.
+ *   running  a turn is going right now (purple), in the page's own order.
+ *   done     marked done (scripts/session_done.py), or handed on to a
+ *            continuation. Ordered by when it finished, so the most recently
+ *            finished is last of all.
  *
- * Inside every tier but the orange one, cards keep the order the page handed
- * them (the rail's Oldest/Newest toggle). Swarm cards take part in the same
- * order as sessions: a swarm with a member waiting on her stands among the
- * orange sessions, ranked by that member's wait.
+ * "When it finished" is sessionFilters.finalOutputAt: the handoff for a
+ * handed-on session, the closing turn for a done one. "How long it has
+ * waited" is `last_at`, the last time it did anything. Nothing else stamps the
+ * moment a question was filed.
  *
- * "How long it has waited" is read from `last_at` — the last time the session
- * did anything. A session that's asking has stopped, so that's when it
- * stopped; nothing else stamps the moment a question was filed.
+ * Done stays done through a peer's or a job's turn (routes/observatory.py
+ * only clears it on her own message), so a done session that briefly runs
+ * again stays down in the done band rather than jumping up.
  *
  * Swarms: the server knows who's running and who asked, but not what she has
  * read (that lives in her browser) nor pending approvals, so a swarm card is
  * coloured here from the SAME roster and the SAME rule as the session cards
- * (sessionFilters). Retired members — archived, or handed on to a
- * continuation — are left off the card and out of its counts.
+ * (sessionFilters). Done and retired members are left off the card and out of
+ * its counts, and the card takes its band from the members still at work.
  *
  * Touches: SessionLane.tsx (orders a room with it), SwarmCard.tsx and
  * SwarmPage.tsx (draw a swarm through swarmView), sessionFilters.ts (the
- * colour rule), swarmApi.ts (the swarm types).
+ * colour rule and finalOutputAt), swarmApi.ts (the swarm types).
  *
  * Prompt that produced it: "sessions that are orange float to the top, sorting
- * at the oldest at the top and in descending order above the working or done
- * ones. then make the front page of the swarm also signal the orange ones and
- * put them in this same order. remove retired ones from the front page and
- * then make the inactive/done ones grey." · "i want the orange ones to only be
- * those that need input." · "drop all of the retired sessions down to the
- * bottom such that they are out of the way"
+ * at the oldest at the top ... remove retired ones from the front page and
+ * then make the inactive/done ones grey." · "I want things marked done to all
+ * move down to the bottom, in descending order with the most recently retired
+ * one last. Above that are the active sessions that are actively running.
+ * Above that are ones that needed an input and are usually orange unless I've
+ * clicked them."
  */
 import type { SessionMeta } from './api';
-import { cardState, isAsking } from './sessionFilters';
+import { cardState, finalOutputAt, isAsking } from './sessionFilters';
 import { swarmState, type MemberState, type Swarm, type SwarmMember } from './swarmApi';
 
-export type RoomTier = 'asking' | 'broken' | 'working' | 'resting' | 'retired';
+/** The four places a card can stand, top to bottom. `waiting` is split in two
+ * so the orange ones lead it. */
+export type RoomTier = 'orange' | 'waiting' | 'running' | 'done';
 
-const TIER_RANK: Record<RoomTier, number> = { asking: 0, broken: 1, working: 2, resting: 3, retired: 4 };
+const TIER_RANK: Record<RoomTier, number> = { orange: 0, waiting: 1, running: 2, done: 3 };
 
-/** Which tier a session stands in. Asking is checked first, ahead of the card's
- * own colour: a session can be running AND waiting on her, and the room draws
- * it as the orange asking card either way. */
-export function sessionTier(
-  meta: SessionMeta,
-  openedAt: string | undefined,
-  nowMs: number = Date.now(),
-): RoomTier {
-  if (isAsking(meta)) return 'asking';
-  if (meta.retired) return 'retired';
-  const state = cardState(meta, openedAt, nowMs);
-  if (state === 'error') return 'broken';
-  if (state === 'running' || state === 'recent') return 'working';
-  return 'resting';
+/** Is this session finished: marked done, or handed on to a continuation. */
+export function isDone(meta: Pick<SessionMeta, 'done_at' | 'retired'>): boolean {
+  return meta.retired === true || Boolean(meta.done_at);
 }
 
-/** One thing to place in a room: a session row or a swarm, its tier, and —
- * for the orange ones — since when it has waited. */
+/** One thing to place in a room: a session row or a swarm, its tier, and the
+ * time it's ordered by inside that tier. `at` is ignored for `running`, which
+ * keeps the page's order. */
 export interface RoomPlace<T> {
   item: T;
   tier: RoomTier;
-  waitingSince?: string;
+  at?: string;
 }
 
-/** Stack a room: by tier, the orange ones longest-waiting first, and
- * everything else in the order it arrived. A stable sort, so a poll that
- * changes nothing moves nothing. An orange card with no readable time goes
- * after the ones that have one. */
+/** Where a session stands, and the time that orders it there. */
+export function sessionPlace(
+  meta: SessionMeta,
+  openedAt: string | undefined,
+  nowMs: number = Date.now(),
+): { tier: RoomTier; at?: string } {
+  if (isDone(meta)) return { tier: 'done', at: finalOutputAt(meta) ?? meta.done_at };
+  if (meta.running) return { tier: 'running' };
+  const state = cardState(meta, openedAt, nowMs);
+  const orange = state === 'asking' || state === 'error' || state === 'unread';
+  return { tier: orange ? 'orange' : 'waiting', at: meta.last_at };
+}
+
+/** Stack a room: by tier, then oldest first by `at` (running keeps the order
+ * it arrived in). A stable sort, so a poll that changes nothing moves nothing.
+ * A card with no readable time goes to the top of its tier: an unknown age is
+ * treated as old. */
 export function orderRoom<T>(places: RoomPlace<T>[]): T[] {
-  const waited = (p: RoomPlace<T>) => {
-    const ms = Date.parse(p.waitingSince ?? '');
-    return Number.isNaN(ms) ? Infinity : ms;
+  const time = (p: RoomPlace<T>) => {
+    const ms = Date.parse(p.at ?? '');
+    return Number.isNaN(ms) ? -Infinity : ms;
   };
   return places
     .map((place, index) => ({ place, index }))
     .sort((a, b) => {
       const byTier = TIER_RANK[a.place.tier] - TIER_RANK[b.place.tier];
       if (byTier !== 0) return byTier;
-      if (a.place.tier === 'asking') {
-        const wa = waited(a.place);
-        const wb = waited(b.place);
-        if (wa !== wb) return wa < wb ? -1 : 1;
+      if (a.place.tier !== 'running') {
+        const ta = time(a.place);
+        const tb = time(b.place);
+        if (ta !== tb) return ta < tb ? -1 : 1;
       }
       return a.index - b.index;
     })
@@ -97,17 +104,17 @@ export function orderRoom<T>(places: RoomPlace<T>[]): T[] {
 }
 
 /** A swarm member as its card draws it: the state from the roster, and
- * whether there's a reply she hasn't read (a grey chip with an orange dot). */
+ * whether it wears orange without asking (a reply she hasn't read, or a failed
+ * turn), which shows as a grey chip with an orange dot. */
 export interface SwarmMemberView extends SwarmMember {
   unread: boolean;
-  /** The member's last activity, from the roster — how long an asking member
-   * has waited. Absent when the roster doesn't carry it. */
+  /** The member's last activity, from the roster, for ordering the chips. */
   lastAt?: string;
 }
 
 export interface SwarmView {
   swarm: Swarm;
-  /** Live members only — retired ones are dropped. */
+  /** Members still at work. Done and retired ones are dropped. */
   members: SwarmMemberView[];
   counts: Record<MemberState, number>;
   state: MemberState;
@@ -127,14 +134,16 @@ export function swarmView(
   let waitingSince: string | undefined;
   const members: SwarmMemberView[] = [];
   for (const member of swarm.members) {
-    // Retired by either account — the swarm list's or the roster's — is off.
+    // Leave off finished members, by either account (the swarm list's
+    // `retired`, or the roster's done/retired).
     const meta = metaById.get(member.conv);
-    if (member.retired || meta?.retired) continue;
+    if (member.retired || (meta && isDone(meta))) continue;
     let state: MemberState = member.state;
     let unread = false;
     if (meta) {
       state = isAsking(meta) ? 'needs_input' : meta.running ? 'working' : 'silent';
-      unread = cardState(meta, opened[member.conv], nowMs) === 'unread';
+      const paint = cardState(meta, opened[member.conv], nowMs);
+      unread = paint === 'unread' || paint === 'error';
       // The swarm waits as long as its longest-waiting member.
       // Date.parse, not string order: stamps here aren't all in one format.
       if (
@@ -151,25 +160,33 @@ export function swarmView(
   return { swarm, members, counts, state: swarmState({ counts }), waitingSince };
 }
 
-/** A swarm's members in the room's own order: asking (longest-waiting first),
- * then working, then silent — what the swarm card's chips follow. */
+/** A swarm's members in the room's own order: asking first, then the others
+ * waiting on her (dotted ones before plain), then working, each oldest first.
+ * What the swarm card's chips follow. */
 export function orderMembers(members: SwarmMemberView[]): SwarmMemberView[] {
   return orderRoom(
     members.map((member) => ({
       item: member,
-      tier: (member.state === 'needs_input'
-        ? 'asking'
-        : member.state === 'working'
-          ? 'working'
-          : 'resting') as RoomTier,
-      waitingSince: member.lastAt,
+      tier: (member.state === 'working'
+        ? 'running'
+        : member.state === 'needs_input' || member.unread
+          ? 'orange'
+          : 'waiting') as RoomTier,
+      at: member.lastAt,
     })),
   );
 }
 
-/** A swarm's tier in its room, from its drawn state. */
-export function swarmTier(view: SwarmView): RoomTier {
-  if (view.state === 'needs_input') return 'asking';
-  if (view.state === 'working') return 'working';
-  return 'resting';
+/** A swarm's band in its room, from the members still at work: any asking
+ * puts it with the orange ones, any working with the running ones, idle ones
+ * with the waiting ones. With none left at work it sinks to done. */
+export function swarmPlace(view: SwarmView): { tier: RoomTier; at?: string } {
+  if (view.members.length === 0) return { tier: 'done' };
+  if (view.state === 'needs_input') return { tier: 'orange', at: view.waitingSince };
+  if (view.state === 'working') return { tier: 'running' };
+  const oldest = view.members
+    .map((m) => m.lastAt)
+    .filter((t): t is string => !!t && !Number.isNaN(Date.parse(t)))
+    .sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+  return { tier: 'waiting', at: oldest };
 }
