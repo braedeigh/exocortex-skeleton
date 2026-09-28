@@ -15,6 +15,10 @@ It is built to show how sure each number is, not just the number:
     filled in) used only for the nutrients its own entry lacks. The total
     lists those foods under `filled`, so an estimate never passes as a
     measurement.
+  - **A package label is named as one.** A packaged product's figures are
+    its manufacturer's label, as USDA's Branded Foods copies it, not a lab
+    measurement; the total lists those foods under `labelled`. A nutrient
+    the label doesn't give is missing, like any other unknown.
   - **A range where USDA gives one.** Foundation foods come with the min and
     max of the samples USDA measured; the day's low / high are those added up.
     SR Legacy foods have one number and add the same to both ends.
@@ -128,7 +132,8 @@ def totals(conn, items):
     sum of the sample min / max where given (the figure itself where not),
     `missing` the foods USDA has no figure for, so the total is a floor, not
     the whole, `filled` the foods whose figure came from their fill_from
-    entry instead of their own, and `by_food` each food's share of the
+    entry instead of their own, `labelled` the foods whose figure is a
+    package label's (fdcdb.py, Branded Foods), and `by_food` each food's share of the
     amount — [{fdc_id, label, meals, amount}], a food eaten in two meals
     counted once, richest first.
     """
@@ -141,20 +146,25 @@ def totals(conn, items):
     out = {}
     for key, label, ids in TRACKED:
         entry = {"label": label, "unit": None, "amount": 0.0, "low": 0.0, "high": 0.0,
-                 "missing": [], "filled": [], "by_food": {}}
+                 "missing": [], "filled": [], "labelled": [], "by_food": {}}
         for item in items:
             name = item.get("label") or str(item.get("fdc_id"))
 
             # Take the first FDC nutrient id this food has a figure for,
             # then the same from its fill_from entry, then call it missing.
-            found = _first(foods.get(item.get("fdc_id")), ids)
+            source = foods.get(item.get("fdc_id"))
+            found = _first(source, ids)
             if found is None:
-                found = _first(foods.get(item.get("fill_from")), ids)
+                source = foods.get(item.get("fill_from"))
+                found = _first(source, ids)
                 if found is not None:
                     entry["filled"].append(name)
             if found is None:
                 entry["missing"].append(name)
                 continue
+            # A figure off a package label says so.
+            if source["data_type"] == fdcdb.BRANDED and name not in entry["labelled"]:
+                entry["labelled"].append(name)
             unit = _unit(found["unit"])
             entry["unit"] = entry["unit"] or unit
             scale = float(item.get("grams") or 0) / 100.0

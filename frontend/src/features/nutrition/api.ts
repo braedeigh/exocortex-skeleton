@@ -11,6 +11,7 @@ import type {
   NutrientRanking,
   NutritionDay,
   NutritionPlan,
+  PackagedFood,
   RankPer,
   SexSetting,
 } from './types';
@@ -89,4 +90,9 @@ export function getPlan(capGrams: number, energyCap: number | null, signal?: Abo
 /** Grams in a cup, tablespoon, egg… of each food (measures.py), keyed by USDA food id. */
 export function getMeasures(fdcIds: number[], signal?: AbortSignal) {
   return api.get<{ measures: Record<string, Measure[]> }>(`/api/nutrition/measures?ids=${fdcIds.join(',')}`, signal);
+}
+
+/** Packaged products by name or brand; a query of 8+ digits is read as a barcode. */
+export function searchPackaged(text: string, signal?: AbortSignal) {
+  return api.get<{ foods: PackagedFood[] }>(`/api/nutrition/packaged?${new URLSearchParams({ q: text })}`, signal);
 }

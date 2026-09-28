@@ -28,6 +28,7 @@ All four come through `scripts/commons_fetch.py` into the commons, and are read 
 | FDC Foundation Foods (2026-04) | `usda-fdc/FoodData_Central_foundation_food_csv_2026-04-30.zip` | `fdc_*` | ~470 whole foods USDA analyzed itself, with sample count and min / max / median |
 | FDC SR Legacy (2018, frozen) | `usda-fdc/FoodData_Central_sr_legacy_food_csv_2018-04.zip` | `fdc_*` | ~7,800 foods, one number per nutrient, no spread |
 | FDC Survey Foods / FNDDS 2021–2023 (2024-10) | `usda-fdc/FoodData_Central_survey_food_csv_2024-10-31.zip` | `fdc_*` | ~5,400 foods "as eaten"; every food has all ~65 nutrients, with USDA **imputing** the ones nobody analyzed. No iodine |
+| FDC Branded Foods (2026-04) | `usda-fdc/FoodData_Central_branded_food_csv_2026-04-30.zip` (**outside git**) | `fdc_foods`, `fdc_branded*` | ~442,000 packaged products by barcode: the **maker's label** figures as USDA copies them, usually 10–15 nutrients. See "Packaged foods" below |
 | IOM/NASEM DRI summary tables | `nasem-dri/vitaminintake.pdf` | `dri_values` | RDA / AI / UL by sex and age band |
 
 FNDDS's `food_nutrient.csv` names a nutrient by its old 3-digit number (301 = calcium), where
@@ -42,6 +43,47 @@ the Males / Females rows are read. That also skips the PDF's own typos in the pr
 rows ("61−50 y").
 
 Reload with `./venv/bin/python3 scripts/nutrient_data.py load`.
+
+## Packaged foods: the maker's label, by name, brand or barcode
+
+USDA's **Branded Foods** dataset is the manufacturers' own label data, submitted to USDA
+(mostly through Label Insight and GS1). It's what Cronometer's barcode scanner reads. It is
+**not a lab analysis**: each product carries what its label prints, per serving, which USDA
+turns into per-100 g figures. That's usually 10–15 nutrients: energy, protein, fat, carbs,
+sugars, fiber, sodium, and often calcium, iron, potassium and vitamins C and D. Labels
+round ("0 g" can mean under 0.5 g), so a label zero is softer than a lab zero.
+
+**Where it lives.** The zip is 428 MB (3 GB of CSV unzipped), over the commons' 95 MB git
+limit. It came in through `commons_fetch.py --outside-git`: filed and checksummed in the
+manifest like any other file, with its path put in the commons' `.gitignore` before the
+file landed, so the backups skip it. Anyone can re-fetch it from the manifest's `url` and
+check the `sha256`. commons.db grows from ~136 MB to ~570 MB with it.
+
+**What the loader keeps** (`fdcdb._load_branded`, 10–15 minutes). USDA keeps every label
+revision: 2.0 million rows for 465,000 barcodes. Only the **newest label per barcode** is
+kept (latest `available_date`), and discontinued products are dropped: ~442,000 products.
+The label figures go in `fdc_branded_amounts`, **apart from the lab figures** in
+`fdc_amounts`, so the nutrient rankings and the whole-food search stay USDA-lab only and
+don't get buried under half a million cereals. One unit change is made: a label giving
+vitamin D only in IU (120,000 of them) gets a µg figure at IU ÷ 40, which is exact by
+definition. Vitamin A in IU is **not** converted, because IU → RAE depends on how much is
+retinol and how much carotene, which the label doesn't say. So a label's vitamin A in IU
+stays unknown.
+
+**Barcodes.** The same product is 12 digits on a US can (UPC-A), 13 in Europe (EAN-13) and
+14 in USDA's file (GTIN-14). A barcode is matched as its digits with leading zeros dropped.
+An 8-digit code is tried as EAN-8 and as UPC-E (the short code on small packs), expanded
+back to UPC-A (`fdcdb.barcode_keys`).
+
+**On the page.** In Meals, "Add a food" has a **Packaged** switch: search by name or brand
+(SQLite full-text, `fdc_branded_fts`), type the barcode number, or tap **Scan** to read it
+with the phone camera (`BarcodeScanner.tsx`, the zxing library, loaded only when opened;
+it works in iPhone Safari, which has no built-in barcode reader). A picked product joins
+the meal at one label serving when the label gives it in grams, else 100 g, marked a
+guess. In the totals, a nutrient its label doesn't give is `missing`, like any unknown,
+never 0, and "What to add" names it in `unknown_in`. Every nutrient a label *does* give
+lists the product under `labelled`, and the page says "From the package label (the
+maker's figures, not USDA's lab)".
 
 ## Nutrient pages: deficiency text and the low-histamine list
 
@@ -139,7 +181,8 @@ cup will differ.
 
 - **Unknown is not zero.** Foundation foods lack many nutrients. Rolled oats, for example,
   have no vitamin A, C, D or K figure. A total lists the foods it's `missing` instead of
-  counting them as 0, and the page shows that. Some nutrients have a fallback id when the
+  counting them as 0, and the page shows that. A packaged product's missing nutrients count
+  the same way. Some nutrients have a fallback id when the
   main one is absent: energy 1008 → 2048 → 2047 (Atwater variants), fiber 1079 → 2033.
 - **Gaps filled from a second USDA entry, and labelled.** A meal item may carry
   `fill_from`, the FDC id of a second entry for the same food (usually FNDDS). That entry
@@ -253,6 +296,8 @@ Personal facts (her age, why "both") stay in those vault files, never in this re
 - `GET /api/nutrition/day`: the usual day's totals against the targets, plus `storage`,
   each nutrient's stored-or-steady marker.
 - `GET /api/nutrition/search?q=`: FDC food search (Foundation, then SR Legacy, then FNDDS).
+- `GET /api/nutrition/packaged?q=`: packaged products (Branded Foods) by name or brand; a `q`
+  of 8+ digits is a barcode, typed or scanned.
 - `GET /api/nutrition/rank/<key>?per=100g|100kcal&q=&limit=&histamine=low`: every FDC food
   ranked by one tracked nutrient, richest first. Per 100 kcal is nutrient density; foods
   under 5 kcal per 100 g are left out of it, and foods with no figure are never ranked as 0.

@@ -29,6 +29,8 @@ export interface NutrientRow {
   missing: string[];
   /** Foods whose figure came from their fill_from entry (USDA's survey data, partly estimated). */
   filled?: string[];
+  /** Foods whose figure is a package label's (USDA Branded Foods), not a lab measurement. */
+  labelled?: string[];
   /** Each of her foods' share of the amount, richest first; a food in two meals counted once. */
   by_food?: FoodShare[];
   by_sex: Partial<Record<Sex, Judgement>>;
@@ -175,7 +177,7 @@ export interface HighlightedFood {
 
 export interface FdcFood {
   fdc_id: number;
-  data_type: 'foundation_food' | 'sr_legacy_food' | 'survey_fndds_food';
+  data_type: 'foundation_food' | 'sr_legacy_food' | 'survey_fndds_food' | 'branded_food';
   description: string;
   category: string | null;
 }
@@ -226,4 +228,17 @@ export interface Measure {
   kind: 'usda' | 'derived';
   source: string;
   url: string;
+}
+
+/** A packaged product from USDA Branded Foods: the maker's label, found by name, brand or barcode (fdcdb.py). */
+export interface PackagedFood extends FdcFood {
+  gtin_upc: string;
+  brand_owner: string | null;
+  brand_name: string | null;
+  serving_size: number | null;
+  /** 'g' or 'ml' (or another unit as printed); only a serving in g becomes a gram weight. */
+  serving_size_unit: string | null;
+  household_serving: string | null;
+  /** How many nutrients the label gives — usually 10–15 of the ~30 tracked. */
+  nutrient_count: number;
 }

@@ -18,7 +18,7 @@ import histamine
 import nutrition
 import store
 from routes import nutrition as nutrition_routes
-from tests.test_fdcdb import make_survey_zip, make_zip
+from tests.test_fdcdb import make_branded_zip, make_survey_zip, make_zip
 
 
 @pytest.fixture
@@ -28,6 +28,7 @@ def conn(tmp_path, data_dir, monkeypatch):
     with fdcdb.session(root) as connection:
         fdcdb.load_fdc(connection, make_zip(tmp_path / "f.zip"))
         fdcdb.load_fdc(connection, make_survey_zip(tmp_path / "s.zip"))
+        fdcdb.load_fdc(connection, make_branded_zip(tmp_path / "b.zip"))
         dri.ensure_schema(connection)
         for sex, calcium in (("female", 1000), ("male", 1200)):
             connection.execute("INSERT INTO dri_values VALUES ('calcium', ?, '19-30', 'rda', ?, 'mg', '', 'test', NULL)",
@@ -385,3 +386,24 @@ def test_plan_keeps_a_daily_nutrient_every_day(conn):
     plan = nutrition.plan_additions(conn, [], [KALE], cap_grams=1000, sex="female", age=29, weekly_keys=set())
     kale = plan["foods"][0]
     assert (kale["daily_grams"], kale["weekly_grams"]) == (pytest.approx(393.7, abs=0.1), 0.0)
+
+
+# Packaged foods: a label's figures count, and say they're a label's.
+def test_a_packaged_foods_figure_counts_and_is_named_as_a_label(conn):
+    total = _calcium(conn, [{"fdc_id": 901, "grams": 40, "label": "oats"}])
+    assert (total["amount"], total["labelled"], total["missing"]) == (20.0, ["oats"], [])
+
+
+def test_a_nutrient_the_label_leaves_out_is_missing_not_zero(conn):
+    total = nutrition.totals(conn, [{"fdc_id": 901, "grams": 40, "label": "oats"}])["iron"]
+    assert (total["amount"], total["missing"], total["labelled"]) == (0.0, ["oats"], [])
+
+
+def test_packaged_route_finds_by_name_and_by_typed_barcode(client):
+    by_name = client.get("/api/nutrition/packaged?q=oaty").get_json()["foods"]
+    by_code = client.get("/api/nutrition/packaged?q=0 12345 67890 5").get_json()["foods"]
+    assert ([f["fdc_id"] for f in by_name], [f["fdc_id"] for f in by_code]) == ([901], [901])
+
+
+def test_packaged_route_says_nothing_found_for_an_unknown_barcode(client):
+    assert client.get("/api/nutrition/packaged?q=000000000017").get_json()["foods"] == []

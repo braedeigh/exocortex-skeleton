@@ -82,3 +82,11 @@ def test_verify_reports_changed_and_missing_files(root, tmp_path):
     (root / "epa" / "a.pdf").write_bytes(b"tampered")
     (root / "epa" / "b.pdf").unlink()
     assert sorted(commons.verify()) == [("epa/a.pdf", "checksum changed"), ("epa/b.pdf", "missing")]
+
+
+def test_outside_git_file_is_filed_and_ignored_by_git(root, tmp_path, monkeypatch):
+    monkeypatch.setattr(commons, "MAX_FILE_BYTES", 3)
+    status, entry = commons_fetch.add_file(_file(tmp_path, "big.zip", b"toolong"), "usda-fdc", {},
+                                           outside_git=True)
+    assert (status, entry["in_git"], (root / ".gitignore").read_text().splitlines()[-1]) == (
+        "added", False, "usda-fdc/big.zip")

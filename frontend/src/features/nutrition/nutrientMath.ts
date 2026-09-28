@@ -15,6 +15,7 @@ export const DATASET_TAGS: Record<FdcFood['data_type'], string> = {
   foundation_food: 'Foundation',
   sr_legacy_food: 'SR',
   survey_fndds_food: 'FNDDS',
+  branded_food: 'Label',
 };
 
 export type RowGroup = 'over' | 'under' | 'met' | 'untargeted';

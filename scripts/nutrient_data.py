@@ -7,6 +7,8 @@ you search foods and see what's in one, from the command line.
 
     venv/bin/python3 scripts/nutrient_data.py load            # every FDC zip in the commons
     venv/bin/python3 scripts/nutrient_data.py search kale raw
+    venv/bin/python3 scripts/nutrient_data.py packaged oatly     # packaged products (Branded Foods)
+    venv/bin/python3 scripts/nutrient_data.py packaged 016000275287   # ... or one barcode
     venv/bin/python3 scripts/nutrient_data.py show 168421
     venv/bin/python3 scripts/nutrient_data.py matrix --sex both   # her day as A, lower, upper
 
@@ -14,7 +16,8 @@ you search foods and see what's in one, from the command line.
 nutrition.matrix): one row per nutrient, one column per food, per gram, with
 the bounds at the right. "?" is a figure USDA doesn't have.
 
-Loading is safe to re-run: each dataset replaces its own earlier rows.
+Loading is safe to re-run: each dataset replaces its own earlier rows. The
+Branded Foods zip (packaged products, 3 GB unzipped) takes several minutes.
 """
 import argparse
 import sys
@@ -33,6 +36,8 @@ def main(argv=None):
     sub.add_parser("load", help="read every FDC zip in the commons into commons.db")
     find = sub.add_parser("search", help="foods whose name holds every word")
     find.add_argument("words", nargs="+")
+    packaged = sub.add_parser("packaged", help="packaged products by name / brand, or one barcode")
+    packaged.add_argument("words", nargs="+")
     show = sub.add_parser("show", help="one food's nutrients per 100 g and its portions")
     show.add_argument("fdc_id", type=int)
     grid = sub.add_parser("matrix", help="her usual day's foods as A, lower, upper (per gram)")
@@ -60,6 +65,16 @@ def main(argv=None):
                 print(f"{row['fdc_id']:>7}  {tag:<2}  {row['description']}")
             return 0
 
+        # Packaged: one line per product, barcode first; digits alone are a barcode.
+        if args.command == "packaged":
+            text = " ".join(args.words)
+            found = (fdcdb.lookup_barcode(conn, text) if text.replace(" ", "").isdigit()
+                     else fdcdb.search_packaged(conn, text))
+            for row in found:
+                brand = row["brand_name"] or row["brand_owner"] or ""
+                print(f"{row['fdc_id']:>7}  {row['gtin_upc']:<14}  {row['description']}  ({brand})")
+            return 0
+
         # Matrix: nutrients down, her foods across, per gram, then the bounds.
         if args.command == "matrix":
             items = nutrition.day_items()
@@ -83,6 +98,10 @@ def main(argv=None):
             print(f"no FDC food {args.fdc_id}")
             return 1
         print(f"{item['description']}  ({item['data_type']}, {item['category']})  per 100 g")
+        if item["label"]:
+            label = item["label"]
+            print(f"  package label: {label['brand_name'] or label['brand_owner']}, barcode {label['gtin_upc']}"
+                  " — the maker's figures, not a USDA lab's")
         for nutrient in item["nutrients"].values():
             spread = ""
             if nutrient["min"] is not None and nutrient["max"] is not None:

@@ -9,6 +9,8 @@ Bad input comes back as a 400 with the reason.
     GET  /api/nutrition/day            -> {report, meals, day, settings, storage}: storage maps each
                                           nutrient to whether the body stores it (nutrient_storage.py)
     GET  /api/nutrition/search?q=      -> USDA foods whose name holds every word
+    GET  /api/nutrition/packaged?q=    -> packaged products (USDA Branded Foods, the makers' labels) by
+                                          name or brand; a q of 8+ digits (typed or scanned) is a barcode
     GET  /api/nutrition/rank/<key>?per=100g|100kcal&q=&limit=&histamine=low
                                        -> every USDA food ranked by that nutrient, richest first,
                                           each rated against the SIGHI low-histamine list (histamine.py);
@@ -251,3 +253,15 @@ def register(app):
         with store.mutate(nutrition.SETTINGS, {}) as data:
             data.update({key: body[key] for key in ("sex", "age") if key in body})
         return jsonify({"ok": True, "settings": nutrition.settings()})
+
+    @app.route("/api/nutrition/packaged")
+    def nutrition_packaged():
+        # Packaged products by name or brand; a string of digits is a barcode typed in.
+        text = (request.args.get("q") or "").strip()
+        digits = text.replace(" ", "").replace("-", "")
+        with fdcdb.session() as conn:
+            if digits.isdigit() and len(digits) >= 8:
+                foods = fdcdb.lookup_barcode(conn, digits)
+            else:
+                foods = fdcdb.search_packaged(conn, text)
+        return jsonify({"foods": foods})

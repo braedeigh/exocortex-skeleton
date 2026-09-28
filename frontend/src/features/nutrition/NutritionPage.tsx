@@ -14,7 +14,8 @@
  * and how much of them to add to meet her targets (./MealPrepPlan.tsx)
  * (./Highlights.tsx); then her meals, where each food's amount can be fixed — in grams or a kitchen measure
  * like "1.5 cup" (./AmountInput.tsx) — a food removed, or a USDA food
- * added by search; each meal's servings a day set (0 = saved but not counted);
+ * added by search — a whole food, or, with "Packaged" on, a packaged product by name, brand, typed
+ * barcode or camera scan (./PackagedSearch.tsx); each meal's servings a day set (0 = saved but not counted);
  * a meal started or deleted. A weight nobody has weighed yet is marked "guess".
  * The Food search box (../ecosystem/foodSearch.ts) narrows which meals show;
  * the totals always count every meal.
@@ -51,6 +52,7 @@ import { FoodGiftsCard, TopSources } from './FoodShares';
 import { StorageTag } from './StorageNote';
 import { StarredFoods } from './Highlights';
 import { MealPrepPlan } from './MealPrepPlan';
+import { PackagedSearch } from './PackagedSearch';
 import { SingleFoodsChip, useSingleFoods } from './SingleFoods';
 import { barShare, DATASET_TAGS, fdcFoodUrl, formatAmount, GROUP_TITLES, groupRows } from './nutrientMath';
 import type { Meal, MealItem, NutrientRow, NutritionDay, Sex, SexSetting } from './types';
@@ -270,11 +272,16 @@ export function NutrientBars({ row, sexes }: { row: NutrientRow; sexes: Sex[] })
 
       {/* The notes that say how firm the number is. */}
       {row.missing.length ? (
-        <div className={styles.note}>No USDA figure for: {row.missing.join(', ')} — the total is at least this.</div>
+        <div className={styles.note}>No figure for: {row.missing.join(', ')} — the total is at least this.</div>
       ) : null}
       {row.filled?.length ? (
         <div className={styles.note}>
           Filled in from USDA's survey data (partly estimated) for: {row.filled.join(', ')}.
+        </div>
+      ) : null}
+      {row.labelled?.length ? (
+        <div className={styles.note}>
+          From the package label (the maker's figures, not USDA's lab) for: {row.labelled.join(', ')}.
         </div>
       ) : null}
       {isAi ? <div className={styles.note}>* An Adequate Intake — a softer target than an RDA.</div> : null}
@@ -498,6 +505,26 @@ function FoodSearch({ onPick }: { onPick: (item: MealItem) => void }) {
     enabled: debounced.length >= 2,
   });
 
+  // Packaged foods (a maker's label, found by name, brand or barcode) have their own search.
+  const [packaged, setPackaged] = useState(false);
+  const packagedChip = (
+    <button
+      type="button"
+      className={`${styles.chip} ${packaged ? styles.chipOn : ''}`}
+      aria-pressed={packaged}
+      onClick={() => setPackaged(!packaged)}
+    >
+      Packaged
+    </button>
+  );
+  if (packaged)
+    return (
+      <>
+        {packagedChip}
+        <PackagedSearch onPick={onPick} />
+      </>
+    );
+
   return (
     <div className={styles.search}>
       <input
@@ -507,6 +534,7 @@ function FoodSearch({ onPick }: { onPick: (item: MealItem) => void }) {
         onChange={(event) => setText(event.target.value)}
       />
       <SingleFoodsChip on={singleOnly} onChange={setSingleOnly} />
+      {packagedChip}
       {debounced.length >= 2 && results.data ? (
         <ul className={styles.results}>
           {results.data.foods.map((food) => (
