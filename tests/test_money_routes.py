@@ -208,9 +208,22 @@ def test_csv_parse_normalizes_dates_skips_balance_rows_and_sets_includes(client)
     paypal = by_desc["PAYPAL DES:GUMROAD"]
     assert paypal["date"] == "2026-04-03"
     assert paypal["include"] is True            # plain expense: in by default
-    assert by_desc["VIDALA DES:PAYROLL"]["include"] is True   # paycheck: in (tax tracking)
+    assert by_desc["VIDALA DES:PAYROLL"]["include"] is True   # money in: in
     assert by_desc["TRANSFER TO SAVINGS"]["include"] is False  # internal transfer: out
     assert by_desc["TRANSFER TO SAVINGS"]["category"] == "Savings/Transfer"
+
+
+def test_csv_parse_ticks_money_in_from_any_payer_but_not_refunds_or_own_transfers(client):
+    fname = _write_csv("test_money_in.csv", BOA_CSV
+                       + "04/08/2026,ST HEALTH SVCS DES:PAYROLLREG ID:7013,4401.60\n"
+                       + "04/09/2026,Etsy.com*Shop 04/08 REFUND BROOKLYN NY,290.11\n"
+                       + "04/10/2026,TRANSFER FROM SAVINGS,50.00\n")
+    rows = _post(client, "/api/csv/parse", {"filename": fname}).get_json()["rows"]
+    include = {row["desc"]: row["include"] for row in rows}
+    assert include["ST HEALTH SVCS DES:PAYROLLREG ID:7013"] is True
+    assert include["Etsy.com*Shop 04/08 REFUND BROOKLYN NY"] is False
+    assert include["TRANSFER FROM SAVINGS"] is False
+    (IMPORT_DATA_DIR / "bank_csvs" / fname).unlink()
 
 
 def test_csv_parse_flags_already_imported_rows(client):
@@ -281,6 +294,37 @@ def test_csv_import_adds_expenses_learns_rules_and_creates_categories(client):
     cats = {c["name"] for c in read_budget()["categories"]}
     assert cats == {"Fun"}
     assert out["categories_added"] == 1
+
+
+def test_csv_parse_names_rows_from_learned_labels_newest_first(client):
+    fname = _write_csv("test_labels.csv", BOA_CSV + "04/07/2026,PAYPAL DES:INST XFER ID:UBER INDN:X,-12.00\n")
+    store.write("merchant_labels", {"patterns": [
+        {"match": "paypal des:inst", "title": "PayPal transfer"},
+        {"match": "id:uber", "title": "Uber"},
+    ]})
+    out = _post(client, "/api/csv/parse", {"filename": fname}).get_json()
+    by_desc = {row["desc"]: row for row in out["rows"]}
+    assert by_desc["PAYPAL DES:INST XFER ID:UBER INDN:X"]["title"] == "Uber"
+    assert by_desc["PAYPAL DES:GUMROAD"]["title"] == ""
+    assert out["titles"] == ["PayPal transfer", "Uber"]
+    (IMPORT_DATA_DIR / "bank_csvs" / fname).unlink()
+
+
+def test_csv_import_saves_row_names_and_learns_labels_replacing_old_ones(client):
+    store.write("merchant_labels", {"patterns": [{"match": "cosmic coffee", "title": "Coffee"}]})
+    r = _post(client, "/api/csv/import", {
+        "selections": [
+            {"date": "2026-04-03", "amount": -4.5, "desc": "TST*COSMIC COFFEE - EAS 04/03",
+             "category": "Food", "title": "Cosmic Coffee"},
+            {"date": "2026-04-04", "amount": -9.0, "desc": "SHELL OIL 575", "category": "Gas"},
+        ],
+        "learn_labels": [{"match": "cosmic coffee", "title": "Cosmic Coffee"}, {"match": "x", "title": "Too short"}],
+    })
+    assert r.get_json()["labels_learned"] == 1
+    titles = {e["comments"]: e["title"] for e in read_expenses()}
+    assert titles == {"TST*COSMIC COFFEE - EAS 04/03": "Cosmic Coffee", "SHELL OIL 575": ""}
+    labels = store.read("merchant_labels", {"patterns": []})["patterns"]
+    assert labels == [{"match": "cosmic coffee", "title": "Cosmic Coffee"}]
 
 
 def test_csv_import_merges_bank_row_into_receipt_expense(client):

@@ -646,50 +646,177 @@
   margin-top: 2px;
 }
 
-/* ---- CSV preview ---- */
+/* ---- CSV preview: the statement, split by month, one card-like row per
+   transaction (shaped like the receipt scanner's rows in kitchen/). ---- */
 
 .csvScroll {
-  overflow-x: auto;
-  max-height: 600px;
+  max-height: 640px;
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
+  background: var(--bg);
 }
 
-.csvTable {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
+/* Confirmation progress line above the list. */
+.stmtProgress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
 }
 
-.csvTable thead {
+.stmtProgressWaiting,
+.stmtProgressDone {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.stmtProgressWaiting {
+  color: var(--orange);
+}
+
+.stmtProgressDone {
+  color: var(--green);
+}
+
+/* Month header: sticks to the top of the list while its rows scroll by. */
+.stmtMonth {
   position: sticky;
   top: 0;
-  background: var(--card-bg);
   z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
 }
 
-.csvTable th {
-  padding: 6px 8px;
-  font-weight: 600;
-  text-align: left;
+.stmtMonthName {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+}
+
+.stmtMonthTotals {
+  font-size: 13px;
   color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One transaction. Orange tint + left rule = waiting on her to confirm. */
+.stmtRow {
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--border);
+  border-left: 4px solid transparent;
+  background: var(--card-bg);
+  cursor: pointer;
+  transition:
+    background-color 200ms ease-out,
+    border-color 200ms ease-out,
+    opacity 200ms ease-out;
+}
+
+.stmtRowWaiting {
+  background: color-mix(in srgb, var(--orange) 14%, var(--card-bg));
+  border-left-color: var(--orange);
+}
+
+.stmtRowOff {
+  opacity: 0.45;
+}
+
+.stmtTop {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.stmtRaw {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+/* The bank's own text: secondary, so the name below reads as the answer. */
+.stmtDesc {
+  font-size: 13px;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.stmtMeta {
   font-size: var(--font-size-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
 }
 
-.csvTable td {
-  padding: 5px 8px;
-  border-top: 1px solid var(--border);
+.stmtTapHint {
+  color: var(--orange);
+  font-weight: 700;
 }
 
-.csvRowWarn {
-  background: color-mix(in srgb, var(--red) 10%, transparent);
+.stmtAmount {
+  padding-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-.csvRowDim {
-  opacity: 0.4;
+.stmtIn {
+  color: var(--green);
+}
+
+/* "What is it?" + category, indented to line up past the checkbox. */
+.stmtFields {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding-left: calc(40px + var(--space-2));
+}
+
+.stmtName {
+  flex: 2;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.stmtName::placeholder {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.stmtSelect {
+  flex: 1.4;
+  min-width: 0;
+  max-width: none;
+}
+
+/* Phone width: the fields wrap instead of squeezing. The name takes a whole
+   line under the bank text, with the category and + beneath it; the indent
+   shrinks so neither box is cut short. */
+@media (max-width: 560px) {
+  .stmtFields {
+    flex-wrap: wrap;
+    padding-left: var(--space-3);
+  }
+
+  .stmtName {
+    flex: 1 1 100%;
+  }
+
+  .stmtSelect {
+    flex: 1;
+  }
 }
 
 /* include checkbox: compact box, comfy hit area */
@@ -716,15 +843,6 @@
   padding: 1px 6px;
   border-radius: 4px;
   margin-left: 4px;
-  white-space: nowrap;
-}
-
-.csvDesc {
-  font-size: var(--font-size-sm);
-}
-
-.csvAmount {
-  font-size: 13px;
   white-space: nowrap;
 }
 

@@ -8,6 +8,7 @@ import type {
   CsvImportResult,
   CsvParseResponse,
   CsvSelection,
+  LabelRule,
   LearnRule,
   MoneyData,
 } from './types';
@@ -154,8 +155,12 @@ export function parseCsv(filename: string): Promise<CsvParseResponse> {
   return api.post('/api/csv/parse', { filename });
 }
 
-export function importCsv(selections: CsvSelection[], learnRules: LearnRule[]): Promise<CsvImportResult> {
-  return api.post('/api/csv/import', { selections, learn_rules: learnRules });
+export function importCsv(
+  selections: CsvSelection[],
+  learnRules: LearnRule[],
+  learnLabels: LabelRule[],
+): Promise<CsvImportResult> {
+  return api.post('/api/csv/import', { selections, learn_rules: learnRules, learn_labels: learnLabels });
 }
 
 // --- Tax setaside ---

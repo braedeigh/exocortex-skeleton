@@ -39,7 +39,7 @@ import type {
   UpdateExpensePayload,
 } from './api';
 import { isFrosted } from './types';
-import type { CsvSelection, Expense, LearnRule, MoneyData, Subscription, TaxSetasideEntry } from './types';
+import type { CsvSelection, Expense, LabelRule, LearnRule, MoneyData, Subscription, TaxSetasideEntry } from './types';
 
 export const MONEY_QUERY_KEY = ['data', 'money'] as const;
 
@@ -350,8 +350,8 @@ export function useCsvActions(onError: (message: string) => void) {
   });
 
   const doImport = useMutation({
-    mutationFn: (vars: { selections: CsvSelection[]; learnRules: LearnRule[] }) =>
-      importCsv(vars.selections, vars.learnRules),
+    mutationFn: (vars: { selections: CsvSelection[]; learnRules: LearnRule[]; learnLabels: LabelRule[] }) =>
+      importCsv(vars.selections, vars.learnRules, vars.learnLabels),
     onError: () => onError('Import failed'),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: CSV_FILES_QUERY_KEY });
@@ -363,7 +363,7 @@ export function useCsvActions(onError: (message: string) => void) {
     parse: (filename: string) => parse.mutateAsync(filename),
     upload: (file: File) => upload.mutateAsync(file),
     uploading: upload.isPending,
-    import: (selections: CsvSelection[], learnRules: LearnRule[]) =>
-      doImport.mutateAsync({ selections, learnRules }),
+    import: (selections: CsvSelection[], learnRules: LearnRule[], learnLabels: LabelRule[]) =>
+      doImport.mutateAsync({ selections, learnRules, learnLabels }),
   };
 }

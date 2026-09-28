@@ -89,11 +89,20 @@ export interface CsvRow {
   category: string;
   include: boolean;
   already_imported?: boolean;
+  /** What the thing is ("Cosmic Coffee"): from a learned merchant label, else
+   * the preview's own guess (statementMerchant.ts); she can rename it. */
+  title?: string;
+  /** The name a learned label gave this row when it arrived, if any. */
+  learned_title?: string;
+  /** She has confirmed this row — tapped it or changed anything on it. */
+  user_touched?: boolean;
 }
 
 export interface CsvParseResponse {
   rows: CsvRow[];
   categories: string[];
+  /** Every merchant name she has taught, offered as suggestions. */
+  titles?: string[];
 }
 
 export interface CsvSelection {
@@ -101,6 +110,13 @@ export interface CsvSelection {
   desc: string;
   amount: number;
   category: string;
+  title: string;
+}
+
+/** A learned merchant→name label (merchant_labels on the server). */
+export interface LabelRule {
+  match: string;
+  title: string;
 }
 
 export interface LearnRule {
@@ -113,6 +129,7 @@ export interface CsvImportResult {
   added: number;
   merged_with_receipt: number;
   rules_learned: number;
+  labels_learned: number;
   categories_added: number;
 }
 
