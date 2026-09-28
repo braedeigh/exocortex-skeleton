@@ -1,0 +1,344 @@
+/* Nutrition.module.css — the Nutrients page (NutritionPage.tsx).
+ * Touch-first: every button and input is ~40px tall, no text under 12px. */
+
+.card {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card-bg);
+}
+
+.cardHead {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.muted {
+  margin: 6px 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.warn {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(214, 140, 60, 0.14);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.error {
+  margin: 6px 0;
+  font-size: 14px;
+  color: var(--red, #c0392b);
+}
+
+.sources {
+  margin: 8px 0 24px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* Who the targets are for. */
+.settingsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.chip {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill, 999px);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chipOn {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ageLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+  font-size: 14px;
+}
+
+.ageInput,
+.gramsInput {
+  width: 64px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--input-bg, transparent);
+  color: var(--text);
+  font-size: 15px;
+  text-align: right;
+}
+
+/* One nutrient. */
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.row:first-child {
+  border-top: none;
+}
+
+.rowTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.rowName {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.rowAmount {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.range {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.barLine {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.barSex {
+  width: 52px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.bar {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 5px;
+  background: var(--accent);
+}
+
+.status_under {
+  background: var(--orange, #c77a2a);
+}
+
+.status_met {
+  background: var(--green, #3f9a5a);
+}
+
+.status_over {
+  background: var(--red, #c0392b);
+}
+
+/* The target's place on the bar (100% of it). */
+.barTarget {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--text);
+  opacity: 0.6;
+}
+
+.barPercent {
+  min-width: 96px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.note {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* Her meals. */
+.meal {
+  border-top: 1px solid var(--border);
+}
+
+.meal:first-of-type {
+  border-top: none;
+}
+
+.mealHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mealName {
+  font-weight: 700;
+}
+
+.mealServings {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.items {
+  margin: 4px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.itemName {
+  flex: 1;
+  font-size: 14px;
+}
+
+.guess {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: rgba(214, 140, 60, 0.18);
+  color: var(--orange, #c77a2a);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.gramsUnit {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.removeBtn {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search {
+  margin: 4px 0 8px;
+}
+
+.searchInput {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--input-bg, transparent);
+  color: var(--text);
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+.results {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.resultTag {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.mealActions {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.saveBtn {
+  min-height: 40px;
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.saveBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

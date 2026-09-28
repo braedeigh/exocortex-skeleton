@@ -33,7 +33,7 @@ from routes import (
     observatory, swarms, terrain, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
     branches, worktree_map, sudo, recordings, research_room,
     sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
-    exposure,
+    exposure, nutrition,
 )
 from routes.shell import VALID_TABS
 
@@ -1312,6 +1312,7 @@ creek.register(app)
 terrain_mirror.register(app)
 swarms.register(app)
 exposure.register(app)
+nutrition.register(app)
 
 # --- Startup ---
 # Seed the journaling engine (stream.py + friends) into a fresh CONTENT_DIR — see

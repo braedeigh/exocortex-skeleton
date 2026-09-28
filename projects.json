@@ -172,21 +172,25 @@
         "estimatestore.py",
         "sourcestore.py",
         "proposalstore.py",
-        "provenance.py"
+        "provenance.py",
+        "fdcdb.py", "dri.py", "nutrition.py"
       ],
       "routes": [
         "kitchen",
-        "food.py"
+        "food.py",
+        "nutrition.py"
       ],
       "frontend": [
-        "kitchen"
+        "kitchen",
+        "nutrition"
       ],
       "tools": [],
       "scripts": [
         "estimate_organic.py",
         "migrate_ecosystem_sql.py",
         "propose_sources.py",
-        "check_proposals.py"
+        "check_proposals.py",
+        "nutrient_data.py"
       ],
       "tables": [
         "foods",
