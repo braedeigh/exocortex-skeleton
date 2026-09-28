@@ -457,10 +457,13 @@ def _visitor_line(line):
 def _visitor_report(commons, items, sex, age):
     """nutrition.report for the visitor's own sex and age — never her settings.
 
-    An age of 0 means none given: totals come back, no targets. The report
-    then carries the visitor's own answer back, not the stand-in.
+    An age of 0 means none given: totals come back, no targets. Under 19 is
+    asked the same way, because only adult targets are loaded (dri.age_band
+    refuses younger ages). The report then carries the visitor's own answer
+    back, not the stand-in, so the page can say why no targets show.
     """
-    report = nutrition.report(commons, items, sex=sex or "both", age=age or 0)
+    report = nutrition.report(commons, items, sex=sex or "both",
+                              age=age if age and age >= 19 else 0)
     report["age"] = age or None
     return report
 

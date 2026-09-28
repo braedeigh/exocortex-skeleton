@@ -170,3 +170,9 @@ def test_a_half_typed_age_still_shows_the_recipe(client):
     token = client.post("/api/recipes/r1/share").get_json()["token"]
     body = client.get(f"/api/share/r/{token}?age=3x&sex=robot").get_json()
     assert body["nutrition"]["report"]["age"] is None
+
+
+def test_a_child_visitor_gets_amounts_without_targets(client):
+    token = client.post("/api/recipes/r1/share").get_json()["token"]
+    response = client.get(f"/api/share/r/{token}?age=8&sex=female")
+    assert (response.status_code, response.get_json()["nutrition"]["report"]["age"]) == (200, 8)

@@ -157,6 +157,11 @@ export function SharedRecipePage({ token, visitor, onVisitor }: VisitorProps & {
           </div>
           {!nutrition.report.age ? (
             <p className={styles.note} style={{ marginTop: 0 }}>Type your age above to see how a serving meets your targets.</p>
+          ) : nutrition.report.age < 19 ? (
+            // Under 19 there are no targets to show: only the adult ones are loaded.
+            <p className={styles.note} style={{ marginTop: 0 }}>
+              Daily targets here are for adults (19 and over), so this shows amounts only.
+            </p>
           ) : null}
           <NutrientList rows={first} sexes={nutrition.report.sexes} />
           {rest.length ? (
