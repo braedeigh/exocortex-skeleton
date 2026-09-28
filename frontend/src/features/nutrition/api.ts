@@ -17,21 +17,29 @@ export function getDay(signal?: AbortSignal) {
   return api.get<NutritionDay>('/api/nutrition/day', signal);
 }
 
-export function searchFoods(query: string, signal?: AbortSignal) {
-  return api.get<{ foods: FdcFood[] }>(`/api/nutrition/search?q=${encodeURIComponent(query)}`, signal);
+/** USDA foods by name; singleOnly keeps single foods (nutrition.is_single_food). */
+export function searchFoods(text: string, singleOnly: boolean, signal?: AbortSignal) {
+  const query = new URLSearchParams({ q: text });
+  if (singleOnly) query.set('single', '1');
+  return api.get<{ foods: FdcFood[] }>(`/api/nutrition/search?${query}`, signal);
 }
 
-/** Every USDA food ranked by one nutrient; lowHistamine keeps only the foods SIGHI rates 0. */
+/**
+ * Every USDA food ranked by one nutrient; lowHistamine keeps only the foods SIGHI
+ * rates 0, singleOnly only single foods (nutrition.is_single_food).
+ */
 export function rankFoods(
   key: string,
   per: RankPer,
   words: string,
   limit: number,
   lowHistamine: boolean,
+  singleOnly: boolean,
   signal?: AbortSignal,
 ) {
   const query = new URLSearchParams({ per, q: words, limit: String(limit) });
   if (lowHistamine) query.set('histamine', 'low');
+  if (singleOnly) query.set('single', '1');
   return api.get<NutrientRanking>(`/api/nutrition/rank/${encodeURIComponent(key)}?${query}`, signal);
 }
 

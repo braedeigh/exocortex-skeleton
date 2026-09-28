@@ -78,6 +78,19 @@ Every row shows the SIGHI entry it matched, so a wrong match can be seen. The "L
 histamine only" filter keeps SIGHI 0s and nothing else. Foods not on the list are left
 out, never assumed safe. Kale, for example, isn't on it.
 
+**Single foods only** (`nutrition.is_single_food`). This switch is on the rankings and on
+the add-a-food search in Meals. It keeps foods you could buy as themselves, like milk,
+potatoes, rice and kale. A food passes when:
+1. It's Foundation or SR Legacy. FNDDS is foods "as eaten", mostly dishes.
+2. Its USDA food group is a plain-food group: vegetables, fruits, legumes, dairy and egg,
+   grains, fish, beef, pork, poultry, lamb/veal/game, nuts and seeds, spices, fats and oils.
+3. Its name has none of the made-from-other-things words (`MADE_WORDS`: with, canned,
+   sauce, juice, fried, cured, smoked, …), no "salt added", and no brand in capitals.
+   "with added vitamin D" is fortification and is ignored.
+
+Cooked forms and cuts stay in, so "Kale, raw" and "Kale, cooked, boiled" both show. It's a
+word rule, so it can be wrong at the edges. About 3,560 of the 13,700 foods pass.
+
 **Stars.** A ☆ on any ranked food saves it to `nutrition_highlights`, the foods she's
 interested in eating. They're listed on the Nutrients page and tinted in every ranking. A
 star doesn't add the food to a meal.

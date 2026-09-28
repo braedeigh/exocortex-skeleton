@@ -35,6 +35,7 @@ import { type ReactElement, useEffect, useState } from 'react';
 import { FoodNav } from '../ecosystem/FoodNav';
 import { getDay, getNutrient, rankFoods } from './api';
 import { StarButton, useHighlights } from './Highlights';
+import { SingleFoodsChip, useSingleFoods } from './SingleFoods';
 import { DATASET_TAGS, fdcFoodUrl, formatAmount } from './nutrientMath';
 import { DAY_KEY, NutrientAmount, NutrientBars } from './NutritionPage';
 import type { FactBlock, HistamineRating, HistamineSource, NutrientFacts, RankPer } from './types';
@@ -202,6 +203,7 @@ function FoodRanking({ nutrientKey, label, mine }: { nutrientKey: string; label:
   const [per, setPer] = useState<RankPer>(nutrientKey === 'energy' ? '100g' : '100kcal');
   const [limit, setLimit] = useState(50);
   const [lowHistamine, setLowHistamine] = useState(false);
+  const [singleOnly, setSingleOnly] = useSingleFoods();
   const [text, setText] = useState('');
   const [words, setWords] = useState('');
   const { starred, toggle } = useHighlights();
@@ -211,8 +213,8 @@ function FoodRanking({ nutrientKey, label, mine }: { nutrientKey: string; label:
     return () => window.clearTimeout(timer);
   }, [text]);
   const query = useQuery({
-    queryKey: ['nutrition', 'rank', nutrientKey, per, words, limit, lowHistamine],
-    queryFn: ({ signal }) => rankFoods(nutrientKey, per, words, limit, lowHistamine, signal),
+    queryKey: ['nutrition', 'rank', nutrientKey, per, words, limit, lowHistamine, singleOnly],
+    queryFn: ({ signal }) => rankFoods(nutrientKey, per, words, limit, lowHistamine, singleOnly, signal),
   });
   const unit = query.data?.unit ?? '';
   const perWords = per === '100g' ? 'per 100 g' : 'per 100 kcal';
@@ -246,6 +248,7 @@ function FoodRanking({ nutrientKey, label, mine }: { nutrientKey: string; label:
         >
           Low histamine only
         </button>
+        <SingleFoodsChip on={singleOnly} onChange={setSingleOnly} />
         <input
           className={styles.searchInput}
           placeholder="Narrow by name — e.g. raw, beef"
@@ -258,7 +261,8 @@ function FoodRanking({ nutrientKey, label, mine }: { nutrientKey: string; label:
         {per === '100kcal'
           ? ' Per 100 kcal is density: how much you get for the calories. Foods under 5 kcal per 100 g are left out.'
           : ' Dried spices and powders lead by weight; narrow by name to compare what you’d eat.'}{' '}
-        Foods with no figure for it aren’t listed. Tap ☆ to star a food you’re interested in.
+        Foods with no figure for it aren’t listed. “Single foods only” keeps plain foods you could buy as
+        themselves (milk, potatoes, rice, kale), raw or cooked. Tap ☆ to star a food you’re interested in.
       </p>
       {histamineSource ? <HistamineNote source={histamineSource} lowOnly={lowHistamine} /> : null}
       {query.isLoading ? (
@@ -295,7 +299,7 @@ function FoodRanking({ nutrientKey, label, mine }: { nutrientKey: string; label:
           </ol>
           {!query.data?.foods.length ? (
             <p className={styles.muted}>
-              {lowHistamine ? 'No food here that SIGHI rates 0 has a figure for it.' : 'No food by that name has a figure for it.'}
+              {lowHistamine || singleOnly ? 'No food here that passes the filters has a figure for it.' : 'No food by that name has a figure for it.'}
             </p>
           ) : null}
           {query.data && query.data.foods.length === limit && limit < 500 ? (

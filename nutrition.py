@@ -44,6 +44,8 @@ Prompt that produced this file: "make my own kind of like, Cronometer so I can
 plug in my diet and see how to optimize it for my health overall" — steps 2
 and 3 of the plan: gram weights on her meals, then her day against the DRIs.
 """
+import re
+
 import store
 
 import commons
@@ -289,6 +291,47 @@ def matrix(conn, items, sex="female", age=None):
     return {"foods": [item.get("label") or str(item.get("fdc_id")) for item in items],
             "nutrients": keys, "units": [units[k] for k in keys],
             "A": A, "lower": lower, "upper": upper}
+
+
+# A single food: one thing you could buy as itself, like milk, potatoes, rice or kale.
+# A food counts when all three hold:
+#   1. It's from Foundation or SR Legacy. FNDDS is foods "as eaten", mostly mixed dishes.
+#   2. Its USDA food group is one of plain foods (WHOLE_FOOD_GROUPS). Baked goods,
+#      sweets, snacks, fast food, soups, meals, baby food, beverages, cereals and
+#      sausages are left out whole.
+#   3. Its name has no word saying it was made from other things (MADE_WORDS: "with",
+#      "canned", "sauce", "juice", "fried", …), no "salt added", and no brand
+#      (a word in capitals, as SR Legacy writes brands). "with added vitamin D"
+#      and the like are fortification, not a second food, and don't count.
+# Cooking methods ("raw", "boiled", "roasted") and cuts are fine: a boiled potato is
+# still one food. This is a word rule, so it can be wrong at the edges. The list is
+# tuned against the real USDA names (tests/test_nutrition.py).
+WHOLE_FOOD_GROUPS = frozenset({
+    "Vegetables and Vegetable Products", "Fruits and Fruit Juices", "Legumes and Legume Products",
+    "Dairy and Egg Products", "Cereal Grains and Pasta", "Finfish and Shellfish Products",
+    "Beef Products", "Pork Products", "Poultry Products", "Lamb, Veal, and Game Products",
+    "Nut and Seed Products", "Spices and Herbs", "Fats and Oils"})
+MADE_WORDS = frozenset({
+    "with", "canned", "prepared", "mix", "mixed", "sauce", "sweetened", "breaded", "batter",
+    "battered", "dessert", "flavored", "imitation", "substitute", "spread", "dressing",
+    "margarine", "juice", "juices", "pudding", "soup", "salad", "nectar", "syrup", "candied",
+    "stuffed", "sandwich", "blend", "product", "products", "formulated", "dehydrated", "instant",
+    "shakes", "chocolate", "fries", "fried", "hash", "mashed", "ready", "pickled", "pickles",
+    "cured", "smoked", "seasoning", "seasoned", "rotisserie", "patty", "patties", "nuggets",
+    "sticks", "pie", "filling"})
+SINGLE_FOOD_TYPES = ("foundation_food", "sr_legacy_food")
+
+
+def is_single_food(food):
+    """True when a USDA food {data_type, category, description} is one plain food."""
+    if food.get("data_type") not in SINGLE_FOOD_TYPES or food.get("category") not in WHOLE_FOOD_GROUPS:
+        return False
+    name = food.get("description") or ""
+    if re.search(r"\b[A-Z]{3,}\b", name) or "salt added" in name.lower():
+        return False
+    # Fortification ("with added vitamin D") is the same food, so it's read past.
+    plain = re.sub(r"\bwith added [^,]*", "", name.lower())
+    return not set(re.findall(r"[a-z]+", plain)) & MADE_WORDS
 
 
 # Foods under this many kcal per 100 g are left out of a per-100-kcal ranking:

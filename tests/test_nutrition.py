@@ -262,3 +262,40 @@ def test_starring_a_food_saves_it_and_unstarring_removes_it(client):
 
 def test_starring_without_a_description_is_refused(client):
     assert client.post("/api/nutrition/highlights/1", json={"on": True}).status_code == 400
+
+
+# Single foods: real USDA names, one row each for what the rule keeps and drops.
+def _usda(description, category, data_type="sr_legacy_food"):
+    return {"description": description, "category": category, "data_type": data_type}
+
+
+@pytest.mark.parametrize("food", [
+    _usda("Kale, raw", "Vegetables and Vegetable Products", "foundation_food"),
+    _usda("Milk, whole, 3.25% milkfat, with added vitamin D", "Dairy and Egg Products"),
+    _usda("Potatoes, Russet, flesh and skin, baked", "Vegetables and Vegetable Products"),
+    _usda("Rice, white, long-grain, regular, enriched, cooked", "Cereal Grains and Pasta"),
+    _usda("Beef, chuck, blade roast, separable lean and fat, trimmed to 1/8\" fat, all grades, cooked, braised",
+          "Beef Products"),
+])
+def test_single_food_keeps_plain_foods_and_their_cooked_forms(food):
+    assert nutrition.is_single_food(food)
+
+
+@pytest.mark.parametrize("food", [
+    _usda("Beans, baked, canned, with pork", "Legumes and Legume Products"),
+    _usda("Potatoes, french fried, all types, salt added in processing, frozen, unprepared",
+          "Vegetables and Vegetable Products"),
+    _usda("Milk shakes, thick chocolate", "Dairy and Egg Products"),
+    _usda("Ice creams, vanilla, rich", "Sweets"),
+    _usda("Cheese, pasteurized process, KRAFT, American", "Dairy and Egg Products"),
+    _usda("Kale, raw", "Vegetables", "survey_fndds_food"),
+])
+def test_single_food_drops_dishes_brands_and_other_groups(food):
+    assert not nutrition.is_single_food(food)
+
+
+def test_rank_and_search_routes_keep_single_foods_when_asked(client, monkeypatch):
+    monkeypatch.setattr(nutrition, "is_single_food", lambda food: food["description"] == "Kale, raw")
+    ranked = client.get("/api/nutrition/rank/calcium?per=100g&single=1").get_json()["foods"]
+    found = client.get("/api/nutrition/search?q=kale&single=1").get_json()["foods"]
+    assert {f["description"] for f in ranked + found} == {"Kale, raw"}

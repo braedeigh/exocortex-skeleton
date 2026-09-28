@@ -35,6 +35,7 @@ import { FoodNav } from '../ecosystem/FoodNav';
 import { normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
 import { deleteMeal, getDay, saveMeal, saveServings, saveSettings, searchFoods } from './api';
 import { StarredFoods } from './Highlights';
+import { SingleFoodsChip, useSingleFoods } from './SingleFoods';
 import { barShare, DATASET_TAGS, fdcFoodUrl, formatAmount, GROUP_TITLES, groupRows } from './nutrientMath';
 import type { Meal, MealItem, NutrientRow, NutritionDay, Sex, SexSetting } from './types';
 import pageStyles from '../research/ResearchPage.module.css';
@@ -440,14 +441,15 @@ function MealEditor({ name, meal, servings }: { name: string; meal: Meal; servin
 function FoodSearch({ onPick }: { onPick: (item: MealItem) => void }) {
   const [text, setText] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [singleOnly, setSingleOnly] = useSingleFoods();
   // A debounce: search 300 ms after the typing stops.
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(text.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [text]);
   const results = useQuery({
-    queryKey: ['nutrition', 'search', debounced],
-    queryFn: ({ signal }) => searchFoods(debounced, signal),
+    queryKey: ['nutrition', 'search', debounced, singleOnly],
+    queryFn: ({ signal }) => searchFoods(debounced, singleOnly, signal),
     enabled: debounced.length >= 2,
   });
 
@@ -459,6 +461,7 @@ function FoodSearch({ onPick }: { onPick: (item: MealItem) => void }) {
         value={text}
         onChange={(event) => setText(event.target.value)}
       />
+      <SingleFoodsChip on={singleOnly} onChange={setSingleOnly} />
       {debounced.length >= 2 && results.data ? (
         <ul className={styles.results}>
           {results.data.foods.map((food) => (

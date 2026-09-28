@@ -83,8 +83,13 @@ def register(app):
 
     @app.route("/api/nutrition/search")
     def nutrition_search():
+        # ?single=1 keeps single foods only (nutrition.is_single_food), searched past the first page.
+        single = request.args.get("single") == "1"
         with fdcdb.session() as conn:
-            return jsonify({"foods": fdcdb.search(conn, request.args.get("q") or "")})
+            foods = fdcdb.search(conn, request.args.get("q") or "", limit=500 if single else 20)
+        if single:
+            foods = [food for food in foods if nutrition.is_single_food(food)][:20]
+        return jsonify({"foods": foods})
 
     @app.route("/api/nutrition/rank/<key>")
     def nutrition_rank(key):
@@ -92,11 +97,15 @@ def register(app):
             limit = min(max(int(request.args.get("limit") or 50), 1), 500)
         except ValueError:
             return _refused("limit must be a whole number")
-        # Rate every food against the SIGHI list; ?histamine=low keeps only its 0s.
+        # Rate every food against the SIGHI list; ?histamine=low keeps only its 0s,
+        # and ?single=1 only single foods (nutrition.is_single_food).
         names = histamine.names()
         low_only = request.args.get("histamine") == "low"
+        single = request.args.get("single") == "1"
 
         def keep(food):
+            if single and not nutrition.is_single_food(food):
+                return False
             food["histamine"] = histamine.rate(names, food["description"])
             return not low_only or (food["histamine"] or {}).get("verdict") == "low"
         try:
