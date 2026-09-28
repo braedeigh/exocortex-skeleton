@@ -7,16 +7,21 @@
  * names it), the helper's one-paragraph summary, and how many members are
  * working, silent, or need her. Tapping it opens the swarm's page, where the
  * members show as the usual session cards and the helper's work is laid out.
+ * Tapping one member's chip skips the swarm page and opens that session.
  *
  * It wears the same colours as a session card, by the same rule and from the
  * same stylesheet (SessionLane.module.css): orange when any member needs her
  * (a question or a command to approve), breathing purple when any is working,
  * grey at rest. The colours are read from the roster, not the server's swarm
  * list, so they match the session cards exactly (roomOrder.swarmView).
- * Retired members — archived, or handed on to a continuation — aren't on the
- * card at all, and the rest are chipped in the room's order: the ones waiting
- * on her first (longest wait on top), then working, then silent. A silent
- * member with a reply she hasn't read is a grey chip with an orange dot.
+ * Finished members (marked done, archived, or handed on to a continuation)
+ * aren't on the card at all, and the rest are chipped in the room's order:
+ * asking first, then the others waiting on her, then working, each longest
+ * wait first. A waiting member with a reply she hasn't read (or a failed turn)
+ * is a grey chip with an orange dot.
+ *
+ * Chip prompt: "if I click on a button on the swarm card for an agent, it
+ * takes me directly to that agent".
  *
  * Touches: roomOrder.ts (the view it draws), SessionLane.tsx (places it),
  * SwarmPage.tsx (where tapping goes), SwarmCard.module.css.
@@ -37,7 +42,7 @@ const CARD_CLASS = { needs_input: 'cardUnread', working: 'cardLive', silent: '' 
 const DOT_CLASS = { needs_input: 'readyDot', working: 'liveDot', silent: 'restDot' } as const;
 const MEMBER_CLASS = { needs_input: 'memberNeeds', working: 'memberWorking', silent: 'memberSilent' } as const;
 
-export function SwarmCard({ view }: { view: SwarmView }) {
+export function SwarmCard({ view, onOpen }: { view: SwarmView; onOpen: (convId: string) => void }) {
   const navigate = useNavigate();
   const { swarm, state, members } = view;
   const { working, silent, needs_input: needing } = view.counts;
@@ -69,17 +74,23 @@ export function SwarmCard({ view }: { view: SwarmView }) {
         ) : (
           <span className={styles.summaryPending}>The helper hasn&rsquo;t summarised this swarm yet.</span>
         )}
-        <span className={styles.members}>
-          {orderMembers(members).map((m) => (
-            <span key={m.conv} className={[styles.member, styles[MEMBER_CLASS[m.state]]].join(' ')}>
-              {m.unread && m.state === 'silent' ? (
-                <span className={styles.unreadDot} aria-label="unread" />
-              ) : null}
-              {m.title}
-            </span>
-          ))}
-        </span>
       </button>
+      {/* One button per member, opening that session directly. They sit
+          outside the card-wide button because buttons can't nest. */}
+      <div className={styles.members}>
+        {orderMembers(members).map((m) => (
+          <button
+            type="button"
+            key={m.conv}
+            className={[styles.member, styles[MEMBER_CLASS[m.state]]].join(' ')}
+            onClick={() => onOpen(m.conv)}
+            title={`Open ${m.title}`}
+          >
+            {m.unread && m.state !== 'needs_input' ? <span className={styles.unreadDot} aria-label="unread" /> : null}
+            {m.title}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

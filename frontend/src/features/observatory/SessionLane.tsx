@@ -254,7 +254,7 @@ export function SessionLane({
               command, a question, or an ordinary session. */}
           {ordered.map((placed) => {
             if (placed.kind === 'swarm') {
-              return <SwarmCard key={`swarm-${placed.view.swarm.id}`} view={placed.view} />;
+              return <SwarmCard key={`swarm-${placed.view.swarm.id}`} view={placed.view} onOpen={onOpen} />;
             }
             const { row } = placed;
             if (row.pendingApproval) {

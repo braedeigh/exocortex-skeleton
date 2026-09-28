@@ -82,12 +82,19 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
-/* One chip per member, edged in its own state colour. */
+/* One chip per member, edged in its own state colour — a button that opens
+   that session, so it takes the full tap-target height. */
 .member {
   max-width: 100%;
-  padding: 2px 10px;
+  min-height: var(--tap-target);
+  padding: 2px 12px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
   border-radius: 999px;
   border: 1px solid var(--border);
   border-left-width: 3px;
