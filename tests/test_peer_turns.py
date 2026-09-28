@@ -265,3 +265,28 @@ def test_peers_cli_only_ever_sends_as_an_agent(bot_client, monkeypatch):
     finally:
         conn.close()
     assert rows == [("A", a)]
+
+
+def test_peers_cli_says_a_busy_database_only_delayed_a_stored_message(
+        bot_client, monkeypatch, capsys):
+    """A lock after the row is stored is 'sent, don't resend'; a lock before
+    it is 'not sent'."""
+    import sqlite3
+    from scripts import peers
+    a, b = _seed_two()
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", a)
+
+    def locked_after_storing(from_conv, to_conv, text, mode="inject"):
+        peermail.send(to_conv, text, from_conv=from_conv)
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(observatory, "peer_send", locked_after_storing)
+    assert peers.main(["send", b, "heads up"]) == 0
+    assert "Don't resend" in capsys.readouterr().out
+
+    def locked_before_storing(*a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(observatory, "peer_send", locked_before_storing)
+    assert peers.main(["send", b, "another"]) == 1
+    assert "not sent" in capsys.readouterr().err

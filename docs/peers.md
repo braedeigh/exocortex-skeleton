@@ -77,7 +77,11 @@ they do (every tool call is in `tool_calls`), and git history to undo it.
 There are no count limits. There used to be two (a hop brake and a daily
 cap of 150 agent messages); the owner took both off: "i don't really want cap
 limits at all. i want them to have good discernment and not go out of the
-scope of their build." What keeps agents in bounds is the rule they're given
+scope of their build." She confirmed it on 2026-09-28, when a review asked
+for a loop brake back ("no brake"). The numbers she saw then: 296 agent
+messages in a day and a half, no pair of sessions trading more than 8 in an
+hour, and the old depth-5 brake would have held 53 of them, all ordinary
+work. So don't add a brake back without asking her. What keeps agents in bounds is the rule they're given
 (in `peermail.prompt`, the `peers.py` help, and the swarm helper's prompt):
 
 - Message a peer only when it serves the build you were started for — your

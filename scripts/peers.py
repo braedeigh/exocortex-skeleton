@@ -51,6 +51,7 @@ transcripts under data/bot_chats/, tests/test_peers_cli.py.
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -182,6 +183,21 @@ def cmd_show(args, me):
     return 0
 
 
+def _just_stored(me, text):
+    """The id of this session's message with this text, if it's sitting in the
+    mailbox from the last minute — or None."""
+    since = (datetime.now() - timedelta(minutes=1)).isoformat(timespec="seconds")
+    conn = sqlstore.open_db()
+    try:
+        found = conn.execute(
+            "SELECT id FROM agent_messages WHERE from_conv = ? AND text = ?"
+            " AND at >= ? ORDER BY id DESC LIMIT 1",
+            (me, (text or "").strip(), since)).fetchone()
+    finally:
+        conn.close()
+    return found[0] if found else None
+
+
 def cmd_send(args, me):
     if not me:
         print("EXOCORTEX_CONV_ID isn't set — only an Observatory session can send",
@@ -196,6 +212,19 @@ def cmd_send(args, me):
         return 1
     except ValueError as e:
         print(str(e), file=sys.stderr)
+        return 1
+    except sqlite3.OperationalError:
+        # Say whether a busy database kept the message out or only delayed it.
+        # peer_send stores the row first and wakes the recipient after, so the
+        # lock can hit either side; a traceback after a stored message looked
+        # like a failure and invited a resend. A stored one is delivered by the
+        # once-a-minute drain (drain_all_inbox).
+        stored = _just_stored(me, args.text)
+        if stored:
+            print(f"sent (message {stored}) — the database was busy, so it will be"
+                  " delivered within a minute. Don't resend it.")
+            return 0
+        print("not sent — the database was busy. Try again in a moment.", file=sys.stderr)
         return 1
     if row["started"]:
         print(f"sent (message {row['id']}) — {args.id} was idle and is now working on it")
