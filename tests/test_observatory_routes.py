@@ -585,6 +585,41 @@ def test_a_multi_line_ask_survives_whole(bot_client):
     assert _conv_from_roster(bot_client, conv_id)["last_prompt"] == ask
 
 
+def test_a_handoff_brief_never_lands_on_the_card(bot_client):
+    # A spinoff's first message is a machine-written brief opening with an H1;
+    # on the card it read as her voice. The previous real ask stays up.
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "work"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="rework the roster card layout",
+                      conversation_id=conv_id))
+    _sse_events(_send(bot_client, text="# Continuing \u201cwork\u201d\n\nYou are taking over "
+                      "from Observatory session `2026-09-27.213148`",
+                      conversation_id=conv_id))
+    assert _conv_from_roster(bot_client, conv_id)["last_prompt"] == \
+        "rework the roster card layout"
+
+
+def test_an_upload_reads_as_a_word_not_a_path(bot_client):
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "work"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="[uploaded: /tmp/uploads/20260809_IMG_2926.PNG] "
+                      "this button is cut off on my phone",
+                      conversation_id=conv_id))
+    assert _conv_from_roster(bot_client, conv_id)["last_prompt"] == \
+        "📷 image this button is cut off on my phone"
+
+
+def test_a_bare_upload_leaves_the_previous_ask_up(bot_client):
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "work"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="rework the roster card layout",
+                      conversation_id=conv_id))
+    _sse_events(_send(bot_client, text="[uploaded: /tmp/uploads/20260809_IMG_2926.png]",
+                      conversation_id=conv_id))
+    assert _conv_from_roster(bot_client, conv_id)["last_prompt"] == \
+        "rework the roster card layout"
+
+
 # --- model_effective: what the card shows a session is running on -----------
 # Nearly every session pins no model and inherits the CLI's default, so a card
 # reading the raw field would answer "unset" for almost all of them. The roster

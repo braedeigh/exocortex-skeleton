@@ -120,6 +120,24 @@ _MIN_PROMPT_CHARS = 12
 # jsonl if anything ever needs it.
 _MAX_PROMPT_CHARS = 500
 
+# Machine text wearing her voice. An upload reaches the agent as a bracketed
+# filesystem path, which on the card read as her typing
+# "[uploaded: /opt/.../20260809_191053_IMG_2926.png]". Each one is swapped for
+# a short word for what it was; a send that was ONLY an upload then falls under
+# the length floor and leaves the previous real ask up.
+_UPLOAD_RE = re.compile(r"\[uploaded: (\S+?)\]")
+_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif")
+
+
+def _upload_word(match):
+    """What one `[uploaded: path]` marker says on the card."""
+    path = match.group(1).lower()
+    if path.endswith(_IMAGE_SUFFIXES):
+        return "📷 image"
+    if path.endswith("_paste.txt"):
+        return "📋 pasted text"
+    return "📎 file"
+
 
 def _card_prompt(text):
     """Her ask, trimmed to one line for the session card — or None when this
@@ -133,9 +151,14 @@ def _card_prompt(text):
     / "i want more of my last message to show on the card, at least 2-3 lines,
     and then it will drop off into ellipses... and then allow me to expand it
     if i want. for all times, not just when it's running"]"""
-    one_line = " ".join((text or "").split())
+    one_line = " ".join(_UPLOAD_RE.sub(_upload_word, text or "").split())
     if not one_line or one_line.startswith("/"):
         return None            # slash commands are operator control, not an ask
+    # Refuse a send that opens with a markdown heading: that's a machine brief
+    # (a handoff's "# Continuing ..." kickoff), not her. She doesn't open a
+    # message with an H1; every generated brief does. The previous ask stays up.
+    if re.match(r"#{1,6} ", one_line):
+        return None
     if len(one_line) < _MIN_PROMPT_CHARS or _CONTINUATION_RE.match(one_line):
         return None
     return one_line[:_MAX_PROMPT_CHARS]
