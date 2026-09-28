@@ -590,7 +590,8 @@
       "name": "Transcripts",
       "what": "Anyone's chatbot history, organized: import a ChatGPT or Claude.ai data export, have the user's own AI subscription file each conversation under topics, and read it all as a pond. Standalone, built to ship beside Terrain; its data lives in its own transcripts.db, not exo.db.",
       "modules": [
-        "transcript_import.py"
+        "transcript_import.py",
+        "transcriptstore.py"
       ],
       "routes": [],
       "frontend": [],
