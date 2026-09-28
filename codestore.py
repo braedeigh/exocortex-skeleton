@@ -22,8 +22,9 @@ Everything is derived and re-derivable:
   - `rebuild()` — wipe and re-walk everything. The undo button, wired to
     POST /api/sql/rebuild alongside habits and expenses.
   - `update()` — incremental: index only commits the tables don't have yet.
-    Milliseconds when nothing is new, so Terrain runs it on every cache miss
-    and the map is never staler than its own cache. This is the one place
+    Terrain runs it on every cache miss, so the map is never staler than its
+    own cache; it reads git before taking the write lock, and takes the lock
+    only when there's something new. This is the one place
     this entity deviates from habitstore/expensestore's rebuild-only shape:
     git history only grows, and a full re-walk on every map load is the
     exact cost the old `git log` path already paid and this store exists to
@@ -310,21 +311,24 @@ def _apply_commits(conn, repo_id, structure, counts_by_sha):
     return n
 
 
-def _index_repo(conn, repo_id, root):
-    """Bring one repo's tables up to its current HEAD. Incremental by sha set:
-    whatever `git rev-list HEAD` reports that the commits table doesn't have
-    gets walked, oldest first. On a fresh database that's everything, so
-    'full build' and 'catch up' are the same program. Commits that fell out
-    of history (a rebase) simply stop being reachable — they stay in the
-    tables until the next rebuild() sweeps them."""
+def _read_new(conn, repo_id, root):
+    """Read from git every commit the tables don't have yet, oldest first, as
+    (structure, counts) ready for _apply_commits — or None when there's
+    nothing new. Reads only: it takes no write lock, so a caller can run the
+    slow part (the git subprocesses) before asking for one. Incremental by sha
+    set: whatever `git rev-list HEAD` reports that the commits table doesn't
+    have. On a fresh database that's everything, so 'full build' and 'catch
+    up' are the same program. Commits that fell out of history (a rebase)
+    simply stop being reachable — they stay in the tables until the next
+    rebuild() sweeps them."""
     shas = _rev_list(root)
     if shas is None:
-        return 0
+        return None
     stored = {r[0] for r in conn.execute(
         "SELECT sha FROM commits WHERE repo = ?", (repo_id,))}
     missing = [s for s in shas if s not in stored]
     if not missing:
-        return 0
+        return None
     missing.reverse()   # rev-list is newest-first; history applies oldest-first
     structure = _log_over(root, missing, "--name-status")
     counts = {sha: _parse_numstat(lines)
@@ -333,26 +337,54 @@ def _index_repo(conn, repo_id, root):
     # reversed list is already oldest-first; sort by timestamp as a belt for
     # histories whose topology and clocks disagree.
     structure.sort(key=lambda c: c[1])
-    return _apply_commits(conn, repo_id, structure, counts)
+    return structure, counts
+
+
+def _index_repo(conn, repo_id, root):
+    """Bring one repo's tables up to its current HEAD, in one go — for a
+    caller that already holds the write lock (rebuild)."""
+    found = _read_new(conn, repo_id, root)
+    return _apply_commits(conn, repo_id, *found) if found else 0
 
 
 # --- the public entry points --------------------------------------------------
 
 def update(repos=None):
-    """Catch the git tables up to both repos' HEADs. Cheap when there's
-    nothing new (one rev-list per repo), so callers can run it eagerly —
-    Terrain does, on every cache miss. Returns {repo_id: commits_indexed}."""
+    """Catch the git tables up to both repos' HEADs. Returns
+    {repo_id: commits_indexed}.
+
+    Git is read first, with no lock held; the write lock is taken only when
+    there's something new, and only for the inserts. Terrain runs this on
+    every cache miss — every few seconds while a session is running — and
+    `git rev-list` takes most of a second on these repos even when nothing
+    is new. Holding the write lock across that starved every other writer in
+    the app into "database is locked"; now the usual case, nothing new,
+    never asks for the lock at all.
+
+    Reading outside the lock means another update can land the same commits
+    in between, so the new ones are filtered once more under the lock before
+    anything is applied — applying one twice would double its line counts."""
     repos = default_repos() if repos is None else repos
     conn = sqlstore.open_db()
-    out = {}
     try:
+        found = {repo["id"]: _read_new(conn, repo["id"], repo["root"]) for repo in repos}
+        out = {repo_id: 0 for repo_id in found}
+        if not any(found.values()):
+            return out
         sqlstore.begin_immediate(conn)
-        for repo in repos:
-            out[repo["id"]] = _index_repo(conn, repo["id"], repo["root"])
-        conn.execute("COMMIT")
-    except BaseException:
-        conn.execute("ROLLBACK")
-        raise
+        try:
+            for repo_id, pending in found.items():
+                if not pending:
+                    continue
+                structure, counts = pending
+                stored = {r[0] for r in conn.execute(
+                    "SELECT sha FROM commits WHERE repo = ?", (repo_id,))}
+                structure = [c for c in structure if c[0] not in stored]
+                out[repo_id] = _apply_commits(conn, repo_id, structure, counts)
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
     finally:
         conn.close()
     return out

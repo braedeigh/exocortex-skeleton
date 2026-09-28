@@ -160,75 +160,110 @@ def _majority_lane(members, index):
     return counts.most_common(1)[0][0] if counts else "orchestra"
 
 
+class _WriteNeeded(Exception):
+    """Raised by sync's dry pass the moment it finds something to write."""
+
+
 def sync():
     """Bring the stored swarms up to date with who has talked to whom.
     Returns the live swarms as {id: set(members)}. Cheap — one query and a
     walk over a few hundred sessions — so it's safe to run whenever a
-    message is sent or a page asks."""
+    message is sent or a page asks.
+
+    Every swarms page and every peer message runs this, and nearly always
+    nothing has changed, so it looks before it locks: a dry pass reads the
+    stored swarms without the write lock and stops at the first thing it
+    would write. Only then is the lock taken and the same pass run for real.
+    Queueing for the lock on every page read is what made the swarms pages
+    fail with "database is locked" whenever a slow writer held it."""
     index = store.read("bot_chats/index", {})
     index = index if isinstance(index, dict) else {}
     conn = sqlstore.open_db()
     try:
         found = found_groups(*links(conn, index))
         placed = pins(conn)
-        sqlstore.begin_immediate(conn)
         try:
-            now = _now()
-            stored = {}
-            for swarm_id, conv, joined in conn.execute(
-                    "SELECT m.swarm_id, m.conv, m.joined_at FROM swarm_members m"
-                    " JOIN swarms s ON s.id = m.swarm_id"
-                    " WHERE s.merged_into IS NULL").fetchall():
-                # A placement elsewhere takes the session out of this swarm.
-                if _superseded(swarm_id, conv, joined, placed):
-                    conn.execute("DELETE FROM swarm_members WHERE swarm_id = ? AND conv = ?",
-                                 (swarm_id, conv))
-                    continue
-                stored.setdefault(swarm_id, set()).add(conv)
-            live = {}
-            for members in found:
-                # Which stored swarms this group already covers. None: a new
-                # swarm. One: it grew. Several: they've been linked — the
-                # oldest (lowest id) absorbs the rest.
-                overlap = sorted(sid for sid, have in stored.items() if have & members)
-                if overlap:
-                    keep = overlap[0]
-                    for gone in overlap[1:]:
-                        conn.execute("UPDATE swarms SET merged_into = ?, updated_at = ?"
-                                     " WHERE id = ?", (keep, now, gone))
-                        members |= stored.pop(gone)
-                else:
-                    keep = conn.execute(
-                        "INSERT INTO swarms (created_at, updated_at, lane) VALUES (?, ?, ?)",
-                        (now, now, _majority_lane(members, index))).lastrowid
-                    stored[keep] = set()
-                # Membership only grows (see the top of the file) — except
-                # by a placement, which already took its rows out above.
-                members |= stored[keep]
-                for conv in members - stored[keep]:
-                    conn.execute("INSERT OR IGNORE INTO swarm_members (swarm_id, conv,"
-                                 " joined_at) VALUES (?, ?, ?)", (keep, conv, now))
-                conn.execute("UPDATE swarms SET lane = ?, updated_at = ? WHERE id = ?",
-                             (_majority_lane(members, index), now, keep))
-                stored[keep] = members
-                live[keep] = members
-            # Dissolve any stored swarm no group covers any more. That's a
-            # swarm formed by a handoff alone (before handoffs stopped making
-            # swarms), or one whose only message was cancelled: there was
-            # never a conversation, so its rows go, helper summaries with them.
-            for gone in set(stored) - set(live):
-                conn.execute("UPDATE swarms SET merged_into = NULL, updated_at = ?"
-                             " WHERE merged_into = ?", (now, gone))
-                conn.execute("DELETE FROM swarm_helper_runs WHERE swarm_id = ?", (gone,))
-                conn.execute("DELETE FROM swarm_members WHERE swarm_id = ?", (gone,))
-                conn.execute("DELETE FROM swarms WHERE id = ?", (gone,))
-            conn.execute("COMMIT")
-        except BaseException:
-            conn.execute("ROLLBACK")
-            raise
+            live = _reconcile(conn, [set(m) for m in found], placed, index, dry=True)
+        except _WriteNeeded:
+            sqlstore.begin_immediate(conn)
+            try:
+                live = _reconcile(conn, found, placed, index, dry=False)
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
     finally:
         conn.close()
     _archive_helpers(set(live))
+    return live
+
+
+def _reconcile(conn, found, placed, index, dry):
+    """Make the stored swarms match the groups found; returns the live ones.
+    With `dry`, nothing is written: it raises _WriteNeeded at the first write
+    it would make, and returns normally only when the store already matches.
+    `found` is changed in place, so a dry pass must be given a copy."""
+    now = _now()
+
+    def write(sql, params):
+        if dry:
+            raise _WriteNeeded
+        return conn.execute(sql, params)
+
+    lanes_stored = dict(conn.execute("SELECT id, lane FROM swarms WHERE merged_into IS NULL"))
+    stored = {}
+    for swarm_id, conv, joined in conn.execute(
+            "SELECT m.swarm_id, m.conv, m.joined_at FROM swarm_members m"
+            " JOIN swarms s ON s.id = m.swarm_id"
+            " WHERE s.merged_into IS NULL").fetchall():
+        # A placement elsewhere takes the session out of this swarm.
+        if _superseded(swarm_id, conv, joined, placed):
+            write("DELETE FROM swarm_members WHERE swarm_id = ? AND conv = ?",
+                  (swarm_id, conv))
+            continue
+        stored.setdefault(swarm_id, set()).add(conv)
+    live = {}
+    for members in found:
+        # Which stored swarms this group already covers. None: a new
+        # swarm. One: it grew. Several: they've been linked — the
+        # oldest (lowest id) absorbs the rest.
+        overlap = sorted(sid for sid, have in stored.items() if have & members)
+        if overlap:
+            keep = overlap[0]
+            for gone in overlap[1:]:
+                write("UPDATE swarms SET merged_into = ?, updated_at = ?"
+                      " WHERE id = ?", (keep, now, gone))
+                members |= stored.pop(gone)
+        else:
+            keep = write(
+                "INSERT INTO swarms (created_at, updated_at, lane) VALUES (?, ?, ?)",
+                (now, now, _majority_lane(members, index))).lastrowid
+            stored[keep] = set()
+        # Membership only grows (see the top of the file) — except
+        # by a placement, which already took its rows out above.
+        members |= stored[keep]
+        joining = members - stored[keep]
+        for conv in joining:
+            write("INSERT OR IGNORE INTO swarm_members (swarm_id, conv,"
+                  " joined_at) VALUES (?, ?, ?)", (keep, conv, now))
+        # Restamp the swarm only when something about it changed, so
+        # updated_at — what the cards are ordered by — means "last changed".
+        lane = _majority_lane(members, index)
+        if joining or lane != lanes_stored.get(keep):
+            write("UPDATE swarms SET lane = ?, updated_at = ? WHERE id = ?",
+                  (lane, now, keep))
+        stored[keep] = members
+        live[keep] = members
+    # Dissolve any stored swarm no group covers any more. That's a
+    # swarm formed by a handoff alone (before handoffs stopped making
+    # swarms), or one whose only message was cancelled: there was
+    # never a conversation, so its rows go, helper summaries with them.
+    for gone in set(stored) - set(live):
+        write("UPDATE swarms SET merged_into = NULL, updated_at = ?"
+              " WHERE merged_into = ?", (now, gone))
+        write("DELETE FROM swarm_helper_runs WHERE swarm_id = ?", (gone,))
+        write("DELETE FROM swarm_members WHERE swarm_id = ?", (gone,))
+        write("DELETE FROM swarms WHERE id = ?", (gone,))
     return live
 
 

@@ -278,6 +278,27 @@ def test_a_new_member_opens_a_closed_swarm(data_dir):
     assert card["closed"] is False
 
 
+def test_a_sync_with_nothing_new_needs_no_write_lock(data_dir, monkeypatch):
+    """Every swarms page and every peer message runs sync. When nothing has
+    changed it must still answer while another writer holds the lock — it
+    used to queue for the lock anyway, and fail after five seconds."""
+    import sqlite3
+    import sqlstore
+    _seed("a", "b")
+    peermail.send("b", "hi", from_conv="a")
+    live = swarms.sync()
+    real_begin = sqlstore.begin_immediate
+    monkeypatch.setattr(sqlstore, "begin_immediate",
+                        lambda conn, budget=0.2: real_begin(conn, budget))
+    holder = sqlite3.connect(store.DATA_DIR / "exo.db", isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        assert swarms.sync() == live
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+
+
 def test_the_helper_stops_checking_a_member_a_day_after_it_finished():
     now = datetime(2026, 9, 28, 12, 0, 0)
     index = {

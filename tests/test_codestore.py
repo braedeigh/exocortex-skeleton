@@ -432,6 +432,73 @@ def test_update_and_rebuild_agree(data_dir, tmp_path):
     assert incremental == rebuilt
 
 
+# --- update() and the write lock ---------------------------------------------
+#
+# Terrain calls update() every time its cache expires — every few seconds while
+# a session runs — and git takes the better part of a second even when nothing
+# is new. Held across that, the write lock starved every other writer in the
+# app (swarms, the usage beacons, peer mail) into "database is locked".
+
+def _someone_else_can_write():
+    """Can another connection take the write lock right now, without waiting?"""
+    conn = sqlite3.connect(store.DATA_DIR / "exo.db", timeout=0, isolation_level=None)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("ROLLBACK")
+        return True
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        conn.close()
+
+
+def test_update_leaves_the_database_writable_while_git_runs(data_dir, tmp_path, monkeypatch):
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "a.py", "a\n")
+    codestore.update(_repos(repo))
+    _commit(repo, "b.py", "b\n")
+    seen = []
+    real_git, real_log = codestore._git, codestore._log_over
+
+    def git_watching(*args, **kwargs):
+        seen.append(_someone_else_can_write())
+        return real_git(*args, **kwargs)
+
+    def log_watching(*args, **kwargs):
+        seen.append(_someone_else_can_write())
+        return real_log(*args, **kwargs)
+
+    monkeypatch.setattr(codestore, "_git", git_watching)
+    monkeypatch.setattr(codestore, "_log_over", log_watching)
+    assert codestore.update(_repos(repo)) == {"skeleton": 1}
+    assert seen and all(seen)
+
+
+def test_update_racing_another_update_indexes_each_commit_once(data_dir, tmp_path, monkeypatch):
+    """Git is read outside the lock, so another update can land the same
+    commits in between; the slower one must notice, not apply them twice."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "a.py", "a\n")
+    codestore.update(_repos(repo))
+    _commit(repo, "a.py", "a2\n")
+    _git(repo, "rm", "-q", "a.py")
+    _git(repo, "commit", "-q", "-m", "drop")
+    real_log = codestore._log_over
+    raced = []
+
+    def log_then_race(*args, **kwargs):
+        if not raced:
+            raced.append(True)
+            monkeypatch.setattr(codestore, "_log_over", real_log)
+            codestore.update(_repos(repo))
+        return real_log(*args, **kwargs)
+
+    monkeypatch.setattr(codestore, "_log_over", log_then_race)
+    assert codestore.update(_repos(repo)) == {"skeleton": 0}
+    assert _rows("SELECT COUNT(*) FROM commits")[0][0] == 3
+    assert _rows("SELECT COUNT(*) FROM commit_files")[0][0] == 3
+
+
 # --- when a file was last really EDITED ---------------------------------------
 #
 # folder_edit_times answers "when did she last work on this", which is NOT the
