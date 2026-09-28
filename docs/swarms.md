@@ -33,6 +33,13 @@ lines say what exists *now*.
   `exo_query.py` over `agent_messages` / `tool_calls`, git). Only what the
   model is handed rolls; the full transcript stays on disk. The chat is
   exempt from the context cap.
+- **Finished members drop out of the helper's view after a day.** Her ask: "drop
+  off done/retired sessions from your checking after 24 hours." A member that
+  is finished (the same rule as retiring, below) and whose last activity, done
+  mark or archiving is over `config.SWARM_HELPER_FORGET_HOURS` (24) old is left
+  out of the summarizer's runs and the chat seed (`swarms.in_helper_view`). It
+  stays a member: the pages, the network drawing and the closing check still
+  count it, and the chat seed names it in one line so it can still be looked up.
 - **A closing check when the swarm retires.** A swarm is *retired* when every
   member is done (`done_at`), archived, handed on to a continuation, or gone
   from the index — and none is mid-turn (`swarms.retired`). The helper then

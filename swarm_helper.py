@@ -7,7 +7,9 @@ session of its own (so it has a card, a chat, and a mailbox other agents and
 the owner can write to), whose work is done by short, separate calls to the
 model — never one long conversation. Each call is handed:
 
-  - the swarm's current summary and each member's current summary,
+  - the swarm's current summary and each member's current summary — except
+    members that finished (done, archived, handed on) over
+    config.SWARM_HELPER_FORGET_HOURS ago, which it stops rereading,
   - what's new for each member since its summary was written — the owner's
     asks, the agent's replies, its tool calls, the messages between members,
   - any questions waiting in the helper's own mailbox,
@@ -226,7 +228,13 @@ def gather(swarm_id, questions=()):
         raise KeyError(swarm_id)
     out = [f"# Swarm {swarm_id}: {card['name'] if card['named'] else '(not named yet)'}",
            "", "## Current swarm summary", "", card.get("summary") or "(none yet)", ""]
-    for m in card["members"]:
+    # Only the members still in view: one that finished over a day ago drops out.
+    index = store.read("bot_chats/index", {})
+    shown, dropped = swarms.in_helper_view(card["members"], index if isinstance(index, dict) else {})
+    if dropped:
+        out += [f"({len(dropped)} member(s) finished over {config.SWARM_HELPER_FORGET_HOURS:g}h ago"
+                " and are left out; leave them out of your summaries too.)", ""]
+    for m in shown:
         out += [f"## Member {m['conv']} — {m['title']} ({m['state']}, room {m['lane']})", "",
                 "Current summary: " + (m.get("summary") or "(none yet)"), "",
                 f"New since {m.get('summary_at') or 'joining'}:",

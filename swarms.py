@@ -47,7 +47,7 @@ agents interacting, and they don't all have to be interacting with all the
 other agents, just 1 other."
 """
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import lanes
 import sqlstore
@@ -272,6 +272,37 @@ def member_retired(entry):
     if entry.get("running"):
         return False
     return bool(entry.get("done_at") or entry.get("archived") or entry.get("continued_by"))
+
+
+def finished_at(entry):
+    """When a member was last heard from or put away: the latest of its last
+    activity, its done mark and its archiving. None when there's nothing to go
+    on (it's gone from the index)."""
+    if not isinstance(entry, dict):
+        return None
+    stamps = [entry.get(k) for k in ("last_at", "done_at", "archived")]
+    stamps = [str(v)[:19] for v in stamps if isinstance(v, str) and v]
+    return max(stamps) if stamps else None
+
+
+def in_helper_view(members, index, now=None):
+    """Which members the swarm helper still checks: everyone except the ones
+    that finished (member_retired) more than config.SWARM_HELPER_FORGET_HOURS
+    ago. Returns (kept, dropped) — lists of the same member dicts or ids it was
+    given. The dropped are still members (the swarm's closing check and the
+    pages count them); the helper just stops rereading them every run."""
+    import config
+    cutoff = ((now or datetime.now()) - timedelta(hours=config.SWARM_HELPER_FORGET_HOURS)
+              ).isoformat(timespec="seconds")
+    kept, dropped = [], []
+    for m in members:
+        entry = index.get(m["conv"] if isinstance(m, dict) else m)
+        stamp = finished_at(entry)
+        if member_retired(entry) and (stamp is None or stamp < cutoff):
+            dropped.append(m)
+        else:
+            kept.append(m)
+    return kept, dropped
 
 
 def is_live(swarm_id):

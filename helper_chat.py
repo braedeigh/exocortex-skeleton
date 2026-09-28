@@ -13,7 +13,9 @@ with a document written here just before the turn starts:
   1. the helper's standing instructions (CHAT_PROMPT), which tell it that its
      view is shaped like this and where to search for anything older;
   2. the swarm as it is now — the swarm summary and one summary per member,
-     all written by the Sonnet summarizer runs into SQL (swarms.overview);
+     all written by the Sonnet summarizer runs into SQL (swarms.overview) —
+     minus members that finished over a day ago (swarms.in_helper_view),
+     which are named in one line so she can still ask about them;
   3. the CHAT SUMMARY — one summary of the whole chat so far (her decisions
      word for word, what the helper last told her, promises, open threads),
      rewritten by a Sonnet call after every turn (rewrite_notes). The new one
@@ -242,10 +244,17 @@ def _swarm_now(swarm_id):
         return "(This swarm no longer exists — it was merged into another or dissolved.)"
     out = [f"Name: {card['name']}", f"Summary (as of {card.get('summary_at') or 'never'}):",
            card.get("summary") or "(none yet)", "", "Members:"]
-    for m in card["members"]:
+    # Only the members still in view: one that finished over a day ago drops out.
+    index = store.read("bot_chats/index", {})
+    shown, dropped = swarms.in_helper_view(card["members"], index if isinstance(index, dict) else {})
+    for m in shown:
         status = "retired" if m.get("retired") else m["state"]
         out.append(f"- `{m['conv']}` {m['title']} — {status}, room {m['lane']}. "
                    + (m.get("summary") or "(no summary yet)"))
+    if dropped:
+        out.append(f"({len(dropped)} more finished over {config.SWARM_HELPER_FORGET_HOURS:g}h ago"
+                   " and aren't listed: " + ", ".join(f"`{m['conv']}`" for m in dropped)
+                   + ". Search their transcripts if she asks about them.)")
     return "\n".join(out)
 
 

@@ -13,8 +13,10 @@ it between swarms; a message sent after it links again; unplace restores;
 a line of work is found whole; helpers' messages never link anyone.
 
 And closing: a swarm whose members have all finished is `closed`, and opens
-again when one works again or a new one joins.
+again when one works again or a new one joins. And the helper's view: a
+member that finished over a day ago drops out of what the helper checks.
 """
+from datetime import datetime
 import peermail
 import store
 import swarms
@@ -274,3 +276,14 @@ def test_a_new_member_opens_a_closed_swarm(data_dir):
     swarms.join(swarm_id, "c")
     [card] = swarms.overview()
     assert card["closed"] is False
+
+
+def test_the_helper_stops_checking_a_member_a_day_after_it_finished():
+    now = datetime(2026, 9, 28, 12, 0, 0)
+    index = {
+        "old": {"done_at": "2026-09-27T10:00:00", "last_at": "2026-09-27T09:00:00"},
+        "fresh": {"archived": "2026-09-28T01:00:00", "last_at": "2026-09-27T09:00:00"},
+        "working": {"last_at": "2026-09-01T00:00:00"},
+    }
+    kept, dropped = swarms.in_helper_view(["old", "fresh", "working"], index, now=now)
+    assert (kept, dropped) == (["fresh", "working"], ["old"])

@@ -141,6 +141,10 @@ SWARM_HELPER_TIMEOUT_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_TIMEOUT_SE
 # The helper's chat (helper_chat.py) starts every turn fresh, seeded with the
 # swarm, the chat summary, and this many of the owner's latest messages word for word.
 HELPER_CHAT_MESSAGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_MESSAGES", "10"))
+# How long a finished swarm member (done, archived or handed on) stays in the
+# swarm helper's view — its runs and its chat seed — before it drops out of
+# what the helper checks. It stays a member; only the helper stops rereading it.
+SWARM_HELPER_FORGET_HOURS = float(os.environ.get("EXOCORTEX_SWARM_HELPER_FORGET_HOURS", "24"))
 # The room helper (room_helper.py), a layer above the swarm helpers: the rooms
 # that have one, how often at most it runs (only when something in the room
 # has happened since), and the window within which members who messaged each
