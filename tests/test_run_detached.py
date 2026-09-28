@@ -232,3 +232,52 @@ def test_a_finished_job_is_never_swept(jobs_dir, woken):
     run_detached.watch(_job(jobs_dir, [sys.executable, "-c", "pass"]))
     woken.clear()
     assert run_detached.sweep(now=time.time() + 3600) == [] and woken == []
+
+
+def test_a_finishing_watcher_and_the_sweep_never_both_wake(jobs_dir, woken):
+    """The race: the sweep read meta.json just before the watcher wrote
+    finished_at, then saw the watcher gone and woke the session a second
+    time. While the watcher holds the job's lock, the sweep keeps its hands
+    off, and once it lets go the sweep re-reads before deciding."""
+    dead = subprocess.Popen(["true"])
+    dead.wait()
+    job_dir = _unfinished(jobs_dir, watcher_pid=dead.pid, boot_id=run_detached._boot_id())
+    lock = run_detached._take_lock(job_dir, wait=False)
+    try:
+        assert run_detached.sweep() == [] and woken == []
+        record = run_detached._read_meta(job_dir)          # the watcher finishes
+        record["finished_at"] = "2026-09-28 12:00:00"
+        run_detached._write_meta(job_dir, record)
+    finally:
+        lock.close()
+    assert run_detached.sweep() == [] and woken == []
+
+
+# --- running_jobs: what the deploy/reboot guard counts ----------------------
+
+def test_running_jobs_counts_a_job_whose_watcher_is_alive(jobs_dir, woken):
+    job_dir = _job(jobs_dir, [sys.executable, "-c", "import time; time.sleep(5)"])
+    watcher = subprocess.Popen([sys.executable, run_detached.__file__, "--watch",
+                                str(job_dir)], env=dict(os.environ))
+    try:
+        deadline = time.time() + 10
+        while time.time() < deadline and "watcher_pid" not in run_detached._read_meta(job_dir):
+            time.sleep(0.1)
+        [job] = run_detached.running_jobs()
+        assert job["id"] == "j1" and job["conv_id"] == "2026-09-27.160524"
+    finally:
+        watcher.kill()
+        watcher.wait()
+
+
+def test_running_jobs_skips_finished_and_dead_ones(jobs_dir, woken):
+    run_detached.watch(_job(jobs_dir, [sys.executable, "-c", "pass"]))
+    assert run_detached.running_jobs() == []
+    dead = subprocess.Popen(["true"])
+    dead.wait()
+    job_dir = jobs_dir / "j1"
+    record = run_detached._read_meta(job_dir)
+    record.pop("finished_at")
+    record["watcher_pid"] = dead.pid
+    run_detached._write_meta(job_dir, record)
+    assert run_detached.running_jobs() == []

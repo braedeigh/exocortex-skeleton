@@ -46,9 +46,15 @@ in its environment (routes/observatory.py `_spawn`); `--conv` overrides it.
 What it can't survive: a reboot, or `systemctl restart exocortex` — that kills
 every process in the service's cgroup, and `setsid` doesn't leave the cgroup.
 The job is lost either way; the sweep is what makes sure the session hears
-about it. A reload is fine.
+about it. A reload is fine. To keep that from happening in the first place,
+the deploy/reboot guard (`scripts/live_turns.py`) counts running jobs
+(`running_jobs()` here) and refuses a restart or reboot while any are live.
 
-Touches: `routes/observatory.py` (queue_followup — the follow-up queue and the
+Each watcher holds a lock file (`watcher.lock` in its job folder) for as long
+as it lives. The sweep only acts on a job whose lock it can take, which
+closes the race where a watcher finishing and the sweep both woke the session.
+
+Touches: `scripts/live_turns.py` (reads running_jobs), `routes/observatory.py` (queue_followup — the follow-up queue and the
 System-bubble rendering; `_session_settings` — where the hook is wired), the
 job folders under JOBS_DIR, `tests/test_run_detached.py`.
 
@@ -59,6 +65,7 @@ sessions" / "every time my session makes a background job it doesn't return to
 the session, i have to prompt it, because it stops running".
 """
 import argparse
+import fcntl
 import json
 import os
 import secrets
@@ -101,6 +108,24 @@ def _write_meta(job_dir, meta):
 
 def _read_meta(job_dir):
     return json.loads((job_dir / "meta.json").read_text(encoding="utf-8"))
+
+
+def _take_lock(job_dir, wait):
+    """Take the job's lock file, or return None if someone else holds it.
+
+    The watcher holds this lock for its whole life, and the kernel lets go of
+    it the instant the watcher dies, however it dies. So "can I take the lock?"
+    is the sweep's honest test for "is the watcher gone?", and holding it while
+    the sweep re-reads meta.json means a watcher that is just finishing and the
+    sweep can never both decide to wake the session. Returns the open file;
+    closing it releases the lock."""
+    handle = open(job_dir / "watcher.lock", "a")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
 
 
 def _boot_id():
@@ -205,6 +230,16 @@ def watch(job_dir):
     """Run the job to completion, then queue the wake-up. Runs in the
     detached watcher process; every outcome ends up in meta.json."""
     job_dir = Path(job_dir)
+    # Hold the job's lock from check-in to the last write, so the sweep can
+    # never mistake this watcher for a dead one while it is finishing up.
+    lock = _take_lock(job_dir, wait=True)
+    try:
+        return _watch_locked(job_dir)
+    finally:
+        lock.close()
+
+
+def _watch_locked(job_dir):
     meta = _read_meta(job_dir)
     started = time.time()
     # Check in first, so the sweep can tell a live watcher from a dead one.
@@ -266,33 +301,73 @@ def _why_dead(meta, now):
     return None
 
 
+def _job_records():
+    """Every job folder with a readable meta.json, oldest first."""
+    if not JOBS_DIR.is_dir():
+        return
+    for job_dir in sorted(p for p in JOBS_DIR.iterdir() if p.is_dir()):
+        try:
+            yield job_dir, _read_meta(job_dir)
+        except (OSError, ValueError):
+            continue
+
+
+def running_jobs(now=None):
+    """Detached jobs still running right now — what a service restart or a
+    reboot would kill. The deploy guard (scripts/live_turns.py) counts these.
+
+    Returns a list of {"id", "label", "conv_id", "age_sec"}. A job counts
+    while it is unfinished and its watcher isn't known to be dead, which
+    includes one just launched whose watcher hasn't checked in yet."""
+    now = now or time.time()
+    out = []
+    for job_dir, meta in _job_records():
+        if meta.get("finished_at") or meta.get("interrupted"):
+            continue
+        if _why_dead(meta, now) is not None:
+            continue
+        began = meta.get("started_epoch") or meta.get("queued_epoch") or now
+        out.append({"id": meta.get("id", job_dir.name), "label": meta.get("label"),
+                    "conv_id": meta.get("conv_id"), "age_sec": round(now - began)})
+    return out
+
+
 def sweep(now=None):
     """The once-a-minute safety net: find jobs whose watcher died before the
     job finished, mark each interrupted, and wake its conversation with that.
     Returns the ids it woke."""
     now = now or time.time()
     woke = []
-    if not JOBS_DIR.is_dir():
-        return woke
-    for job_dir in sorted(p for p in JOBS_DIR.iterdir() if p.is_dir()):
+    for job_dir, meta in _job_records():
+        if _why_dead(meta, now) is None:
+            continue
+        # Decide again under the job's lock, from a fresh read. If the lock is
+        # taken, the watcher is alive (perhaps writing finished_at this very
+        # moment), so it is left to finish and wake the session itself.
+        lock = _take_lock(job_dir, wait=False)
+        if lock is None:
+            continue
         try:
-            meta = _read_meta(job_dir)
-        except (OSError, ValueError):
-            continue
-        reason = _why_dead(meta, now)
-        if reason is None:
-            continue
-        # Mark it BEFORE waking: a crash between the two then costs one
-        # message, never the same message every minute forever.
-        if meta.get("pid") and _is_alive(meta["pid"]) and "restarted" not in reason:
-            reason += f" — the job itself may still be running as pid {meta['pid']}"
-        meta["interrupted"] = reason
-        meta["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        if meta.get("started_epoch"):
-            meta["seconds"] = round(now - meta["started_epoch"], 1)
-        _write_meta(job_dir, meta)
-        _wake(job_dir, meta)
-        woke.append(meta.get("id", job_dir.name))
+            try:
+                meta = _read_meta(job_dir)
+            except (OSError, ValueError):
+                continue
+            reason = _why_dead(meta, now)
+            if reason is None:
+                continue
+            # Mark it BEFORE waking: a crash between the two then costs one
+            # message, never the same message every minute forever.
+            if meta.get("pid") and _is_alive(meta["pid"]) and "restarted" not in reason:
+                reason += f" — the job itself may still be running as pid {meta['pid']}"
+            meta["interrupted"] = reason
+            meta["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            if meta.get("started_epoch"):
+                meta["seconds"] = round(now - meta["started_epoch"], 1)
+            _write_meta(job_dir, meta)
+            _wake(job_dir, meta)
+            woke.append(meta.get("id", job_dir.name))
+        finally:
+            lock.close()
     return woke
 
 

@@ -24,7 +24,7 @@
 #
 #   ./scripts/restart_server.sh              reload, refusing if work is live
 #   ./scripts/restart_server.sh --force      reload anyway (you will kill turns)
-#   ./scripts/restart_server.sh --restart    full restart, same guard
+#   ./scripts/restart_server.sh --restart    full restart; also waits for detached jobs
 #
 # The real fix is hosting agents in their own systemd service so no deploy can
 # reach them; this is the seatbelt until that lands.
@@ -43,15 +43,22 @@ for arg in "$@"; do
   esac
 done
 
+# Refuse while work is live. A reload only reaches turns; a restart also kills
+# detached jobs (scripts/run_detached.py), so it counts those too. Exit 2 from
+# the check means it couldn't find the turn index, and that refuses as well.
 if [ "$FORCE" -eq 0 ]; then
-  if ! "$PY" "$HERE/scripts/live_turns.py"; then
+  CHECK=(--turns-only)
+  [ "$MODE" = restart ] && CHECK=()
+  if ! "$PY" "$HERE/scripts/live_turns.py" "${CHECK[@]}"; then
     cat >&2 <<'MSG'
 
-REFUSING TO DEPLOY — the turns listed above are running right now.
+REFUSING TO DEPLOY — the work listed above is running right now (or the check
+couldn't tell, which counts the same).
 
-A reload kills their relay threads: the agents keep working but nothing writes
+A reload kills turns' relay threads: the agents keep working but nothing writes
 their output down, so those conversations stop mid-sentence with no error and
-no way for their owner to tell what happened.
+no way for their owner to tell what happened. A restart also kills every
+detached job outright.
 
   - wait for them to finish (re-run this; it clears itself), or
   - --force if you accept killing them.
