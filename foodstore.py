@@ -366,7 +366,10 @@ def rebuild():
         counts = _refill(conn)
         conn.execute("COMMIT")
     except BaseException:
-        conn.execute("ROLLBACK")
+        # Undo only a transaction that began: a BEGIN that lost the lock
+        # started none, and its "database is locked" is the error to raise.
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
     finally:
         conn.close()

@@ -197,9 +197,9 @@ def test_the_overview_counts_weighed_lines_and_carries_flags(stew):
 
 def test_a_locked_database_still_answers_from_the_last_rebuild(stew, monkeypatch):
     rn.overview()
-    def locked():
+    def locked(conn, *args, **kwargs):
         raise sqlite3.OperationalError("database is locked")
-    monkeypatch.setattr(foodstore, "rebuild", locked)
+    monkeypatch.setattr(foodstore.sqlstore, "begin_immediate", locked)
     assert rn.overview()["recipes"][0]["lines"] == 4
 
 
