@@ -3,7 +3,7 @@
   "projects": {
     "core": {
       "name": "Core",
-      "what": "The platform every project stands on: the data layer (store, SQLite, the one migration ladder), login, the app shell and tabs, settings and theme, the approval queue, tags and fronts (the shared vocabularies), notifications.",
+      "what": "The platform every project stands on: the data layer (store, SQLite, the one migration ladder), the AI provider seam (llm.py), login, the app shell and tabs, settings and theme, the approval queue, tags and fronts (the shared vocabularies), notifications.",
       "modules": [
         "server.py",
         "config.py",
@@ -18,7 +18,8 @@
         "writelog.py",
         "textanchor.py",
         "textsearch.py",
-        "commons.py"
+        "commons.py",
+        "llm.py"
       ],
       "routes": [
         "spa.py",
