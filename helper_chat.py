@@ -11,7 +11,9 @@ is resumed — routes/observatory.begin_turn skips `--resume` for it), seeded
 with a document written here just before the turn starts:
 
   1. the helper's standing instructions (CHAT_PROMPT), which tell it that its
-     view is shaped like this and where to search for anything older;
+     view is shaped like this and where to search for anything older, and
+     that it never builds — it starts a new session to (spinoff_open.py),
+     which tools/helper_gate.py enforces;
   2. the swarm as it is now — the swarm summary and one summary per member,
      all written by the Sonnet summarizer runs into SQL (swarms.overview) —
      minus members that finished over a day ago (swarms.in_helper_view),
@@ -112,6 +114,24 @@ mid-turn); `tool_calls` every tool any agent ran; `swarms` the swarm summaries; 
 `exo_query.py schema <table>` lists a table's columns.
 - Git in {repo} is the truth about what shipped.
 Say when an answer comes from a search rather than from what you were handed.
+
+You never build. You don't edit files, run builds or tests, commit, or reload the site — \
+and the app enforces it: only lookups get through (reading, searching, git's reading \
+commands, peers.py, exo_query.py, request_input.py, spinoff_open.py, room_moves.py), and \
+the one thing you may write is a new session's brief. When something needs building — she \
+asks for a change, or a fix she agreed to — start a new session to build it:
+1. If a session already on it can take it (a member working on that code), message it \
+with `peers.py send` instead, passing her words exactly.
+2. Otherwise write the brief with the Write tool to {spinoffs}/<slug>/BRIEF.md (slug: a \
+few lowercase words joined by hyphens). Start it `# Spinoff: <one-line title>`, then \
+`## The task` with her words quoted exactly and what you found, then `## Where to look`: \
+the files it should start from, one path per line, relative to {repo} — each must exist, \
+or the session isn't started.
+3. Start it: `./venv/bin/python3 scripts/spinoff_open.py <slug>`. It starts working at \
+once; `conversation_id` in the reply is the new session.
+4. Tell her its id and what it's building, and keep tracking it (`peers.py show <id>`); \
+pass her later words about that work on with `peers.py send <id> "…"`.
+Build only what she asked for. An idea of your own, you put to her here first.
 
 Plain words; the owner reads everything you write."""
 
@@ -277,7 +297,7 @@ def seed_text(conv_id, entry):
         world = [f"# The swarm now (swarm {entry.get('swarm_id')})", "",
                  _swarm_now(entry.get("swarm_id"))]
     prompt = CHAT_PROMPT.format(lead=lead, world_line=world_line, repo=_REPO, chats=chats,
-                                conv=conv_id, data=store.DATA_DIR)
+                                conv=conv_id, data=store.DATA_DIR, spinoffs=store.SPINOFF_DIR)
     mine = her_messages(conv_id, limit=config.HELPER_CHAT_MESSAGES)
     parts = [prompt, "", *world, "",
              f"# The chat summary (last rewritten {entry.get('helper_notes_at') or 'never'})", "",

@@ -253,6 +253,10 @@ _DEFAULT_LANE = "orchestra"
 # being spelled into a condition somewhere; anything not on this list asks.
 _WATCHED_LANES = ("personal", "coding", "research")
 
+# The helper sessions — a swarm's own and the room's (swarms.HELPER_ROLES).
+# Whatever room they sit in, they only look things up (tools/helper_gate.py).
+_HELPER_ROLES = ("swarm_helper", "room_helper")
+
 
 def _root_dir():
     """The parent of both repos — the Personal lane's cwd. Derived as the
@@ -385,7 +389,8 @@ def _act_gate_hook_command():
 
 def _session_settings(config, tools):
     """The combined `--settings` dict for one turn: the doc-guard's
-    permissions.deny (guard_docs) AND the act-vs-ask PreToolUse hook (act_gate).
+    permissions.deny (guard_docs), the act-vs-ask PreToolUse hook (act_gate)
+    and, for a helper, the lookups-only hook (helper_gate).
     One payload, since Claude Code takes a single --settings. Each half binds to
     the session type (a write tool / Bash present) and defaults on with its own
     opt-out. A read-only legacy session triggers neither → {} → no --settings."""
@@ -397,6 +402,18 @@ def _session_settings(config, tools):
             "matcher": "Bash|Task|mcp__.*",
             "hooks": [{"type": "command", "command": _act_gate_hook_command()}],
         }]}
+    # Keep a helper to lookups: every tool call it makes goes through
+    # tools/helper_gate.py, which lets through reading, git's reading verbs,
+    # the helper's own scripts and a spinoff brief, and denies the rest — so
+    # when something needs building it starts a session instead. Its matcher
+    # is every tool: `allowed_tools` only pre-approves, it forbids nothing.
+    if config.get("helper_gate"):
+        gate = Path(store.BUILD_DIR) / "tools" / "helper_gate.py"
+        settings.setdefault("hooks", {}).setdefault("PreToolUse", []).append({
+            "matcher": "*",
+            "hooks": [{"type": "command", "command":
+                       f"{sys.executable} {gate} --spinoff-dir {store.SPINOFF_DIR}"}],
+        })
     # Turn background Bash into a detached job that wakes this conversation.
     # The harness's own background mode dies when the turn ends, and nothing is
     # left to be told the result; scripts/run_detached.py --hook rewrites the
@@ -469,6 +486,9 @@ def _conv_config(entry):
         # Act-vs-ask autonomy gate: on for Orchestra (nobody's watching), off
         # for Personal (she is). See _session_settings() / tools/act_ask_gate.py.
         "act_gate": defaults["act_gate"] if act_gate is None else act_gate is True,
+        # A helper only looks things up; it never builds. Bound to the role,
+        # with no per-session opt-out. See _session_settings() / tools/helper_gate.py.
+        "helper_gate": entry.get("role") in _HELPER_ROLES,
     }
 
 
