@@ -249,6 +249,8 @@ export interface EvidenceSource {
   title: string;
   url: string | null;
   stance: 'supports' | 'contradicts' | 'context' | null;
+  /** The highlighted passage in the study that is the evidence, when one was marked. */
+  passage?: { id: string; exact: string | null } | null;
 }
 
 /** One research claim about a food, with its figures and studies. */

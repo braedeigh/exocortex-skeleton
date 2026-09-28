@@ -46,6 +46,7 @@ import { ECO_ORIGIN, geoSourceInfo, metaLabel, originOf, txInfo } from '../ecosy
 import { FoodNav } from '../ecosystem/FoodNav';
 import { ProposalList } from '../ecosystem/ProposalList';
 import { ExposureCard } from '../exposure/ExposureCard';
+import { SourcePdf } from '../exposure/SourcePdf';
 import type { EcoProposal } from '../ecosystem/proposals';
 import pageStyles from './ResearchPage.module.css';
 import styles from './FoodPage.module.css';
@@ -341,24 +342,27 @@ function MeasureRow({ measure }: { measure: EvidenceMeasure }) {
   );
 }
 
-/** The studies themselves: each opens the original in a new tab. A source
- * that argues against the claim says so. */
+/** The studies themselves: each opens the original in a new tab, and one whose
+ * PDF the commons holds opens it here too, at the passage that backs the
+ * number (../exposure/SourcePdf.tsx). A source that argues against the claim
+ * says so. */
 function SourceLinks({ sources }: { sources: EvidenceSource[] }) {
   if (!sources.length) return <div className={styles.meta}>no study linked</div>;
   return (
     <div className={styles.sources}>
-      {sources.map((source) =>
-        source.url ? (
-          <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" className={styles.sourceLink}>
-            {source.stance === 'contradicts' ? 'against: ' : ''}
-            {source.title} ↗
-          </a>
-        ) : (
-          <span key={source.id} className={styles.meta}>
-            {source.title}
-          </span>
-        ),
-      )}
+      {sources.map((source) => (
+        <div key={source.id}>
+          {source.url ? (
+            <a href={source.url} target="_blank" rel="noopener noreferrer" className={styles.sourceLink}>
+              {source.stance === 'contradicts' ? 'against: ' : ''}
+              {source.title} ↗
+            </a>
+          ) : (
+            <span className={styles.meta}>{source.title}</span>
+          )}
+          <SourcePdf sourceId={source.id} passage={source.passage} />
+        </div>
+      ))}
     </div>
   );
 }

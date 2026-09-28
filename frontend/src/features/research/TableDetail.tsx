@@ -4,7 +4,8 @@
  *
  * A measures cell lists every number in it as a card: the number (and the
  * figure as the source printed it, when it was converted), the study it came
- * from with the exact passage, the stand-in food when there was one, the
+ * from with the exact passage (and its PDF opened at that passage, when the
+ * commons holds one: ../exposure/SourcePdf.tsx), the stand-in food when there was one, the
  * ground it stands on, the verdicts resting on it, and its earlier versions.
  * A verdict cell lists the verdicts the same way, with the numbers under each
  * — and a form for her own verdict, which is born confirmed and keeps the
@@ -17,6 +18,7 @@
 
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
+import { SourcePdf } from '../exposure/SourcePdf';
 import { formatAmount, MEASURE_WORDS } from './tableMath';
 import { REVIEW_CLASS } from './tableStyles';
 import type { JudgmentDetail, MeasureDetail, Review, TableView, TablesVocab, VerdictKey } from './types';
@@ -169,6 +171,7 @@ function MeasureCard({ id, mutations }: { id: number; mutations: Mutations }) {
             </a>
           ) : null}
           {measure.passage?.exact ? <div className={claimStyles.sourceQuote}>&ldquo;{measure.passage.exact}&rdquo;</div> : null}
+          <SourcePdf sourceId={measure.source.id} passage={measure.passage} />
         </div>
       ) : (
         <div className={`${pageStyles.chip} ${pageStyles.chipStatic} ${pageStyles.chipShaky}`}>no source on this number</div>
