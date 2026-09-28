@@ -162,6 +162,47 @@
   opacity: 0.4;
 }
 
+/* THE OUTER RING (retired, in a bigger swarm): a smaller ring, still a
+   ~40px tap. The top padding keeps the ring's centre 20px from the top,
+   where .node's transform expects it. */
+.outer {
+  padding-top: 8px;
+}
+
+/* No room for names on the outer ring: the button shrinks to its ring,
+   and the name floats on a chip, only on hover, focus or a first tap. */
+.unnamed {
+  width: var(--tap-target, 40px);
+}
+
+.unnamed .name {
+  display: none;
+  position: absolute;
+  top: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  width: max-content;
+  max-width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg, var(--surface));
+}
+
+.unnamed:hover,
+.unnamed:focus-visible,
+.peeked {
+  z-index: 2;
+}
+
+.unnamed:hover .name,
+.unnamed:focus-visible .name,
+.peeked .name {
+  display: block;
+  opacity: 1;
+}
+
 @keyframes dotGlow {
   0%, 100% { opacity: 0.55; filter: drop-shadow(0 0 0 var(--accent)); }
   50% { opacity: 1; filter: drop-shadow(0 0 3px var(--accent)); }

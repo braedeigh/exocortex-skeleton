@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SwarmMember } from './swarmApi';
-import { centreOf, foldLinks, nodeBoxes, placeCounts, layoutSwarm, lineWidth, NETWORK_WIDTH, placeRings, shortTitle, withoutRetired } from './swarmNetworkMath';
+import { centreOf, foldLinks, nodeBoxes, placeCounts, layoutSwarm, lineWidth, NETWORK_WIDTH, placeRings, placeTwoRings, shortTitle, withoutRetired } from './swarmNetworkMath';
 
 function member(conv: string): SwarmMember {
   return { conv, title: `title ${conv}`, lane: 'coding', state: 'silent', joined_at: '', summary: null, summary_at: null };
@@ -154,5 +154,61 @@ describe('withoutRetired', () => {
       continues: [{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }],
     });
     expect(shown.links).toEqual([{ from: 'c', to: 'peer', messages: 2 }]);
+  });
+});
+
+describe('two rings: active inside, retired outside', () => {
+  const retired = (conv: string) => ({ ...member(conv), retired: true });
+  const distance = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+  const swarmOf = (active: number, gone: number) => ({
+    members: [
+      ...Array.from({ length: gone }, (_, i) => retired(`r${i}`)),
+      ...Array.from({ length: active }, (_, i) => member(`a${i}`)),
+    ],
+    links: [],
+  });
+
+  it('seats active agents on the inner radius and retired ones on a wider outer one', () => {
+    const layout = layoutSwarm(swarmOf(4, 12));
+    const radii = (outer: boolean) => layout.nodes.filter((n) => n.outer === outer)
+      .map((n) => Math.round(distance(n, layout.centre)));
+    const inner = radii(false);
+    expect(inner).toHaveLength(4);
+    expect(new Set(inner.map((r) => Math.abs(r - inner[0]) <= 1)).size).toBe(1);
+    expect(Math.min(...radii(true))).toBeGreaterThan(Math.max(...inner));
+    expect(layout.nodes.filter((n) => n.outer).every((n) => n.retired)).toBe(true);
+  });
+
+  it('keeps a small swarm on one circle, every name showing', () => {
+    const layout = layoutSwarm(swarmOf(3, 3));
+    expect(layout.nodes.every((n) => !n.outer && n.named)).toBe(true);
+  });
+
+  it('names the outer ring only when it has room', () => {
+    expect(layoutSwarm(swarmOf(3, 6)).nodes.every((n) => n.named)).toBe(true);
+    const crowded = layoutSwarm(swarmOf(3, 45)).nodes;
+    expect(crowded.filter((n) => n.outer).every((n) => !n.named)).toBe(true);
+    expect(crowded.filter((n) => !n.outer).every((n) => n.named)).toBe(true);
+  });
+
+  it('keeps a crowded outer ring a tap apart and inside the width', () => {
+    const { outer } = placeTwoRings(4, 50);
+    for (let i = 0; i < outer.length; i++) {
+      const next = outer[(i + 1) % outer.length];
+      expect(distance(outer[i], next)).toBeGreaterThanOrEqual(48);
+      expect(outer[i].x).toBeGreaterThan(20);
+      expect(outer[i].x).toBeLessThan(NETWORK_WIDTH - 20);
+    }
+  });
+
+  it('seats the helper at the middle of both rings', () => {
+    const rings = placeTwoRings(5, 20);
+    expect(rings.centre.x).toBe(NETWORK_WIDTH / 2);
+    expect(rings.outer[0].y).toBeLessThan(rings.inner[0].y);
+  });
+
+  it('lays out a swarm whose every member is retired on the outer ring alone', () => {
+    const layout = layoutSwarm(swarmOf(0, 30));
+    expect(layout.nodes.every((n) => n.outer)).toBe(true);
   });
 });

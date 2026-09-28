@@ -9,6 +9,12 @@
  *   - placing the rings: two sit side by side; three or more stand evenly
  *     round a circle, first-joined at the top, the circle growing with the
  *     count so labels don't collide;
+ *   - once a swarm is past a handful and some of it is retired, it becomes
+ *     TWO circles round the helper: the active agents on the inner one, the
+ *     retired ones smaller on an outer one (placeTwoRings). The outer ring
+ *     prints its names only when there's room for them; otherwise a name
+ *     shows on hover or a first tap. A very crowded outer ring zigzags
+ *     between two radii so its rings keep a finger's width apart;
  *   - folding messages into lines: the server counts each direction apart
  *     (a→b and b→a); a line is one PAIR, carrying both counts, so a
  *     conversation is one line and not two laid on top of each other;
@@ -31,7 +37,8 @@
  * the swarm with green lines between the purple agent rings showing which are
  * talking to which within the swarm." Then: "make it such that the helper is
  * connected to other agents in the swarm with the threads for messages it
- * sends."
+ * sends." Then: "I'm wondering if retired agents should show in a ring
+ * outside the active agents."
  */
 import type { Swarm, MemberState } from './swarmApi';
 
@@ -47,6 +54,11 @@ export interface NetworkNode {
   state: MemberState;
   /** Archived or handed on — drawn a step further back. */
   retired: boolean;
+  /** Seated on the outer, retired ring — drawn smaller. */
+  outer: boolean;
+  /** Whether its name prints under it. False on a crowded outer ring,
+   * where the name waits for a hover or a first tap. */
+  named: boolean;
   x: number;
   y: number;
 }
@@ -109,6 +121,71 @@ export function placeRings(count: number): { x: number; y: number; height: numbe
   });
 }
 
+/* ---- Two rings: active inside, retired outside ----
+   A swarm with many finished sessions piles every name onto one circle.
+   Past SPLIT_ABOVE members, if any are retired, the retired ones move to an
+   outer ring. The numbers are drawing units (640 wide); on a phone one unit
+   is about 0.72px. */
+
+/** At or under this many members, a swarm stays one circle, as it always was. */
+export const SPLIT_ABOVE = 6;
+/** Outer ring with names showing: the same rim as the one-circle cap, so
+ * names at the sides still fit the width. */
+const OUTER_NAMED_RADIUS = 230;
+/** Outer ring without names: pushed out near the edge, rings only. */
+const OUTER_BARE_RADIUS = 286;
+/** Room a named ring needs along the rim — the same as the one-circle rule. */
+const NAMED_SPACING = 150;
+/** Room a bare retired ring needs to stay a ~40px tap apart on a phone. */
+const BARE_SPACING = 56;
+/** How far in the second band of a zigzagging outer ring sits. */
+const ZIGZAG_STEP = 40;
+
+export interface TwoRings {
+  inner: { x: number; y: number }[];
+  outer: { x: number; y: number }[];
+  /** Whether the outer ring has room to print its names. */
+  outerNamed: boolean;
+  /** The circles' shared middle: the helper's seat. */
+  centre: { x: number; y: number };
+  height: number;
+}
+
+/** Place the active agents on an inner circle and the retired ones on an
+ * outer circle, both round the helper, each starting at the top. The outer
+ * ring prints names only if each gets NAMED_SPACING of rim; otherwise it
+ * moves out to the edge, and if even then its rings would sit closer than
+ * BARE_SPACING, every other one steps in by ZIGZAG_STEP — two staggered
+ * bands, so neighbours are still a tap apart. The inner circle grows with
+ * its count like the one-circle rule, but always stays clear of the outer
+ * ring's innermost band with room for its own names to hang. */
+export function placeTwoRings(activeCount: number, retiredCount: number): TwoRings {
+  const outerNamed = retiredCount * NAMED_SPACING <= 2 * Math.PI * OUTER_NAMED_RADIUS;
+  const outerRadius = outerNamed ? OUTER_NAMED_RADIUS : OUTER_BARE_RADIUS;
+  const zigzag = !outerNamed && retiredCount * BARE_SPACING > 2 * Math.PI * outerRadius;
+  const innermostBand = outerRadius - (zigzag ? ZIGZAG_STEP : 0);
+  const innerRadius = Math.min(innermostBand - 90, Math.max(100, (activeCount * 170) / (2 * Math.PI)));
+  const middle = NETWORK_WIDTH / 2;
+  const centre = { x: middle, y: MARGIN_TOP + outerRadius };
+  // Seats evenly round a circle, first at the top; the radius may vary per seat.
+  const round = (count: number, radiusOf: (i: number) => number) =>
+    Array.from({ length: count }, (_, i) => {
+      const angle = -Math.PI / 2 + (i * 2 * Math.PI) / count;
+      return {
+        x: Math.round(centre.x + radiusOf(i) * Math.cos(angle)),
+        y: Math.round(centre.y + radiusOf(i) * Math.sin(angle)),
+      };
+    });
+  return {
+    inner: round(activeCount, () => innerRadius),
+    outer: round(retiredCount, (i) => (zigzag && i % 2 === 1 ? outerRadius - ZIGZAG_STEP : outerRadius)),
+    outerNamed,
+    centre,
+    // Bare retired rings need no room below for a name.
+    height: MARGIN_TOP + outerRadius * 2 + (outerNamed ? MARGIN_BOTTOM : MARGIN_TOP),
+  };
+}
+
 /** The helper's seat: the middle of the rings. With one ring the middle is
  * the ring itself, so the helper sits beside it instead. */
 export function centreOf(seats: { x: number; y: number }[]): { x: number; y: number } {
@@ -166,16 +243,39 @@ export function lineWidth(messages: number): number {
 export function layoutSwarm(
   swarm: Pick<Swarm, 'members' | 'links' | 'continues' | 'helper_links'>,
 ): NetworkLayout {
-  const seats = placeRings(swarm.members.length);
-  const nodes = swarm.members.map((m, i) => ({
-    conv: m.conv, title: m.title, state: m.state, retired: m.retired ?? false,
-    x: seats[i].x, y: seats[i].y,
-  }));
+  const retiredCount = swarm.members.filter((m) => m.retired).length;
+  let nodes: NetworkNode[];
+  let centre: { x: number; y: number };
+  let height: number;
+  // Split into two rings once the swarm is past a handful and has retired
+  // members; each ring keeps the server's order within it.
+  if (retiredCount > 0 && swarm.members.length > SPLIT_ABOVE) {
+    const rings = placeTwoRings(swarm.members.length - retiredCount, retiredCount);
+    let innerAt = 0;
+    let outerAt = 0;
+    nodes = swarm.members.map((m) => {
+      const outer = m.retired ?? false;
+      const seat = outer ? rings.outer[outerAt++] : rings.inner[innerAt++];
+      return {
+        conv: m.conv, title: m.title, state: m.state, retired: outer, outer,
+        named: !outer || rings.outerNamed, x: seat.x, y: seat.y,
+      };
+    });
+    centre = rings.centre;
+    height = rings.height;
+  } else {
+    const seats = placeRings(swarm.members.length);
+    nodes = swarm.members.map((m, i) => ({
+      conv: m.conv, title: m.title, state: m.state, retired: m.retired ?? false, outer: false,
+      named: true, x: seats[i].x, y: seats[i].y,
+    }));
+    centre = centreOf(seats);
+    height = seats[0]?.height ?? MARGIN_TOP + MARGIN_BOTTOM;
+  }
   const members = new Set(nodes.map((n) => n.conv));
-  const centre = centreOf(seats);
   return {
     width: NETWORK_WIDTH,
-    height: seats[0]?.height ?? MARGIN_TOP + MARGIN_BOTTOM,
+    height,
     nodes,
     talk: foldLinks(swarm.links, members),
     continues: (swarm.continues ?? []).filter((c) => members.has(c.from) && members.has(c.to)),
@@ -248,7 +348,8 @@ export function shortTitle(title: string, max = 24): string {
    it's shown. Everything below works in drawing units, told how many screen
    pixels one unit is (pxPerUnit), and sizes things from the CSS
    (SwarmNetwork.module.css): a .node is up to 132px wide with its ring's
-   centre 20px from its top; a name wraps at ~124px in lines ~17.5px tall. */
+   centre 20px from its top; a name wraps at ~124px in lines ~17.5px tall.
+   An outer-ring (retired) ring is smaller: 12px from centre to edge. */
 
 /** A rectangle in drawing units. */
 export interface Box {
@@ -264,21 +365,25 @@ const NAME_WRAP_PX = 124;
 const CHARACTER_PX = 7.5;
 
 /** What one agent covers on screen: its ring, and its name hanging below.
- * Two boxes, since the name is usually wider than the ring. */
+ * Two boxes, since the name is usually wider than the ring; just the ring
+ * when no name prints (an empty name). ringPx is centre-to-edge. */
 export function nodeBoxes(
   at: { x: number; y: number },
   name: string,
   pxPerUnit: number,
+  ringPx = 18,
 ): Box[] {
   const unit = (px: number) => px / pxPerUnit;
+  const ring = unit(ringPx);
+  const ringBox = { left: at.x - ring, top: at.y - ring, right: at.x + ring, bottom: at.y + ring };
+  if (!name) return [ringBox];
   const textPx = name.length * CHARACTER_PX;
   const lines = Math.max(1, Math.ceil(textPx / NAME_WRAP_PX));
   const halfName = unit(Math.min(NAME_WRAP_PX, textPx) / 2 + 4);
-  const ring = unit(18);
   return [
-    { left: at.x - ring, top: at.y - ring, right: at.x + ring, bottom: at.y + ring },
+    ringBox,
     { left: at.x - halfName, top: at.y + ring, right: at.x + halfName,
-      bottom: at.y + unit(18 + lines * 17.5 + 4) },
+      bottom: at.y + unit(ringPx + lines * 17.5 + 4) },
   ];
 }
 

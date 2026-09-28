@@ -7,7 +7,10 @@
  * out and a teal arc spins around it; while it waits on her, a second,
  * orange ring sits outside the purple one; silent, it steps back. Retired
  * agents (archived, or handed on to a successor) can be hidden with the
- * switch in the key, which remembers its setting. The agents are joined by
+ * switch in the key, which remembers its setting. In a bigger swarm the
+ * retired ones sit on an outer ring, smaller and dimmer, round the active
+ * ones; when that ring is too crowded for names, a name shows on hover, or
+ * on a first tap (a second tap opens it). The agents are joined by
  * lines:
  *
  *   - a GREEN line is talk: these two have sent each other messages. It
@@ -36,7 +39,9 @@
  * it. then instead of pinging orange, just an orange ring additionally. make
  * them all static. then make it such that i can hide retired agents from the
  * swarm display." Then: "make it such that the helper is connected to other
- * agents in the swarm with the threads for messages it sends."
+ * agents in the swarm with the threads for messages it sends." Then: "I'm
+ * wondering if retired agents should show in a ring outside the active
+ * agents."
  */
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { makeStickyToggle } from '../terrain/codeHeatPref';
@@ -89,6 +94,10 @@ export function SwarmNetwork({
   // The helper's threads only show when its seat does.
   const threads = swarm.helper_conv ? layout.helperThreads : [];
   const [canvasRef, shownWidth] = useShownWidth();
+  // The one unnamed outer ring whose name a first tap has shown, if any.
+  const [peek, setPeek] = useState<string | null>(null);
+  // Whether the last press was a mouse, whose hover already showed the name.
+  const pressedWithMouse = useRef(false);
   const at = new Map(layout.nodes.map((n) => [n.conv, n] as const));
 
   // Place every message count where it covers no ring, name or other
@@ -96,7 +105,7 @@ export function SwarmNetwork({
   // middle; the helper's prefer a little past halfway toward the member.
   const pxPerUnit = shownWidth / NETWORK_WIDTH;
   const obstacles = [
-    ...layout.nodes.flatMap((n) => nodeBoxes(n, shortTitle(n.title), pxPerUnit)),
+    ...layout.nodes.flatMap((n) => nodeBoxes(n, n.named ? shortTitle(n.title) : '', pxPerUnit, n.outer ? 12 : 18)),
     ...(swarm.helper_conv ? nodeBoxes(layout.centre, 'Helper', pxPerUnit) : []),
   ];
   const countLines: CountLine[] = [
@@ -179,19 +188,29 @@ export function SwarmNetwork({
         ))}
 
         {/* The agents: a ring and its name, tap to open. */}
+        {/* An unnamed outer ring opens on a mouse click or a second tap; a
+            first tap only shows its name. */}
         {layout.nodes.map((n) => (
           <button
             key={n.conv}
             type="button"
-            className={[styles.node, styles[`state_${n.state}`], n.retired ? styles.retired : '']
+            className={[styles.node, styles[`state_${n.state}`], n.retired ? styles.retired : '',
+              n.outer ? styles.outer : '', n.named ? '' : styles.unnamed, peek === n.conv ? styles.peeked : '']
               .filter(Boolean).join(' ')}
             style={place(n.x, n.y)}
-            onClick={() => onOpen(n.conv)}
+            onPointerDown={(event) => { pressedWithMouse.current = event.pointerType === 'mouse'; }}
+            onClick={() => {
+              if (!n.named && !pressedWithMouse.current && peek !== n.conv) setPeek(n.conv);
+              else onOpen(n.conv);
+            }}
+            onBlur={() => setPeek((current) => (current === n.conv ? null : current))}
             title={n.title}
+            aria-label={n.named ? undefined : n.title}
           >
             {/* The ring and its dot. Everything is still except, while it
                 works, the dot's glow and the teal arc spinning round it. */}
-            <svg width="32" height="32" viewBox="0 0 32 32" className={styles.ringBox} aria-hidden="true">
+            <svg width={n.outer ? 24 : 32} height={n.outer ? 24 : 32} viewBox="0 0 32 32"
+              className={styles.ringBox} aria-hidden="true">
               <circle cx="16" cy="16" r="10" className={styles.ring} />
               {n.state === 'needs_input'
                 ? <circle cx="16" cy="16" r="14.5" className={styles.waitRing} />
