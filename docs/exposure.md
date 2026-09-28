@@ -47,3 +47,29 @@ combined. The sample count is always shown.
 **The honest limit, kept on the page:** this measures exposure against a safety reference, not
 health outcomes. EPA *tolerances* are legal limits, not health lines, and are never the safety
 line here. EWG's and Consumer Reports' rankings are shown only as a sanity check.
+
+## Running it
+
+    venv/bin/python3 scripts/reference_data.py pdp-code potatoes PO     # which PDP commodity a food is
+    venv/bin/python3 scripts/reference_data.py pull-pdp --year 2024 --food potatoes
+    venv/bin/python3 scripts/reference_data.py load-epa                 # EPA benchmark table
+    venv/bin/python3 scripts/reference_data.py score --food potatoes    # latest year + all years
+    venv/bin/python3 scripts/reference_data.py fetch-pdf --all          # sources' PDFs + passage pages
+    venv/bin/python3 scripts/reference_data.py ledger
+
+The page side: every food page has a pesticide residues card (features/exposure/ExposureCard.tsx),
+each contaminant has a page at /food/contaminants/<id>, and the Claims page opens a source's PDF at
+its highlighted passage (features/exposure/PdfPassage.tsx).
+
+## Known gaps
+
+- **EPA's benchmark table is built for drinking water.** It has no chronic dose for pyrethroids
+  (cypermethrin, bifenthrin …) and leaves out many food pesticides entirely: DCPA, DDT/DDE,
+  dieldrin, malathion, carbaryl, chlorpyrifos. A food where one of those is found scores as an
+  open question until a sourced `chronic_dose` fact is added (EPA's risk assessment for that
+  chemical, or IRIS for the legacy ones) and the food is scored again; a disputed dose never counts.
+- **Metabolites are never matched to their parent** (clethodim sulfoxide ≠ clethodim): whether
+  the parent's dose covers them is a judgment, recorded as a fact.
+- **Serving sizes** use the general FDA categories (85 g vegetables, 140 g fruit); a food with no
+  entry in `exposure.RACC_GRAMS` isn't scored.
+- **Organic sample counts are small** (4 to 90 a year); the page says so under 30.

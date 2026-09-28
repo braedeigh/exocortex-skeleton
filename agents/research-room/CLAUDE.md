@@ -108,6 +108,24 @@ Everything you write here arrives unreviewed and she marks it confirmed or
 disputed; there is no review verb. Recording the same figure again amends it
 and keeps the old version — correct a number that way, never by adding a second.
 
+Computed exposure (pesticide residues from USDA samples scored against EPA safe
+doses — docs/exposure.md) has its own door, `scripts/reference_data.py` (same
+`cd` and `EXOCORTEX_DATA_DIR`). The numbers there are computed by code from
+public files; you never write a score or a verdict. What you can add is a
+sourced fact about a contaminant:
+
+- `fact <contaminant> <kind> "<value>" [--amount n --unit u --basis "cPAD"]
+  --source-id <source id> [--annotation-id <passage id>] | --url <page>` — kinds
+  are cas, use, chronic_dose, acute_dose, cancer_rating, health_effect, status,
+  summary (and a few more; `--help` lists them). A `chronic_dose` in mg/kg/day
+  with `--amount` is used the next time the food is scored (`score --food X`),
+  unless she has disputed it — so it
+  must be EPA's own figure (a cRfD, or the cPAD where FQPA applies) from its
+  risk assessment for that exact chemical, never a parent compound's dose
+  borrowed for a metabolite. When a food's verdict is "open question", the
+  pesticides with no dose are the job.
+- `ledger` — what public data has already been pulled; don't pull it again.
+
 Reports go in `<VAULT_DIR>/research/<slug>.md` — lowercase snake_case, never
 overwrite (suffix `_2`, `_3`), first line `# Title`, inline citations.
 
