@@ -1,5 +1,6 @@
 /* SwarmNetwork — a swarm as rings and lines. Rings are Terrain's --accent
-   purple (orange sonar when waiting on her); talk lines are --green. */
+   purple around a solid dot (glowing, with a spinning teal arc, while it
+   works; an extra orange ring when waiting on her); talk lines are --green. */
 
 /* Wide enough that neighbouring names don't collide; a narrow phone scrolls
    sideways rather than squeezing the labels together. */
@@ -99,10 +100,28 @@
   overflow-wrap: anywhere;
 }
 
-/* WORKING: the ring breathes, as a running orb does on the map. */
-.state_working .ringBox {
-  animation: ringBreathe 2.8s ease-in-out infinite;
+/* The solid dot at the centre of every ring. */
+.dot {
+  fill: var(--accent);
+}
+
+/* WORKING: the ring and dot stay put; the dot glows in and out and a teal
+   arc spins around it. Teal isn't in the theme palette — the same value the
+   tab bar's live tabs use (TabBar.module.css --live-teal). */
+.state_working .dot {
+  animation: dotGlow 2.4s ease-in-out infinite;
+}
+
+.spinner {
+  fill: none;
+  stroke: #2fa6a0;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  /* A third of the circle drawn, the rest a gap: an arc that reads as turning. */
+  stroke-dasharray: 13.6 27.2;
+  transform-box: fill-box;
   transform-origin: center;
+  animation: spin 1.6s linear infinite;
 }
 
 .state_working .halo {
@@ -114,31 +133,39 @@
   opacity: 0.6;
 }
 
-/* NEEDS HER: an orange sonar ring leaving the body. */
-.sonar {
+/* NEEDS HER: a second, orange ring just outside the purple one. Still. */
+.waitRing {
   fill: none;
   stroke: var(--orange);
-  stroke-width: 2;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: ringSonar 2.6s ease-out infinite;
+  stroke-width: 2.2;
 }
 
-@keyframes ringBreathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.08); }
+/* RETIRED (archived or handed on, while shown): further back still. */
+.retired .ringBox,
+.retired .name {
+  opacity: 0.4;
 }
 
-@keyframes ringSonar {
-  0% { transform: scale(1); opacity: 0.9; }
-  100% { transform: scale(2.1); opacity: 0; }
+@keyframes dotGlow {
+  0%, 100% { opacity: 0.55; filter: drop-shadow(0 0 0 var(--accent)); }
+  50% { opacity: 1; filter: drop-shadow(0 0 3px var(--accent)); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .state_working .ringBox,
-  .sonar {
+  .state_working .dot,
+  .spinner {
     animation: none;
   }
+}
+
+.allHidden {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
 }
 
 .key {
@@ -160,6 +187,24 @@
 }
 
 .keyHandover {
-  margin-left: var(--space-3);
   border-top: 2px dashed var(--accent);
+}
+
+/* The hide/show-retired switch: a full-size tap target at the key's end. */
+.retiredToggle {
+  min-height: var(--tap-target, 40px);
+  margin-left: auto;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg, var(--surface));
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.retiredToggle[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
 }

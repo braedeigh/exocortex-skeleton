@@ -155,6 +155,10 @@ def overview():
     sync()
     index = store.read("bot_chats/index", {})
     index = index if isinstance(index, dict) else {}
+    # Which sessions have handed their work on to a successor (continuation):
+    # with the archived ones, these are the swarm's retired members.
+    handed_on = {e.get("spawned_from") for e in index.values()
+                 if isinstance(e, dict) and e.get("spawned_via") == "continue"}
     conn = sqlstore.open_db()
     try:
         swarms = conn.execute(
@@ -172,6 +176,7 @@ def overview():
                 counts[state] += 1
                 members.append({"conv": conv, "title": entry.get("title") or conv,
                                 "lane": lanes.derive_lane(entry), "state": state,
+                                "retired": bool(entry.get("archived")) or conv in handed_on,
                                 "joined_at": joined, "summary": msummary,
                                 "summary_at": msummary_at})
             # Which member took over from which: a continuation remembers

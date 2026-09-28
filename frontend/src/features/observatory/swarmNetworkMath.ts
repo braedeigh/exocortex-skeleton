@@ -35,6 +35,8 @@ export interface NetworkNode {
   conv: string;
   title: string;
   state: MemberState;
+  /** Archived or handed on — drawn a step further back. */
+  retired: boolean;
   x: number;
   y: number;
 }
@@ -110,7 +112,8 @@ export function lineWidth(messages: number): number {
 export function layoutSwarm(swarm: Pick<Swarm, 'members' | 'links' | 'continues'>): NetworkLayout {
   const seats = placeRings(swarm.members.length);
   const nodes = swarm.members.map((m, i) => ({
-    conv: m.conv, title: m.title, state: m.state, x: seats[i].x, y: seats[i].y,
+    conv: m.conv, title: m.title, state: m.state, retired: m.retired ?? false,
+    x: seats[i].x, y: seats[i].y,
   }));
   const members = new Set(nodes.map((n) => n.conv));
   return {

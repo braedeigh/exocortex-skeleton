@@ -77,3 +77,14 @@ def test_overview_names_which_member_continued_which(data_dir):
     peermail.send("b", "hi", from_conv="a")
     [card] = swarms.overview()
     assert card["continues"] == [{"from": "a", "to": "a2"}]
+
+
+def test_overview_marks_handed_off_and_archived_members_retired(data_dir):
+    _seed("a", "b")
+    _seed("c", archived="2026-09-27T19:00:00")
+    _seed("a2", spawned_from="a", spawned_via="continue")
+    peermail.send("b", "hi", from_conv="a")
+    peermail.send("c", "hi", from_conv="b")
+    [card] = swarms.overview()
+    retired = {m["conv"] for m in card["members"] if m["retired"]}
+    assert retired == {"a", "c"}

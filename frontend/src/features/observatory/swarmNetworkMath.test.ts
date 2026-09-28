@@ -45,6 +45,11 @@ describe('layoutSwarm', () => {
     const layout = layoutSwarm({ ...swarm, continues: [{ from: 'a', to: 'b' }, { from: 'x', to: 'a' }] });
     expect(layout.continues).toEqual([{ from: 'a', to: 'b' }]);
   });
+
+  it('carries retired through to the drawing, false when the server leaves it out', () => {
+    const layout = layoutSwarm({ members: [{ ...member('a'), retired: true }, member('b')], links: [] });
+    expect(layout.nodes.map((n) => n.retired)).toEqual([true, false]);
+  });
 });
 
 it('thickens a line with more messages, up to a cap', () => {
