@@ -19,6 +19,10 @@ summaries (swarm_helper.py). These routes hand that to the page:
                                   the room helper's session, the sessions
                                   working alone (with its summary of each),
                                   and its recent moves (room_helper.py).
+    GET  /api/swarms/helper-of/<conv>
+                                  the helper one session's chat links to (the
+                                  button above its message box): its swarm's
+                                  helper, else its room's, else null.
 
 Messages TO the helper don't need a route of their own: the helper is a
 session, so the chat's normal mailbox (POST
@@ -31,6 +35,7 @@ import json
 
 from flask import jsonify
 
+import lanes
 import room_helper
 import sqlstore
 import store
@@ -91,6 +96,47 @@ def room(room_name):
     }
 
 
+def helper_of(conv_id):
+    """The helper one session's chat links to, for the button above its
+    message box — {"kind": "swarm" | "room", "conv", "title"}, or None.
+
+    Its swarm's helper when it's in a swarm that has one; otherwise its room's
+    helper. A swarm helper links up to its room's helper; the room helper is
+    the top of the stack and links nowhere.
+    Prompt: "click a button up above the text input spot to go to that agent's
+    helper, whether it's a swarm helper or just the room's helper"."""
+    index = store.read("bot_chats/index", {})
+    index = index if isinstance(index, dict) else {}
+    entry = index.get(conv_id)
+    if not isinstance(entry, dict):
+        return None
+
+    def link(kind, helper):
+        # A link only to a helper that exists, is open, and isn't this session.
+        target = index.get(helper) if helper else None
+        if helper == conv_id or not isinstance(target, dict) or target.get("archived"):
+            return None
+        return {"kind": kind, "conv": helper, "title": target.get("title") or helper}
+
+    # Its swarm's helper first — a helper session is in no swarm, so this
+    # only ever finds one for a member.
+    if not swarms.is_helper_session(conv_id, index):
+        swarm_id = swarms.swarm_of(conv_id)
+        if swarm_id is not None:
+            conn = sqlstore.open_db()
+            try:
+                row = conn.execute("SELECT helper_conv FROM swarms WHERE id = ?",
+                                   (swarm_id,)).fetchone()
+            finally:
+                conn.close()
+            found = link("swarm", row[0] if row else None)
+            if found:
+                return found
+    # Otherwise the room's helper (None when the room has none).
+    room = entry.get("room") or lanes.derive_lane(entry)
+    return link("room", room_helper.find_helper(room, index))
+
+
 def register(app):
     @app.route("/api/swarms")
     def swarms_list():
@@ -106,6 +152,10 @@ def register(app):
     @app.route("/api/swarms/room/<room_name>")
     def swarm_room(room_name):
         return jsonify(room(room_name))
+
+    @app.route("/api/swarms/helper-of/<conv_id>")
+    def swarm_helper_of(conv_id):
+        return jsonify({"helper": helper_of(conv_id)})
 
     @app.route("/api/swarms/<int:swarm_id>/refresh", methods=["POST"])
     def swarm_refresh(swarm_id):

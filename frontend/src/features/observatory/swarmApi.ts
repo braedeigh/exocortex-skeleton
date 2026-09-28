@@ -12,7 +12,8 @@
  * pages draw them only when the shared "show closed swarms" switch is on.
  *
  * Touches: routes/swarms.py (the endpoints), terrain/codeHeatPref.ts (the sticky switch), SwarmCard.tsx and SessionLane.tsx
- * (the cards in each room), RoomMap.tsx (the room from above), SwarmPage.tsx (one swarm's page), and
+ * (the cards in each room), RoomMap.tsx (the room from above), SwarmPage.tsx (one swarm's page), ObservatoryPage.tsx
+ * (the helper button above a chat's message box), and
  * terrain/TerrainPage.tsx (the outlines around swarm members on the map).
  */
 import { useQuery } from '@tanstack/react-query';
@@ -121,6 +122,31 @@ export function useRoomView(room: string, enabled = true) {
       api.get<RoomView>(`/api/swarms/room/${encodeURIComponent(room)}`, signal),
     staleTime: 4_000,
     refetchInterval: 10_000,
+  });
+}
+
+/** The helper one session's chat links to (routes/swarms.py `helper_of`):
+ * its swarm's helper, else its room's helper, else null. */
+export interface HelperLink {
+  kind: 'swarm' | 'room';
+  conv: string;
+  title: string;
+}
+
+/** Which helper the open chat's "helper" button goes to. One small lookup per
+ * chat rather than the whole swarm poll — membership changes rarely, so it's
+ * re-asked every minute and whenever the window comes back into focus. */
+export function useHelperOf(convId: string | undefined) {
+  return useQuery({
+    queryKey: ['swarm-helper-of', convId] as const,
+    enabled: !!convId,
+    queryFn: async ({ signal }) =>
+      (await api.get<{ helper: HelperLink | null }>(
+        `/api/swarms/helper-of/${encodeURIComponent(convId!)}`,
+        signal,
+      )).helper,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
   });
 }
 

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { openActivity } from '../activity/openActivity';
+import { sessionLocation } from './sessionLocation';
+import { useHelperOf } from './swarmApi';
 import { uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
@@ -282,6 +284,11 @@ export function ObservatoryPage({
   // window at once (backdropPref.ts). With no map behind the page, stepping
   // back would uncover a blank screen — so the gesture goes away with it.
   const backdropOn = useTerrainBackdropOn();
+
+  // The helper this session answers to, for the button in the composer
+  // toolbar: its swarm's helper, else its room's (routes/swarms.py helper_of).
+  // null — no helper over it, or it IS the room helper — means no button.
+  const { data: helperLink } = useHelperOf(convId);
   const stepBack = useStepBack({
     scrollRef: scrollContract.scrollRef,
     pageRef,
@@ -1029,6 +1036,23 @@ export function ObservatoryPage({
           >
             activity
           </button>
+          {/* Go to this session's helper — its swarm's, or its room's. Docked
+              in the split pane it opens there, like every other session jump
+              from this page. */}
+          {helperLink ? (
+            <button
+              type="button"
+              className={styles.toolBtn}
+              title={`Open ${helperLink.title}`}
+              aria-label={`Open ${helperLink.title}`}
+              onClick={() => {
+                if (onOpenConversation) onOpenConversation(helperLink.conv);
+                else void navigate(sessionLocation(helperLink.conv));
+              }}
+            >
+              {helperLink.kind === 'swarm' ? 'swarm helper' : 'room helper'}
+            </button>
+          ) : null}
           <button
             ref={notesBtnRef}
             type="button"

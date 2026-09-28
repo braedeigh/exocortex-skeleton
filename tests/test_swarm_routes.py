@@ -3,7 +3,8 @@
 What these pin: the list shows a live swarm with its counts; the detail
 carries the helper's runs verbatim and the messages between members;
 unknown swarms 404; a card says whether it's closed; refresh starts a helper run; the room view lists the
-sessions working alone and the room helper's moves.
+sessions working alone and the room helper's moves; helper-of links a session's
+chat to its swarm's helper, else its room's, and a helper one level up or nowhere.
 """
 import json
 
@@ -71,3 +72,51 @@ def test_the_room_view_lists_who_works_alone(client):
     found = client.get("/api/swarms/room/coding").get_json()
     assert [s["conv"] for s in found["solos"]] == ["c"]
     assert found["helper_conv"] == "h" and found["moves"] == []
+
+
+def _with_helpers(swarm_helper_conv="sh"):
+    """Give the fixture's swarm a helper session, and the room a room helper."""
+    [swarm_id] = swarms.sync()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["sh"] = {"title": "Swarm helper · X", "lane": "coding", "role": "swarm_helper",
+                       "swarm_id": swarm_id}
+        index["rh"] = {"title": "Room helper · Coding", "lane": "coding", "role": "room_helper",
+                       "room": "coding"}
+        index["solo"] = {"title": "Solo", "lane": "coding"}
+    conn = sqlstore.open_db()
+    sqlstore.begin_immediate(conn)
+    conn.execute("UPDATE swarms SET helper_conv = ? WHERE id = ?", (swarm_helper_conv, swarm_id))
+    conn.execute("COMMIT")
+    conn.close()
+
+
+def _helper_of(client, conv):
+    return client.get(f"/api/swarms/helper-of/{conv}").get_json()["helper"]
+
+
+def test_a_swarm_member_links_to_its_swarm_helper(client):
+    _with_helpers()
+    assert _helper_of(client, "a") == {"kind": "swarm", "conv": "sh", "title": "Swarm helper · X"}
+
+
+def test_a_session_working_alone_links_to_its_room_helper(client):
+    _with_helpers()
+    assert _helper_of(client, "solo")["conv"] == "rh"
+
+
+def test_a_member_of_a_swarm_with_no_helper_yet_falls_back_to_the_room_helper(client):
+    _with_helpers(swarm_helper_conv=None)
+    assert _helper_of(client, "a")["kind"] == "room"
+
+
+def test_a_swarm_helper_links_up_to_the_room_helper_and_the_room_helper_nowhere(client):
+    _with_helpers()
+    assert _helper_of(client, "sh")["conv"] == "rh"
+    assert _helper_of(client, "rh") is None
+
+
+def test_no_helper_in_the_room_means_no_link(client):
+    with store.mutate("bot_chats/index", {}) as index:
+        index["p"] = {"title": "P", "lane": "personal"}
+    assert _helper_of(client, "p") is None
+    assert _helper_of(client, "nope") is None
