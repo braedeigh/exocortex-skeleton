@@ -46,7 +46,7 @@ map of how, across the files that do it.
 ## How far an agent is trusted
 
 Plainly: **an agent can do anything she can do on this machine.** Every
-agent turn runs as her Unix user (`bradie`), with a shell. So does the web
+agent turn runs as her own Unix user, with a shell. So does the web
 server. An agent can read and write `exo.db`, the session index, the
 transcripts, the vault, the app's code and its secrets — directly, not
 through any door this app offers.
