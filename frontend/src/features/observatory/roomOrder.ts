@@ -30,6 +30,10 @@
  * (sessionFilters). Done and retired members are left off the card and out of
  * its counts, and the card takes its band from the members still at work.
  *
+ * The done band doesn't stand among the other cards. SessionLane lifts it
+ * into a Done drawer at the foot of the room (DoneDrawer.tsx), shut by default;
+ * foldsIntoDone says who goes in it.
+ *
  * Touches: SessionLane.tsx (orders a room with it), SwarmCard.tsx and
  * SwarmPage.tsx (draw a swarm through swarmView), sessionFilters.ts (the
  * colour rule and finalOutputAt), swarmApi.ts (the swarm types).
@@ -43,7 +47,7 @@
  * clicked them."
  */
 import type { SessionMeta } from './api';
-import { cardState, finalOutputAt, isAsking } from './sessionFilters';
+import { cardState, finalOutputAt, isAsking, sessionIs } from './sessionFilters';
 import { swarmState, type MemberState, type Swarm, type SwarmMember } from './swarmApi';
 
 /** The four places a card can stand, top to bottom. `waiting` is split in two
@@ -55,6 +59,30 @@ const TIER_RANK: Record<RoomTier, number> = { orange: 0, waiting: 1, running: 2,
 /** Is this session finished: marked done, or handed on to a continuation. */
 export function isDone(meta: Pick<SessionMeta, 'done_at' | 'retired'>): boolean {
   return meta.retired === true || Boolean(meta.done_at);
+}
+
+/** Does this session fold into its room's Done drawer (DoneDrawer.tsx): done,
+ * and not stopped on her. A done session still asking (a question, a command
+ * to approve) stays out in the room, because a request can't wait behind a
+ * shut drawer. Her next message clears `done_at` server-side, which is what
+ * brings a card back out.
+ * [prompt: "automatically minimize all "done" sessions into a little
+ * collapsible spot that haven't quite closed yet at the bottom"] */
+export function foldsIntoDone(meta: SessionMeta): boolean {
+  return isDone(meta) && !isAsking(meta);
+}
+
+/** How many sessions in a Done drawer have a final output she hasn't read,
+ * for the drawer's header. It's the same unread fact the card's dot uses
+ * (sessionFilters.sessionIs), which for a finished session reads only its final
+ * output. */
+export function unreadDone(
+  sessions: SessionMeta[],
+  opened: Record<string, string>,
+  nowMs: number = Date.now(),
+): number {
+  return sessions.filter((s) => foldsIntoDone(s) && sessionIs(s, opened[s.id], 'unread', nowMs))
+    .length;
 }
 
 /** One thing to place in a room: a session row or a swarm, its tier, and the

@@ -6,7 +6,17 @@ import { LaneHead, useLaneOpen } from './LaneHead';
 import { SwarmCard } from './SwarmCard';
 import { RoomMap } from './RoomMap';
 import { shownSwarms, useClosedSwarmsShown, useRoomView, useSwarms } from './swarmApi';
-import { orderRoom, sessionPlace, swarmPlace, swarmView, type RoomPlace, type SwarmView } from './roomOrder';
+import { DoneDrawer } from './DoneDrawer';
+import {
+  foldsIntoDone,
+  orderRoom,
+  sessionPlace,
+  swarmPlace,
+  swarmView,
+  unreadDone,
+  type RoomPlace,
+  type SwarmView,
+} from './roomOrder';
 import type { TerrainData } from '../terrain/api';
 import styles from './SessionLane.module.css';
 
@@ -82,6 +92,12 @@ import styles from './SessionLane.module.css';
  * the done and handed-on ones with the most recently finished last.
  * roomOrder.ts owns the rule; the swarm's own page gets it through this same
  * component.
+ *
+ * DONE FOLDS AWAY. The done sessions still counting down to close don't stand
+ * among the live cards: they sit in a small Done drawer at the foot of the
+ * room (DoneDrawer.tsx), shut by default, with "Done · 3" and any unread
+ * closing reports on its line. A done session still asking stays out in the
+ * room (roomOrder.foldsIntoDone). The Keeper's slot and a bare card never fold.
  */
 
 export function SessionLane({
@@ -210,6 +226,24 @@ export function SessionLane({
   ];
   const ordered = orderRoom(places);
 
+  // Lift the done sessions into the Done drawer at the foot of the room
+  // (DoneDrawer.tsx). They keep the done band's order in there, most recently
+  // finished last. Not in the Keeper's slot or a bare card: those are one card
+  // each, and folding it would hide the only thing on show.
+  const drawerMeta = (placed: Placed) =>
+    placed.kind === 'row' ? byId.get(placed.row.id) : undefined;
+  const drawing = !keeper && !bare;
+  const folds = (placed: Placed) => {
+    const meta = drawerMeta(placed);
+    return drawing && !!meta && foldsIntoDone(meta);
+  };
+  const standing = ordered.filter((placed) => !folds(placed));
+  const tucked = ordered.filter(folds);
+  const tuckedUnread = unreadDone(
+    tucked.flatMap((placed) => drawerMeta(placed) ?? []),
+    opened,
+  );
+
   // The census counts swarm members too, so a shut room still says a swarm
   // member needs her.
   const asking = rows.filter((r) => r.pendingApproval || r.awaiting);
@@ -266,6 +300,38 @@ export function SessionLane({
     .filter(Boolean)
     .join(' ');
 
+  // Draw one card per place, by what it is: a swarm, a gated command, a
+  // question, or an ordinary session. Shared by the room's list and its Done
+  // drawer, so a done card looks the same in either.
+  const card = (placed: Placed) => {
+    if (placed.kind === 'swarm') {
+      return <SwarmCard key={`swarm-${placed.view.swarm.id}`} view={placed.view} onOpen={onOpen} />;
+    }
+    const { row } = placed;
+    if (row.pendingApproval) {
+      return <ApprovalCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />;
+    }
+    if (row.awaiting) {
+      return <AwaitingCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />;
+    }
+    const meta = byId.get(row.id);
+    if (!meta) return null;
+    return (
+      <SessionCard
+        key={row.id}
+        row={row}
+        meta={meta}
+        openedAt={opened[row.id]}
+        live={anyRunning}
+        onOpen={onOpen}
+        onSetRead={onSetRead}
+        onRename={onRename}
+        onClose={onClose}
+        onChanged={onChanged}
+      />
+    );
+  };
+
   return (
     <section className={sectionClass} aria-label={heading}>
       {head}
@@ -288,40 +354,16 @@ export function SessionLane({
           <span className={styles.idleDot} aria-hidden="true" />
           {emptyNote ?? 'Nothing here yet — tap + beside the heading to start one.'}
         </div>
-      ) : (
-        <div className={styles.rows}>
-          {/* One card per place, drawn by what it is: a swarm, a gated
-              command, a question, or an ordinary session. */}
-          {ordered.map((placed) => {
-            if (placed.kind === 'swarm') {
-              return <SwarmCard key={`swarm-${placed.view.swarm.id}`} view={placed.view} onOpen={onOpen} />;
-            }
-            const { row } = placed;
-            if (row.pendingApproval) {
-              return <ApprovalCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />;
-            }
-            if (row.awaiting) {
-              return <AwaitingCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />;
-            }
-            const meta = byId.get(row.id);
-            if (!meta) return null;
-            return (
-              <SessionCard
-                key={row.id}
-                row={row}
-                meta={meta}
-                openedAt={opened[row.id]}
-                live={anyRunning}
-                onOpen={onOpen}
-                onSetRead={onSetRead}
-                onRename={onRename}
-                onClose={onClose}
-                onChanged={onChanged}
-              />
-            );
-          })}
-        </div>
-      )}
+      ) : standing.length > 0 ? (
+        <div className={styles.rows}>{standing.map(card)}</div>
+      ) : null}
+
+      {/* The done ones, folded at the foot of the room (DoneDrawer.tsx). */}
+      {tucked.length > 0 ? (
+        <DoneDrawer laneKey={laneKey} count={tucked.length} unread={tuckedUnread}>
+          {tucked.map(card)}
+        </DoneDrawer>
+      ) : null}
 
       {/* The way back through this room. Under the cards, inside the collapse —
           it belongs to the room, so it goes when the room shuts.

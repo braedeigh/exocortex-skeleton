@@ -892,6 +892,56 @@
   color: var(--accent);
 }
 
+/* The Done drawer: done sessions waiting to close, folded at the foot of a
+   room (DoneDrawer.tsx). Grey like the past-sessions link, because nothing in
+   it asks anything of her. Its only colour is the small orange dot for a
+   closing report she hasn't read. */
+.doneDrawer {
+  margin-top: var(--space-3);
+}
+
+.doneToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.doneToggle:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.doneDrawer > .rows {
+  margin-top: var(--space-2);
+}
+
+.doneUnread {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: 500;
+}
+
+.doneUnreadDot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--orange);
+}
+
 /* --- the Keeper: the one card that isn't in a room ------------------------ */
 /* HUE IS STATE, MATERIAL IS IDENTITY. The four colours on this page are spoken
    for — purple running, purple-faded recent, orange unread, red broken — and

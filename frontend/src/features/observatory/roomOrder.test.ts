@@ -5,7 +5,15 @@
  * the session cards' rule).
  */
 import { describe, expect, it } from 'vitest';
-import { orderMembers, orderRoom, sessionPlace, swarmPlace, swarmView } from './roomOrder';
+import {
+  foldsIntoDone,
+  orderMembers,
+  orderRoom,
+  sessionPlace,
+  swarmPlace,
+  swarmView,
+  unreadDone,
+} from './roomOrder';
 import type { SessionMeta } from './api';
 import type { Swarm, SwarmMember } from './swarmApi';
 
@@ -142,5 +150,40 @@ describe('swarmView', () => {
       NOW,
     );
     expect(orderMembers(view.members).map((m) => m.conv)).toEqual(['oldAsk', 'unread', 'newAsk', 'quiet', 'busy']);
+  });
+});
+
+describe('the Done drawer', () => {
+  it('takes a session the moment it is done and lets it out again when done is cleared', () => {
+    const working = session('s', { last_at: ago(20 * MIN) });
+    const done = { ...working, done_at: ago(10 * MIN), final_at: ago(10 * MIN) };
+    const handedOn = session('h', { retired: true, retired_at: ago(30 * MIN) });
+    const doneButAsking = { ...done, id: 'q', awaiting_input: 'which one?' };
+    // Her next message clears done_at server-side; the card stands in the room again.
+    const spokenTo = { ...done, done_at: undefined, final_at: undefined, last_at: ago(0) };
+    expect([working, done, handedOn, doneButAsking, spokenTo].map(foldsIntoDone)).toEqual([
+      false,
+      true,
+      true,
+      false,
+      false,
+    ]);
+  });
+
+  it('counts a closing report she has not read, and not chatter after it', () => {
+    const sessions = [
+      // Final output never opened: unread.
+      session('unreadReport', { done_at: ago(30 * MIN), final_at: ago(30 * MIN) }),
+      // Final output read; a peer's FYI moved last_at later. Still read.
+      session('readThenChatter', {
+        done_at: ago(30 * MIN),
+        final_at: ago(30 * MIN),
+        last_at: ago(1 * MIN),
+      }),
+      // Unread but not done, so not in the drawer at all.
+      session('notDone', { last_at: ago(5 * MIN) }),
+    ];
+    const opened = { readThenChatter: ago(20 * MIN) };
+    expect(unreadDone(sessions, opened, NOW)).toBe(1);
   });
 });
