@@ -191,6 +191,13 @@ ROOM_HELPER_QUIET_HOURS = float(os.environ.get("EXOCORTEX_ROOM_HELPER_QUIET_HOUR
 # How far back the room helper's "Files being edited now" section looks
 # (edited_files.py): a file an open session changed within it is listed.
 ROOM_HELPER_FILES_HOURS = float(os.environ.get("EXOCORTEX_ROOM_HELPER_FILES_HOURS", "2"))
+# A helper's watches (watches.py): how long a watched session must go without
+# writing a line before it counts as `stalled` (a turn's tool calls write
+# lines every few minutes, so 90 minutes of nothing means it's stuck or
+# sitting idle with its work unfinished), and how long a watch that never
+# fires stands before it's retired — the helper is told either way.
+HELPER_WATCH_STALLED_MINUTES = int(os.environ.get("EXOCORTEX_HELPER_WATCH_STALLED_MINUTES", "90"))
+HELPER_WATCH_EXPIRE_DAYS = float(os.environ.get("EXOCORTEX_HELPER_WATCH_EXPIRE_DAYS", "7"))
 
 # The privileged commands an agent may ask the owner to run for it (sudo_requests.py,
 # routes/sudo.py). An agent names one of these KEYS, never a command line — the list
