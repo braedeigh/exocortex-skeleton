@@ -2317,7 +2317,9 @@ def _run_ladder(conn):
             "    CHECK (status IN ('waiting','held','delivered','cancelled')),"
             "  held_reason TEXT,"
             "  delivered_at TEXT,"
-            # 'injected' (mid-turn) or 'batched' (started a turn of its own).
+            # 'handed' (written into a running agent, not read yet),
+            # 'injected' (read mid-turn) or 'batched' (started a turn of its
+            # own). delivered_at is when it was read or started the turn.
             "  delivered_how TEXT,"
             # Owner messages only: journaled or said off the record.
             "  record INTEGER NOT NULL DEFAULT 1"

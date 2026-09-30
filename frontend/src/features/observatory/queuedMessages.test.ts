@@ -2,10 +2,21 @@
  * queuedMessages — the queue's survival across a closed PWA: round-trips,
  * key hygiene, tolerance for corrupt storage, and the new-conversation
  * migration. Then the row merge: a message the server never got stays on
- * screen, and one it did get isn't shown twice.
+ * screen, and one it did get isn't shown twice. Then what a waiting row says
+ * about why it waits, and what her message says once it landed.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadQueued, mergeQueueRows, pruneSettled, rowsFromServer, saveQueued, type QueuedRow } from './queuedMessages';
+import { turnsFromHistory } from './events';
+import {
+  arrivedNote,
+  loadQueued,
+  mergeQueueRows,
+  pruneSettled,
+  rowsFromServer,
+  saveQueued,
+  waitReason,
+  type QueuedRow,
+} from './queuedMessages';
 
 function fakeStorage(): Storage {
   const map = new Map<string, string>();
@@ -110,5 +121,45 @@ describe('queued rows: server list plus what the browser still holds', () => {
 
   it('carries the record flag over from the server as offRecord', () => {
     expect(rowsFromServer([{ id: 1, text: 'x', record: false }])[0].offRecord).toBe(true);
+  });
+});
+
+describe('why a queued message is waiting, and where it landed', () => {
+  const running = { running: true, policy: 'open' };
+
+  it('names the step it is stuck behind, how long that has run, and what it is running', () => {
+    const [row] = rowsFromServer([{ id: 3, text: 'wrong branch', record: true, handed: true }]);
+    expect(row.state).toBe('handed');
+    const why = waitReason(row, { ...running, step: { name: 'Bash', target: 'pytest -q', seconds: 250 } });
+    expect(why?.text).toBe('the agent is running a command (4 min so far) — it reads this when that step ends');
+    expect(why?.detail).toBe('pytest -q');
+  });
+
+  it('says so plainly when there is no step, no turn, or a session that only takes mail between turns', () => {
+    const [row] = rowsFromServer([{ id: 3, text: 'x', record: true }]);
+    expect(waitReason(row, { ...running, step: null })?.text).toMatch(/thinking/);
+    expect(waitReason(row, { running: false, step: null, policy: 'open' })?.text).toMatch(/new turn/);
+    expect(waitReason(row, { running: true, step: null, policy: 'queue-only' })?.text).toMatch(/between turns/);
+  });
+
+  it('says send now is under way once she pressed it, and nothing for rows the server never had', () => {
+    const [row] = rowsFromServer([{ id: 3, text: 'x', record: true, rushed: true }]);
+    expect(waitReason(row, { ...running, step: null })?.text).toMatch(/sending now/);
+    expect(waitReason({ state: 'failed' }, { ...running, step: null })).toBeNull();
+  });
+
+  it('carries where a message landed from the transcript to the note under it', () => {
+    const turns = turnsFromHistory([
+      { type: 'user', text: 'run the suite' },
+      { type: 'user', text: 'use the other table', arrived: { how: 'injected', after_step: 14 } },
+      { type: 'user', text: 'stop', arrived: { how: 'interrupt' } },
+      { type: 'user', text: 'plain' },
+    ]);
+    expect(turns.map((t) => (t.arrived ? arrivedNote(t.arrived) : null))).toEqual([
+      null,
+      'arrived mid-turn, after step 14',
+      'sent now — stopped the step it was on and started a new turn',
+      null,
+    ]);
   });
 });

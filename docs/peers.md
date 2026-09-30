@@ -12,7 +12,7 @@ map of how, across the files that do it.
 | Telling agents | `peermail.prompt`, added by `_build_cmd` in `routes/observatory.py` | One short paragraph in every Observatory turn's system prompt |
 | Delivery mid-turn | `_TurnInput`, `_turn_companion`, `_deliver_midturn` in `routes/observatory.py` | Keeps the agent's input open and hands messages in between its steps |
 | Delivery between turns | `drain_inbox` in `routes/observatory.py` | Starts one turn with everything waiting, labelled |
-| Her side | `/inbox` routes; `frontend/.../useMessageQueue.ts` | What she types while a turn runs goes to the same mailbox |
+| Her side | `/inbox` routes; `frontend/.../useMessageQueue.ts`, `QueuedRows.tsx` | What she types while a turn runs goes to the same mailbox; each row says why it's waiting, and has "send now" |
 | The card | `frontend/.../PeerCard.tsx`, `events.ts` (`peer`, `peer-status`) | A teal card in both chats; orange with "Let it through" when held |
 | Live tool calls | `toolcallstore.live_ingest`, called by the companion | `tool_calls` is seconds behind a running Observatory turn, not an hour |
 
@@ -26,6 +26,17 @@ map of how, across the files that do it.
    second. `inject` (the default) is written into the agent's open input and
    read after its current step; `queue` waits; `interrupt` stops the turn
    (marked deliberate, so no red card).
+   Handed in is not read: the row is `delivered` with `delivered_how =
+   'handed'` until the agent's echo comes back. Only then does it become
+   `injected`, get its `delivered_at`, and land in the transcript — at the
+   spot the agent took it, with `arrived: {how, after_step}` on her line. A
+   turn that ends with handed rows still unread (a stop, an interrupt, the echo
+   backstop) puts them back to `waiting`; `drain_inbox` does the same for a
+   turn whose host died.
+   Her "send now" (`POST /inbox/<id>/now`) sets her row's mode to
+   `interrupt`, waiting or handed. No accept policy softens it — the policy is
+   what an agent takes from its peers. `GET /inbox` says why her rows wait:
+   the running step, from the live `tool_calls` table (`_inbox_status`).
 4. When a turn ends (`scripts/turn_host.py`, and the in-worker fallback), the
    approval/reminder follow-ups go first, then `drain_inbox` — everything
    still waiting, hers and the agents', as ONE turn, each labelled

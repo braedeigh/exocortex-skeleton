@@ -257,14 +257,17 @@ class _FakeProc:
 
 
 def _hand_in_waiting(conv_id):
-    """Run one mailbox check against a turn that's open for input; return
-    what the agent was handed."""
+    """Run one mailbox check against a turn that's open for input, then let
+    the agent read what it was handed (its echo); return what it was handed."""
     proc = _FakeProc()
     turn_input = rr._TurnInput(proc)
     log_path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
     rr._deliver_midturn(proc, conv_id, log_path, turn_input)
-    return [json.loads(l)["message"]["content"]
+    told = [json.loads(l)["message"]["content"]
             for l in proc.stdin.getvalue().splitlines()]
+    for text in told:
+        rr._record_read(conv_id, log_path, turn_input, text)
+    return told
 
 
 def test_her_answer_handed_in_mid_turn_clears_the_questions(data_dir):

@@ -580,7 +580,7 @@
 
 .queuedRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   min-height: var(--tap-target);
   margin: var(--space-3) 0 0;
@@ -591,8 +591,99 @@
 
 .queuedTag {
   flex-shrink: 0;
+  /* Rows start at the top now (the reason line can wrap under the text), so
+     the tag sits on the first line's baseline by hand. */
+  padding-top: 0.2em;
   font-size: var(--font-size-sm);
   font-style: italic;
+}
+
+/* The message and, under it, why it's still waiting. */
+.queuedBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+}
+
+/* Why it's waiting: the step the agent is in, and for how long. */
+.queuedWhy {
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* What that step is working on — the command, the file — one line, cut. */
+.queuedWhyDetail {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+}
+
+/* Send now: a real button, 40px+, quieter than the composer's send. */
+.queuedNow {
+  flex-shrink: 0;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* The in-place confirm: send now costs the step it stops, so it says so. */
+.queuedConfirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.queuedConfirmText {
+  flex-basis: 100%;
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.queuedConfirmGo,
+.queuedConfirmCancel {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border-radius: 999px;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.queuedConfirmGo {
+  border: 1px solid var(--red, #b3423e);
+  background: transparent;
+  color: var(--red, #b3423e);
+}
+
+.queuedConfirmCancel {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+/* Under her message in the chat, when it waited in the mailbox: where it
+   landed ("arrived mid-turn, after step 14"). Tucked up against the message it
+   belongs to, in its accent rule's column. */
+.arrivedNote {
+  margin: calc(-1 * var(--space-3)) 0 var(--space-4);
+  padding-left: calc(var(--space-3) + 2px);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  color: var(--text-muted);
 }
 
 /* A queued message the server never took: the tag turns red and says so. */
@@ -602,8 +693,6 @@
 }
 
 .queuedText {
-  flex: 1;
-  min-width: 0;
   font-size: var(--font-size-md);
   line-height: 1.5;
   white-space: pre-wrap;

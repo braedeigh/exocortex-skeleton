@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { cancelInboxMessage, fetchInbox, sendToInbox } from './api';
+import { cancelInboxMessage, fetchInbox, sendInboxNow, sendToInbox, type InboxStatus } from './api';
 import {
   loadQueued,
   mergeQueueRows,
@@ -27,12 +27,19 @@ import {
  * the composer was already cleared and a message that silently vanished would
  * be lost.
  *
+ * A row stays up until the agent has actually READ the message, not just
+ * until the server has handed it in: a message handed into a running agent is
+ * read only when the step it's in ends, which can be minutes. While it waits,
+ * the row says why (the step, and how long it has run — queuedMessages.ts
+ * waitReason), and "send now" stops that step and starts a new turn with it
+ * (sendNow). Once read, it lands in the transcript with a note saying where.
+ *
  * One edge stays in the browser: the very first turn of a brand-new compose,
  * before the conversation has an id to address. Those wait here and move to
  * the server the moment the id arrives. A queue left in localStorage by the
  * old browser-side version moves over the same way.
  *
- * Touches: api.ts (sendToInbox / fetchInbox / cancelInboxMessage),
+ * Touches: api.ts (sendToInbox / fetchInbox / cancelInboxMessage / sendInboxNow),
  * queuedMessages.ts (the localStorage staging and the row merge),
  * ObservatoryPage.tsx (the rows above the composer).
  *
@@ -48,14 +55,18 @@ const POLL_MS = 2000;
 
 export function useMessageQueue(args: { botId: string; convId: string | undefined }): {
   queued: QueuedRow[];
+  /** Why the server's rows are waiting — see waitReason. */
+  status: InboxStatus | null;
   enqueue: (text: string, offRecord: boolean) => void;
   remove: (row: QueuedRow) => void;
+  sendNow: (row: QueuedRow) => void;
 } {
   const { botId, convId } = args;
   // The server's waiting list, and the browser's own rows (staged, sending,
   // failed). A ref mirrors the local rows so the callbacks below can read
   // them without re-binding on every change.
   const [serverRows, setServerRows] = useState<QueuedRow[]>([]);
+  const [status, setStatus] = useState<InboxStatus | null>(null);
   const [localRows, setLocalRows] = useState<QueuedRow[]>([]);
   const localRef = useRef<QueuedRow[]>([]);
   localRef.current = localRows;
@@ -71,8 +82,9 @@ export function useMessageQueue(args: { botId: string; convId: string | undefine
     if (!convId) return;
     const readStartedAt = Date.now();
     try {
-      const { waiting } = await fetchInbox(convId);
+      const { waiting, status: why } = await fetchInbox(convId);
       setServerRows(rowsFromServer(waiting));
+      setStatus(why ?? null);
       setLocalRows((rows) => pruneSettled(rows, readStartedAt));
     } catch {
       // A missed read just leaves the rows as they were until the next one.
@@ -183,5 +195,21 @@ export function useMessageQueue(args: { botId: string; convId: string | undefine
     [botId, convId, refresh],
   );
 
-  return { queued: mergeQueueRows(serverRows, localRows), enqueue, remove };
+  // Send now: the server turns it into an interrupt, the running turn stops
+  // within a second, and the next turn starts with it. The row shows
+  // "sending now" straight away; a 409 (the agent read it meanwhile) just
+  // lets the next read settle it.
+  const sendNow = useCallback(
+    (row: QueuedRow) => {
+      if (!convId || row.id === undefined) return;
+      setServerRows((rows) => rows.map((r) => (r.id === row.id ? { ...r, rushed: true } : r)));
+      setLocalRows((rows) => rows.map((r) => (r.key === row.key ? { ...r, rushed: true } : r)));
+      void sendInboxNow(convId, row.id)
+        .catch(() => undefined)
+        .then(() => refresh());
+    },
+    [convId, refresh],
+  );
+
+  return { queued: mergeQueueRows(serverRows, localRows), status, enqueue, remove, sendNow };
 }

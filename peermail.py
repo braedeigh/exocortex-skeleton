@@ -102,9 +102,13 @@ def set_policy(conv_id, policy):
         entry["peer_accept"] = policy
 
 
-def effective_mode(mode, policy):
+def effective_mode(mode, policy, kind="A"):
     """The sender's knock, softened by the recipient's policy. The recipient
-    can only ever turn a knock DOWN — never up."""
+    can only ever turn a knock DOWN — never up. Her own "send now" (kind B,
+    interrupt) is the one knock no policy softens: the policy is what an agent
+    accepts from its peers, and she is not a peer."""
+    if kind == "B" and mode == "interrupt":
+        return "interrupt"
     if policy == "queue-only":
         return "queue"
     if policy == "no-interrupt" and mode == "interrupt":
@@ -242,12 +246,72 @@ def readdress(from_conv, to_conv):
         conn.close()
 
 
+def handed(conv_id, kind=None):
+    """Messages written into this session's running agent that it hasn't read
+    yet, oldest first. A message handed in mid-turn is only READ when the
+    agent's current step ends; until its echo comes back it is `delivered`
+    with delivered_how 'handed', and her chat still shows it as waiting."""
+    sql = (f"SELECT {', '.join(_COLUMNS)} FROM agent_messages"
+           " WHERE to_conv = ? AND status = 'delivered' AND delivered_how = 'handed'")
+    args = [conv_id]
+    if kind:
+        sql += " AND kind = ?"
+        args.append(kind)
+    conn = sqlstore.open_db()
+    try:
+        return [_row(v) for v in conn.execute(sql + " ORDER BY id", args)]
+    finally:
+        conn.close()
+
+
+def mark_read(rows):
+    """The agent read these handed-in messages (its echo came back): they
+    count as delivered from now, mid-turn."""
+    if not rows:
+        return
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        at = _now()
+        for r in rows:
+            conn.execute(
+                "UPDATE agent_messages SET delivered_how = 'injected', delivered_at = ?"
+                " WHERE id = ? AND status = 'delivered' AND delivered_how = 'handed'",
+                (at, r["id"]))
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
+
+
+def send_now(message_id, conv_id):
+    """Her "send now" on one of her own messages: turn it into an interrupt, so
+    the running turn stops and the next one starts with it. Works while it's
+    waiting and while it's handed in but unread. False if it's already been
+    read (or isn't hers, or isn't this session's)."""
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        cur = conn.execute(
+            "UPDATE agent_messages SET mode = 'interrupt'"
+            " WHERE id = ? AND kind = 'B' AND to_conv = ?"
+            " AND (status = 'waiting'"
+            "      OR (status = 'delivered' AND delivered_how = 'handed'))",
+            (message_id, conv_id))
+        conn.execute("COMMIT")
+        return cur.rowcount == 1
+    finally:
+        conn.close()
+
+
 def any_waiting():
-    """Every session with a message waiting — the minute safety net's list."""
+    """Every session with a message waiting, or one handed in and never read
+    — the minute safety net's list (drain_inbox puts the unread ones back once
+    their turn is over)."""
     conn = sqlstore.open_db()
     try:
         return [r[0] for r in conn.execute(
-            "SELECT DISTINCT to_conv FROM agent_messages WHERE status = 'waiting'")]
+            "SELECT DISTINCT to_conv FROM agent_messages WHERE status = 'waiting'"
+            " OR (status = 'delivered' AND delivered_how = 'handed')")]
     finally:
         conn.close()
 
@@ -284,7 +348,8 @@ def claim(rows, how):
 
 def unclaim(rows):
     """Put claimed messages back to waiting — a delivery that couldn't
-    happen after all (the turn wouldn't start, the input shut)."""
+    happen after all (the turn wouldn't start, the input shut, or the turn
+    ended before the agent read what was handed in)."""
     conn = sqlstore.open_db()
     try:
         sqlstore.begin_immediate(conn)

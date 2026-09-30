@@ -806,11 +806,25 @@ export function dismissSpinoffOffer(convId: string): Promise<{ ok: true }> {
 // server, which hands it to the agent at its next step — or starts a turn with
 // it if the session is idle. Held agent messages are released from here too.
 
-/** One of her messages still waiting to be handed in. */
+/** One of her messages the agent hasn't read yet. `handed` = already written
+ * into the running agent, which reads it when its current step ends — too late
+ * to take back, not too late to send now. `rushed` = she pressed send now. */
 export interface InboxMessage {
   id: number;
   text: string;
   record: boolean;
+  handed?: boolean;
+  rushed?: boolean;
+}
+
+/** Why her messages are waiting (routes/observatory.py _inbox_status):
+ * whether a turn is running, the step the agent is in right now (its tool,
+ * what it's working on, how long it has run), and what the session accepts
+ * mid-turn. */
+export interface InboxStatus {
+  running: boolean;
+  step: { name: string; target: string; seconds: number | null } | null;
+  policy: string;
 }
 
 export function sendToInbox(
@@ -821,8 +835,17 @@ export function sendToInbox(
   return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/inbox`, { text, record });
 }
 
-export function fetchInbox(convId: string, signal?: AbortSignal): Promise<{ waiting: InboxMessage[] }> {
+export function fetchInbox(
+  convId: string,
+  signal?: AbortSignal,
+): Promise<{ waiting: InboxMessage[]; status?: InboxStatus | null }> {
   return api.get(`/api/observatory/conversation/${encodeURIComponent(convId)}/inbox`, signal);
+}
+
+/** Her "send now": stop the step the agent is on and start a new turn with
+ * this message. 409 once the agent has already read it. */
+export function sendInboxNow(convId: string, id: number): Promise<{ ok: boolean; started: boolean }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/inbox/${id}/now`, {});
 }
 
 export function cancelInboxMessage(convId: string, id: number): Promise<{ ok: boolean }> {

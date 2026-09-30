@@ -225,6 +225,146 @@ def test_her_inbox_route_starts_an_idle_session_and_lists_waiting(bot_client, mo
     assert bot_client.delete(f"/api/observatory/conversation/{b}/inbox/{mid}").status_code == 409
 
 
+# The real CLI doesn't look at its input while a step runs: a message handed
+# in during a long Bash call is read only when the call returns. This stub
+# does the same — it sits in its "tool" for {hold} seconds without reading,
+# then reads whatever arrived, echoes it and answers it.
+SLOW_READ_STUB = """#!/usr/bin/env python3
+import json, sys, select, time
+from datetime import datetime, timezone
+def say(obj):
+    print(json.dumps(obj), flush=True)
+first = json.loads(sys.stdin.readline())["message"]["content"]
+say({"type": "system", "subtype": "init", "session_id": "sid-slow"})
+say({"type": "user", "isReplay": True, "message": {"role": "user", "content": first}})
+stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+say({"type": "assistant", "timestamp": stamp, "message": {"role": "assistant", "content": [
+    {"type": "tool_use", "id": "toolu_slow", "name": "Bash", "input": {"command": "pytest -q"}}]}})
+time.sleep({hold})
+heard = []
+while select.select([sys.stdin], [], [], 0.2)[0]:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    text = json.loads(line)["message"]["content"]
+    say({"type": "user", "isReplay": True, "message": {"role": "user", "content": text}})
+    heard.append(text)
+say({"type": "user", "message": {"role": "user", "content": [
+    {"type": "tool_result", "tool_use_id": "toolu_slow", "content": "ok"}]}})
+say({"type": "assistant", "message": {"role": "assistant", "content": [
+    {"type": "text", "text": "heard: " + " / ".join(heard)}]}})
+say({"type": "result", "subtype": "success", "session_id": "sid-slow", "total_cost_usd": 0.01})
+sys.stdin.read()
+"""
+
+
+@pytest.fixture
+def slow_reader(streaming, tmp_path, monkeypatch):
+    def make(hold):
+        streaming()
+        stub = tmp_path / "claude-slow"
+        stub.write_text(SLOW_READ_STUB.replace("{hold}", str(hold)))
+        stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+        monkeypatch.setattr(observatory, "CLAUDE_BIN", str(stub))
+        monkeypatch.setattr(observatory, "_LIVE_INGEST_SEC", 0.1)
+    return make
+
+
+def _until(check, seconds=10):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        value = check()
+        if value:
+            return value
+        time.sleep(0.05)
+    raise AssertionError("never happened")
+
+
+def _her_lines(conv_id, text):
+    return [e for e in _conv_log(conv_id) if e.get("type") == "user" and e.get("text") == text]
+
+
+def test_her_message_lands_in_the_chat_when_the_agent_reads_it_and_says_after_which_step(
+        streaming, bot_client):
+    """Handed in mid-turn, read at the agent's next step: the transcript gets
+    her words at that spot with where they landed, and the mailbox records
+    the read."""
+    streaming(hold=5)
+    _, b = _seed_two()
+    threading.Timer(0.5, lambda: bot_client.post(
+        f"/api/observatory/conversation/{b}/inbox", json={"text": "use the other table"})).start()
+    _run(b, "do the thing")
+    log = _conv_log(b)
+    [line] = _her_lines(b, "use the other table")
+    assert line["arrived"] == {"how": "injected", "after_step": 1}
+    tool_at = next(i for i, e in enumerate(log) if e.get("type") == "assistant")
+    assert log.index(line) > tool_at           # after the step that was running
+    conn = sqlstore.open_db()
+    try:
+        how, at = conn.execute("SELECT delivered_how, delivered_at FROM agent_messages"
+                               " WHERE text = 'use the other table'").fetchone()
+    finally:
+        conn.close()
+    assert how == "injected" and at
+
+
+def test_a_message_stuck_behind_a_long_step_says_why_and_send_now_restarts_with_it(
+        slow_reader, bot_client, monkeypatch):
+    """While the agent is inside a long step, her handed-in message stays on
+    her waiting list with the step it's stuck behind. "Send now" stops the
+    step, and the next turn starts with her message — written into the chat
+    once, marked as sent now."""
+    slow_reader(hold=20)
+    _, b = _seed_two()
+    t0 = time.time()
+    assert observatory.begin_turn(b, "run the whole suite")["ok"]
+    inbox = f"/api/observatory/conversation/{b}/inbox"
+    assert bot_client.post(inbox, json={"text": "stop, wrong branch"}).get_json()["started"] is False
+
+    def handed_with_step():
+        body = bot_client.get(inbox).get_json()
+        rows = body["waiting"]
+        return body if rows and rows[0]["handed"] and body["status"]["step"] else None
+    body = handed_with_step() or _until(handed_with_step)
+    assert body["status"]["running"] is True
+    assert body["status"]["step"]["name"] == "Bash"
+    assert body["status"]["step"]["target"] == "pytest -q"
+    assert _her_lines(b, "stop, wrong branch") == []     # not read, so not in the chat yet
+    mid = body["waiting"][0]["id"]
+    # Handed in: it can't be taken back any more — only sent now.
+    assert bot_client.delete(f"{inbox}/{mid}").status_code == 409
+
+    # The next turn is recorded rather than run.
+    started = []
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, *a: started.append(text) or True)
+    assert bot_client.post(f"{inbox}/{mid}/now").status_code == 200
+    # The agent never read it, so the end-of-turn drain starts the next turn with it.
+    _until(lambda: started)
+    assert time.time() - t0 < 15                # stopped, not waited out
+    assert started == ["stop, wrong branch"]
+    assert "last_error" not in store.read("bot_chats/index", {})[b]
+    [line] = _her_lines(b, "stop, wrong branch")
+    assert line["arrived"] == {"how": "interrupt"}
+    # …and once it has gone, send now has nothing left to do.
+    assert bot_client.post(f"{inbox}/{mid}/now").status_code == 409
+
+
+def test_a_message_handed_to_a_turn_that_died_goes_out_with_the_next(bot_client, monkeypatch):
+    """A host that dies never puts back what it handed in; the next drain
+    does, so the agent still gets it."""
+    started = []
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, *a: started.append(text) or True)
+    _, b = _seed_two()
+    row = peermail.send(b, "did you see this?", kind="B")
+    peermail.claim([row], "handed")
+    assert peermail.waiting(b) == []
+    assert observatory.drain_inbox(b) is True
+    assert started == ["did you see this?"]
+    assert len(_her_lines(b, "did you see this?")) == 1
+
+
 def test_a_turn_records_context_size_and_final_output_per_model_call(bot_client, tmp_path):
     """The final output count exists only in the live stream, so the turn loop
     writes it down (docs/swarms.md, stage 1), and keeps the session's current

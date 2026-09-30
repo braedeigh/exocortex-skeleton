@@ -1148,14 +1148,19 @@ class _TurnInput:
         self.stdin = stdin
         self.open = stdin is not None and not getattr(stdin, "closed", True)
         self.lock = threading.Lock()
-        # Texts handed in that the agent hasn't echoed back yet. The turn may
-        # only close once this is empty — closing earlier would drop a message
-        # the agent was about to start on.
+        # What's been handed in that the agent hasn't echoed back yet: each
+        # entry is the text written and the mailbox rows it carried. The turn
+        # may only close once this is empty — closing earlier would drop a
+        # message the agent was about to start on — and whatever is still in
+        # it when the turn ends goes back to the mailbox (_run_turn's finally).
         self.unread = []
         self.result_at = None       # monotonic time of the last final result
         self.last_event_at = time.monotonic()
+        # How many steps (top-level tool calls) this turn has taken, so a
+        # message read mid-turn can say where it landed ("after step 14").
+        self.steps = 0
 
-    def hand_in(self, text):
+    def hand_in(self, text, rows=()):
         """Write one message into the agent. Caller holds the lock. False if
         the input is already shut."""
         if not self.open:
@@ -1166,13 +1171,24 @@ class _TurnInput:
         except (OSError, ValueError):
             self.open = False
             return False
-        self.unread.append(text)
+        self.unread.append({"text": text, "rows": list(rows)})
         return True
 
     def saw_echo(self, text):
+        """The agent read one handed-in message. Returns the mailbox rows it
+        carried (empty for a text this turn didn't hand in)."""
         with self.lock:
-            if text in self.unread:
-                self.unread.remove(text)
+            for i, item in enumerate(self.unread):
+                if item["text"] == text:
+                    return self.unread.pop(i)["rows"]
+        return []
+
+    def leftover(self):
+        """Every row handed in and never read — the turn is ending."""
+        with self.lock:
+            rows = [r for item in self.unread for r in item["rows"]]
+            self.unread = []
+        return rows
 
     def saw_result(self):
         """The agent finished answering everything it had. Close its input
@@ -1196,15 +1212,42 @@ class _TurnInput:
                 pass
 
 
-def _deliver_lines(conv_id, log_path, rows, conv_journals):
+# A message of hers that started a turn within this long of being sent never
+# really waited, so it gets no "started a new turn" note — that covers an
+# answer sent from a roster card into an idle session.
+_WAITED_SEC = 5
+
+
+def _arrival(row, after_step=None):
+    """Where one of her mailbox messages landed, for the note under it in the
+    chat: read mid-turn after a given step, started a new turn after she
+    pressed "send now", or started the next turn after waiting for one to
+    end. None when it didn't wait at all."""
+    if after_step is not None:
+        return {"how": "injected", "after_step": after_step}
+    if row["mode"] == "interrupt":
+        return {"how": "interrupt"}
+    try:
+        waited = (datetime.now() - datetime.fromisoformat(row["at"])).total_seconds()
+    except (TypeError, ValueError):
+        return None
+    return {"how": "next-turn"} if waited >= _WAITED_SEC else None
+
+
+def _deliver_lines(conv_id, log_path, rows, conv_journals, after_step=None):
     """Write delivered messages into the recipient's transcript and journal,
     and return the text the agent is handed.
 
     The owner's messages are written exactly as a normal send writes them —
     a `user` line, journaled if the session journals and she's on the record —
-    so they look the same in the chat however they got there. An agent's
-    message is a `peer` line, which the chat draws as a colored card, and is
-    never journaled: the journal is what she and the Keeper said."""
+    so they look the same in the chat however they got there, plus an
+    `arrived` note saying where it landed (_arrival). An agent's message is a
+    `peer` line, which the chat draws as a colored card, and is never
+    journaled: the journal is what she and the Keeper said.
+
+    Called when the agent actually has the message: as a mailbox turn starts,
+    or mid-turn when its echo shows it was read (`after_step` = the steps the
+    turn had taken by then)."""
     text = peermail.compose(rows)
     for r in rows:
         if r["kind"] == "B":
@@ -1218,6 +1261,9 @@ def _deliver_lines(conv_id, log_path, rows, conv_journals):
                     "journaled": journaled}
             if not r["record"]:
                 line["off_record"] = True
+            arrived = _arrival(r, after_step)
+            if arrived:
+                line["arrived"] = arrived
             peermail.append_line(log_path, line)
         else:
             peermail.append_line(log_path, peermail.peer_line(r, "in"))
@@ -1236,17 +1282,28 @@ def _journals(conv_id):
 
 def _deliver_midturn(proc, conv_id, log_path, turn_input):
     """Hand the running agent whatever is waiting for it. Returns True if the
-    turn was stopped for an interrupt."""
+    turn was stopped for an interrupt.
+
+    Handing in isn't reading: the agent reads a handed-in message when its
+    current step ends. So the rows are claimed as 'handed', and only land in
+    the transcript when the echo comes back (_run_turn's read loop)."""
     rows = peermail.waiting(conv_id)
-    if not rows:
+    # Her "send now" on a message already handed in but still unread: that
+    # message is sitting in the agent's input behind a long step, so the only
+    # way to get it read sooner is the interrupt below.
+    rushed = any(r["kind"] == "B" and r["mode"] == "interrupt"
+                 for r in peermail.handed(conv_id, kind="B"))
+    if not rows and not rushed:
         return False
     policy = peermail.policy_of(conv_id)
-    modes = {r["id"]: peermail.effective_mode(r["mode"], policy) for r in rows}
-    # Stop the turn for an interrupt. The messages stay waiting: the moment
+    modes = {r["id"]: peermail.effective_mode(r["mode"], policy, r["kind"])
+             for r in rows}
+    # Stop the turn for an interrupt. The messages stay waiting (and the
+    # unread handed-in ones go back to waiting as the turn ends): the moment
     # the turn is down, the end-of-turn drain starts a new one with all of
     # them together. Marked in _stop_requested first, so the death reads as
     # deliberate rather than a crash (the same belt the Stop button uses).
-    if "interrupt" in modes.values():
+    if rushed or "interrupt" in modes.values():
         _stop_requested.add(conv_id)
         turn_input.close()
         _kill_turn(proc)
@@ -1257,7 +1314,7 @@ def _deliver_midturn(proc, conv_id, log_path, turn_input):
     with turn_input.lock:
         if not turn_input.open:
             return False        # the turn is closing; the end-of-turn drain has them
-        won = peermail.claim(handable, "injected")
+        won = peermail.claim(handable, "handed")
         if not won:
             return False
         # Her message clears what was waiting on her, exactly as when it
@@ -1271,7 +1328,7 @@ def _deliver_midturn(proc, conv_id, log_path, turn_input):
         open_now = (_open_questions(store.read("bot_chats/index", {}).get(conv_id))
                     if hers else [])
         text = peermail.compose(won) + _reopen_note(open_now)
-        if not turn_input.hand_in(text):
+        if not turn_input.hand_in(text, won):
             # The input shut between the check and the write. Put them back so
             # the end-of-turn drain delivers them rather than losing them.
             peermail.unclaim(won)
@@ -1281,9 +1338,23 @@ def _deliver_midturn(proc, conv_id, log_path, turn_input):
                 entry = index.get(conv_id)
                 if isinstance(entry, dict):
                     _her_message_arrived(conv_id, entry, expected=open_now)
-        _deliver_lines(conv_id, log_path, won, _journals(conv_id))
     peermail.note_delivered(conv_id, won)
     return False
+
+
+def _record_read(conv_id, log_path, turn_input, echoed):
+    """The agent echoed a handed-in message back, which means it has read it:
+    mark its mailbox rows read and write them into the transcript, noting the
+    step they landed after. Never lets its own error touch the turn."""
+    read = turn_input.saw_echo(echoed)
+    if not read:
+        return
+    try:
+        peermail.mark_read(read)
+        _deliver_lines(conv_id, log_path, read, _journals(conv_id),
+                       after_step=turn_input.steps)
+    except Exception as e:
+        print(f"recording a read message failed for {conv_id}: {e}", file=sys.stderr)
 
 
 def _note_model_call(event, open_calls, log, conv_id):
@@ -1420,6 +1491,16 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
             _record_turn_proc(conv_id, "agent", proc.pid)
         except Exception:
             pass    # bookkeeping must never cost the turn
+    # Stamp when this turn began, so the mailbox can say which step its
+    # waiting messages are stuck behind without mistaking a step an earlier,
+    # killed turn left open for this one's (_inbox_status).
+    try:
+        with store.mutate("bot_chats/index", {}) as index:
+            entry = index.get(conv_id)
+            if isinstance(entry, dict) and entry.get("running"):
+                entry["turn_started"] = _now()
+    except Exception:
+        pass
     # What killed this turn, if anything — hoisted out of the log-writing block
     # so the index update in `finally` can persist it. That's what puts a red
     # card on the roster: an error used to exist only as an event in the live
@@ -1459,14 +1540,24 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                 if not isinstance(event, dict):
                     continue
                 turn_input.last_event_at = time.monotonic()
-                # The agent echoing a message it has just read. Not logged:
-                # the transcript already has that message, in the words she or
-                # the sending agent used, written when it was handed in.
+                # The agent echoing a message it has just read. The echo
+                # itself isn't logged; what it means is: the handed-in
+                # messages it carried are read now, so they go into the
+                # transcript here, in the words she or the sending agent used,
+                # at the spot in the turn where the agent actually took them.
                 if event.get("type") == "user" and event.get("isReplay"):
                     content = (event.get("message") or {}).get("content")
                     if isinstance(content, str):
-                        turn_input.saw_echo(content)
+                        _record_read(conv_id, log_path, turn_input, content)
                     continue
+                # Count the turn's steps: each top-level tool call the agent
+                # makes (a subagent's calls belong to the step that started it).
+                if event.get("type") == "assistant" and not event.get("parent_tool_use_id"):
+                    content = (event.get("message") or {}).get("content")
+                    if isinstance(content, list):
+                        turn_input.steps += sum(
+                            1 for block in content
+                            if isinstance(block, dict) and block.get("type") == "tool_use")
                 if event.get("type") == "result":
                     turn_input.saw_result()
                 if isinstance(event, dict):
@@ -1539,6 +1630,15 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
         beat_stop.set()   # before the index write below, so the two can't race
         companion_done.set()
         turn_input.close()
+        # Put back whatever was handed in and never read (a stop, an
+        # interrupt, the echo backstop): the agent never saw it, so it goes
+        # back to waiting and the end-of-turn drain delivers it. Done before
+        # `running` clears below, so no drain can start a turn without it.
+        try:
+            peermail.unclaim(turn_input.leftover())
+        except Exception as e:
+            print(f"putting unread messages back failed for {conv_id}: {e}",
+                  file=sys.stderr)
         # One last fold into SQL, so the turn's final tool calls don't wait
         # for the hourly pass.
         try:
@@ -2661,7 +2761,8 @@ def drain_inbox(conv_id, fallback=False):
     """Start a turn with everything waiting for this session, if it's idle.
     Returns True if a turn started."""
     rows = peermail.waiting(conv_id)
-    if not rows:
+    stranded = peermail.handed(conv_id)
+    if not rows and not stranded:
         return False
     entry = store.read("bot_chats/index", {}).get(conv_id)
     if not isinstance(entry, dict):
@@ -2677,6 +2778,14 @@ def drain_inbox(conv_id, fallback=False):
             return drain_inbox(successor, fallback=fallback)
     if _effective_running(conv_id, entry):
         return False
+    # Messages handed into a turn that is over now but never read — its host
+    # died before it could put them back (_run_turn's finally does, normally).
+    # The agent never saw them, so they go out with this turn.
+    if stranded:
+        peermail.unclaim(stranded)
+        rows = peermail.waiting(conv_id)
+        if not rows:
+            return False
     # A swarm helper's mail is answered by a helper run, not a chat turn —
     # each run starts fresh from the summaries (swarm_helper.py).
     if entry.get("role") == "swarm_helper":
@@ -2702,6 +2811,39 @@ def drain_all_inbox():
         if _CONV_ID_RE.match(conv_id) and drain_inbox(conv_id):
             started += 1
     return started
+
+
+def _inbox_status(conv_id, entry):
+    """Why her messages are still waiting, for the line under each queued row.
+
+    `running` — a turn is going; without one they start a turn as soon as
+    there's room. `step` — the step the agent is in right now, read from the
+    live tool_calls table (a call with no result yet, from THIS turn): its
+    tool, what it's working on, and how long it has run. A handed-in message
+    is read the moment that step ends. `policy` — 'queue-only' means this
+    session takes messages only between turns."""
+    entry = entry if isinstance(entry, dict) else {}
+    running = _effective_running(conv_id, entry)
+    step = None
+    started = entry.get("turn_started")
+    if running and started:
+        conn = sqlstore.open_db()
+        try:
+            found = conn.execute(
+                "SELECT name, target, at FROM tool_calls WHERE conv = ?"
+                " AND parent_tool_use_id IS NULL AND result_at IS NULL AND at >= ?"
+                " ORDER BY at LIMIT 1", (conv_id, started)).fetchone()
+        finally:
+            conn.close()
+        if found:
+            try:
+                seconds = max(0, int((datetime.now() - datetime.fromisoformat(
+                    found[2])).total_seconds()))
+            except (TypeError, ValueError):
+                seconds = None
+            step = {"name": found[0], "target": (found[1] or "")[:200],
+                    "seconds": seconds}
+    return {"running": running, "step": step, "policy": peermail.policy_of(conv_id)}
 
 
 def peer_send(from_conv, to_conv, text, mode="inject"):
@@ -3822,14 +3964,41 @@ def register(app):
 
     @app.route("/api/observatory/conversation/<conv_id>/inbox", methods=["GET"])
     def observatory_inbox_list(conv_id):
-        """Her messages still waiting to be handed in — the rows the chat
-        shows above the composer, each one removable until it goes."""
+        """Her messages the agent hasn't read yet — the rows the chat shows
+        above the composer. `handed` = already written into the running
+        agent, which reads it when its current step ends; those can't be
+        taken back, only sent now. `status` says why they're waiting
+        (_inbox_status)."""
         if not _CONV_ID_RE.match(conv_id):
             return jsonify({"error": "invalid conversation id"}), 400
-        rows = peermail.waiting(conv_id, kind="B")
-        return jsonify({"waiting": [
-            {"id": r["id"], "text": r["text"], "record": bool(r["record"])}
-            for r in rows]})
+        rows = sorted(peermail.waiting(conv_id, kind="B")
+                      + peermail.handed(conv_id, kind="B"), key=lambda r: r["id"])
+        entry = store.read("bot_chats/index", {}).get(conv_id)
+        return jsonify({
+            "waiting": [
+                {"id": r["id"], "text": r["text"], "record": bool(r["record"]),
+                 "handed": r["status"] == "delivered",
+                 "rushed": r["mode"] == "interrupt"}
+                for r in rows],
+            "status": _inbox_status(conv_id, entry) if rows else None,
+        })
+
+    @app.route("/api/observatory/conversation/<conv_id>/inbox/<int:message_id>/now",
+               methods=["POST"])
+    def observatory_inbox_now(conv_id, message_id):
+        """Her "send now": stop the step the agent is on and start a new turn
+        with this message (and anything else waiting). The same interrupt a
+        peer's `peers.py send --interrupt` uses — the running turn's companion
+        sees it within a second (_deliver_midturn). 409 once the agent has
+        already read it."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        if not peermail.send_now(message_id, conv_id):
+            return jsonify({"error": "already delivered"}), 409
+        # Idle after all (the turn ended a moment ago): nothing to interrupt,
+        # so start its turn now.
+        started = drain_inbox(conv_id, fallback=True)
+        return jsonify({"ok": True, "started": started})
 
     @app.route("/api/observatory/conversation/<conv_id>/inbox/<int:message_id>",
                methods=["DELETE"])

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { openActivity } from '../activity/openActivity';
 import { sessionLocation } from './sessionLocation';
@@ -31,6 +31,8 @@ import { useScrollContract } from './useScrollContract';
 import { useStepBack, useStepBackDismiss } from './useStepBack';
 import { PeerCard } from './PeerCard';
 import { useMessageQueue } from './useMessageQueue';
+import { QueuedRows } from './QueuedRows';
+import { arrivedNote } from './queuedMessages';
 import { usePhotoAttach, AttachChips, DropVeil, UploadOverlay } from './photoAttach';
 import { useReattach } from './useReattach';
 import { useKeeperRollover } from './useKeeperRollover';
@@ -781,14 +783,14 @@ export function ObservatoryPage({
               // history), never its place in the window.
               const i = firstShown + shownIndex;
               if (t.role === 'user') {
+                // A message that waited in the mailbox says where it landed,
+                // on its own line beneath — outside the message element, so the
+                // highlight offsets into her words stay exact.
                 return (
-                  <UserMessage
-                    key={i}
-                    index={i}
-                    text={t.text}
-                    offRecord={t.offRecord}
-                    highlights={t.highlights}
-                  />
+                  <Fragment key={i}>
+                    <UserMessage index={i} text={t.text} offRecord={t.offRecord} highlights={t.highlights} />
+                    {t.arrived ? <div className={styles.arrivedNote}>{arrivedNote(t.arrived)}</div> : null}
+                  </Fragment>
                 );
               }
               if (t.role === 'gap') {
@@ -898,25 +900,16 @@ export function ObservatoryPage({
               answers. Sets that are logged draw in place, above:
               features/observatory/QuestionsCard. */}
           {convId ? <QuestionsCard convId={convId} turns={turns} /> : null}
-          {/* Her messages waiting for the agent. One the server refused says
-              "not sent" instead of vanishing — the composer was already
-              cleared, so this row is the only copy (useMessageQueue.ts). */}
-          {messageQueue.queued.map((q) => (
-            <div key={q.key} className={styles.queuedRow}>
-              <span className={[styles.queuedTag, q.state === 'failed' ? styles.queuedTagFailed : ''].filter(Boolean).join(' ')}>
-                {q.state === 'failed' ? 'not sent' : 'queued'}
-              </span>
-              <span className={styles.queuedText}>{q.text}</span>
-              <button
-                type="button"
-                className={styles.queuedX}
-                aria-label="Remove queued message"
-                onClick={() => messageQueue.remove(q)}
-              >
-                ×
-              </button>
-            </div>
-          ))}
+          {/* Her messages waiting for the agent, each saying why it's still
+              waiting, with send now. One the server refused says "not sent"
+              instead of vanishing — the composer was already cleared, so this
+              row is the only copy (QueuedRows.tsx, useMessageQueue.ts). */}
+          <QueuedRows
+            rows={messageQueue.queued}
+            status={messageQueue.status}
+            onRemove={messageQueue.remove}
+            onSendNow={messageQueue.sendNow}
+          />
         </div>
       </div>
 

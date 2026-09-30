@@ -7,13 +7,15 @@
  * can't drift apart.
  *
  * Event shapes handled (everything else is ignored on purpose):
- * - {type:'user', text, off_record?}           her message (history only —
+ * - {type:'user', text, off_record?, arrived?} her message (history only —
  *                                              the live sender pushes it
  *                                              locally via userTurn()).
  *                                              off_record: said with the
  *                                              journal paused — shown here
  *                                              like anything else she said,
- *                                              just dashed
+ *                                              just dashed. arrived: one that
+ *                                              waited in the mailbox says
+ *                                              where it landed
  * - {type:'decision', decision, command}       a gated command she approved or
  *                                              denied — shown with the command
  * - {type:'reminder', text, source}            a Coming up reminder the app
@@ -49,6 +51,8 @@
  *                                              journal — matched by turn index
  */
 
+import type { Arrival } from './queuedMessages';
+
 export interface Turn {
   role: 'user' | 'assistant' | 'gap' | 'error' | 'decision' | 'reminder' | 'peer' | 'questions';
   /** user/error: the text. assistant: committed markdown (authoritative).
@@ -64,6 +68,9 @@ export interface Turn {
   /** user only: sent with the journal paused — kept in the chat log and
    * rendered dashed, but never minted into the journal. */
   offRecord: boolean;
+  /** user only: a message that waited in the mailbox, and where it landed
+   * (read mid-turn after step N, sent now, or started the next turn). */
+  arrived?: Arrival;
   /** assistant only: current tool activity label ("reading files…"). */
   tool: string | null;
   /** assistant only: this reply was tapped into the journal (K card). */
@@ -103,6 +110,13 @@ export interface Highlight {
 
 function turn(role: Turn['role'], text = ''): Turn {
   return { role, text, buffer: '', open: false, offRecord: false, tool: null, journaled: false };
+}
+
+function arrivalOf(raw: unknown): Arrival | undefined {
+  const a = raw as { how?: unknown; after_step?: unknown } | null;
+  if (!a || typeof a !== 'object') return undefined;
+  if (a.how !== 'injected' && a.how !== 'interrupt' && a.how !== 'next-turn') return undefined;
+  return typeof a.after_step === 'number' ? { how: a.how, after_step: a.after_step } : { how: a.how };
 }
 
 export function userTurn(text: string, offRecord: boolean): Turn {
@@ -161,7 +175,10 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       if (typeof e.text === 'string') {
         // History replay carries the off-record flag through, so a reload
         // shows the same dashed message the live send put on screen.
-        turns.push(userTurn(e.text, e.off_record === true));
+        const t = userTurn(e.text, e.off_record === true);
+        const arrived = arrivalOf(e.arrived);
+        if (arrived) t.arrived = arrived;
+        turns.push(t);
       }
       // {type:'user', message} is claude echoing a tool result — ignored
       return turns;
