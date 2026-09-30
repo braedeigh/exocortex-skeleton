@@ -62,13 +62,18 @@ export interface PendingApproval {
  *              for her to check. A DOOR on the roster (ResearchDoor →
  *              /observatory/research), not a room block, like Helpers.
  *
+ *   linear     sessions that work in Linear (the outside issue tracker, via
+ *              the `linear` MCP server) with her. Rooted in the linear-room
+ *              folder, ungated — the act gate would stop on every Linear
+ *              call. Another DOOR (LinearDoor → /observatory/linear).
+ *
  * Personal and Coding differ by GROUND. */
-export type Lane = 'orchestra' | 'personal' | 'coding' | 'research';
+export type Lane = 'orchestra' | 'personal' | 'coding' | 'research' | 'linear';
 
 /** Every lane the client can name — used for PARSING and LABELLING (the archive
  * scopes and chips), not for deciding what the roster draws. Orchestra is in
  * here because sessions still carry it; see ROOMS for what's actually offered. */
-export const ALL_LANES: Lane[] = ['personal', 'coding', 'research', 'orchestra'];
+export const ALL_LANES: Lane[] = ['personal', 'coding', 'research', 'linear', 'orchestra'];
 
 /** The rooms the Observatory actually DRAWS and offers, in the order the roster
  * stacks them. Split from ALL_LANES when Orchestra was retired: a lane can
@@ -101,6 +106,7 @@ export const LANE_LABEL: Record<Lane, string> = {
   personal: 'Personal',
   coding: 'Coding',
   research: 'Research',
+  linear: 'Linear',
   orchestra: 'Orchestra',
 };
 
@@ -113,6 +119,7 @@ export const LANE_BLURB: Record<Lane, string> = {
   personal: 'Rooted where both repos meet, so it can reach your vault. Just acts — you’re the one watching.',
   coding: 'Rooted in the app code, where the build happens. Just acts — you’re the one watching.',
   research: 'Rooted in the research room, with a read-only door onto your tables. Just acts — everything it writes waits for your review.',
+  linear: 'Rooted in the Linear room, with your Linear workspace at hand. Just acts — you’re the one watching.',
   orchestra: 'Rooted in the app code. Stops and asks before anything irreversible.',
 };
 
@@ -726,6 +733,32 @@ export interface ResearchRoomState {
  * (routes/research_room.py). */
 export function getResearchRoom(signal?: AbortSignal): Promise<ResearchRoomState> {
   return api.get('/api/research-room', signal);
+}
+
+/** One row of the Linear room's list — a session that works in Linear. */
+export interface LinearRoomSession {
+  id: string;
+  title: string;
+  started: string;
+  last_at: string;
+  running: boolean;
+  archived: string | null;
+  last_error: string | null;
+  tokens?: { output: number; cost_usd: number };
+}
+
+export interface LinearRoomState {
+  sessions: LinearRoomSession[];
+  running: number;
+  failed: number;
+  /** The model picker's choices, so the page's "+" sheet matches the roster's. */
+  model_choices: string[];
+}
+
+/** Every Linear-lane session, archived included, newest first
+ * (routes/linear_room.py). */
+export function getLinearRoom(signal?: AbortSignal): Promise<LinearRoomState> {
+  return api.get('/api/linear-room', signal);
 }
 
 /** A /spinoff the agent staged as a Go button on this conversation

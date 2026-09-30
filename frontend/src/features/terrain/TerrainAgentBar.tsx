@@ -47,7 +47,7 @@ export type AgentPool = 'active' | 'open' | 'all';
 /** Which room they live in. '' = no filter. Mirrors the Observatory's lanes
  * (observatory/api.ts) — a room missing here would make its sessions
  * unreachable from this bar, so the two lists move together. */
-export type AgentSection = '' | 'personal' | 'coding' | 'research' | 'orchestra';
+export type AgentSection = '' | 'personal' | 'coding' | 'research' | 'linear' | 'orchestra';
 
 /* 'active' shows as "Working", not "Active". The word was doing two unrelated
    jobs one row apart: this button picks a POOL OF AGENTS (worked in the last
@@ -71,11 +71,12 @@ export const SECTION_LABELS: Record<AgentSection, string> = {
   personal: 'Personal',
   coding: 'Coding',
   research: 'Research',
+  linear: 'Linear',
   orchestra: 'Orchestra',
 };
 
 const POOLS: readonly AgentPool[] = ['active', 'open', 'all'];
-const SECTIONS: readonly AgentSection[] = ['', 'personal', 'coding', 'research', 'orchestra'];
+const SECTIONS: readonly AgentSection[] = ['', 'personal', 'coding', 'research', 'linear', 'orchestra'];
 
 export interface AgentEntry {
   id: string;
@@ -85,7 +86,7 @@ export interface AgentEntry {
   active: boolean;
   /** Not archived. */
   open: boolean;
-  /** 'personal' | 'coding' | 'research' | 'orchestra' | ''. */
+  /** 'personal' | 'coding' | 'research' | 'linear' | 'orchestra' | ''. */
   lane: string;
   files: number;
   last: number | null;

@@ -1,7 +1,7 @@
 """Which room (lane) an Observatory session lives in — one rule, one place.
 
-**What this is, in plain English.** Every session sits in one of four rooms:
-Personal, Coding, Orchestra, Research. New sessions have the room written on
+**What this is, in plain English.** Every session sits in one of five rooms:
+Personal, Coding, Orchestra, Research, Linear. New sessions have the room written on
 them; older ones (about 40% of them on this install) never did, and the app
 works it out from the folder the session was started in. That rule used to
 live only inside routes/observatory.py, so the SQL copy of the sessions table
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import store
 
-LANES = ("orchestra", "personal", "coding", "research")
+LANES = ("orchestra", "personal", "coding", "research", "linear")
 
 
 def derive_lane(entry):
@@ -44,14 +44,16 @@ def derive_lane(entry):
     cwd = entry.get("cwd")
     if not cwd:
         return "orchestra"
-    # Place the session by the ground it stands on. The research room is its
-    # own folder, so a session rooted there can only be Research; the app
-    # checkout is Orchestra (never Coding — see above); anywhere else is
-    # Personal.
+    # Place the session by the ground it stands on. The research and Linear
+    # rooms are their own folders, so a session rooted in one can only be
+    # that room; the app checkout is Orchestra (never Coding — see above);
+    # anywhere else is Personal.
     try:
         resolved = Path(cwd).resolve()
         if resolved == Path(store.RESEARCH_ROOM_DIR).resolve():
             return "research"
+        if resolved == Path(store.LINEAR_ROOM_DIR).resolve():
+            return "linear"
         return ("orchestra" if resolved == Path(store.BUILD_DIR).resolve()
                 else "personal")
     except (OSError, ValueError, RuntimeError):

@@ -242,6 +242,15 @@ def _cli_default_model():
 # routes/research_room.py lists it, frontend sessionFilters.roomRoster hides
 # it from the rooms.
 #
+# LINEAR is the fifth (09-30): sessions that work in Linear, the outside
+# issue tracker, with her — through the `linear` MCP server, installed at
+# user scope so every session has its tools. Rooted in store.LINEAR_ROOM_DIR,
+# whose CLAUDE.md (in the vault) names the team, the plan, and what must
+# never be written to an outside service. It HAS to be watched: the act gate
+# (tools/act_ask_gate.py) stops on every `mcp__` call, so a gated Linear
+# session would ask before every read. Another door like Research's
+# (routes/linear_room.py, frontend LinearDoor / sessionFilters.roomRoster).
+#
 # Per-session overrides (`act_gate` / `guard_docs` written explicitly) still
 # win over the lane default — see _conv_config.
 _LANES = lanes.LANES
@@ -249,9 +258,9 @@ _DEFAULT_LANE = "orchestra"
 
 # The rooms she watches — no act-gate, no doc-guard, because she's sitting
 # right there (or, for Research, because every write is already hers to
-# review). Named once so a fifth room can't quietly inherit autonomy by
+# review; for Linear, because the gate would stop on every Linear call). Named once so a fifth room can't quietly inherit autonomy by
 # being spelled into a condition somewhere; anything not on this list asks.
-_WATCHED_LANES = ("personal", "coding", "research")
+_WATCHED_LANES = ("personal", "coding", "research", "linear")
 
 # The helper sessions — a swarm's own and the room's (swarms.HELPER_ROLES).
 # Whatever room they sit in, they only look things up (tools/helper_gate.py).
@@ -279,15 +288,17 @@ def _lane_profile(lane):
     `--resume` from elsewhere fails), which is why the lane is chosen up front
     rather than inferred later.
 
-    Two switches, four rooms: Personal stands at the shared root, Research in
-    the research-room folder, Coding and Orchestra in the app checkout; only
-    Orchestra asks."""
+    Two switches, five rooms: Personal stands at the shared root, Research and
+    Linear in their own room folders, Coding and Orchestra in the app
+    checkout; only Orchestra asks."""
     watched = lane in _WATCHED_LANES
     # Where each lane stands. Anything not named here is the app checkout.
     if lane == "personal":
         cwd = _root_dir()
     elif lane == "research":
         cwd = str(store.RESEARCH_ROOM_DIR)
+    elif lane == "linear":
+        cwd = str(store.LINEAR_ROOM_DIR)
     else:
         cwd = str(store.BUILD_DIR)
     return {"cwd": cwd,

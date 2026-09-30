@@ -473,6 +473,7 @@
         "devnotes.py",
         "buildtodo.py",
         "helpers.py",
+        "linear_room.py",
         "terminal.py"
       ],
       "frontend": [

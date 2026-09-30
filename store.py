@@ -133,6 +133,12 @@ RESEARCH_DISTILLER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_DISTILLER_DIR",
 # worker now stands on instead of a tmux pane. Its CLAUDE.md is the skill —
 # same idea as RESEARCH_WORKER_DIR; deploy copies agents/research-room/ here.
 RESEARCH_ROOM_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_ROOM_DIR", DATA_DIR.parent / "research-room"))
+# Linear room: the Observatory lane whose sessions work in Linear (the issue
+# tracker, reached through the `linear` MCP server) with the owner
+# (routes/linear_room.py). Its CLAUDE.md — which team, which plan, what may
+# and may not go into an outside service — is hers, so the folder lives in
+# the vault, same idea as RESEARCH_ROOM_DIR.
+LINEAR_ROOM_DIR = Path(os.environ.get("EXOCORTEX_LINEAR_ROOM_DIR", DATA_DIR.parent / "linear-room"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

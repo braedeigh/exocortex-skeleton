@@ -13,12 +13,14 @@ import {
   closeConversation,
   createSession,
   getHelpers,
+  getLinearRoom,
   getResearchRoom,
   isRoom,
   toLane,
   updateConversation,
   useSessionRoster,
   type HelpersState,
+  type LinearRoomState,
   type ResearchRoomState,
   type Room,
   type SessionMeta,
@@ -30,6 +32,7 @@ import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
 import { NightCrewDoor } from './NightCrewDoor';
 import { HelpersDoor } from './HelpersDoor';
+import { LinearDoor } from './LinearDoor';
 import { ResearchDoor } from './ResearchDoor';
 import { SpinoffTreeDoor } from './SpinoffTreeDoor';
 import { WorktreeMapDoor } from './WorktreeMapDoor';
@@ -255,9 +258,11 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // behind the door owns the list.
   const [helpersState, setHelpersState] = useState<HelpersState | null>(null);
   const [researchState, setResearchState] = useState<ResearchRoomState | null>(null);
+  const [linearState, setLinearState] = useState<LinearRoomState | null>(null);
   useEffect(() => {
     void getHelpers().then(setHelpersState).catch(() => setHelpersState(null));
     void getResearchRoom().then(setResearchState).catch(() => setResearchState(null));
+    void getLinearRoom().then(setLinearState).catch(() => setLinearState(null));
   }, []);
 
   // ONE terrain poll for the whole page, passed down to both lanes — two
@@ -481,6 +486,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               above; the sessions themselves stay out of the rooms
               (sessionFilters.roomRoster). */}
           <ResearchDoor state={researchState} />
+
+          {/* The Linear room — sessions that work in Linear with her. A door
+              like Research's, and its sessions stay out of the rooms too. */}
+          <LinearDoor state={linearState} />
 
           {/* The spinoff family tree — which session came from which. */}
           <SpinoffTreeDoor />

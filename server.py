@@ -31,7 +31,7 @@ from routes import (
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
     observatory, swarms, terrain, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
-    branches, worktree_map, sudo, recordings, research_room,
+    branches, worktree_map, sudo, recordings, research_room, linear_room,
     sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
     exposure, nutrition, georegions, transcripts, recipe_nutrition, recipe_share,
 )
@@ -1262,6 +1262,8 @@ if features.enabled("observatory"):
     # The research room (routes/research_room.py) is a lane of the observatory
     # — its list opens onto session output, so it rides the same flag.
     research_room.register(app)
+    # The Linear room (routes/linear_room.py) is a lane too — same flag.
+    linear_room.register(app)
 automations.register(app)
 # The run queue's endpoints are read-mostly and answer for every background
 # crew, not just the observatory — so they register unconditionally, outside the

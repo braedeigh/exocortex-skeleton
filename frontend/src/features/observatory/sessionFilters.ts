@@ -242,6 +242,9 @@ export function matchesFilter(
  *                     which belong to the Research room behind its own door
  *                     (ResearchDoor → /observatory/research); matched on the
  *                     lane OR the `research` origin, same as the server's list
+ *   lane linear       sessions working in Linear with her, which belong to the
+ *                     Linear room behind its own door (LinearDoor →
+ *                     /observatory/linear)
  *
  * WHY THIS IS A FUNCTION AND NOT A LINE IN THE PAGE. It used to be a line in
  * the page — inside the room split only — while the counts were taken over the
@@ -266,6 +269,7 @@ export function roomRoster(
       s.origin !== 'helper' &&
       s.origin !== 'research' &&
       s.lane !== 'research' &&
+      s.lane !== 'linear' &&
       !retiredOrange(s, opened[s.id], nowMs),
   );
 }
