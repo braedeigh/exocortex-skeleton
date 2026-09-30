@@ -6,8 +6,9 @@ lines say what exists *now*.
 
 ## Decisions (from the owner)
 
-- **Soft context caps, per model.** Opus 120k tokens, Fable 250k; Sonnet
-  150k and Haiku 100k (chosen modestly, no owner number yet). A session that
+- **Soft context caps, per model.** Opus 200k tokens, Fable 500k (her
+  numbers, raised 2026-09-30 from 120k / 250k); Sonnet 150k and Haiku 100k
+  (chosen modestly, no owner number yet). A session that
   crosses its cap is **not interrupted** — it finishes the work it's on, and
   the handoff happens when that turn ends.
 - **Only the Coding room continues itself unsupervised.** Other rooms never

@@ -4,8 +4,8 @@ to a fresh one, with nobody watching.
 **What this does, in plain English.** Every model call reports how much the
 model is reading — the session's context size — and the turn loop keeps the
 latest number on the session (`context_tokens`, routes/observatory.py
-_note_model_call). Each model has a soft cap (config.CONTEXT_CAPS: Opus 120k,
-Fable 250k, …). Crossing it never interrupts anything: the turn finishes the
+_note_model_call). Each model has a soft cap (config.CONTEXT_CAPS: Opus 200k,
+Fable 500k, …). Crossing it never interrupts anything: the turn finishes the
 work it's on. When that turn ENDS, if the session is in a room that continues
 itself (config.CONTINUE_LANES — Coding), this:
 
@@ -31,8 +31,9 @@ outgrow its context (helper_chat.py).
 Prompt that produced this: "let each session create their own unsupervised
 /spinoffs once they reach a token limit and describe what work they need to
 continue doing. That'll reload the session from scratch, using the stored
-agent file interactions ... opus should be like 120k but let it run past the
-120k until it's done ... coding keeps itself unsupervised."
+agent file interactions ... let it run past the [cap] until it's done ...
+coding keeps itself unsupervised." (The cap numbers, and the prompt that set
+them, are in config.py.)
 """
 import re
 from datetime import datetime

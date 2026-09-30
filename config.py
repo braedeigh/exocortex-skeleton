@@ -120,7 +120,9 @@ TURN_STREAM_INPUT = os.environ.get("EXOCORTEX_TURN_STREAM_INPUT", "1") != "0"
 # turn it's on finishes, then it writes a handoff and a fresh session picks the
 # work up from it. The caps are soft, in tokens of context, per model family.
 # EXOCORTEX_CONTEXT_CAPS overrides any of them as JSON, e.g. '{"opus": 150000}'.
-CONTEXT_CAPS = {"opus": 120000, "fable": 250000, "sonnet": 150000, "haiku": 100000}
+# Prompt for the Opus and Fable numbers: "increase the token limit for opus to
+# 200k and fable to 500k".
+CONTEXT_CAPS = {"opus": 200000, "fable": 500000, "sonnet": 150000, "haiku": 100000}
 try:
     import json as _json
     CONTEXT_CAPS.update({str(k): int(v) for k, v in _json.loads(
