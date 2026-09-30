@@ -8,7 +8,7 @@
  * drifting.
  */
 import { describe, expect, it } from 'vitest';
-import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
+import { applyEvent, assistantText, lastUserTurnIndex, questionsState, turnsFromHistory, userTurn, type Turn } from './events';
 
 const delta = (text: string) => ({
   type: 'stream_event',
@@ -216,5 +216,33 @@ describe('peer', () => {
     const [t] = turnsFromHistory([out, { type: 'peer-status', id: 7, status: 'waiting' }]);
     expect(t.peer?.status).toBe('waiting');
     expect(t.peer?.heldReason).toBe('');
+  });
+});
+
+describe('questions', () => {
+  // The chat keeps every set the agent filed, where it filed it: open until
+  // she replies, answered after, replaced when a newer set followed it.
+  it('keeps each filed set in place above her answer, live and on reload alike', () => {
+    const log = [
+      { type: 'user', text: 'build it' },
+      delta('Looking…'),
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'tool_use', name: 'Bash' } } },
+      { type: 'questions', questions: ['Sqlite or postgres?', '  '] },
+      { type: 'questions', questions: ['Only: sqlite?'] },
+      delta('Filed.'),
+      { type: 'result', subtype: 'success' },
+    ];
+    const live: Turn[] = [];
+    for (const e of log) applyEvent(live, e);
+    const turns = turnsFromHistory(log);
+    expect(live.map((t) => t.role)).toEqual(turns.map((t) => t.role));
+    expect(turns.map((t) => t.role)).toEqual(['user', 'assistant', 'questions', 'questions', 'assistant']);
+    // the reply the block interrupted is closed, not left "running a command…"
+    expect(live[1]).toMatchObject({ open: false, tool: null });
+    expect(live[4].open).toBe(false);
+    expect(turns[2].questions).toEqual(['Sqlite or postgres?']);
+    expect([questionsState(turns, 2), questionsState(turns, 3)]).toEqual(['replaced', 'open']);
+    turns.push(userTurn('sqlite', false));
+    expect(questionsState(turns, 3)).toBe('answered');
   });
 });

@@ -1831,6 +1831,13 @@ def rollover_running():
 # roster card and the in-chat card number) and joined into `awaiting_input`,
 # which everything older reads as a yes/no plus one line of text.
 #
+# THE CHAT KEEPS EVERY SET. Each filing also writes a `questions` line into the
+# transcript, so the chat draws the block where it was asked and it stays there,
+# above her answer, after the index flag comes off — marked answered once she
+# replies, or replaced when a newer set was filed after it. Prompt: "when an
+# agent sends up a question block, for it to persist in the chat above what i
+# send."
+#
 # Prompt: "i don't have to approve anything if there are no questions. if
 # there are questions, i want them all summarized into a card at the bottom of
 # the session ... and on the front page, i want the orange sessions to have
@@ -1881,6 +1888,13 @@ def request_input(conv_id, questions):
             return {"error": "not found"}, 404
         entry["awaiting_questions"] = cleaned
         entry["awaiting_input"] = "\n".join(cleaned)
+    # Keep the set in the transcript too, where it was asked. The index field
+    # above is "what's open now" and comes off when she replies; this line is
+    # the record, so the chat can draw the block in its place above her answer
+    # for good (events.ts, case 'questions'). One O_APPEND write, the same as a
+    # peer card, because the turn that filed it is writing this log right now.
+    peermail.append_line(_chats_dir() / f"{conv_id}.jsonl",
+                         {"type": "questions", "questions": cleaned, "ts": _now()})
     return {"ok": True, "awaiting_input": entry["awaiting_input"],
             "awaiting_questions": cleaned}, 200
 

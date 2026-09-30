@@ -25,6 +25,11 @@
  *    from_title, to_conv, to_title, text,       'out' in the sender's chat, 'in'
  *    mode, status, held_reason}                 in the recipient's; drawn as a
  *                                              colored card
+ * - {type:'questions', questions, ts}         a set of questions the agent
+ *                                              filed for her
+ *                                              (request_input.py) — drawn as
+ *                                              an orange block where it was
+ *                                              asked, kept after she answers
  * - {type:'peer-status', id, status}           a held agent message she let
  *                                              through — updates its card
  * - {type:'off-record-gap'}                    a cue the app fired for her (a
@@ -45,7 +50,7 @@
  */
 
 export interface Turn {
-  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision' | 'reminder' | 'peer';
+  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision' | 'reminder' | 'peer' | 'questions';
   /** user/error: the text. assistant: committed markdown (authoritative).
    * decision: the exact command she approved/denied. reminder: what it says. */
   text: string;
@@ -65,6 +70,8 @@ export interface Turn {
   journaled: boolean;
   /** decision only: which way she called the gated command. */
   decision?: 'approve' | 'deny';
+  /** questions only: the set the agent filed, in its order. */
+  questions?: string[];
   /** peer only: the agent message this card draws. */
   peer?: PeerMessage;
   /** Spans of this turn she highlighted into the journal. Offsets are into the
@@ -202,6 +209,26 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       turns.push(t);
       return turns;
     }
+    case 'questions': {
+      // The agent filed questions for her. The block lands where it was asked,
+      // so the reply it interrupted is closed first: the words it writes after
+      // filing open a fresh reply below the block, and the reply above doesn't
+      // sit there showing "running a command…" forever (only the LAST turn is
+      // closed when the turn ends).
+      const list = Array.isArray(e.questions)
+        ? e.questions.filter((q): q is string => typeof q === 'string' && q.trim() !== '')
+        : [];
+      if (list.length === 0) return turns;
+      const last = turns[turns.length - 1];
+      if (last && last.role === 'assistant') {
+        last.open = false;
+        last.tool = null;
+      }
+      const t = turn('questions');
+      t.questions = list;
+      turns.push(t);
+      return turns;
+    }
     case 'peer-status': {
       // A held message she released — update the card it belongs to.
       for (const t of turns) {
@@ -309,6 +336,20 @@ export function lastUserTurnIndex(turns: Turn[]): number {
     if (turns[i].role === 'user') return i;
   }
   return -1;
+}
+
+/** Where a filed question set stands, read off what came after it in the chat:
+ * 'answered' once she's sent a message since, 'replaced' when the agent filed
+ * a newer set before she did (filing replaces, never appends), else 'open'.
+ * Her message wins over a later filing — it's what the set was answered by. */
+export type QuestionsState = 'open' | 'answered' | 'replaced';
+
+export function questionsState(turns: Turn[], index: number): QuestionsState {
+  for (let i = index + 1; i < turns.length; i++) {
+    if (turns[i].role === 'user') return 'answered';
+    if (turns[i].role === 'questions') return 'replaced';
+  }
+  return 'open';
 }
 
 /** Reduce a full history into turns (conversation GET). */

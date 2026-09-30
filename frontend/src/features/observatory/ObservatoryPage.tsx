@@ -9,7 +9,7 @@ import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
 import { ConversationApprovals } from '../approvals/ConversationApprovals';
 import { ChatApprovalCard } from './ChatApprovalCard';
-import { QuestionsCard } from './QuestionsCard';
+import { QuestionsBlock, QuestionsCard } from './QuestionsCard';
 import { CloseSourcePrompt, SpinoffOffer } from './SpinoffOffer';
 import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
 import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, stopConversation, streamSend } from './api';
@@ -17,7 +17,7 @@ import { MemoryPrompt } from '../runqueue/MemoryPrompt';
 import { enqueueConversation, fetchHeadroom } from '../runqueue/api';
 import { shouldPrompt } from '../runqueue/memoryPrompt';
 import type { Headroom } from '../runqueue/memoryPrompt';
-import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
+import { applyEvent, assistantText, lastUserTurnIndex, questionsState, turnsFromHistory, userTurn, type Turn } from './events';
 import { HighlightPill, HighlightSheet } from './JournalHighlight';
 import { useJournalHighlight } from './useJournalHighlight';
 import { useComposerBox } from './useComposerBox';
@@ -830,6 +830,12 @@ export function ObservatoryPage({
                   </div>
                 );
               }
+              if (t.role === 'questions' && t.questions) {
+                // Questions the agent filed for her, kept where they were
+                // asked — open (and floating) until she replies, then settled
+                // above her answer for good. See QuestionsCard.tsx.
+                return <QuestionsBlock key={i} questions={t.questions} state={questionsState(turns, i)} />;
+              }
               if (t.role === 'peer' && t.peer) {
                 return <PeerCard key={i} peer={t.peer} text={t.text} />;
               }
@@ -887,9 +893,11 @@ export function ObservatoryPage({
           {/* A /spinoff this agent staged shows up as a Go card here, under its
               latest words: features/observatory/SpinoffOffer. */}
           {convId ? <SpinoffOffer convId={convId} writing={writing} pinned={sessionPinned === true} /> : null}
-          {/* The questions this session filed for her, floating at the bottom
-              of the chat until she answers: features/observatory/QuestionsCard. */}
-          {convId ? <QuestionsCard convId={convId} /> : null}
+          {/* Open questions the transcript has no line for (filed before sets
+              were logged), floating at the bottom of the chat until she
+              answers. Sets that are logged draw in place, above:
+              features/observatory/QuestionsCard. */}
+          {convId ? <QuestionsCard convId={convId} turns={turns} /> : null}
           {/* Her messages waiting for the agent. One the server refused says
               "not sent" instead of vanishing — the composer was already
               cleared, so this row is the only copy (useMessageQueue.ts). */}

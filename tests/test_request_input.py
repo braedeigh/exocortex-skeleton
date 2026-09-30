@@ -305,3 +305,34 @@ def test_a_set_refiled_during_the_hand_in_stays_up(data_dir):
     entry = {"awaiting_questions": ["new?"], "awaiting_input": "new?"}
     cleared = rr._her_message_arrived("c1", entry, expected=["old?"])
     assert cleared == [] and entry["awaiting_questions"] == ["new?"]
+
+
+# --- the chat keeps every set, above her answer ------------------------------
+# The index flag is "what's open now" and comes off when she replies; the
+# transcript is the record. Each filing writes a `questions` line where it was
+# asked, so reloading the chat after she answered still shows every set, in
+# order, above her reply.
+
+def test_filed_questions_stay_in_the_chat_above_her_answer(bot_client):
+    _seed_asker()
+    rr.request_input("c1", ["Sqlite or postgres?", "Keep the old route?"])
+    rr.request_input("c1", ["Only: sqlite or postgres?"])
+    _drain(bot_client.post("/api/observatory/conversation/c1/send",
+                           json={"text": "sqlite"}))
+    events = bot_client.get("/api/observatory/conversation/c1?lean=1").get_json()["events"]
+    said = [(e["type"], e.get("questions") or e.get("text")) for e in events
+            if e.get("type") in ("questions", "user") and "message" not in e]
+    assert said == [
+        ("questions", ["Sqlite or postgres?", "Keep the old route?"]),
+        ("questions", ["Only: sqlite or postgres?"]),
+        ("user", "sqlite"),
+    ]
+    # ...while the open flag itself is gone, so the card stops glowing
+    assert "awaiting_questions" not in store.read("bot_chats/index", {})["c1"]
+
+
+def test_a_refused_filing_leaves_nothing_in_the_chat(data_dir):
+    _seed_asker()
+    rr.request_input("c1", ["  "])
+    log = store.DATA_DIR / "bot_chats" / "c1.jsonl"
+    assert not log.exists() or "questions" not in log.read_text()
