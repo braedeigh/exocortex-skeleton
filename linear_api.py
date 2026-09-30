@@ -31,7 +31,7 @@ _TIMEOUT_SECONDS = 20
 # How long a board read is reused before Linear is asked again.
 _BOARD_TTL_SECONDS = 30
 # How many issues the board reads: the most recently updated ones.
-_BOARD_ISSUE_LIMIT = 150
+_BOARD_ISSUE_LIMIT = 100
 
 
 class LinearError(Exception):
@@ -105,25 +105,35 @@ def viewer(key=None):
     return _call("query { viewer { id name displayName email } }", key=key)["viewer"]
 
 
-_BOARD_QUERY = """
-query Board($teamFilter: TeamFilter, $issueLimit: Int!) {
+# The board is read in two queries, because Linear prices a query by how
+# many things it could return, counting each nested list at its page size
+# (50 when none is given). One query for the team and its issues and each
+# issue's links went over Linear's limit ("Query too complex"). So: the team
+# first, then its issues, with every nested list given a small page size.
+_TEAM_QUERY = """
+query BoardTeam($teamFilter: TeamFilter) {
   viewer { id name displayName }
   teams(filter: $teamFilter, first: 1) {
     nodes {
       id key name triageEnabled
-      states { nodes { id name type position color } }
-      members { nodes { id name displayName active } }
-      issues(first: $issueLimit, orderBy: updatedAt) {
-        nodes {
-          id identifier title url updatedAt
-          state { id name type }
-          assignee { id name displayName }
-          project { id name }
-          projectMilestone { id name }
-          relations { nodes { type relatedIssue { identifier title state { type } } } }
-          inverseRelations { nodes { type issue { identifier title state { type } } } }
-        }
-      }
+      states(first: 50) { nodes { id name type position color } }
+      members(first: 50) { nodes { id name displayName active } }
+    }
+  }
+}
+"""
+
+_ISSUES_QUERY = """
+query BoardIssues($teamId: ID!, $issueLimit: Int!) {
+  issues(filter: { team: { id: { eq: $teamId } } }, first: $issueLimit, orderBy: updatedAt) {
+    nodes {
+      id identifier title url updatedAt
+      state { id name type }
+      assignee { id name displayName }
+      project { id name }
+      projectMilestone { id name }
+      relations(first: 10) { nodes { type relatedIssue { identifier title state { type } } } }
+      inverseRelations(first: 10) { nodes { type issue { identifier title state { type } } } }
     }
   }
 }
@@ -141,9 +151,14 @@ def board(fresh=False):
             and now - _board_cache["at"] < _BOARD_TTL_SECONDS:
         return _board_cache["board"]
     team_filter = {"key": {"eq": config.LINEAR_TEAM_KEY}} if config.LINEAR_TEAM_KEY else None
-    data = _call(_BOARD_QUERY, {"teamFilter": team_filter, "issueLimit": _BOARD_ISSUE_LIMIT})
+    data = _call(_TEAM_QUERY, {"teamFilter": team_filter})
     teams = (data.get("teams") or {}).get("nodes") or []
-    result = {"viewer": data.get("viewer") or {}, "team": teams[0] if teams else None}
+    team = teams[0] if teams else None
+    # The team's issues, hung on the team the way the board reads them.
+    if team:
+        issues = _call(_ISSUES_QUERY, {"teamId": team["id"], "issueLimit": _BOARD_ISSUE_LIMIT})
+        team["issues"] = issues.get("issues") or {"nodes": []}
+    result = {"viewer": data.get("viewer") or {}, "team": team}
     _board_cache.update(at=now, board=result)
     return result
 

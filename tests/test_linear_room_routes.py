@@ -114,13 +114,15 @@ class FakeLinear:
             return {"issue": {**self.issues[0], "description": "Fix the scale screen.",
                               "comments": {"nodes": [{"body": "seen it", "createdAt": "2026-09-30",
                                                       "user": {"name": "Them"}}]}}}
+        if "query BoardIssues" in query:
+            assert variables["teamId"] == "team-1"
+            return {"issues": {"nodes": self.issues}}
         return {"viewer": {"id": ME, "name": "me@example.com", "displayName": "me"},
                 "teams": {"nodes": [{
                     "id": "team-1", "key": "BAS", "name": "Basedfoods",
                     "states": {"nodes": self.states},
                     "members": {"nodes": [{"id": ME, "name": "me@example.com", "displayName": "me"},
-                                          {"id": THEM, "name": "Them"}]},
-                    "issues": {"nodes": self.issues}}]}}
+                                          {"id": THEM, "name": "Them"}]}}]}}
 
 
 @pytest.fixture
