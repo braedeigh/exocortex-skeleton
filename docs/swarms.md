@@ -104,6 +104,16 @@ or move solo sessions out of a swarm into the layer above."
   `config.ROOM_HELPER_QUIET_HOURS`, plus handoffs, and when each cluster last
   messaged another), and each session working alone (its own summary of it,
   kept in `session_summaries`, plus what's new). And its last ten moves.
+- **Which files each open session is editing** (`edited_files.py`), a
+  section of its own beside the summaries, in both its runs and its chat. Her
+  ask: "all of the files being edited by any agent that's open … so that you
+  can direct agents better." Every open session in the room with the files it
+  changed in the last `config.ROOM_HELPER_FILES_HOURS`, any file two of them
+  touched flagged at the top, and the files git shows changed that no open
+  session claims. Read from `tool_calls` (seconds behind for Observatory
+  turns). Edit/Write calls are always caught; a Bash edit only when the
+  command names a file git shows changed and writes to it — see the file's
+  top block for exactly what that misses.
 - **What it does.** Four moves — **form** a swarm from sessions working alone,
   **join** sessions to a swarm, **split** a cluster out of a swarm into its
   own, **release** sessions to work alone. It acts on its own (her decision,

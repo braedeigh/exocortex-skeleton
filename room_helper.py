@@ -17,7 +17,10 @@ at the whole room from above and fixes that. It reads only summaries:
     last time it messaged anyone in another cluster,
   - each session working alone: the summary this helper wrote of it last
     time (`session_summaries`) plus what it has done since,
-  - its own last few moves, including the ones she undid.
+  - its own last few moves, including the ones she undid,
+  - and, as a section of its own, the files every open session has edited
+    lately, with any file two of them share flagged (edited_files.py) — the
+    plainest sign that two lines of work collide.
 
 From those it can make four moves:
 
@@ -54,7 +57,8 @@ Touches: swarms.py (placements: place, unplace, new_swarm, line_of_work),
 swarm_helper.py (ask_model, the member-activity reader, poke), sqlstore.py
 (session_summaries, swarm_pins, room_moves, room_helper_runs), the session
 index (the helper's own entry — `role: "room_helper"`), routes/observatory.py
-(peer_send, and its chat turns), helper_chat.py, config.py (ROOM_HELPER_*),
+(peer_send, and its chat turns), helper_chat.py, edited_files.py (the files
+section), config.py (ROOM_HELPER_*),
 scripts/coming_up_dispatcher.py (the minute tick), scripts/room_moves.py (the
 moves by hand, and undo), tests/test_room_helper.py. Design: docs/swarms.md.
 
@@ -77,6 +81,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import config
+import edited_files
 import lanes
 import peermail
 import sqlstore
@@ -97,7 +102,8 @@ SYSTEM_PROMPT = """You are the room helper for the {room} room of one person's a
 coding agents work in sessions. Sessions that message each other form a SWARM, and every swarm \
 has its own helper. You sit a layer above: your job is to watch over the sessions that are \
 running in the room and coordinate with them when it's needed — mostly by deciding who should \
-be working together. You read only summaries. A swarm is at least two sessions still working \
+be working together. You read summaries, plus a list of the files each open session has \
+edited lately. A swarm is at least two sessions still working \
 (a session and its own continuations count as one) plus its helper; a swarm that drops to one \
 working session closes by itself, and that session shows up below as working alone. Your job:
 1. Summarise each session working alone in 1-3 sentences: what it's doing now, what it's \
@@ -106,7 +112,8 @@ waiting on. Your summary replaces the old one, so carry forward anything still t
 that looks tangled.
 3. Make moves, but ONLY when the summaries clearly show one is right:
    - form: two or more sessions working alone on the same thing, or on work that collides \
-(same files, same feature) — make them a swarm so they know about each other.
+(same files, same feature) — make them a swarm so they know about each other. Two sessions \
+editing the same file (flagged under "Files being edited now") are colliding.
    - join: a session working alone whose work belongs in an existing swarm.
    - split: a swarm holding two clusters that do unrelated work and have stopped talking to \
 each other; list the cluster that should leave, and it becomes a swarm of its own.
@@ -595,7 +602,8 @@ def run(room, trigger="tick"):
     """Do one room run and write everything down: summaries, the moves made,
     the moves refused. Returns the answer, or raises after recording the error."""
     helper = ensure_room_helper(room)
-    text = room_overview(room, activity=True)
+    # The files section stands apart from the summaries (edited_files.py).
+    text = room_overview(room, activity=True) + "\n" + edited_files.section(room)
     answer, cost, error = None, None, None
     try:
         answer, cost = _call_model(text, room)

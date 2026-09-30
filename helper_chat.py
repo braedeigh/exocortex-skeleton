@@ -28,8 +28,9 @@ with a document written here just before the turn starts:
      replayed; the chat summary carries what mattered in them.
 
 The room helper (room_helper.py) has the same chat, with its own first
-paragraph (ROOM_LEAD) and the room overview — every swarm, every session
-working alone, its recent moves — in place of part 2.
+paragraph (ROOM_LEAD) and, in place of part 2, the room overview — every
+swarm, every session working alone, its recent moves — followed by its own
+section of the files each open session has edited lately (edited_files.py).
 
 So the seed stays about the same size however long the swarm runs, and to
 her it's one continuous chat: same card, same conversation id, the whole
@@ -65,6 +66,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config
+import edited_files
 import store
 
 # The app checkout, for the search commands the helper is told about.
@@ -289,8 +291,12 @@ def seed_text(conv_id, entry):
         room = entry.get("room") or "coding"
         lead = ROOM_LEAD.format(room=room)
         world_line = ("the room now — every swarm with its summaries and clusters, every "
-                      "session working alone, and your recent moves")
-        world = [f"# The {room} room now", "", room_helper.room_overview(room)]
+                      "session working alone, and your recent moves — and, as its own section, "
+                      "the files every open session has edited lately, with any file two of "
+                      "them share flagged")
+        # The files section stands apart from the summaries (edited_files.py).
+        world = [f"# The {room} room now", "", room_helper.room_overview(room), "",
+                 edited_files.section(room)]
     else:
         lead = SWARM_LEAD
         world_line = ("the swarm now — its summary and one summary per agent, written by a "

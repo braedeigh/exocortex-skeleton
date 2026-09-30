@@ -156,6 +156,9 @@ ROOM_HELPER_ROOMS = tuple(
     if room.strip())
 ROOM_HELPER_MIN_SEC = int(os.environ.get("EXOCORTEX_ROOM_HELPER_MIN_SEC", "900"))
 ROOM_HELPER_QUIET_HOURS = float(os.environ.get("EXOCORTEX_ROOM_HELPER_QUIET_HOURS", "2"))
+# How far back the room helper's "Files being edited now" section looks
+# (edited_files.py): a file an open session changed within it is listed.
+ROOM_HELPER_FILES_HOURS = float(os.environ.get("EXOCORTEX_ROOM_HELPER_FILES_HOURS", "2"))
 
 # The privileged commands an agent may ask the owner to run for it (sudo_requests.py,
 # routes/sudo.py). An agent names one of these KEYS, never a command line — the list
