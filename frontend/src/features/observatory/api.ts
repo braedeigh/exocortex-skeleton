@@ -757,6 +757,8 @@ export interface LinearRoomSession {
   running: boolean;
   archived: string | null;
   last_error: string | null;
+  /** The Linear issue a "Work on this" session was started on ("BAS-12"). */
+  linear_issue?: string | null;
   tokens?: { output: number; cost_usd: number };
 }
 
@@ -772,6 +774,106 @@ export interface LinearRoomState {
  * (routes/linear_room.py). */
 export function getLinearRoom(signal?: AbortSignal): Promise<LinearRoomState> {
   return api.get('/api/linear-room', signal);
+}
+
+// --- The live Linear board (routes/linear_room.py, linear_api.py) -----------
+// Read live from Linear's own API with a personal key, never stored here.
+
+export interface LinearPerson {
+  id: string;
+  name: string;
+}
+
+export interface LinearIssue {
+  /** Linear's internal id: what every write below takes. */
+  id: string;
+  /** "BAS-12": what people call it. */
+  identifier: string;
+  title: string;
+  url: string;
+  updated_at: string;
+  state_id: string;
+  assignee: LinearPerson | null;
+  project: string | null;
+  milestone: string | null;
+  /** Open issues still blocking this one (finished blockers are dropped). */
+  blocked_by: { identifier: string; title: string }[];
+  blocks: string[];
+  blocked: boolean;
+  /** Not done, canceled or a duplicate. */
+  open: boolean;
+  /** Assigned to her, the key's owner. */
+  mine: boolean;
+}
+
+/** One status column, in board order. `type` is Linear's kind of status
+ * (triage, backlog, unstarted, started, completed, canceled, duplicate). */
+export interface LinearColumn {
+  id: string;
+  name: string;
+  type: string;
+  color: string | null;
+  issues: LinearIssue[];
+}
+
+/** The board, or (configured: false) the reason there isn't one yet. */
+export type LinearBoardState =
+  | {
+      configured: false;
+      /** A key was set but Linear refused it. */
+      refused: boolean;
+      key_help: string;
+      key_from_env: boolean;
+    }
+  | {
+      configured: true;
+      team: { id: string; key: string; name: string };
+      viewer: LinearPerson | null;
+      members: (LinearPerson & { me: boolean })[];
+      columns: LinearColumn[];
+      waiting_on_you: LinearIssue[];
+      /** Where quick capture files a new issue: Triage, else Backlog. */
+      capture_into: { id: string; name: string } | null;
+      issue_count: number;
+    };
+
+export function getLinearBoard(fresh = false, signal?: AbortSignal): Promise<LinearBoardState> {
+  return api.get(`/api/linear-room/board${fresh ? '?fresh=1' : ''}`, signal);
+}
+
+/** Save a pasted Linear API key; the server checks it with Linear first. */
+export function saveLinearKey(key: string): Promise<{ ok: true; name: string | null }> {
+  return api.post('/api/linear-room/key', { key });
+}
+
+export function forgetLinearKey(): Promise<{ ok: true }> {
+  return api.delete('/api/linear-room/key');
+}
+
+export function setLinearIssueState(issueId: string, stateId: string): Promise<{ ok: true }> {
+  return api.post(`/api/linear-room/issue/${encodeURIComponent(issueId)}/state`, { state_id: stateId });
+}
+
+/** `null` unassigns it. */
+export function assignLinearIssue(issueId: string, assigneeId: string | null): Promise<{ ok: true }> {
+  return api.post(`/api/linear-room/issue/${encodeURIComponent(issueId)}/assign`, { assignee_id: assigneeId });
+}
+
+export function commentOnLinearIssue(issueId: string, body: string): Promise<{ ok: true }> {
+  return api.post(`/api/linear-room/issue/${encodeURIComponent(issueId)}/comment`, { body });
+}
+
+/** Quick capture: the first line becomes the title, the rest the description. */
+export function captureLinearIssue(
+  text: string,
+): Promise<{ ok: true; identifier: string; url: string; status: string }> {
+  return api.post('/api/linear-room/capture', { text });
+}
+
+/** "Work on this": a Linear session briefed with the issue that starts as soon
+ * as it's opened. `existing` = an open session was already on it. */
+export function workOnLinearIssue(issueId: string): Promise<{ ok: true; id: string; existing: boolean }> {
+  return api.post(`/api/linear-room/issue/${encodeURIComponent(issueId)}/work`, {});
 }
 
 /** A /spinoff the agent staged as a Go button on this conversation

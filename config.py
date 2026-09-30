@@ -104,6 +104,36 @@ SQL_AGENT_DENY_TABLES = frozenset(
     if name.strip()
 )
 
+# The Linear room's live board (linear_api.py, routes/linear_room.py) talks
+# to Linear's GraphQL API with a personal API key. The agents' `linear` MCP
+# login can't be reused: it lives in Claude's own config. The key is a secret,
+# so it's never in this repo. EXOCORTEX_LINEAR_API_KEY wins if it's set.
+# Otherwise it's the file `linear_api_key` in the data dir, which the page's
+# paste box writes (and which the vault's .gitignore keeps out of backups).
+# EXOCORTEX_LINEAR_TEAM names the team the board shows, by key (e.g. "ENG").
+# Blank means the first team the key can see.
+LINEAR_TEAM_KEY = os.environ.get("EXOCORTEX_LINEAR_TEAM", "").strip()
+
+
+def linear_api_key_path():
+    """Where the pasted Linear API key is kept: a plain file in the data dir,
+    like the push and terrain-mirror secrets, never a store collection."""
+    import store
+    return store.DATA_DIR / "linear_api_key"
+
+
+def linear_api_key():
+    """The Linear API key, or "" when none is set. Read at call time, so a
+    key pasted into the page works on the very next request."""
+    from_env = os.environ.get("EXOCORTEX_LINEAR_API_KEY", "").strip()
+    if from_env:
+        return from_env
+    try:
+        return linear_api_key_path().read_text().strip()
+    except OSError:
+        return ""
+
+
 # Agents talking to each other (peermail.py, docs/peers.md) has no count
 # limits: no hop brake, no daily cap. The owner's call — agents are kept in
 # bounds by judgement (message only when it serves your own build), which the

@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 39
+_SCHEMA_VERSION = 40
 
 
 def _db_path():
@@ -203,6 +203,8 @@ _EXPECTED_TABLES = (
     "source_files", "passage_pages",
     # Recipe nutrients: which USDA entry a food is, and her gram weights (rung 39).
     "food_usda", "recipe_line_grams",
+    # What the helpers promised to keep an eye on (rung 40).
+    "helper_watches",
 )
 
 
@@ -2875,6 +2877,35 @@ def _run_ladder(conn):
             "  PRIMARY KEY (recipe_id, line)"
             ")"
         )
+    if version < 40:
+        # Rung 40: a helper's watches (watches.py). When a helper promises
+        # her "I'll tell you when session X ships", it sets a watch; the
+        # minute tick checks each one and wakes the helper's chat once when
+        # it fires. RECORDS: what was promised, and what happened.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS helper_watches ("
+            "  id INTEGER PRIMARY KEY,"
+            # The helper (or any session) that set it, and is woken.
+            "  owner_conv TEXT NOT NULL,"
+            # The session watched — moved on to its continuation if it hands off.
+            "  conv TEXT NOT NULL,"
+            # Comma list of what to watch for: done, asked, committed, stalled, error.
+            "  kinds TEXT NOT NULL,"
+            # What the helper promised, in its own words.
+            "  note TEXT NOT NULL,"
+            "  created_at TEXT NOT NULL,"
+            # How far into `conv`'s transcript (bytes) was already there when it
+            # was set: only lines after this count as news.
+            "  since_offset INTEGER NOT NULL DEFAULT 0,"
+            # watching, fired, dropped or expired.
+            "  status TEXT NOT NULL DEFAULT 'watching',"
+            "  closed_at TEXT,"
+            # What happened, as the wake-up said it.
+            "  event TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS helper_watches_status"
+                     " ON helper_watches (status, owner_conv)")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

@@ -1,0 +1,277 @@
+/* LinearBoard — the live Linear board at the top of the Linear room's page:
+   quick capture, "Waiting on you", the status sections and the issue rows
+   that open into their actions. Every control is at least the app's tap
+   target (--tap-target, 44px); no text is below 12px. */
+
+.board {
+  margin: 0 0 var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.subheading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.muted {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: var(--font-size-md);
+}
+
+.quiet {
+  padding: var(--space-4) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+  text-align: center;
+}
+
+.error {
+  color: var(--red);
+  font-size: var(--font-size-md);
+}
+
+/* "Waiting on you": set apart with the accent, since it's the part that asks
+   something of her. */
+.waiting {
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A status section's header: the whole line is the open/shut button. */
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.columnHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.columnName {
+  font-weight: 600;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  flex: none;
+}
+
+.chevron {
+  width: 16px;
+  color: var(--text-muted);
+  flex: none;
+}
+
+/* One issue: a card whose top line is the button that opens it. */
+.issue {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+}
+
+.issueBlocked {
+  border-color: color-mix(in srgb, var(--orange) 60%, var(--border));
+}
+
+.issueRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.issueMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.issueTitle {
+  font-size: var(--font-size-base);
+}
+
+.ident {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.issueLine {
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+}
+
+.blocked {
+  color: var(--orange);
+  font-weight: 600;
+}
+
+/* What opens under an issue: status, assignee, a comment, and the buttons. */
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.fieldLabel {
+  width: 96px;
+  flex: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+}
+
+.select,
+.input,
+.textarea {
+  flex: 1;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-base);
+}
+
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.smallButton,
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.primaryButton {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+.smallButton:disabled,
+.primaryButton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.capture {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.setup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+}
+
+.setupText {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+}
+
+/* "Forget the API key": quiet, at the foot, but still a full tap target. */
+.linkButton {
+  align-self: flex-start;
+  min-height: var(--tap-target);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-md);
+  text-decoration: underline;
+  cursor: pointer;
+}

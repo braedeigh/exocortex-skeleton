@@ -1394,6 +1394,44 @@
       }
     }
   },
+  "helper_watches": {
+    "holds": "What the helpers promised to keep an eye on: each watch is one session to watch, what to wait for (done, asked, committed, stalled, error) and the promise in the helper's words — and, once it fires, what happened.",
+    "source": "Written by watches.add when a helper runs scripts/helper_watch.py from its chat; closed by the minute tick (watches.tick) when it fires or expires, or by a drop.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "The watch's number — what a drop names."
+      },
+      "owner_conv": {
+        "holds": "The helper (or session) that set it, and is woken when it fires."
+      },
+      "conv": {
+        "holds": "The session watched; moved on to its continuation if it hands off."
+      },
+      "kinds": {
+        "holds": "What it waits for, comma-separated: done, asked, committed, stalled, error."
+      },
+      "note": {
+        "holds": "What the helper promised her, in its own words."
+      },
+      "created_at": {
+        "holds": "When it was set — only what happens after counts."
+      },
+      "since_offset": {
+        "holds": "Where the watched session's transcript ended when it was set, in bytes: only lines after it are news."
+      },
+      "status": {
+        "holds": "watching, fired, dropped or expired."
+      },
+      "closed_at": {
+        "holds": "When it fired, was dropped or expired."
+      },
+      "event": {
+        "holds": "What happened, as the helper was told it."
+      }
+    }
+  },
   "tool_calls": {
     "holds": "Every tool an agent ran: when, which tool, what it was pointed at (the file, the command, the search pattern), the full input as JSON (capped), and once the result came back, how long it took, how big the result was and whether it errored. Subagent calls carry the call that spawned them.",
     "source": "Built by toolcallstore.py by reading the Observatory's conversation logs under the data folder's bot_chats/ and Claude Code's own transcripts under ~/.claude/projects. Re-readable at any time, so it can be dropped and rebuilt with scripts/usage_events.py --rebuild.",

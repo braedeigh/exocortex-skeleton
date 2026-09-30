@@ -36,6 +36,8 @@ LOOKUPS = [
     "./venv/bin/python3 scripts/request_input.py \"which colour?\"",
     "./venv/bin/python3 scripts/spinoff_open.py pond-colour",
     "./venv/bin/python3 scripts/room_moves.py list",
+    "./venv/bin/python3 scripts/helper_watch.py add 2026-09-30.113857 --on done,committed"
+    " --note \"tell her when the Linear board ships\"",
     "grep -il pond /x/bot_chats/*.jsonl | head",
     "grep -n \"retired\\|edges\" frontend/src/SwarmNetwork.tsx | head -80",
     "grep -rn 'a|b' . 2>/dev/null",

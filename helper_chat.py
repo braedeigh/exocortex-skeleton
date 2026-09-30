@@ -25,7 +25,11 @@ with a document written here just before the turn starts:
      replaces the old; only the latest is ever handed over;
   4. her own last config.HELPER_CHAT_MESSAGES messages, word for word — hers
      only. The helper's replies, agents' mail and system notices are not
-     replayed; the chat summary carries what mattered in them.
+     replayed; the chat summary carries what mattered in them;
+  5. its open WATCHES (watches.py) — the promises it made her to tell her
+     when a session does something. The instructions tell it to set one
+     (scripts/helper_watch.py) whenever it makes such a promise; the minute
+     tick wakes this chat once, with a System message, when one fires.
 
 The room helper (room_helper.py) has the same chat, with its own first
 paragraph (ROOM_LEAD) and, in place of part 2, the room overview — every
@@ -44,7 +48,7 @@ the turn's system prompt file; after_turn calls rewrite_notes), swarm_helper.py
 (ask_model — the same tool-less, structured model call its runs use),
 swarms.py (the summaries), room_helper.py (the room overview), the session index (`helper_notes`,
 `helper_notes_at` on the helper's entry — the chat summary), config.py
-(HELPER_CHAT_MESSAGES),
+(HELPER_CHAT_MESSAGES), watches.py (the open watches in the seed),
 continuation.py (which never continues this chat),
 tests/test_helper_chat.py. Design: docs/swarms.md.
 
@@ -94,14 +98,23 @@ join <swarm> <conv>... | split <swarm> <conv>... | release <conv>... --reason "�
 CHAT_PROMPT = """{lead}
 
 How your view is shaped: every turn of this chat starts fresh. You are NOT resuming a \
-conversation. You are handed exactly four things, and nothing else:
+conversation. You are handed exactly five things, and nothing else:
 1. these instructions;
 2. {world_line};
 3. the chat summary — one summary of this whole chat so far (her decisions, what you last \
 told her, your promises, the open threads), rewritten after every turn;
 4. her own last few messages, word for word. Your replies to them, agents' mail to you and \
-system notices are NOT replayed — the chat summary carries what mattered in them.
+system notices are NOT replayed — the chat summary carries what mattered in them;
+5. your open watches (below).
 Then comes whatever just arrived: her new message, an agent's mail, or a system notice.
+
+Nothing wakes you between turns unless you ask for it. So whenever you promise her to tell her \
+when something happens — a session ships, finishes, asks her something, gets stuck — set a \
+WATCH in the same turn, or the promise is empty: \
+`./venv/bin/python3 scripts/helper_watch.py add <session id> --on done,asked,committed,stalled,error \
+--note "what you promised her"` (pick the kinds that fit; `list` shows yours, `drop <id>` \
+cancels one). The app checks it every minute and wakes this chat once, with a System \
+message saying what happened, when it fires; then keep the promise. Each watch fires once.
 
 So never claim to remember what isn't here. When the summaries aren't enough — what exactly \
 you told her, what an agent actually did, something from before — look it up. Everything is \
@@ -120,8 +133,8 @@ Say when an answer comes from a search rather than from what you were handed.
 
 You never build. You don't edit files, run builds or tests, commit, or reload the site — \
 and the app enforces it: only lookups get through (reading, searching, git's reading \
-commands, peers.py, exo_query.py, request_input.py, spinoff_open.py, room_moves.py), and \
-the one thing you may write is a new session's brief. When something needs building — she \
+commands, peers.py, exo_query.py, request_input.py, spinoff_open.py, room_moves.py, helper_watch.py), \
+and the one thing you may write is a new session's brief (and your watches). When something needs building — she \
 asks for a change, or a fix she agreed to — start a new session to build it:
 1. If a session already on it can take it (a member working on that code), message it \
 with `peers.py send` instead, passing her words exactly.
@@ -283,7 +296,7 @@ def _swarm_now(swarm_id):
 
 def seed_text(conv_id, entry):
     """Everything one chat turn starts from, as one document (see the top of
-    the file for the four parts)."""
+    the file for the five parts)."""
     chats = store.DATA_DIR / "bot_chats"
     # The world it watches: a room helper's room, or a swarm helper's swarm.
     if entry.get("role") == "room_helper":
@@ -312,6 +325,9 @@ def seed_text(conv_id, entry):
              f"# Her last {len(mine)} messages, word for word", ""]
     parts += [f"### {at or 'earlier'}\n{_cut(text)}\n" for at, text in mine] \
         or ["(none yet — this is the first)"]
+    # Its open watches: the promises the app will wake it to keep.
+    import watches
+    parts += ["", watches.seed_section(conv_id)]
     return "\n".join(parts) + "\n"
 
 

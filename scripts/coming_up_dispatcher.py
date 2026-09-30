@@ -27,7 +27,8 @@ Rules, in order:
 Then, as a safety net, it starts any follow-up that's still waiting on an
 idle conversation — e.g. an approval whose turn process was killed — and
 does the same for the agents' mailbox (peermail.py): a message waiting for a
-session that's idle starts its turn here if nothing else did. The same
+session that's idle starts its turn here if nothing else did. It also checks
+the helpers' watches (watches.py) and wakes a helper whose watch fired. The same
 minute also closes finished sessions whose done countdown has run out
 (scripts/session_done.py marks them; routes/observatory.py close_done_sessions),
 and wakes any session idle for a day to ask itself whether it's done
@@ -41,7 +42,7 @@ Run by cron (the owner wires the crontab):
 
 Touches: `comingup.py` (what's due, marking it), `routes/observatory.py`
 (queue_followup / drain_all_followups / drain_all_inbox /
-close_done_sessions / idle_check_sessions), `scripts/keeper_rollover.py` (finding
+close_done_sessions / idle_check_sessions), `watches.py` (tick), `scripts/keeper_rollover.py` (finding
 the pinned Keeper, the rollover lock), `tests/test_coming_up_dispatcher.py`.
 
 Prompt that produced this: "I'm also wanting something that can inject a
@@ -159,6 +160,15 @@ def main():
             _log(f"started {ran} room helper run(s)")
     except Exception as e:
         _log(f"room helper tick failed: {e}")
+    # The helpers' watches: a watched session did what a helper promised her
+    # it would tell her about, so its chat is woken once (watches.py).
+    try:
+        import watches
+        woke = watches.tick()
+        if woke:
+            _log(f"watches woke {woke} helper(s)")
+    except Exception as e:
+        _log(f"watch check failed: {e}")
     # Turns whose host process died mid-reply are marked failed here
     # (routes/observatory.py mark_dead_turns), so a red card and an error line
     # land even when nobody has the roster open.

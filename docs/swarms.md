@@ -136,6 +136,24 @@ or move solo sessions out of a swarm into the layer above."
   One tool-less Sonnet call; every run in `room_helper_runs`.
 - **Its chat** works like a swarm helper's (helper_chat.py): fresh every turn,
   seeded with the room overview instead of one swarm.
+- **Watches: promises kept between turns** (`watches.py`, both kinds of
+  helper). Her ask: "i need something that alerts you to watch things
+  between turns." A helper's chat runs only when a turn starts, so "I'll tell
+  you when that session ships" had nothing to wake it. Now it sets a watch
+  from its chat (`scripts/helper_watch.py add <session> --on
+  done,asked,committed,stalled,error --note "…"`, stored in `helper_watches`;
+  the helper gate lets that one write through). The minute tick checks every
+  open watch against what the session did *after* the watch was set: marked
+  itself done or was closed; filed questions or a sudo card; a `git commit`
+  that succeeded; a failed turn; or nothing written for
+  `config.HELPER_WATCH_STALLED_MINUTES` (90) while nothing waits on her. A
+  watch that fires is marked fired first, then the helper's chat gets one
+  System message (the follow-up queue, as a finished detached job does); all
+  of one helper's watches firing in the same minute share that message. Each
+  fires once, follows its session into a continuation, and is retired after
+  `config.HELPER_WATCH_EXPIRE_DAYS` (7) with the helper told. Open watches
+  are listed in the helper's seed, and its instructions say to set one with
+  every such promise.
 - **The room from above** (`RoomMap.tsx`, at the head of any room with a room
   helper). Her ask: "a display on the front with circles for each swarm and
   the generated helpers in the middle and extra agents in rows below that."
@@ -175,6 +193,7 @@ or move solo sessions out of a swarm into the layer above."
 | Helper | `swarm_helper.py` (one tool-less Sonnet call per run, structured answer, every run in `swarm_helper_runs`); runs after member turns (debounced by `config.SWARM_HELPER_MIN_SEC`), on the minute tick, when a swarm forms, and straight away when messaged |
 | Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) and the running notes (`rewrite_notes`, called by `after_turn`; the chat summary, stored as `helper_notes` on the helper's index entry); `config.HELPER_CHAT_MESSAGES`; exempt in `continuation.due` |
 | Room helper | `room_helper.py` (runs, moves, undo, the room overview); placements in `swarms.py` (`place`, `unplace`, `new_swarm`, `line_of_work`; `links` cuts pre-placement messages); `swarm_pins`, `room_moves`, `session_summaries`, `room_helper_runs` (sqlstore rung 37); `scripts/room_moves.py`; ticked by `scripts/coming_up_dispatcher.py` |
+| Watches | `watches.py` (add, the minute check, the wake-up, the seed section); `helper_watches` (sqlstore rung 40); `scripts/helper_watch.py`; allowed in `tools/helper_gate.py`; ticked by `scripts/coming_up_dispatcher.py`; `config.HELPER_WATCH_*` |
 | Closing check | `swarms.retired`; `swarm_helper.watch_retirement` / `close_out` / `closing_report`, run by `swarm_helper.tick` on the minute tick |
 
 ## Status
@@ -184,6 +203,8 @@ or move solo sessions out of a swarm into the layer above."
   through the chat or `scripts/room_moves.py` (no undo button on the room map
   yet).
 
+- Watches: built and tested (`tests/test_helper_watch.py`). Not on any page
+  yet — they're in the helper's seed, its chat, and `helper_watch.py list`.
 - Mailbox, token accounting, continuation, swarms and the helper: built and
   tested.
 - The helper chat's rolling context and the closing check: built and tested

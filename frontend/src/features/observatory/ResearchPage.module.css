@@ -30,3 +30,11 @@
 .sessionRef {
   color: var(--text-muted);
 }
+
+/* The Linear page's "Sessions" heading, between the live board and the list. */
+.sectionHeading {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text);
+}
