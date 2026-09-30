@@ -72,8 +72,11 @@ def main(argv=None):
         print(f"not done: {e}", file=sys.stderr)
         return 1
     target = f"swarm {move['to_swarm']}" if move["to_swarm"] is not None else "working alone"
-    print(f"move #{move['id']}: {move['kind']} {', '.join(move['convs'])} → {target}"
-          f"\nundo: ./venv/bin/python3 scripts/room_moves.py undo {move['id']}")
+    print(f"move #{move['id']}: {move['kind']} {', '.join(move['convs'])} → {target}")
+    # Say plainly when the move closed the swarm it left (room_helper.closed_line).
+    if room_helper.closed_line(move):
+        print(room_helper.closed_line(move))
+    print(f"undo: ./venv/bin/python3 scripts/room_moves.py undo {move['id']}")
     return 0
 
 

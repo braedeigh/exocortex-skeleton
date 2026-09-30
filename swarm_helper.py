@@ -27,8 +27,8 @@ information it used and what it did with it.
 Its chat is one conversation for the swarm's whole life. When the owner
 talks to it there, each turn starts fresh from a rolling seed (the summaries,
 the chat summary, her last few messages — helper_chat.py), so it never
-fills its context and is never continued. When every member is finished
-(swarms.retired), it posts a closing check — what git says shipped, what's
+fills its context and is never continued. When the swarm closes — fewer
+than two of its members still working (swarms.retired) — it posts a closing check — what git says shipped, what's
 uncommitted or unfinished, questions and detached jobs still waiting — and
 marks itself done (close_out, at the minute tick).
 
@@ -415,7 +415,14 @@ def _spawn(swarm_id, trigger, question_ids=()):
 def poke(swarm_id, trigger="turn"):
     """Something happened in the swarm. Run now if the helper is free and
     hasn't run recently; otherwise leave a note for the minute tick. This is
-    a debounce: a burst of member turns becomes one run."""
+    a debounce: a burst of member turns becomes one run.
+
+    A closed swarm (swarms.retired: fewer than two lines of work still going)
+    isn't run at all — its one working session is working alone, and a
+    swarm that closes before it ever opened gets no helper. The minute tick's
+    closing check (watch_retirement) looks after it instead."""
+    if swarms.retired(swarm_id):
+        return False
     helper = ensure_helper(swarm_id)
     entry = store.read("bot_chats/index", {}).get(helper) or {}
     last = entry.get("helper_last_run")
@@ -465,8 +472,9 @@ def tick():
 
 
 # --- When the swarm retires: the closing check --------------------------------
-# A swarm's helper stays for as long as the swarm does. When every member is
-# finished (swarms.retired: done, closed or archived), the helper posts one
+# A swarm's helper stays for as long as the swarm does. When the swarm closes
+# — fewer than two of its lines of work still going (swarms.retired: the
+# others done, closed, archived or released) — the helper posts one
 # last message — what shipped, what's left — and marks itself done, so its
 # card closes two hours later like any finished session's. The facts come from
 # git, the session index and the job folders, never from what the agents said
@@ -564,13 +572,16 @@ def closing_report(swarm_id):
         dirty += [f"- `{p}` — {title}" for p in _uncommitted_of(conv, entry)]
         if not entry:
             unfinished.append(f"- `{conv}` — gone from the index")
+        elif not swarms.member_retired(entry):
+            unfinished.append(f"- {title} (`{conv}`) — still working, on its own now")
         elif not entry.get("done_at") and not entry.get("continued_by"):
             unfinished.append(f"- {title} (`{conv}`) — closed without saying it was done")
         questions += [f"- {title}: {q}" for q in observatory._open_questions(entry)]
         jobs += [f"- {title}: {j}" for j in observatory._unfinished_jobs(conv)]
     lines = [f"**Closing check — {name}**", "",
-             "Every member of this swarm is done, closed or archived, so this is my last"
-             " message. Checked against git and the session records, not the agents' own"
+             "Fewer than two members of this swarm are still working, so it has closed"
+             " and this is my last message. If a second one starts working in it again,"
+             " it opens again and I come back. Checked against git and the session records, not the agents' own"
              " accounts.", ""]
     sections = [("What shipped", shipped, "No commits."),
                 ("Written but not committed", dirty, "Nothing — every file they wrote is committed."),
@@ -597,14 +608,15 @@ def close_out(swarm_id, helper):
             entry["helper_closed_at"] = now
             entry["last_at"] = now
             entry.pop("helper_pending", None)
-    observatory.mark_done(helper, "Closing check posted: every member of the swarm is finished.")
+    observatory.mark_done(helper, "Closing check posted: fewer than two members of the"
+                                  " swarm are still working.")
     return report
 
 
 def watch_retirement(helper, entry, index):
     """At the minute tick: close out this helper's swarm the first time it's
     found retired, and bring the helper back if the swarm comes back to life
-    (a member it closed out on starts working again). Returns True when the
+    (two of its lines of work are going again). Returns True when the
     helper is closed out and has nothing else to do."""
     if entry.get("running"):
         return False

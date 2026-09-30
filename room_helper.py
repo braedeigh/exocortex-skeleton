@@ -9,7 +9,9 @@ work never find each other unless one happens to write. The room helper looks
 at the whole room from above and fixes that. It reads only summaries:
 
   - each open swarm's summary and each of its members' summaries (a closed
-    swarm — every member finished — is left out; open_swarms),
+    swarm — fewer than two sessions still working in it — is left out, and
+    its one working session, if it has one, counts as working alone;
+    open_swarms),
   - the swarm's CLUSTERS, worked out here in code: the groups of members who
     messaged each other within config.ROOM_HELPER_QUIET_HOURS, each with the
     last time it messaged anyone in another cluster,
@@ -30,7 +32,14 @@ really comes apart. A session's continuations always move with it. It acts
 on its own; every move is posted in its chat with the reason, stored in
 `room_moves` with what it replaced, and can be undone
 (`scripts/room_moves.py undo <id>`). Each moved session is told in one
-message, queued for the end of its turn — never interrupting.
+message, queued for the end of its turn — never interrupting. A swarm is at
+least two sessions still working: forming one takes two working lines of
+work, a split carrying fewer is a release, and a split or release that
+leaves a swarm with one working session closes it (swarms.is_closed) — the
+move says so, and that session is told it works alone now.
+
+Its role, in her words: "your job as room helper is to babysit the sessions
+that are ongoing in the room and coordinate with them if necessary."
 
 Its chat is a helper chat like a swarm helper's (helper_chat.py): every turn
 starts fresh from a rolling seed, whose view of the world is the room overview
@@ -86,8 +95,11 @@ _RECENT_MOVES = 10
 
 SYSTEM_PROMPT = """You are the room helper for the {room} room of one person's app, where AI \
 coding agents work in sessions. Sessions that message each other form a SWARM, and every swarm \
-has its own helper. You sit a layer above: you read only summaries, and you decide who should \
-be working together. Your job:
+has its own helper. You sit a layer above: your job is to watch over the sessions that are \
+running in the room and coordinate with them when it's needed — mostly by deciding who should \
+be working together. You read only summaries. A swarm is at least two sessions still working \
+(a session and its own continuations count as one) plus its helper; a swarm that drops to one \
+working session closes by itself, and that session shows up below as working alone. Your job:
 1. Summarise each session working alone in 1-3 sentences: what it's doing now, what it's \
 waiting on. Your summary replaces the old one, so carry forward anything still true.
 2. Write a short overview of the room: the swarms, what the solo sessions are doing, anything \
@@ -99,6 +111,9 @@ that looks tangled.
    - split: a swarm holding two clusters that do unrelated work and have stopped talking to \
 each other; list the cluster that should leave, and it becomes a swarm of its own.
    - release: a session in a swarm whose work has nothing to do with the swarm's any more.
+   Every swarm you make or leave behind must hold at least two sessions still working. Never \
+form, split or release so that a swarm ends up with one working session — a split or release \
+that would leave one behind closes that swarm, and the one left works alone too.
 Be conservative. No move is better than a wrong one. Never split clusters that messaged each \
 other within the last {quiet} hours. Never redo a move she undid. A finished or retired \
 session doesn't need moving.
@@ -183,15 +198,18 @@ def _helper_convs(index):
 
 def open_swarms(room):
     """The swarms in this room it works with: live and not closed. A closed
-    swarm (every member finished, swarms.overview) is left out of what it
-    reads and can't be joined or split — there's no one left in it to
-    coordinate. It comes back here by itself if a member starts again."""
+    swarm (fewer than two sessions still working, swarms.is_closed) is left
+    out of what it reads and can't be joined or split — there's no one left
+    in it to coordinate with each other, and its one working session, if any,
+    is listed as working alone (solo_sessions). It comes back here by itself
+    when a second session works in it again."""
     return [c for c in swarms.overview() if c["lane"] == room and not c.get("closed")]
 
 
 def solo_sessions(room, index, cards):
     """The live sessions in this room working alone: not archived, finished or
-    handed on, not a helper, and in no swarm. Newest first."""
+    handed on, not a helper, and in none of these (open) swarms — so the last
+    working session of a closed swarm is here too. Newest first."""
     in_swarm = {m["conv"] for card in cards for m in card["members"]}
     helpers = _helper_convs(index)
     found = [(entry.get("last_at") or "", conv) for conv, entry in index.items()
@@ -359,15 +377,22 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
     for conv in convs:
         moved |= swarms.line_of_work(conv, index)
     moved = sorted(moved)
+    # Where each session is now: its swarm only while that swarm is open. A
+    # closed swarm's one working session is working alone (swarms.is_closed).
+    open_ids = {c["id"] for c in swarms.overview() if not c.get("closed")}
     live = {c["id"]: c for c in open_swarms(room)}
-    current = {c: swarms.swarm_of(c) for c in moved}
+    current = {c: (s if s in open_ids else None)
+               for c, s in ((c, swarms.swarm_of(c)) for c in moved)}
+    # A swarm is two lines of work still going: count the ones this move carries.
+    working_lines = len(swarms.live_lines(moved, index))
     from_swarm = None
     # Check the move against the room as it is now.
     if kind == "form":
         if any(current.values()):
             raise MoveError("form is for sessions working alone — use join or split")
-        if len({frozenset(swarms.line_of_work(c, index)) for c in convs}) < 2:
-            raise MoveError("a swarm needs at least two lines of work")
+        if working_lines < 2:
+            raise MoveError("a swarm needs at least two sessions still working"
+                            " (a session and its continuations count once)")
     elif kind == "join":
         if swarm_id not in live:
             raise MoveError(f"swarm {swarm_id} isn't an open swarm in the {room} room")
@@ -375,8 +400,8 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
             raise MoveError(f"already in swarm {swarm_id}")
         from_swarm = next((s for s in current.values() if s), None)
     elif kind == "split":
-        # One line of work leaving on its own isn't a swarm: that's a release.
-        if len({frozenset(swarms.line_of_work(c, index)) for c in convs}) < 2:
+        # One working line of work leaving on its own isn't a swarm: that's a release.
+        if working_lines < 2:
             return execute(room, "release", convs, None, reason, message, by)
         if swarm_id not in live:
             raise MoveError(f"swarm {swarm_id} isn't an open swarm in the {room} room")
@@ -391,6 +416,10 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
             raise MoveError("already working alone")
     if by != "owner" and _was_undone(room, kind, moved):
         raise MoveError("she undid this same move before")
+    # Who stays behind in the swarm the sessions leave, read before the move:
+    # a swarm left with nobody linked is dissolved by the placement's sync.
+    staying = (set(swarms.overview_members(from_swarm)) - set(moved)
+               if from_swarm is not None else set())
     # Record the move first, so the placement can point at it.
     now = _now()
     conn = sqlstore.open_db()
@@ -424,19 +453,31 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
                 swarm_helper.poke(touched, trigger)
             except Exception as e:
                 print(f"{_now()} helper poke for swarm {touched} failed: {e}", file=sys.stderr)
+    # Find who a move out of a swarm left on their own. A swarm down to one
+    # working line of work has closed (swarms.is_closed) — or dissolved, when
+    # nothing links its rest any more; that line is working alone now, and is
+    # told so along with the moved sessions.
+    left_alone = []
+    if staying and swarms.is_closed(staying, index):
+        left_alone = sorted(c for c in staying if not swarms.member_retired(index.get(c)))
     # Tell each moved session that's still working, once, at the end of its turn.
     helper = ensure_room_helper(room)
     note = _move_note(kind, to_swarm, moved, index)
-    for conv in moved:
+    alone_note = (f"(Room helper: swarm {from_swarm} has closed — everyone else in it has"
+                  " finished or moved on, so you're working alone now. `scripts/peers.py"
+                  " list` shows who else is working.)")
+    tell = [(c, note, message) for c in moved] + [(c, alone_note, "") for c in left_alone]
+    for conv, facts, words in tell:
         if swarms.member_retired(index.get(conv)):
             continue
-        text = "\n\n".join(t for t in ((message or "").strip(), note) if t)
+        text = "\n\n".join(t for t in ((words or "").strip(), facts) if t)
         try:
             observatory.peer_send(helper, conv, text, mode="queue")
         except (KeyError, ValueError) as e:
             print(f"{_now()} room move message to {conv} failed: {e}", file=sys.stderr)
     made = {"id": move_id, "at": now, "kind": kind, "convs": moved,
-            "from_swarm": from_swarm, "to_swarm": to_swarm, "reason": reason}
+            "from_swarm": from_swarm, "to_swarm": to_swarm, "reason": reason,
+            "left_alone": left_alone}
     # A move made by hand is posted in the helper's chat too; a run posts its own.
     if by != "room_helper":
         _post(helper, _render_move(made, by), now)
@@ -507,13 +548,24 @@ def _post(helper, text, now, **marks):
         **marks, "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}})
 
 
+def closed_line(move):
+    """Say plainly that a move closed the swarm it left: the one session still
+    working there is on its own now. Empty when it closed nothing."""
+    if not move.get("left_alone"):
+        return ""
+    return (f"That left swarm {move['from_swarm']} with one session still working, so it"
+            f" closed: {', '.join(move['left_alone'])} works alone now. Undoing this move"
+            " puts the swarm back.")
+
+
 def _render_move(move, by=None):
     target = (f"swarm {move['to_swarm']}" if move["to_swarm"] is not None
               else "working alone")
     who = {"owner": " (by the owner)", "cli": " (by hand)"}.get(by, "")
-    return "\n".join([f"**Move #{move['id']} — {move['kind']}{who}** {', '.join(move['convs'])}"
-                      f" → {target}", move["reason"],
-                      f"Undo: `./venv/bin/python3 scripts/room_moves.py undo {move['id']}`"])
+    return "\n".join(line for line in [
+        f"**Move #{move['id']} — {move['kind']}{who}** {', '.join(move['convs'])} → {target}",
+        move["reason"], closed_line(move),
+        f"Undo: `./venv/bin/python3 scripts/room_moves.py undo {move['id']}`"] if line)
 
 
 def _render(answer, made, refused):

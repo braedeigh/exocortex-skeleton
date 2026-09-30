@@ -7,7 +7,9 @@ alone, and a continuation always moves with its session. Every move is
 recorded and can be undone, and a move she undid isn't made again. The
 moved sessions are told once, queued, never interrupted. A move that doesn't
 fit is refused and reported. A closed swarm is left out of the room it reads
-and can't be joined. Its chat never resumes and is never continued,
+and can't be joined. A swarm is two sessions still working: one left on its
+own — the others finished or released — closes the swarm and works alone,
+a handoff doesn't count as a second, and a second session opens it again. Its chat never resumes and is never continued,
 and its seed is the room.
 """
 import json
@@ -203,3 +205,73 @@ def test_nobody_is_joined_into_a_closed_swarm(room):
     _seed("s1")
     with pytest.raises(room_helper.MoveError):
         room_helper.execute("coding", "join", ["s1"], swarm_id, "same work")
+
+
+# --- A swarm is at least two sessions still working -------------------------------
+
+def test_a_swarm_down_to_one_working_session_closes_and_it_works_alone(room):
+    """Her ask: "a swarm to be a minimum of 2 sessions and a helper." When the
+    other member finishes, the swarm closes, its helper posts the closing
+    check, and the one still working is back among the sessions working alone.
+    A second session messaging it opens the same swarm again."""
+    _seed("a", "b")
+    peermail.send("b", "hi", from_conv="a")
+    [swarm_id] = swarms.sync()
+    helper = swarm_helper.ensure_helper(swarm_id)
+    with store.mutate("bot_chats/index", {}) as index:
+        index["b"]["done_at"] = "2026-09-30T10:00:00"
+    index = store.read("bot_chats/index", {})
+    assert room_helper.open_swarms("coding") == []
+    assert room_helper.solo_sessions("coding", index, []) == ["a"]
+    swarm_helper.tick()
+    report = (store.DATA_DIR / "bot_chats" / f"{helper}.jsonl").read_text()
+    assert "Closing check" in report and "still working, on its own now" in report
+    _seed("c")
+    peermail.send("a", "can I use your parser?", from_conv="c")
+    [card] = room_helper.open_swarms("coding")
+    assert card["id"] == swarm_id and {m["conv"] for m in card["members"]} == {"a", "b", "c"}
+
+
+def test_a_release_that_leaves_one_session_closes_the_swarm(room):
+    _seed("a", "b")
+    peermail.send("b", "hi", from_conv="a")
+    swarms.sync()
+    move = room_helper.execute("coding", "release", ["b"], None, "separate work", by="cli")
+    assert move["left_alone"] == ["a"]
+    assert "closed" in room_helper.closed_line(move)
+    assert room_helper.open_swarms("coding") == []
+    assert sorted(room_helper.solo_sessions("coding", store.read("bot_chats/index", {}), [])) \
+        == ["a", "b"]
+    assert "working alone now" in next(text for _, to, text, _ in room if to == "a")
+    room_helper.undo(move["id"])
+    [card] = room_helper.open_swarms("coding")
+    assert {m["conv"] for m in card["members"]} == {"a", "b"}
+
+
+def test_a_handoff_is_not_a_second_session(room):
+    """a hands its work to a2: still two lines of work (a's and b's), so the
+    swarm stays open. When b finishes, a and a2 are one line — it closes."""
+    _seed("a", "b")
+    peermail.send("b", "hi", from_conv="a")
+    [swarm_id] = swarms.sync()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["a"].update(continued_by="a2", archived="2026-09-30T10:00:00")
+    _seed("a2", spawned_from="a", spawned_via="continue")
+    assert [c["id"] for c in room_helper.open_swarms("coding")] == [swarm_id]
+    with store.mutate("bot_chats/index", {}) as index:
+        index["b"]["done_at"] = "2026-09-30T11:00:00"
+    assert room_helper.open_swarms("coding") == []
+    with pytest.raises(room_helper.MoveError):
+        room_helper.execute("coding", "form", ["a2", "a"], None, "one line of work")
+
+
+def test_a_swarm_whose_members_were_all_released_is_gone_from_the_room(room):
+    """Releasing every member once left an empty swarm drawn as a bubble of
+    0 sessions for good: sync never dissolved a swarm it saw no members of."""
+    _seed("a", "b")
+    peermail.send("b", "hi", from_conv="a")
+    swarms.sync()
+    room_helper.execute("coding", "release", ["a", "b"], None, "both done with it", by="cli")
+    assert swarms.overview() == []
+    assert sorted(room_helper.solo_sessions("coding", store.read("bot_chats/index", {}), [])) \
+        == ["a", "b"]

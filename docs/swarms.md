@@ -15,6 +15,15 @@ lines say what exists *now*.
 - **A swarm is defined by interaction, not assignment.** Two or more sessions
   where each has messaged at least one other member (a connected group in the
   `agent_messages` graph). Not everyone has to have talked to everyone.
+- **A swarm is at least two sessions still working, plus its helper.** Her
+  words: "i don't necessarily want a swarm to be just 1 agent and the helper.
+  i want a swarm to be a minimum of 2 sessions and a helper." Counted in
+  *lines of work*: a session and its continuations are one, finished members
+  (done, archived, handed on) and helpers don't count (`swarms.live_lines`).
+  Below two, the swarm is closed (below) and its one working session stands
+  in the room as working alone. The room helper won't form a swarm from
+  fewer than two working lines; a split or release that leaves one behind
+  closes the old swarm, says so in the move, and tells that session.
 - **One helper per swarm**, running Sonnet. It names the swarm (its own
   "project"), keeps one current summary per member and one for the swarm,
   notices where members' work differs or collides, and coordinates. Its
@@ -27,7 +36,7 @@ lines say what exists *now*.
   Sonnet summarizer), the **chat summary** (what it last told her, her
   decisions word for word, promises, open threads — rewritten by Sonnet after
   every turn, replaced not appended) and her own last `HELPER_CHAT_MESSAGES`
-  messages verbatim (default 10). Its own replies, agents' mail and system
+  messages verbatim (default 20). Its own replies, agents' mail and system
   notices are not replayed. Its instructions say the view is shaped this way
   and where to search the rest (every transcript, `peers.py show`,
   `exo_query.py` over `agent_messages` / `tool_calls`, git). Only what the
@@ -48,24 +57,30 @@ lines say what exists *now*.
   continuation of one; `in_helper_view` leaves those out (not even named), and
   the summarizer's "Messages between members" leaves out their messages. They
   stay members for the pages and the closing check.
-- **A closing check when the swarm retires.** A swarm is *retired* when every
-  member is done (`done_at`), archived, handed on to a continuation, or gone
-  from the index — and none is mid-turn (`swarms.retired`). The helper then
+- **A closing check when the swarm retires.** A swarm is *retired* when fewer
+  than two of its lines of work are still going — the rest done (`done_at`),
+  archived, handed on to a continuation, or gone from the index, and none of
+  them mid-turn (`swarms.retired`). The helper then
   posts one last message built from git and the session records, not the
   agents' word: commits it made (as git announced them, checked against the
   repo), files written but not committed, members closed without saying they
-  were done, questions still waiting on her, detached jobs still running.
-  Then it marks itself done; the usual two-hour countdown closes it. If a
-  member starts working again, the helper comes back.
+  were done (or are still working, on their own now), questions still
+  waiting on her, detached jobs still running. Then it marks itself done;
+  the usual two-hour countdown closes it. If two lines of work are going in
+  the swarm again, the helper comes back. A closed swarm's helper isn't
+  poked by member turns (`swarm_helper.poke`).
 - **A swarm closes when its work is over.** Her ask: "closes swarms on the
-  UI when all agents within it are closed." Closed is the retired rule above
-  (every member done, archived or handed on; the swarm's own helper doesn't
-  count as a member), worked out fresh on every read, never stored — so a
-  member working again, or a new session joining, opens it again by itself.
+  UI when all agents within it are closed", then the two-session minimum
+  above. Closed is the retired rule above (fewer than two lines of work
+  still going; the swarm's own helper doesn't count), worked out fresh on
+  every read, never stored (`swarms.is_closed`) — so a second line of work
+  going again, a member or a new session messaging or joining, opens the
+  same swarm again by itself.
   `swarms.overview` marks each card `closed`. The rooms, the room map,
   Worktrees and Terrain hide closed swarms unless the shared "Show closed
   swarms" switch is on (`swarmApi.shownSwarms`); a hidden closed swarm's
-  finished members stand in the room as ordinary done cards until they close.
+  members stand in the room as ordinary cards — its finished ones as done
+  cards until they close, its one working session as working alone.
   The room helper reads only open swarms and can't join or split into a
   closed one (`room_helper.open_swarms`).
 - **Visible everywhere.** A swarm card in its room on the Observatory (summary,

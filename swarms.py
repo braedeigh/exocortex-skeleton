@@ -23,11 +23,20 @@ exchanged at or before T; it belongs where it was placed (or nowhere, when
 released), and only messages sent after T can pull it anywhere else. That's
 how a swarm glued together by one old stray message comes apart.
 
-A swarm CLOSES when every member has finished — done, archived, or handed on
-(`all_retired`) — and opens again the moment one of them works again or a new
-session joins. Closed is worked out from the members each time, not stored;
-`overview` marks each card `closed`, and the pages hide closed swarms unless
-she asks to see them.
+A swarm is at least TWO sessions still working, plus its helper. It CLOSES
+the moment fewer than two of its lines of work are live (`is_closed`): a
+member that finished — done, archived, or handed on — doesn't count, the
+helper doesn't count, and a session with its continuations counts once. So a
+swarm whose other members retired, or were released, closes and its last
+working session is back to working alone: the pages hide the closed swarm and
+show that session as an ordinary card, and the room helper reads it as a solo
+session. It opens again, the same swarm, the moment a second line of work is
+live in it — a member working again, or a new session messaging or joining
+it. Closed is worked out from the members each time, not stored; `overview`
+marks each card `closed`.
+
+Prompt: "i don't necessarily want a swarm to be just 1 agent and the helper.
+i want a swarm to be a minimum of 2 sessions and a helper."
 
 She can also start a session straight into a swarm (the '+' on a swarm's
 page): `join` adds it as a member before it has messaged anyone, and
@@ -381,23 +390,33 @@ def is_live(swarm_id):
 
 
 def retired(swarm_id, index=None):
-    """Has the whole swarm retired — is it a live swarm whose every member is
-    done, closed or archived (member_retired)? That's the moment its helper
-    runs its closing check (swarm_helper.close_out). A swarm that was merged
-    into another, dissolved, or has no members is not "retired": it never
-    finished, it stopped existing."""
+    """Has the swarm closed — is it a live swarm with members, fewer than two
+    of whose lines of work are still going (is_closed)? That's the moment its
+    helper runs its closing check (swarm_helper.close_out). A swarm that was
+    merged into another, dissolved, or has no members is not "retired": it
+    never finished, it stopped existing."""
     if index is None:
         index = store.read("bot_chats/index", {})
     if not is_live(swarm_id):
         return False
-    return all_retired(overview_members(swarm_id), index)
+    members = overview_members(swarm_id)
+    return bool(members) and is_closed(members, index)
 
 
-def all_retired(members, index):
-    """Is every one of these members finished (member_retired)? False for no
-    members at all — an empty swarm never finished anything. The swarm's
-    helper isn't a member, so it can't hold a swarm open on its own."""
-    return bool(members) and all(member_retired(index.get(m)) for m in members)
+def live_lines(members, index):
+    """The lines of work among these members that are still going: each a
+    frozenset of a session and its continuations (line_of_work), counted
+    once however many of them are members. Finished members (member_retired)
+    and old helper sessions (is_helper_session) don't make a line live."""
+    return {frozenset(line_of_work(m, index)) for m in members
+            if not member_retired(index.get(m)) and not is_helper_session(m, index)}
+
+
+def is_closed(members, index):
+    """Is a swarm of these members closed — fewer than two lines of work still
+    going (live_lines)? A swarm is two sessions working together; one left on
+    its own is working alone, and the swarm's helper can't make up the second."""
+    return len(live_lines(members, index)) < 2
 
 
 def overview():
@@ -406,11 +425,13 @@ def overview():
     to whom (messages sent, continuations, and the helper's messages out to
     members) for the network drawing.
 
-    Each card says whether the swarm is `closed`: every member has finished
-    (the same rule as `retired`). That is read fresh from the members every
-    time, never stored, so a member starting again or a new one joining
-    opens the swarm again by itself. Closed swarms are still listed; the
-    pages and the room helper choose to leave them out."""
+    Each card says whether the swarm is `closed`: fewer than two of its
+    lines of work are still going (is_closed, the same rule as `retired`).
+    That is read fresh from the members every time, never stored, so a second
+    line of work going again — a member starting again, or a new one joining
+    — opens the swarm again by itself. Closed swarms are still listed; the
+    pages and the room helper choose to leave them out, and a closed swarm's
+    one working session then stands in the room as working alone."""
     sync()
     index = store.read("bot_chats/index", {})
     index = index if isinstance(index, dict) else {}
@@ -438,6 +459,12 @@ def overview():
                                 "retired": bool(entry.get("archived")) or conv in handed_on,
                                 "joined_at": joined, "summary": msummary,
                                 "summary_at": msummary_at})
+            # Leave out a swarm with no members at all. Every one was placed
+            # somewhere else (a room helper release or split), and sync can't
+            # dissolve what it no longer sees members of, so the row stays;
+            # it's kept, with its helper's runs, but there's nothing to draw.
+            if not members:
+                continue
             # Which member took over from which: a continuation remembers
             # its parent (spawned_from), and both are members.
             member_ids = {m["conv"] for m in members}
@@ -475,7 +502,7 @@ def overview():
                 "counts": {"working": counts["working"], "silent": counts["silent"],
                            "needs_input": counts["needs_input"]},
                 "members": members,
-                "closed": all_retired([m["conv"] for m in members], index),
+                "closed": is_closed([m["conv"] for m in members], index),
                 "links": [{"from": a, "to": b, "messages": n} for a, b, n in talked],
                 "continues": continues,
                 "helper_links": [{"to": conv, "messages": n}

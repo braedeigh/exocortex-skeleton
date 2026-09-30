@@ -12,8 +12,8 @@ messages sent before it, so it can split a swarm, release a session or move
 it between swarms; a message sent after it links again; unplace restores;
 a line of work is found whole; helpers' messages never link anyone.
 
-And closing: a swarm whose members have all finished is `closed`, and opens
-again when one works again or a new one joins. And the helper's view: a
+And closing: a swarm with fewer than two members still working is `closed`,
+and opens again when a second one works again or a new one joins. And the helper's view: a
 member that finished over a day ago drops out of what the helper checks.
 """
 from datetime import datetime
@@ -258,19 +258,22 @@ def test_a_swarm_closes_when_every_member_has_finished(data_dir):
     assert card["closed"] is True
 
 
-def test_a_closed_swarm_opens_again_when_a_member_works_again(data_dir):
-    _seed("a", done_at="2026-09-28T09:00:00")
-    _seed("b", archived="2026-09-28T09:00:00")
+def test_a_closed_swarm_opens_again_when_two_members_work_again(data_dir):
+    _seed("a", "b", done_at="2026-09-28T09:00:00")
     peermail.send("b", "hi", from_conv="a")
     with store.mutate("bot_chats/index", {}) as index:
         index["a"]["running"] = True
+    [card] = swarms.overview()
+    assert card["closed"] is True                  # one working session isn't a swarm
+    with store.mutate("bot_chats/index", {}) as index:
+        index["b"]["running"] = True
     [card] = swarms.overview()
     assert card["closed"] is False
 
 
 def test_a_new_member_opens_a_closed_swarm(data_dir):
-    _seed("a", "b", done_at="2026-09-28T09:00:00")
-    _seed("c")
+    _seed("a", done_at="2026-09-28T09:00:00")
+    _seed("b", "c")
     peermail.send("b", "hi", from_conv="a")
     [swarm_id] = swarms.sync()
     swarms.join(swarm_id, "c")

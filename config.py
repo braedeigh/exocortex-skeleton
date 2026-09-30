@@ -140,7 +140,9 @@ SWARM_HELPER_MIN_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_MIN_SEC", "300
 SWARM_HELPER_TIMEOUT_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_TIMEOUT_SEC", "240"))
 # The helper's chat (helper_chat.py) starts every turn fresh, seeded with the
 # swarm, the chat summary, and this many of the owner's latest messages word for word.
-HELPER_CHAT_MESSAGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_MESSAGES", "10"))
+# Her messages are short and each is capped, so 20 adds only a few KB to the seed.
+# Prompt: "maybe make it 20 messages as long as the context isn't too high."
+HELPER_CHAT_MESSAGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_MESSAGES", "20"))
 # How long a finished swarm member (done, archived or handed on) stays in the
 # swarm helper's view — its runs and its chat seed — before it drops out of
 # what the helper checks. It stays a member; only the helper stops rereading it.

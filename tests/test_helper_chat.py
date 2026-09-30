@@ -5,8 +5,8 @@ What these pin: a helper chat turn never resumes and starts from a seed of
 the swarm's summaries, the running notes and only the last N exchanges; the
 notes are replaced after each turn, never appended; the helper chat is never
 continued, however big its context; a handed-off helper comes back as the one
-chat; a swarm is "retired" only when every member is done, closed or
-archived; and a retired swarm gets one closing check that names what git says
+chat; a swarm is "retired" once fewer than two members are still working;
+and a retired swarm gets one closing check that names what git says
 shipped and what's left, after which the helper marks itself done.
 """
 import json
@@ -168,19 +168,16 @@ def test_a_helpers_own_continuation_makes_no_swarm(helper):
 
 # --- Retirement and the closing check ---------------------------------------------
 
-def test_a_swarm_retires_only_when_every_member_is_finished(helper):
+def test_a_swarm_retires_when_fewer_than_two_members_are_working(helper):
     swarm_id = _entry(helper)["swarm_id"]
     assert swarms.retired(swarm_id) is False
     with store.mutate("bot_chats/index", {}) as index:
         index[A]["done_at"] = "2026-09-27T12:00:00"
-    assert swarms.retired(swarm_id) is False                   # B is still going
+        index[A]["running"] = True
+    assert swarms.retired(swarm_id) is False                   # A is mid-turn
     with store.mutate("bot_chats/index", {}) as index:
-        index[B]["archived"] = True
-        index[B]["running"] = True
-    assert swarms.retired(swarm_id) is False                   # ...mid-turn
-    with store.mutate("bot_chats/index", {}) as index:
-        index[B]["running"] = False
-    assert swarms.retired(swarm_id) is True
+        index[A]["running"] = False
+    assert swarms.retired(swarm_id) is True                    # B alone isn't a swarm
 
 
 def test_a_retired_swarm_gets_one_closing_check_then_the_helper_is_done(helper, tmp_path):
@@ -218,7 +215,8 @@ def test_a_swarm_that_comes_back_to_life_brings_its_helper_back(helper):
     swarm_helper.tick()
     with store.mutate("bot_chats/index", {}) as index:
         index[helper]["archived"] = True                       # its countdown closed it
-        index[B].pop("done_at")                                # and then B got a new turn
+        index[A].pop("done_at")                                # and then both got
+        index[B].pop("done_at")                                # new turns
     swarm_helper.tick()
     entry = _entry(helper)
     assert not any(k in entry for k in ("helper_closed_at", "archived", "done_at"))
