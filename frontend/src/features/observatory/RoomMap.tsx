@@ -10,10 +10,13 @@
  *     layer above the swarms and decides who works together. Tap it to open
  *     its chat, where every move it makes is posted with its reason and an
  *     undo line. Its last move is written beside it;
- *   - each SWARM in a circle, drawn exactly as on its own page
- *     (SwarmNetwork.tsx): purple rings for its sessions, green lines for who
- *     messaged whom, its helper in the middle. The swarm's name above the
- *     circle opens the swarm's page;
+ *   - each SWARM as one stack (SwarmStack.tsx): its name and the helper's
+ *     summary, then its circle drawn exactly as on its own page
+ *     (SwarmNetwork.tsx), then the questions its members are asking her as
+ *     answerable cards, then a little card per member. The swarms stand in
+ *     the room's order, so one with a question comes first
+ *     (roomOrder.orderRoom). SessionLane doesn't also give them a swarm card;
+ *     this is the one place a swarm shows in the room;
  *   - a switch to show the CLOSED swarms (every member finished), hidden
  *     otherwise — only there when some are closed;
  *   - every session WORKING ALONE (in no swarm) in rows beneath, as the same
@@ -23,23 +26,30 @@
  * an orange ring when it needs her), falling back to what the server said.
  * Tap any ring to open that session.
  *
- * Touches: swarmApi.ts (useRoomView — routes/swarms.py `room`), SwarmNetwork.tsx
- * (the circles, and the rings' look via SwarmNetwork.module.css),
+ * When the card is shut, its title line still says how many swarm members
+ * need her, so a question can't hide behind the collapse.
+ *
+ * Touches: swarmApi.ts (useRoomView — routes/swarms.py `room`), SwarmStack.tsx
+ * (each swarm), SwarmNetwork.tsx (the key, the closed switch, and the rings'
+ * look via SwarmNetwork.module.css), roomOrder.ts (the swarms' order),
  * body/CollapsibleCard.tsx (the card), RoomMap.module.css, SessionLane.tsx (which
  * puts this at the head of the room).
  *
  * Prompt that produced it: "There should also be a display on the front with
  * circles for each swarm and the generated helpers in the middle and extra
  * agents in rows below that. The swarms will be in the circles like they are
- * on each page."
+ * on each page." · "i want the summary of the swarm above the little bubble
+ * and then i want the question cards to show below it in the swarm and i want
+ * each one to have its little card below the swarm bubble"
  */
-import { useNavigate } from '@tanstack/react-router';
 import { CollapsibleCard } from '../body/CollapsibleCard';
 import type { SessionMeta } from './api';
 import styles from './RoomMap.module.css';
 import ring from './SwarmNetwork.module.css';
-import { ClosedSwarmsToggle, SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
-import type { MemberState, RoomView, Swarm } from './swarmApi';
+import { orderRoom, swarmPlace, type SwarmView } from './roomOrder';
+import { ClosedSwarmsToggle, SwarmNetworkKey } from './SwarmNetwork';
+import type { MemberState, RoomView } from './swarmApi';
+import { SwarmStack } from './SwarmStack';
 import { shortTitle } from './swarmNetworkMath';
 
 /** A session's state, read from the roster the same way the swarm cards
@@ -79,23 +89,38 @@ export function RoomMap({
   closedCount = 0,
   rosterById,
   onOpen,
+  onChanged,
 }: {
   room: string;
   view: RoomView;
-  /** The swarms in this room to draw — closed ones only when she asked. */
-  swarms: Swarm[];
+  /** The swarms in this room to draw, read through the roster
+   * (roomOrder.swarmView) — closed ones only when she asked. */
+  swarms: SwarmView[];
   /** How many swarms here are closed (every member finished), for the switch. */
   closedCount?: number;
   /** Every session the page knows, for the rings' live state. */
   rosterById: Map<string, SessionMeta>;
   onOpen: (conv: string) => void;
+  /** After she answers a question here, so the roster refreshes. */
+  onChanged?: () => void;
 }) {
-  const navigate = useNavigate();
   const lastMove = view.moves.find((m) => !m.undone_at);
   const helperMeta = view.helper_conv ? rosterById.get(view.helper_conv) : undefined;
+  // The swarms in the room's order: one with a question first, longest wait
+  // on top, then working, then resting (roomOrder.ts).
+  const orderedSwarms = orderRoom(swarms.map((swarm) => ({ item: swarm, ...swarmPlace(swarm) })));
+  // Say on the title line how many swarm members need her, so it still shows
+  // with the card shut.
+  const needing = swarms.reduce((total, swarm) => total + swarm.counts.needs_input, 0);
 
   return (
-    <CollapsibleCard cardKey={`room-map-${room}`} title="The room from above" defaultOpen>
+    <CollapsibleCard
+      cardKey={`room-map-${room}`}
+      title="The room from above"
+      defaultOpen
+      note={needing > 0 ? `${needing} need${needing === 1 ? 's' : ''} you` : undefined}
+      classes={{ note: styles.titleNote }}
+    >
       <div className={styles.map}>
         {/* The room helper, above everything it arranges. */}
         {view.helper_conv ? (
@@ -119,30 +144,19 @@ export function RoomMap({
           </div>
         ) : null}
 
-        {/* Each swarm in its circle, drawn as on its own page. */}
-        {swarms.length > 0 ? (
+        {/* Each swarm as one stack: summary, circle, questions, members. */}
+        {orderedSwarms.length > 0 ? (
           <>
             <SwarmNetworkKey />
-            <div className={styles.circles}>
-              {swarms.map((swarm) => (
-                <div key={swarm.id} className={styles.swarm}>
-                  <button
-                    type="button"
-                    className={styles.swarmName}
-                    onClick={() =>
-                      void navigate({ to: '/observatory/swarm/$swarmId', params: { swarmId: String(swarm.id) } })
-                    }
-                  >
-                    {swarm.name} →
-                  </button>
-                  <div className={styles.circle}>
-                    <SwarmNetwork
-                      swarm={swarm}
-                      onOpen={onOpen}
-                      helperWorking={!!(swarm.helper_conv && rosterById.get(swarm.helper_conv)?.running)}
-                    />
-                  </div>
-                </div>
+            <div className={styles.stacks}>
+              {orderedSwarms.map((swarmView) => (
+                <SwarmStack
+                  key={swarmView.swarm.id}
+                  view={swarmView}
+                  rosterById={rosterById}
+                  onOpen={onOpen}
+                  onChanged={onChanged}
+                />
               ))}
             </div>
           </>

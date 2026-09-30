@@ -1,5 +1,5 @@
-/* RoomMap — a room from above: the room helper on top, each swarm in a
-   circle, the sessions working alone in rows beneath. The rings themselves
+/* RoomMap — a room from above: the room helper on top, each swarm as a stack
+   (SwarmStack.module.css), the sessions working alone in rows beneath. The rings themselves
    come from SwarmNetwork.module.css, so they look the same everywhere. */
 
 .map {
@@ -59,56 +59,22 @@
   overflow-wrap: anywhere;
 }
 
-/* The swarms side by side, wrapping; a narrow phone scrolls sideways. */
-.circles {
+/* The swarm stacks side by side where there's room, one under another on a
+   phone. Each stack's own look is SwarmStack.module.css. */
+.stacks {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
+  align-items: flex-start;
   gap: var(--space-3);
-  overflow-x: auto;
 }
 
-.swarm {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.swarmName {
-  min-height: var(--tap-target, 40px);
-  padding: 0 var(--space-3);
-  border: none;
-  border-radius: var(--radius-md);
-  background: none;
-  color: var(--text);
-  font: inherit;
+/* "N need you" on the title line, seen even with the card shut. */
+.titleNote {
+  margin-left: auto;
+  color: var(--orange);
+  font-size: var(--font-size-sm);
   font-weight: 600;
-  cursor: pointer;
-}
-
-.swarmName:hover,
-.swarmName:focus-visible {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-/* The circle around a swarm's network. The padding keeps the network's own
-   ring of agents inside the round edge. */
-.circle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 580px;
-  aspect-ratio: 1;
-  padding: 9%;
-  box-sizing: border-box;
-  border: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
-}
-
-.circle > * {
-  width: 100%;
 }
 
 .soloHead {

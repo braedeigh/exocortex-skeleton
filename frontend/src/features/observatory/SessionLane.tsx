@@ -66,9 +66,11 @@ import styles from './SessionLane.module.css';
  * however many rooms are showing.
  *
  * THE ROOM FROM ABOVE. A room with a room helper (room_helper.py) opens with
- * a RoomMap: every swarm drawn in a circle, the helpers in the middle, the
- * sessions working alone in rows beneath. The room helper's own session
- * folds into that map instead of standing in the list.
+ * a RoomMap: the room helper on top, every swarm as one stack (its summary,
+ * its circle, its members' question cards, a little card per member), the
+ * sessions working alone in rows beneath. There the swarms live in the map
+ * only: no SwarmCard in the list, so a swarm isn't shown twice. The room
+ * helper's own session folds into that map instead of standing in the list.
  *
  * CLOSED SWARMS HIDE. A swarm whose every member has finished is closed
  * (swarms.py); its card and its circle stay off the room unless the "show
@@ -189,10 +191,11 @@ export function SessionLane({
   const byId = new Map(sessions.map((s) => [s.id, s]));
 
   // Place every card in the room's one order (roomOrder.ts): sessions by their
-  // band, swarms by theirs, each ordered inside its band by its own time.
+  // band, swarms by theirs, each ordered inside its band by its own time. With
+  // a room map the swarms stand in the map instead (RoomMap.tsx), not here.
   type Placed = { kind: 'row'; row: OrchestraRow } | { kind: 'swarm'; view: SwarmView };
   const places: RoomPlace<Placed>[] = [
-    ...swarmsHere.map((view) => ({
+    ...(hasRoomMap ? [] : swarmsHere).map((view) => ({
       item: { kind: 'swarm' as const, view },
       ...swarmPlace(view),
     })),
@@ -272,10 +275,11 @@ export function SessionLane({
         <RoomMap
           room={laneKey}
           view={roomView!}
-          swarms={roomSwarms}
+          swarms={swarmsHere}
           closedCount={closedHere}
           rosterById={rosterById}
           onOpen={onOpen}
+          onChanged={onChanged}
         />
       ) : null}
 
