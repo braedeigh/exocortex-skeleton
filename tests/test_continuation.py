@@ -44,7 +44,8 @@ def test_under_the_cap_nothing_happens(queued):
 
 
 def test_past_the_cap_it_is_asked_once_when_the_turn_ends(queued):
-    _seed("a", context_model="claude-opus-5-5", context_tokens=130000, running=True)
+    _seed("a", context_model="claude-opus-5-5",
+          context_tokens=config.CONTEXT_CAPS["opus"] + 10000, running=True)
     assert continuation.check("a") is False          # mid-turn: let it finish
     with store.mutate("bot_chats/index", {}) as index:
         index["a"]["running"] = False
