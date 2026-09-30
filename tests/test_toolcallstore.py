@@ -233,3 +233,75 @@ def test_final_usage_read_before_the_call_still_lands(roots):
     ])
     toolcallstore.ingest()
     assert rows("SELECT output_tokens, context_tokens FROM model_calls") == [(9, 5102)]
+
+
+# --- turn_usage: each turn's own share, when the harness reports running totals
+
+def _result(cost, usage, model_usage, ts_line=None):
+    """A result event: `usage` is this turn's, while `total_cost_usd` and
+    `modelUsage` are whatever the harness says — running totals when the
+    process ran earlier turns."""
+    u = {"input_tokens": usage[0], "cache_creation_input_tokens": usage[1],
+         "cache_read_input_tokens": usage[2], "output_tokens": usage[3]}
+    mu = {m: {"inputTokens": f[0], "cacheCreationInputTokens": f[1],
+              "cacheReadInputTokens": f[2], "outputTokens": f[3], "costUSD": f[4]}
+          for m, f in model_usage.items()}
+    return json.dumps({"type": "result", "subtype": "success", "session_id": "s1",
+                       "total_cost_usd": cost, "usage": u, "modelUsage": mu})
+
+
+# One process, two turns: the second result repeats the first's figures plus
+# its own. Then a fresh process: its figures are its own again.
+PROCESS = [
+    call_line(tool_id="toolu_1"),
+    _result(1.00, (2, 100, 1000, 50), {"opus": (2, 100, 1000, 50, 0.90),
+                                       "haiku": (5, 0, 0, 5, 0.10)}),
+    call_line(tool_id="toolu_2"),
+    _result(1.40, (1, 20, 1200, 30), {"opus": (3, 120, 2200, 80, 1.30),
+                                      "haiku": (5, 0, 0, 5, 0.10)}),
+    call_line(tool_id="toolu_3"),
+    _result(0.20, (1, 10, 500, 10), {"opus": (1, 10, 500, 10, 0.20)}),
+]
+
+
+def _shares():
+    return rows("SELECT seq, model, input_tokens, cache_creation_tokens,"
+                " cache_read_tokens, output_tokens, ROUND(cost_usd, 4)"
+                " FROM turn_usage ORDER BY seq, model")
+
+
+EXPECTED_SHARES = [
+    (1, "haiku", 5, 0, 0, 5, 0.1), (1, "opus", 2, 100, 1000, 50, 0.9),
+    # turn 2 continues the process: only its own share, and the helper model
+    # that did nothing this turn has no row
+    (2, "opus", 1, 20, 1200, 30, 0.4),
+    # turn 3 is a new process
+    (3, "opus", 1, 10, 500, 10, 0.2),
+]
+
+
+def test_running_totals_become_each_turns_own_share_even_across_a_resumed_scan(roots):
+    chats, _ = roots
+    p = write(chats / "2026-09-24.115556.jsonl", PROCESS[:2])
+    toolcallstore.ingest()
+    with p.open("a") as fh:
+        fh.write("\n".join(PROCESS[2:]) + "\n")
+    toolcallstore.ingest()
+    assert _shares() == EXPECTED_SHARES
+    # the shares add up to what was really spent, not the sum of the totals
+    assert rows("SELECT ROUND(SUM(cost_usd), 4) FROM turn_usage") == [(1.6,)]
+
+
+def test_backfill_of_turns_stored_before_turn_usage_matches_a_fresh_ingest(roots):
+    chats, _ = roots
+    write(chats / "2026-09-24.115556.jsonl", PROCESS)
+    toolcallstore.ingest()
+    # as if these turns had been stored by the code before turn_usage
+    conn = sqlstore.open_db()
+    conn.execute("DELETE FROM turn_usage")
+    conn.execute("UPDATE turn_results SET model_usage = NULL")
+    conn.commit()
+    conn.close()
+    stats = toolcallstore.ingest()
+    assert stats["backfilled"] == 3
+    assert _shares() == EXPECTED_SHARES

@@ -16,8 +16,24 @@ of JSONL by hand. This module folds those lines into two tables:
     turn_results  one row per Observatory turn — how it ended, how long it
                   took, and what it cost in tokens and dollars, from the
                   `result` event the harness emits when a turn finishes.
+                  These are the RAW figures, and cost_usd must not be summed:
+                  see turn_usage.
+    turn_usage    one row per turn per model — that turn's own tokens and
+                  cost. The table to add up (the Token burn page does).
 
-**Both tables are DERIVED**, like command_runs (commandstore.py) and unlike
+**Why turn_usage exists.** When one harness process runs several turns in a
+row, each turn's result event carries `usage` for that turn alone, but
+`total_cost_usd` and `modelUsage` are RUNNING TOTALS for the process — so
+summing turn_results.cost_usd counted the early turns again and again (about
+double, all-time, on the install this was built on). turn_results.model is
+also just the first model modelUsage lists, often a small helper model rather
+than the one doing the work. `turn_usage_rows` works out each turn's own
+share: a turn that continues the previous one (every model's figures at
+least as big as last time, and its own `usage` not already the whole story)
+has the previous figures subtracted. The raw modelUsage is kept on
+turn_results so a scan that resumes mid-file can still subtract.
+
+**All these tables are DERIVED**, like command_runs (commandstore.py) and unlike
 job_runs: every row can be re-read from the logs, so `rebuild()` may drop and
 re-ingest freely.
 
@@ -56,10 +72,11 @@ lives in exo.db inside her vault, the same place the logs already are.
 Results are NOT copied: only their size and error flag. A result is often a
 whole file, and the logs already hold it.
 
-Touches: `sqlstore.py` (owns the schema — rung 19), `store.py` (DATA_DIR for
-bot_chats), `commandstore.projects_dir` (the harness transcript root),
-`scripts/usage_events.py` (the cron entry point), `routes/observatory.py`
-(the live path), and `routes/sqlab.py` (lists the tables).
+Touches: `sqlstore.py` (owns the schema — rungs 19 and 41), `store.py`
+(DATA_DIR for bot_chats), `commandstore.projects_dir` (the harness transcript
+root), `scripts/usage_events.py` (the cron entry point), `routes/observatory.py`
+(the live path), `routes/sqlab.py` (lists the tables), and
+`routes/token_burn.py` (reads turn_usage through `burn()`).
 
 Prompt that produced this file: "I'm trying to figure out how to record my
 usage as granularly as possible and then give my tools the ability and
@@ -290,7 +307,97 @@ def _turn_row(d, conv):
         "output_tokens": usage.get("output_tokens"),
         "thinking_tokens": thinking,
         "model": model,
+        # Raw, as the harness wrote it (a running total when the process ran
+        # earlier turns) — turn_usage_rows works out this turn's share.
+        "model_usage": models,
     }
+
+
+# modelUsage's field names -> turn_usage's columns.
+_MODEL_FIELDS = (("inputTokens", "input_tokens"),
+                 ("cacheCreationInputTokens", "cache_creation_tokens"),
+                 ("cacheReadInputTokens", "cache_read_tokens"),
+                 ("outputTokens", "output_tokens"),
+                 ("thinkingTokens", "thinking_tokens"))
+# The four that make up a turn's token total (thinking is part of output).
+_TOTAL_FIELDS = ("inputTokens", "cacheCreationInputTokens",
+                 "cacheReadInputTokens", "outputTokens")
+
+
+def _num(value):
+    """A count or a cost as a number; anything else is 0."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+
+def _model_total(figures):
+    return sum(_num(figures.get(f)) for f in _TOTAL_FIELDS)
+
+
+def turn_usage_rows(turn, prev):
+    """One turn's OWN tokens and cost, per model — the turn_usage rows.
+
+    `turn` is a parsed turn row (_turn_row); `prev` is (model_usage, cost_usd)
+    from the conversation's previous turn that carried a modelUsage, or None.
+    Pure, so the rule can be tested on hand-built events.
+
+    Subtract the previous turn when this one continues it. It does when every
+    model the previous turn listed is here with every figure at least as big,
+    the cost hasn't dropped, and this turn's own `usage` isn't already the
+    whole of modelUsage (or of one model in it) — a fresh process's figures
+    are its own. Checked against the logs this was written on: after the
+    subtraction, the result matches the turn's `usage` exactly on 95% of
+    turns. The rest — old harness versions that froze modelUsage while the
+    cost climbed — keep the cost difference, and take their tokens from
+    `usage`, under the model that did the most.
+    """
+    usage = {"inputTokens": _num(turn.get("input_tokens")),
+             "cacheCreationInputTokens": _num(turn.get("cache_creation_tokens")),
+             "cacheReadInputTokens": _num(turn.get("cache_read_tokens")),
+             "outputTokens": _num(turn.get("output_tokens")),
+             "thinkingTokens": _num(turn.get("thinking_tokens"))}
+    usage_total = _model_total(usage)
+    cost = _num(turn.get("cost_usd"))
+    models = {m: f for m, f in (turn.get("model_usage") or {}).items() if isinstance(f, dict)}
+
+    def row(model, figures, row_cost):
+        out = {"model": model or "", "cost_usd": max(row_cost, 0.0)}
+        for src, col in _MODEL_FIELDS:
+            out[col] = max(_num(figures.get(src)), 0)
+        return out
+
+    # No per-model record (a helper's summary, an imported turn): one row
+    # from what the turn itself says.
+    if not models:
+        return [row(turn.get("model"), usage, cost)]
+
+    # Does this turn continue the previous one's process?
+    prev_models, prev_cost = prev if prev else ({}, 0.0)
+    own = (usage_total > 0 and (
+        sum(_model_total(f) for f in models.values()) == usage_total
+        or any(_model_total(f) == usage_total for f in models.values())))
+    continues = bool(prev_models) and not own and cost >= _num(prev_cost) and all(
+        m in models and all(_num(models[m].get(src)) >= _num(pf.get(src))
+                            for src, _ in _MODEL_FIELDS)
+        for m, pf in prev_models.items())
+
+    # This turn's share of each model: the difference, or the whole.
+    shares = {}
+    for m, f in models.items():
+        before = prev_models.get(m, {}) if continues else {}
+        shares[m] = ({src: _num(f.get(src)) - _num(before.get(src)) for src, _ in _MODEL_FIELDS},
+                     _num(f.get("costUSD")) - _num(before.get("costUSD")))
+    turn_cost = cost - _num(prev_cost) if continues else cost
+
+    # Check the shares against the turn's own usage. `usage` counts the main
+    # model only, so a match with one model's share counts too.
+    share_totals = [_model_total(fig) for fig, _ in shares.values()]
+    if usage_total and sum(share_totals) != usage_total and usage_total not in share_totals:
+        busiest = max(shares, key=lambda m: _model_total(shares[m][0]))
+        return [row(busiest, usage, turn_cost)]
+
+    rows = [row(m, fig, c) for m, (fig, c) in shares.items()
+            if _model_total(fig) or c > 0]
+    return rows or [row(next(iter(models)), usage, turn_cost)]
 
 
 def _conv_by_session():
@@ -366,7 +473,16 @@ def _ingest_path(conn, path, source, conv, seen, conv_of, now, stats):
         start, last_at, seq = 0, None, 0
         if before is not None:
             conn.execute("DELETE FROM turn_results WHERE conv = ?", (conv,))
+            conn.execute("DELETE FROM turn_usage WHERE conv = ?", (conv,))
     stats["files"] += 1
+    # The previous turn's running totals, so a turn that continues it can be
+    # cut down to its own share — from the table when the scan resumes. If
+    # an earlier turn here still waits for the backfill, the chain is broken
+    # and new turns wait too: backfill_turn_usage reads the whole file.
+    prev, defer = None, False
+    if start and conv is not None:
+        defer = _has_unfilled(conn, conv)
+        prev = None if defer else _prev_turn(conn, conv)
     sqlstore.begin_immediate(conn)
     try:
         for row in scan_file(path, start, source, conv, last_at):
@@ -437,6 +553,8 @@ def _ingest_path(conn, path, source, conv, seen, conv_of, now, stats):
             elif kind == "turn" and conv is not None:
                 seq += 1
                 row["seq"] = seq
+                row["model_usage_json"] = (json.dumps(row["model_usage"])
+                                           if row["model_usage"] else None)
                 cur = conn.execute(
                     "INSERT OR IGNORE INTO turn_results"
                     " (conv, seq, session_id, at, day, subtype,"
@@ -444,15 +562,20 @@ def _ingest_path(conn, path, source, conv, seen, conv_of, now, stats):
                     "  duration_api_ms, num_turns, cost_usd,"
                     "  input_tokens, cache_creation_tokens,"
                     "  cache_read_tokens, output_tokens,"
-                    "  thinking_tokens, model)"
+                    "  thinking_tokens, model, model_usage)"
                     " VALUES (:conv, :seq, :session_id, :at, :day,"
                     "  :subtype, :stop_reason, :is_error,"
                     "  :duration_ms, :duration_api_ms, :num_turns,"
                     "  :cost_usd, :input_tokens,"
                     "  :cache_creation_tokens, :cache_read_tokens,"
-                    "  :output_tokens, :thinking_tokens, :model)",
+                    "  :output_tokens, :thinking_tokens, :model,"
+                    "  :model_usage_json)",
                     row)
                 stats["turns"] += cur.rowcount
+                if not defer:
+                    _insert_turn_usage(conn, conv, seq, turn_usage_rows(row, prev))
+                if row["model_usage"]:
+                    prev = (row["model_usage"], row["cost_usd"])
             elif kind == "end":
                 last_at = row["last_at"]
                 # Store where reading stopped, not the file's size: a half
@@ -470,6 +593,98 @@ def _ingest_path(conn, path, source, conv, seen, conv_of, now, stats):
     except BaseException:
         conn.execute("ROLLBACK")
         raise
+
+
+def _prev_turn(conn, conv):
+    """(model_usage, cost_usd) of the conversation's latest turn that carried
+    a modelUsage, or None."""
+    found = conn.execute(
+        "SELECT model_usage, cost_usd FROM turn_results"
+        " WHERE conv = ? AND model_usage IS NOT NULL"
+        " ORDER BY seq DESC LIMIT 1", (conv,)).fetchone()
+    if not found:
+        return None
+    try:
+        return json.loads(found[0]), found[1]
+    except (TypeError, ValueError):
+        return None
+
+
+def _insert_turn_usage(conn, conv, seq, rows):
+    """Write one turn's per-model rows. A turn already there is left alone,
+    the same rule turn_results keeps."""
+    for r in rows:
+        conn.execute(
+            "INSERT OR IGNORE INTO turn_usage (conv, seq, model, input_tokens,"
+            "  cache_creation_tokens, cache_read_tokens, output_tokens,"
+            "  thinking_tokens, cost_usd)"
+            " VALUES (:conv, :seq, :model, :input_tokens, :cache_creation_tokens,"
+            "  :cache_read_tokens, :output_tokens, :thinking_tokens, :cost_usd)",
+            {**r, "conv": conv, "seq": seq})
+
+
+def backfill_turn_usage(bot_chats=None):
+    """Fill turn_usage (and turn_results.model_usage) for turns stored before
+    turn_usage existed. The watermark won't re-read those logs, so this walks
+    bot_chats once more, reading only result lines and numbering them the way
+    the ingest did. Idempotent; returns how many turns it filled. `ingest()`
+    runs it on its own whenever a stored turn has no turn_usage rows."""
+    bot_chats = Path(bot_chats) if bot_chats else bot_chats_dir()
+    conn = sqlstore.open_db()
+    filled = 0
+    try:
+        # The conversations with a stored turn that has no turn_usage rows.
+        missing = {r[0] for r in conn.execute(
+            _UNFILLED.replace("SELECT 1", "SELECT DISTINCT t.conv", 1))}
+        for path in _files(bot_chats, "*.jsonl"):
+            conv = path.stem
+            if conv not in missing:
+                continue
+            stored = {r[0]: r[1] for r in conn.execute(
+                "SELECT seq, EXISTS (SELECT 1 FROM turn_usage u"
+                "  WHERE u.conv = t.conv AND u.seq = t.seq)"
+                " FROM turn_results t WHERE conv = ?", (conv,))}
+            sqlstore.begin_immediate(conn)
+            try:
+                seq, prev = 0, None
+                for row in scan_file(path, 0, "observatory", conv):
+                    if row["kind"] != "turn":
+                        continue
+                    seq += 1
+                    if seq in stored and not stored[seq]:
+                        if row["model_usage"]:
+                            conn.execute(
+                                "UPDATE turn_results SET model_usage = ?"
+                                " WHERE conv = ? AND seq = ?",
+                                (json.dumps(row["model_usage"]), conv, seq))
+                        _insert_turn_usage(conn, conv, seq, turn_usage_rows(row, prev))
+                        filled += 1
+                    if row["model_usage"]:
+                        prev = (row["model_usage"], row["cost_usd"])
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+        return filled
+    finally:
+        conn.close()
+
+
+_UNFILLED = ("SELECT 1 FROM turn_results t WHERE NOT EXISTS"
+             " (SELECT 1 FROM turn_usage u WHERE u.conv = t.conv AND u.seq = t.seq)")
+
+
+def _has_unfilled(conn, conv):
+    """Whether any of this conversation's turns has no turn_usage rows yet."""
+    return conn.execute(_UNFILLED + " AND t.conv = ? LIMIT 1", (conv,)).fetchone() is not None
+
+
+def _needs_backfill():
+    conn = sqlstore.open_db()
+    try:
+        return conn.execute(_UNFILLED + " LIMIT 1").fetchone() is not None
+    finally:
+        conn.close()
 
 
 def ingest(bot_chats=None, projects=None):
@@ -497,9 +712,12 @@ def ingest(bot_chats=None, projects=None):
         now = datetime.now().isoformat(timespec="seconds")
         for path, source, conv in plan:
             _ingest_path(conn, path, source, conv, seen, conv_of, now, stats)
-        return stats
     finally:
         conn.close()
+    # Turns stored before turn_usage existed get their rows here, once.
+    if _needs_backfill():
+        stats["backfilled"] = backfill_turn_usage(bot_chats)
+    return stats
 
 
 def live_ingest(path, conv):
@@ -532,6 +750,7 @@ def rebuild(bot_chats=None, projects=None):
         conn.execute("DELETE FROM tool_calls")
         conn.execute("DELETE FROM model_calls")
         conn.execute("DELETE FROM turn_results")
+        conn.execute("DELETE FROM turn_usage")
         conn.execute("DELETE FROM tool_call_sources")
         conn.execute("COMMIT")
     finally:
@@ -564,3 +783,170 @@ def summary(days=None):
         return [dict(r) for r in rows]
     finally:
         conn.close()
+
+
+def burn_units(since=None):
+    """What the Token burn page adds up: one row per (conversation, model)
+    with its tokens by kind, its cost, and how many turns used it — from
+    turn_usage, windowed on the turn's clock. `since` is a local ISO stamp;
+    None means all time, undated turns included. Alongside: each
+    conversation's turn count, since a turn that used two models is still
+    one turn."""
+    where, params = "", []
+    if since:
+        where = " WHERE t.at >= ?"
+        params.append(since)
+    conn = _open()
+    try:
+        units = [dict(r) for r in conn.execute(
+            "SELECT u.conv, u.model, COUNT(*) AS turns,"
+            "       SUM(u.input_tokens) AS input_tokens,"
+            "       SUM(u.cache_creation_tokens) AS cache_creation_tokens,"
+            "       SUM(u.cache_read_tokens) AS cache_read_tokens,"
+            "       SUM(u.output_tokens) AS output_tokens,"
+            "       SUM(u.thinking_tokens) AS thinking_tokens,"
+            "       SUM(u.cost_usd) AS cost_usd"
+            " FROM turn_usage u JOIN turn_results t"
+            "   ON t.conv = u.conv AND t.seq = u.seq"
+            f"{where} GROUP BY u.conv, u.model", params)]
+        turns = {r[0]: r[1] for r in conn.execute(
+            f"SELECT t.conv, COUNT(*) FROM turn_results t{where} GROUP BY t.conv", params)}
+        undated = conn.execute(
+            "SELECT COUNT(*) FROM turn_results WHERE at IS NULL").fetchone()[0]
+        first = conn.execute("SELECT MIN(day) FROM turn_results").fetchone()[0]
+        return {"units": units, "turns": turns, "undated": undated, "first_day": first}
+    finally:
+        conn.close()
+
+
+def freshness(bot_chats=None, stale_after_minutes=70):
+    """How current the turn tables are. A finished turn is folded in when it
+    ends (routes/observatory.py) and the hourly pass sweeps up the rest, so a
+    log with whole lines nobody has read, last written more than an hour
+    ago, means the hourly pass isn't running — that is what STALE means.
+    Returns {"updated_at", "latest_turn_at", "waiting", "stale"}."""
+    bot_chats = Path(bot_chats) if bot_chats else bot_chats_dir()
+    conn = sqlstore.open_db()
+    try:
+        read_to = {r[0]: r[1] for r in conn.execute(
+            "SELECT path, size FROM tool_call_sources WHERE path LIKE ?",
+            (str(bot_chats) + "%",))}
+        updated = conn.execute(
+            "SELECT MAX(scanned_at) FROM tool_call_sources WHERE path LIKE ?",
+            (str(bot_chats) + "%",)).fetchone()[0]
+        latest = conn.execute("SELECT MAX(at) FROM turn_results").fetchone()[0]
+    finally:
+        conn.close()
+    now = datetime.now().timestamp()
+    waiting = stale = 0
+    for path in _files(bot_chats, "*.jsonl"):
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        offset = read_to.get(str(path), 0) or 0
+        if st.st_size <= offset:
+            continue
+        # Only whole lines count: a half-written tail isn't unread news.
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(offset)
+                if b"\n" not in fh.read(1 << 20):
+                    continue
+        except OSError:
+            continue
+        waiting += 1
+        if now - st.st_mtime > stale_after_minutes * 60:
+            stale += 1
+    return {"updated_at": updated, "latest_turn_at": latest,
+            "waiting": waiting, "stale": stale > 0}
+
+
+def burn_timeline(since=None, hourly=False):
+    """Tokens by kind and cost per hour (hourly=True) or per day, from
+    turn_usage — each turn counted when it ended. Buckets with nothing in
+    them are left out; the page draws the gaps."""
+    width = 13 if hourly else 10       # "2026-09-30T15" or "2026-09-30"
+    where, params = " WHERE t.at IS NOT NULL", []
+    if since:
+        where += " AND t.at >= ?"
+        params.append(since)
+    conn = _open()
+    try:
+        return [dict(r) for r in conn.execute(
+            f"SELECT substr(t.at, 1, {width}) AS bucket,"
+            "       SUM(u.input_tokens) AS input,"
+            "       SUM(u.cache_creation_tokens) AS cache_write,"
+            "       SUM(u.cache_read_tokens) AS cache_read,"
+            "       SUM(u.output_tokens) AS output,"
+            "       SUM(u.cost_usd) AS cost_usd,"
+            "       COUNT(DISTINCT t.conv || ':' || t.seq) AS turns"
+            " FROM turn_usage u JOIN turn_results t"
+            "   ON t.conv = u.conv AND t.seq = u.seq"
+            f"{where} GROUP BY bucket ORDER BY bucket", params)]
+    finally:
+        conn.close()
+
+
+def outside_calls(since=None):
+    """The model calls made outside the Observatory (a terminal, tmux) in
+    the window — what the burn totals can't include. Their input side is
+    exact; their final output count isn't in any record the app reads."""
+    where, params = " WHERE conv IS NULL", []
+    if since:
+        where += " AND at >= ?"
+        params.append(since)
+    conn = _open()
+    try:
+        r = conn.execute(
+            "SELECT COUNT(*) AS calls, COUNT(DISTINCT session_id) AS sessions,"
+            "       COALESCE(SUM(context_tokens), 0) AS context_tokens"
+            f" FROM model_calls{where}", params).fetchone()
+        return dict(r)
+    finally:
+        conn.close()
+
+
+def session_burn(conv):
+    """One conversation, turn by turn, each turn with the model calls inside
+    it — the drill-down under a session row. A call belongs to the turn whose
+    end is the first one at or after it; calls after the last finished turn
+    are a turn still running. Calls are only on record from the day the
+    model_calls table began, so older turns come back with no calls."""
+    conn = _open()
+    try:
+        turns = [dict(r) for r in conn.execute(
+            "SELECT t.seq, t.at, t.subtype, t.duration_ms,"
+            "       GROUP_CONCAT(DISTINCT NULLIF(u.model, '')) AS models,"
+            "       SUM(u.input_tokens) AS input,"
+            "       SUM(u.cache_creation_tokens) AS cache_write,"
+            "       SUM(u.cache_read_tokens) AS cache_read,"
+            "       SUM(u.output_tokens) AS output,"
+            "       SUM(u.cost_usd) AS cost_usd"
+            " FROM turn_results t LEFT JOIN turn_usage u"
+            "   ON u.conv = t.conv AND u.seq = t.seq"
+            " WHERE t.conv = ? GROUP BY t.seq ORDER BY t.seq", (conv,))]
+        calls = [dict(r) for r in conn.execute(
+            "SELECT m.at, m.model, m.parent_tool_use_id IS NOT NULL AS subagent,"
+            "       m.input_tokens AS input, m.cache_creation_tokens AS cache_write,"
+            "       m.cache_read_tokens AS cache_read, m.output_tokens AS output,"
+            "       (SELECT GROUP_CONCAT(c.name, ', ') FROM tool_calls c"
+            "        WHERE c.tool_use_id IN (SELECT value FROM json_each(m.tool_use_ids)))"
+            "         AS tools"
+            " FROM model_calls m WHERE m.conv = ? AND m.at IS NOT NULL"
+            " ORDER BY m.at", (conv,))]
+    finally:
+        conn.close()
+    for t in turns:
+        t["calls"] = []
+    running = {"seq": None, "at": None, "subtype": "running", "calls": []}
+    # Walk calls and turn ends together, both in time order.
+    ends = [t for t in turns if t["at"]]
+    i = 0
+    for call in calls:
+        while i < len(ends) and ends[i]["at"] < call["at"]:
+            i += 1
+        (ends[i] if i < len(ends) else running)["calls"].append(call)
+    if running["calls"]:
+        turns.append(running)
+    return turns

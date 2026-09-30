@@ -35,6 +35,7 @@ import { HelpersDoor } from './HelpersDoor';
 import { LinearDoor } from './LinearDoor';
 import { ResearchDoor } from './ResearchDoor';
 import { SpinoffTreeDoor } from './SpinoffTreeDoor';
+import { TokenBurnDoor } from './TokenBurnDoor';
 import { SavedLane } from './SavedLane';
 import { WorktreeMapDoor } from './WorktreeMapDoor';
 import { SudoRequests } from '../sudo/SudoRequests';
@@ -502,6 +503,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
 
           {/* The spinoff family tree — which session came from which. */}
           <SpinoffTreeDoor />
+
+          {/* What the agents spend — tokens by model, session, room and kind,
+              and when. A plain door: the numbers load once she walks in. */}
+          <TokenBurnDoor />
 
           {/* Seeded from the '+' she actually pressed, and NOT seeded at all
               from the rail's — that one gets a null lane, which makes the sheet

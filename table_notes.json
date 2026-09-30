@@ -1518,7 +1518,7 @@
     }
   },
   "turn_results": {
-    "holds": "One row per Observatory turn: how it ended, how long it took, and what it cost in tokens and dollars.",
+    "holds": "One row per Observatory turn: how it ended, how long it took, and the raw token and cost figures the harness reported. Don't add up its cost_usd or group by its model — use turn_usage for that.",
     "source": "Built by toolcallstore.py from the result event the harness writes at the end of every turn in the bot_chats logs. Re-readable, so it can be dropped and rebuilt.",
     "kind": "mirror",
     "time_column": "at",
@@ -1557,7 +1557,7 @@
         "holds": "How many model round-trips the turn took."
       },
       "cost_usd": {
-        "holds": "What the harness reckoned the turn cost."
+        "holds": "The harness's total_cost_usd as written. When one agent process ran several turns in a row this is a RUNNING TOTAL for the process, not this turn's cost — so summing it overcounts. turn_usage holds each turn's own share."
       },
       "input_tokens": {
         "holds": "Fresh input tokens."
@@ -1575,7 +1575,45 @@
         "holds": "Of the output, how many were thinking."
       },
       "model": {
-        "holds": "The model that served the turn."
+        "holds": "The first model the harness listed for the turn — often a small helper model rather than the one doing the work. turn_usage splits the turn by model."
+      },
+      "model_usage": {
+        "holds": "The harness's per-model figures (tokens and cost per model) as JSON, as written — running totals when the process ran earlier turns. Kept so the next turn's own share can be worked out."
+      }
+    }
+  },
+  "turn_usage": {
+    "holds": "One row per Observatory turn per model: that turn's own tokens of each kind and its estimated cost. The table to add up — the Token burn page does.",
+    "source": "Built by toolcallstore.py from the result event at the end of every turn in the bot_chats logs, with the previous turn's running totals subtracted when one process ran several turns. Re-readable, so it can be dropped and rebuilt.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "conv": {
+        "holds": "The conversation — joins to turn_results.conv and sessions.id."
+      },
+      "seq": {
+        "holds": "Which turn of that conversation — joins to turn_results.seq, which has the turn's time."
+      },
+      "model": {
+        "holds": "The model this share was spent on; empty when the log didn't say (a helper's summary, an old turn)."
+      },
+      "input_tokens": {
+        "holds": "Fresh input tokens this turn sent to this model."
+      },
+      "cache_creation_tokens": {
+        "holds": "Tokens written to the prompt cache this turn."
+      },
+      "cache_read_tokens": {
+        "holds": "Tokens re-read from the cache this turn — the cheap kind, and most of them."
+      },
+      "output_tokens": {
+        "holds": "Tokens the model wrote this turn, thinking included."
+      },
+      "thinking_tokens": {
+        "holds": "Of the output, how many were thinking."
+      },
+      "cost_usd": {
+        "holds": "This turn's share of the harness's estimated cost at API list prices — an estimate, not a bill."
       }
     }
   },

@@ -34,6 +34,7 @@ from routes import (
     branches, worktree_map, sudo, recordings, research_room, linear_room,
     sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
     exposure, nutrition, georegions, transcripts, recipe_nutrition, recipe_share,
+    token_burn,
 )
 from routes.shell import VALID_TABS
 
@@ -1299,6 +1300,8 @@ photos.register(app)
 wiki.register(app)
 travel.register(app)
 usage.register(app)
+# What the agents spent, added up — the Token burn page off the roster.
+token_burn.register(app)
 push.register(app)
 claude_auth.register(app)
 sqlab.register(app)

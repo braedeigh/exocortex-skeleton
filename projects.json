@@ -542,7 +542,8 @@
         "pond.py",
         "sqlab.py",
         "sandbox.py",
-        "usage.py"
+        "usage.py",
+        "token_burn.py"
       ],
       "frontend": [
         "terrain",
@@ -583,6 +584,7 @@
         "tool_call_sources",
         "model_calls",
         "turn_results",
+        "turn_usage",
         "ui_events",
         "requests"
       ],

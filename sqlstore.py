@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 40
+_SCHEMA_VERSION = 41
 
 
 def _db_path():
@@ -178,7 +178,7 @@ _EXPECTED_TABLES = (
     "code_files", "code_edges",
     "traces", "trace_spans",
     "notes", "note_judgments",
-    "tool_calls", "tool_call_sources", "turn_results", "ui_events", "requests",
+    "tool_calls", "tool_call_sources", "turn_results", "turn_usage", "ui_events", "requests",
     "foods", "food_names", "products", "receipt_names", "food_links",
     "recipe_makes", "meal_rotation",
     "recipes", "recipe_lines", "shopping_trips", "shopping_lines", "grocery_list",
@@ -2906,6 +2906,39 @@ def _run_ladder(conn):
         )
         conn.execute("CREATE INDEX IF NOT EXISTS helper_watches_status"
                      " ON helper_watches (status, owner_conv)")
+    if version < 41:
+        # Rung 41: what each Observatory turn really cost, per model
+        # (toolcallstore.py). DERIVED from the logs, like turn_results.
+        #
+        # turn_results can't be summed for this. When one harness process
+        # runs several turns, its result event's total_cost_usd and
+        # modelUsage are RUNNING TOTALS for the process (only `usage` is per
+        # turn), and turn_results.model is just the first model listed. So
+        # turn_results keeps the raw figures, now including the raw
+        # modelUsage (the next turn needs it to subtract), and turn_usage
+        # holds the per-turn, per-model share: the table to add up.
+        # Guarded, like rung 31's: a replayed ladder finds the column there.
+        try:
+            conn.execute("ALTER TABLE turn_results ADD COLUMN model_usage TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS turn_usage ("
+            "  conv TEXT NOT NULL,"
+            "  seq INTEGER NOT NULL,"
+            # '' when the log didn't say (a helper's summary, an old turn).
+            "  model TEXT NOT NULL,"
+            "  input_tokens INTEGER NOT NULL DEFAULT 0,"
+            "  cache_creation_tokens INTEGER NOT NULL DEFAULT 0,"
+            "  cache_read_tokens INTEGER NOT NULL DEFAULT 0,"
+            "  output_tokens INTEGER NOT NULL DEFAULT 0,"
+            "  thinking_tokens INTEGER NOT NULL DEFAULT 0,"
+            # The harness's own estimate at API list prices, this turn only.
+            "  cost_usd REAL NOT NULL DEFAULT 0,"
+            "  PRIMARY KEY (conv, seq, model)"
+            ")"
+        )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

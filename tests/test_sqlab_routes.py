@@ -155,7 +155,7 @@ def test_collections_reports_typed_tables_separately(client):
         "cards", "card_tags",
         "todos", "fronts", "todo_fronts", "todo_subtasks",
         "attention_segments",
-        "tool_calls", "tool_call_sources", "turn_results", "ui_events", "requests",
+        "tool_calls", "tool_call_sources", "turn_results", "turn_usage", "ui_events", "requests",
         "foods", "food_names", "products", "receipt_names", "food_links",
         "recipe_makes", "meal_rotation",
         "recipes", "recipe_lines", "shopping_trips", "shopping_lines", "grocery_list",
