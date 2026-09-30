@@ -207,6 +207,17 @@ def test_nobody_is_joined_into_a_closed_swarm(room):
         room_helper.execute("coding", "join", ["s1"], swarm_id, "same work")
 
 
+def test_a_session_saved_for_later_is_left_where_it_is(room):
+    _seed("s1", "s2")
+    _seed("parked", saved_at="2026-09-30T10:00:00")
+    assert "parked" not in room_helper.solo_sessions("coding", store.read("bot_chats/index", {}), [])
+    with pytest.raises(room_helper.MoveError):
+        room_helper.execute("coding", "form", ["s1", "parked"], None, "same work",
+                            by="room_helper")
+    # ...unless she moves it herself
+    room_helper.execute("coding", "form", ["s1", "parked"], None, "she asked", by="owner")
+
+
 # --- A swarm is at least two sessions still working -------------------------------
 
 def test_a_swarm_down_to_one_working_session_closes_and_it_works_alone(room):

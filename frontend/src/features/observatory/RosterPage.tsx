@@ -35,6 +35,7 @@ import { HelpersDoor } from './HelpersDoor';
 import { LinearDoor } from './LinearDoor';
 import { ResearchDoor } from './ResearchDoor';
 import { SpinoffTreeDoor } from './SpinoffTreeDoor';
+import { SavedLane } from './SavedLane';
 import { WorktreeMapDoor } from './WorktreeMapDoor';
 import { SudoRequests } from '../sudo/SudoRequests';
 import { MemoryMeter } from '../runqueue/MemoryMeter';
@@ -309,6 +310,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // watching the door to her day disappear would break the "always at the top"
   // promise the moment she used a filter.
   const keeper = ordered.filter((s) => s.pinned);
+  // Sessions she saved for later: out of the rooms (roomRoster drops them) and
+  // into their own shut section under them. Read off `ordered` like the Keeper,
+  // so the rail's colours never narrow them away or count them.
+  const saved = ordered.filter((s) => s.saved_at && !s.pinned);
   // The lane is server-resolved (it derives one for every session that predates
   // the field), so this is a straight split, not a guess. What's eligible at all
   // was already decided upstream by `roomable` — the Keeper isn't drawn twice
@@ -469,6 +474,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               onClose={onCloseSession}
             />
           ))}
+
+          {/* Parked sessions, shut by default, right under the rooms they
+              came from (SavedLane.tsx). */}
+          <SavedLane sessions={saved} onOpen={open} onChanged={refresh} />
 
           {/* Night crew is a PAGE now, and this is the way in — left exactly
               where its section used to sit, because that's where she already

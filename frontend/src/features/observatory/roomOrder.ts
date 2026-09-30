@@ -135,9 +135,10 @@ export function swarmView(
   const members: SwarmMemberView[] = [];
   for (const member of swarm.members) {
     // Leave off finished members, by either account (the swarm list's
-    // `retired`, or the roster's done/retired).
+    // `retired`, or the roster's done/retired), and ones she saved for later,
+    // which wait in their own section and mustn't make the swarm ask for her.
     const meta = metaById.get(member.conv);
-    if (member.retired || (meta && isDone(meta))) continue;
+    if (member.retired || (meta && (isDone(meta) || meta.saved_at))) continue;
     let state: MemberState = member.state;
     let unread = false;
     if (meta) {

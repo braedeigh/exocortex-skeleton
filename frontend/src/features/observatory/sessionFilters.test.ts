@@ -306,6 +306,16 @@ describe('roomRoster', () => {
     expect(kept.map((s) => s.id)).toEqual(['mine']);
   });
 
+  it('leaves a saved-for-later session out of the rooms and the orange count', () => {
+    const rooms = roomRoster(
+      [session('parked', { saved_at: ago(0), awaiting_input: 'q' }), session('mine')],
+      {},
+      NOW,
+    );
+    expect(rooms.map((s) => s.id)).toEqual(['mine']);
+    expect(filterCounts(rooms, { mine: ago(0) }, NOW).unread).toBe(0);
+  });
+
   it('keeps a session whose lane no longer has a room', () => {
     // Retired-lane sessions still get drawn (they fall through to Coding), so
     // they have to stay countable or the rail under-reports instead of over-.

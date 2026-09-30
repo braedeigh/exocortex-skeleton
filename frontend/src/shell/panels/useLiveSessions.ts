@@ -32,7 +32,8 @@ export function useLiveSessions(): LiveTab[] {
   return useMemo(() => {
     if (!sessions) return [];
     return sessions
-      .filter((s) => s.running || s.awaiting_input)
+      // A question in a session she saved for later waits with it, off the bar.
+      .filter((s) => s.running || (s.awaiting_input && !s.saved_at))
       .map((s) => ({
         convId: s.id,
         title: s.title,

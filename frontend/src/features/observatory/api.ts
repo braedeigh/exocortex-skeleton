@@ -208,6 +208,13 @@ export interface SessionMeta {
   final_at?: string;
   /** Its one line about what was finished, when it gave one. */
   done_note?: string;
+  /** She saved it for later (her "not now, but keep it"): it stays open with
+   * everything it had, open questions included, but the idle check never wakes
+   * it, it never closes itself, the room helper leaves it be, and the roster
+   * lifts it out of the rooms into the shut Saved for later section
+   * (SavedLane.tsx). Her next message into it, or Pick back up, clears it
+   * (routes/observatory.py save_for_later). */
+  saved_at?: string;
   /** Which model this session's next turn will actually run on — its own pin
    * if it has one, else the CLI's own default, resolved server-side. Absent
    * only when neither says anything. Read-only, for SHOWING: the ✎ dialog seeds
@@ -443,6 +450,12 @@ export function closeConversation(id: string): Promise<{ ok: true }> {
 /** Keep open: cancel a finished session's countdown to closing itself. */
 export function keepConversation(id: string): Promise<{ ok: true }> {
   return api.post(`/api/observatory/conversation/${encodeURIComponent(id)}/keep`, {});
+}
+
+/** Save a session for later, or pick it back up (saved = false). The pinned
+ * Keeper refuses (400). */
+export function saveForLater(id: string, saved: boolean): Promise<{ ok: true }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(id)}/save`, { saved });
 }
 
 /** Stop a running turn on purpose — the stop button's door. This is the only

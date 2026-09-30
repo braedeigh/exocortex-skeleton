@@ -205,3 +205,43 @@ def test_idle_check_wakes_only_a_few_per_tick_oldest_first(conv, queued):
                 "last_at": f"2026-09-2{n}T12:00:00"}
     woken = observatory.idle_check_sessions(_a_day_later())
     assert woken == ["2026-09-20.120000", "2026-09-21.120000"][:observatory.IDLE_CHECKS_PER_TICK]
+
+
+# --- Save for later: a parked session is left alone until she's back ---------
+
+def test_a_saved_session_is_never_idle_checked_or_closed(bot_client, conv, queued):
+    with store.mutate("bot_chats/index", {}) as index:
+        index["2026-09-27.130000"] = dict(index[CONV], title="not saved")
+    assert bot_client.post(f"/api/observatory/conversation/{CONV}/save", json={}).status_code == 200
+    days_later = datetime.now() + timedelta(days=5)
+    assert observatory.idle_check_sessions(days_later) == ["2026-09-27.130000"]
+    assert observatory.mark_done(CONV)[1] == 400
+    assert observatory.close_done_sessions(now=days_later) == []
+    assert not _entry().get("archived")
+
+
+def test_saving_stops_a_done_countdown(conv):
+    observatory.mark_done(conv)
+    observatory.save_for_later(conv)
+    assert "closes_at" not in _entry()
+    assert observatory.close_done_sessions(now=_past_close_time()) == []
+
+
+def test_the_keeper_cannot_be_saved(bot_client, conv):
+    with store.mutate("bot_chats/index", {}) as index:
+        index[CONV]["pinned"] = True
+    assert bot_client.post(f"/api/observatory/conversation/{CONV}/save").status_code == 400
+
+
+def test_picking_a_saved_session_back_up_lets_the_idle_check_ask_again(bot_client, conv,
+                                                                       queued):
+    observatory.save_for_later(conv)
+    bot_client.post(f"/api/observatory/conversation/{CONV}/save", json={"saved": False})
+    later = datetime.now() + timedelta(days=5)
+    assert observatory.idle_check_sessions(later) == [conv]
+
+
+def test_her_message_picks_a_saved_session_back_up(bot_client, conv, queued):
+    observatory.save_for_later(conv)
+    bot_client.post(f"/api/observatory/conversation/{CONV}/send", json={"text": "back to it"})
+    assert "saved_at" not in _entry()

@@ -214,7 +214,10 @@ def solo_sessions(room, index, cards):
     helpers = _helper_convs(index)
     found = [(entry.get("last_at") or "", conv) for conv, entry in index.items()
              if isinstance(entry, dict) and conv not in in_swarm and conv not in helpers
-             and not swarms.member_retired(entry) and lanes.derive_lane(entry) == room]
+             and not swarms.member_retired(entry) and lanes.derive_lane(entry) == room
+             # Saved for later: parked by her, so not the helper's to place
+             # (routes/observatory.py save_for_later).
+             and not entry.get("saved_at")]
     return [conv for _, conv in sorted(found, reverse=True)]
 
 
@@ -275,6 +278,9 @@ def _stored_summaries(convs):
 
 def _describe(conv, entry):
     state = "retired" if swarms.member_retired(entry) else swarms._status(entry)
+    # A saved session says so, so the helper knows it isn't its to move.
+    if entry.get("saved_at"):
+        state += ", saved for later (don't move it)"
     return f"`{conv}` {entry.get('title') or conv} — {state}, last active {entry.get('last_at') or '?'}"
 
 
@@ -377,6 +383,10 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
     for conv in convs:
         moved |= swarms.line_of_work(conv, index)
     moved = sorted(moved)
+    # Refuse to move a session she saved for later, unless she's the one moving it.
+    saved = [c for c in moved if (index.get(c) or {}).get("saved_at")]
+    if saved and by != "owner":
+        raise MoveError(f"saved for later by the owner: {', '.join(saved)}")
     # Where each session is now: its swarm only while that swarm is open. A
     # closed swarm's one working session is working alone (swarms.is_closed).
     open_ids = {c["id"] for c in swarms.overview() if not c.get("closed")}

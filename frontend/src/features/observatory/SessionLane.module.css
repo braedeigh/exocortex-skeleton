@@ -1102,3 +1102,49 @@
   opacity: 0.65;
   cursor: default;
 }
+
+/* --- Save for later / Pick back up (SessionCard SaveLaterButton) --- */
+/* Full width at the card's foot, 40px tall. Save is quiet ink on a dashed
+   line, since it's a way OUT of her attention and mustn't compete with Send or
+   Resume. Pick back up is solid, in the accent: it's the one thing a saved
+   card is for. */
+.laterBtn,
+.pickUpBtn {
+  display: block;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.laterBtn {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.laterBtn:hover:not(:disabled) {
+  color: var(--text);
+  border-style: solid;
+}
+
+.pickUpBtn {
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.pickUpBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.laterBtn:disabled,
+.pickUpBtn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}

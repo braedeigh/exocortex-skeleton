@@ -245,6 +245,9 @@ export function matchesFilter(
  *   lane linear       sessions working in Linear with her, which belong to the
  *                     Linear room behind its own door (LinearDoor →
  *                     /observatory/linear)
+ *   saved_at          sessions she saved for later, which sit in the shut
+ *                     Saved for later section at the foot of the roster
+ *                     (SavedLane.tsx) and ask nothing of her until picked up
  *
  * WHY THIS IS A FUNCTION AND NOT A LINE IN THE PAGE. It used to be a line in
  * the page — inside the room split only — while the counts were taken over the
@@ -270,6 +273,7 @@ export function roomRoster(
       s.origin !== 'research' &&
       s.lane !== 'research' &&
       s.lane !== 'linear' &&
+      !s.saved_at &&
       !retiredOrange(s, opened[s.id], nowMs),
   );
 }

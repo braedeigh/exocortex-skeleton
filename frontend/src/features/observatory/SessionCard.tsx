@@ -18,6 +18,7 @@ import { dispatchIntent } from '../../shell/panels/windowBus';
 import {
   forkConversation,
   keepConversation,
+  saveForLater,
   sendToInbox,
   stopConversation,
   streamSend,
@@ -171,6 +172,55 @@ export function ApprovalCard({
   );
 }
 
+/** Save for later, or Pick back up — one quiet full-width button at the foot
+ * of a card. Saving parks the session in the roster's Saved for later section
+ * (SavedLane.tsx): still open, questions and all, but the idle check never
+ * wakes it and nothing on the page asks her about it. The roster poll moves
+ * the card; this only says so while the request is out.
+ * [prompt: "i'm also wanting to be able to save projects for later that the
+ * system check doesn't send checks to ... keep that open but i don't want to
+ * look at it right now"] */
+export function SaveLaterButton({
+  convId,
+  saved,
+  onChanged,
+}: {
+  convId: string;
+  /** True in the Saved for later section: the button picks it back up. */
+  saved: boolean;
+  onChanged?: () => void;
+}) {
+  // 'busy' while the request is out, or the failure text.
+  const [state, setState] = useState<'busy' | string | null>(null);
+  const toggle = () => {
+    setState('busy');
+    saveForLater(convId, !saved)
+      .then(() => {
+        setState(null);
+        onChanged?.();
+      })
+      .catch((err) => setState(err instanceof Error ? err.message : 'could not save it'));
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className={saved ? styles.pickUpBtn : styles.laterBtn}
+        disabled={state === 'busy'}
+        onClick={toggle}
+        title={
+          saved
+            ? 'Put it back in its room'
+            : 'Keep it open but out of the way — no daily check, no nudges'
+        }
+      >
+        {state === 'busy' ? '…' : saved ? 'Pick back up' : 'Save for later'}
+      </button>
+      {state && state !== 'busy' ? <div className={styles.errorNote}>{state}</div> : null}
+    </>
+  );
+}
+
 /** "Done — closes at 8:15 PM", its note, and the Keep open button. */
 function DoneNote({
   meta,
@@ -316,6 +366,8 @@ export function AwaitingCard({
       ) : sendState && sendState !== 'sending' ? (
         <div className={styles.errorNote}>{sendState}</div>
       ) : null}
+      {/* Not answering now: park it, questions and all, until she's back. */}
+      <SaveLaterButton convId={row.id} saved={false} onChanged={onChanged} />
     </div>
   );
 }
@@ -653,6 +705,11 @@ export function SessionCard({
         </>
       ) : null}
       {files}
+      {/* Park it: not while it's working (Stop is the control then), and never
+          the Keeper, which is the door to her day. */}
+      {!row.running && !meta.pinned ? (
+        <SaveLaterButton convId={row.id} saved={Boolean(meta.saved_at)} onChanged={onChanged} />
+      ) : null}
 
       {/* Fork-the-work: offload a bloated long-runner. Only offered while
           it's actually working and has a surface to hand over. Take-over, not

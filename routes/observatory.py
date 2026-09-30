@@ -1945,6 +1945,8 @@ def _her_message_arrived(conv_id, entry, expected=None):
       - Any unresolved gated-command card is dropped (_dismiss_pending).
       - A done countdown stops: she's still talking to it, so it isn't done;
         it marks itself done again when it really is (the Done section).
+      - A session she saved for later is picked back up: talking to it is
+        coming back to it (the Save for later section).
 
     Prompt: "Answered the question but the popup stuck. Please make it such
     that if I answer from the front page it marks it answered and continues."
@@ -1957,6 +1959,7 @@ def _her_message_arrived(conv_id, entry, expected=None):
         cleared = []
     _dismiss_pending(conv_id)
     _clear_done(entry)
+    entry.pop("saved_at", None)
     return cleared
 
 
@@ -2009,6 +2012,8 @@ def _why_not_done(conv_id, entry):
     """The reason a session can't be marked done or closed yet, or None."""
     if entry.get("pinned"):
         return "the pinned Keeper session stays open"
+    if entry.get("saved_at"):
+        return "the owner saved it for later, to pick back up herself"
     if entry.get("awaiting_input"):
         return "it is still waiting on an answer from the owner"
     if entry.get("spinoff_offer"):
@@ -2082,6 +2087,39 @@ def keep_open(conv_id):
             return {"error": "not found"}, 404
         _clear_done(entry)
     return {"ok": True}, 200
+
+
+# --- Save for later: park a session she'll come back to --------------------
+# Her "not now, but keep it" for a session: `saved_at` on its entry. A saved
+# session stays open and holds everything it had, open questions included, but
+# asks nothing of her until she picks it back up: the idle check never wakes
+# it, it can't be marked done or auto-closed (_why_not_done names it), the room
+# helper won't move it (room_helper.py), and the roster lifts it out of the
+# rooms into a shut "Saved for later" section (frontend SavedLane.tsx). Her own
+# message into it picks it back up (_clear_waiting_on_her), as does the Pick
+# back up button.
+#
+# Prompt: "i'm also wanting to be able to save projects for later that the
+# system check doesn't send checks to ... i want to do it later and keep that
+# open but i don't want to look at it right now and i don't want it to be
+# checking if it's still open every day."
+
+def save_for_later(conv_id, saved=True):
+    """Save a session for later, or pick it back up (saved=False). Saving
+    also stops a done countdown, since a saved session stays open. The Keeper
+    can't be saved: it's the door to her day. Returns (payload, status)."""
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict) or entry.get("archived"):
+            return {"error": "not found"}, 404
+        if saved and entry.get("pinned"):
+            return {"error": "the pinned Keeper session can't be saved for later"}, 400
+        if saved:
+            entry["saved_at"] = entry.get("saved_at") or _now()
+            _clear_done(entry)
+        else:
+            entry.pop("saved_at", None)
+    return {"ok": True, "saved_at": entry.get("saved_at")}, 200
 
 
 def close_conversation(conv_id):
@@ -2176,8 +2214,8 @@ def close_done_sessions(now=None):
 # finished → it says in a line what's left, and stays. `idle_check_at` marks
 # the ask, so each quiet spell is asked about once; the woken turn moves
 # `last_at`, so a session that stays gets asked again a day later. Sessions
-# that can't be done anyway (_why_not_done) and ones already counting down
-# are skipped. At most IDLE_CHECKS_PER_TICK wake per minute, oldest first, so
+# that can't be done anyway (_why_not_done) — saved-for-later ones among
+# them — and ones already counting down are skipped. At most IDLE_CHECKS_PER_TICK wake per minute, oldest first, so
 # a backlog of old sessions trickles in instead of starting all at once.
 #
 # Prompt: "1 day i think it will check itself and see if it should still be
@@ -3254,6 +3292,14 @@ def register(app):
     def bot_conv_keep(conv_id):
         """Keep open: cancel a done session's countdown to closing."""
         payload, status = keep_open(conv_id)
+        return jsonify(payload), status
+
+    @app.route("/api/observatory/conversation/<conv_id>/save", methods=["POST"])
+    def bot_conv_save(conv_id):
+        """Save for later ({"saved": true}, the default) or pick back up
+        ({"saved": false}). The work is save_for_later."""
+        saved = (request.get_json(silent=True) or {}).get("saved", True) is not False
+        payload, status = save_for_later(conv_id, saved)
         return jsonify(payload), status
 
     @app.route("/api/observatory/conversation/<conv_id>/evidence", methods=["GET"])
