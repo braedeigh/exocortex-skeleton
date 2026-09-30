@@ -127,11 +127,11 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
         </div>
 
         {error ? <p className={styles.empty}>Couldn&rsquo;t load this swarm.</p> : null}
-        {/* A closed swarm (every member finished) is hidden from the rooms;
+        {/* A closed swarm (fewer than two sessions still at work) is hidden from the rooms;
             its page still opens, and says so. */}
         {swarm?.closed ? (
           <p className={styles.muted}>
-            Closed — every session in this swarm has finished. It opens again if one of them starts working,
+            Closed — fewer than two sessions in this swarm are still at work. It opens again if a second one starts working,
             or a new session joins.
           </p>
         ) : null}

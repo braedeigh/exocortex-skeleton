@@ -266,7 +266,8 @@ export function SwarmNetworkKey() {
   );
 }
 
-/** The switch that shows or hides closed swarms (every member finished).
+/** The switch that shows or hides closed swarms (fewer than two sessions
+ * still at work).
  * Drawn only when there are closed swarms to show, beside the swarms it
  * governs; the setting is shared by every page (swarmApi.shownSwarms). */
 export function ClosedSwarmsToggle({ closedCount }: { closedCount: number }) {

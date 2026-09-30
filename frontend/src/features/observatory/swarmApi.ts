@@ -8,7 +8,7 @@
  * useSwarms(), and because they all use the same query key, the page makes
  * ONE request however many rooms are showing.
  *
- * Closed swarms (every member finished) come with the rest, marked `closed`;
+ * Closed swarms (fewer than two sessions still at work) come with the rest, marked `closed`;
  * pages draw them only when the shared "show closed swarms" switch is on.
  *
  * Touches: routes/swarms.py (the endpoints), terrain/codeHeatPref.ts (the sticky switch), SwarmCard.tsx and SessionLane.tsx
@@ -47,8 +47,11 @@ export interface Swarm {
   created_at: string;
   counts: { working: number; silent: number; needs_input: number };
   members: SwarmMember[];
-  /** Every member has finished (done, archived or handed on) — swarms.py
-   * `all_retired`. Opens again by itself when one works again. Absent from
+  /** Fewer than two of its sessions are still at work (a session and its
+   * continuations count as one; done, archived and handed-on ones don't count)
+   * — swarms.py `is_closed`. A swarm is two sessions working together; the
+   * one left on its own works alone in its room. Opens again by itself when
+   * a second one is at work again. Absent from
    * an older server, so treat it as optional. */
   closed?: boolean;
   links: { from: string; to: string; messages: number }[];

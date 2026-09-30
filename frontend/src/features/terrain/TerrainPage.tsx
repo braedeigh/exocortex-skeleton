@@ -979,7 +979,7 @@ export function TerrainPage() {
   // hand-over as the spinoff arrows, ref included (terrainCanvas.ts setSwarms).
   // The owner's only — a visitor never asks.
   const swarmsQuery = useSwarms(!visitor);
-  // Closed swarms (every member finished) are outlined only when the shared
+  // Closed swarms (fewer than two sessions still at work) are outlined only when the shared
   // "show closed swarms" switch is on.
   const showClosedSwarms = useClosedSwarmsShown();
   const swarmList = useMemo(

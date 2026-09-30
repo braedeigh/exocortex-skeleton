@@ -72,9 +72,9 @@ import styles from './SessionLane.module.css';
  * only: no SwarmCard in the list, so a swarm isn't shown twice. The room
  * helper's own session folds into that map instead of standing in the list.
  *
- * CLOSED SWARMS HIDE. A swarm whose every member has finished is closed
- * (swarms.py); its card and its circle stay off the room unless the "show
- * closed swarms" switch on the room map is on.
+ * CLOSED SWARMS HIDE. A swarm with fewer than two sessions still at work is
+ * closed (swarms.is_closed); it stays off the room unless the "show closed
+ * swarms" switch on the room map is on.
  *
  * WAITING, THEN RUNNING, THEN DONE. Every card in a room, session or swarm,
  * stands in one order: the ones waiting on her (orange first, then the ones
@@ -161,7 +161,7 @@ export function SessionLane({
   // Each swarm read through the roster, so its colour follows the same rule as
   // the session cards and its retired members drop out (roomOrder.swarmView).
   const rosterById = new Map((roster ?? sessions).map((s) => [s.id, s]));
-  // Closed swarms (every member finished) are hidden unless the shared
+  // Closed swarms (fewer than two sessions still at work) are hidden unless the shared
   // switch shows them (swarmApi.shownSwarms).
   const showClosed = useClosedSwarmsShown();
   const shown = shownSwarms(allSwarms ?? [], showClosed);
@@ -172,9 +172,9 @@ export function SessionLane({
   const { data: roomView } = useRoomView(laneKey, folding);
   const hasRoomMap = folding && !!roomView?.helper_conv;
   // Who leaves the room's own list: the members of every swarm drawn, and
-  // every swarm's helper. A hidden closed swarm's finished members stand in
-  // the room again as ordinary done cards until they close; its helper,
-  // finished too, stays out.
+  // every swarm's helper. A hidden closed swarm's members stand in the room
+  // again as ordinary cards (the one still at work, if any, working alone);
+  // its helper stays out.
   const inASwarm = new Set(
     !folding
       ? []

@@ -105,7 +105,7 @@ export function WorktreeMapPage() {
   const [, bump] = useState(0);
   const { data, error } = useWorktreeMap(windowSeconds);
   const { data: allSwarms } = useSwarms();
-  // Closed swarms (every member finished) only when the shared switch says so.
+  // Closed swarms (fewer than two sessions still at work) only when the shared switch says so.
   const showClosed = useClosedSwarmsShown();
   const swarms = allSwarms ? shownSwarms(allSwarms, showClosed) : undefined;
   const closedCount = (allSwarms ?? []).filter((s) => s.closed).length;

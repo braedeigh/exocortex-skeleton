@@ -17,7 +17,7 @@
  *     the room's order, so one with a question comes first
  *     (roomOrder.orderRoom). SessionLane doesn't also give them a swarm card;
  *     this is the one place a swarm shows in the room;
- *   - a switch to show the CLOSED swarms (every member finished), hidden
+ *   - a switch to show the CLOSED swarms (fewer than two sessions still at work), hidden
  *     otherwise — only there when some are closed;
  *   - every session WORKING ALONE (in no swarm) in rows beneath, as the same
  *     rings, so a glance says who's out on their own.
@@ -96,7 +96,7 @@ export function RoomMap({
   /** The swarms in this room to draw, read through the roster
    * (roomOrder.swarmView) — closed ones only when she asked. */
   swarms: SwarmView[];
-  /** How many swarms here are closed (every member finished), for the switch. */
+  /** How many swarms here are closed (fewer than two sessions still at work), for the switch. */
   closedCount?: number;
   /** Every session the page knows, for the rings' live state. */
   rosterById: Map<string, SessionMeta>;
