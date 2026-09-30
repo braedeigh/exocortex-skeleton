@@ -179,11 +179,16 @@ def ensure_room_helper(room):
     """The room helper's Observatory session for this room, made on first need."""
     from routes import observatory
     helper = find_helper(room)
-    if helper:
+    stored = (store.read("bot_chats/index", {}).get(helper) or {}) if helper else {}
+    if helper and stored.get("allowed_tools") == swarm_helper.HELPER_TOOLS:
         return helper
     with store.mutate("bot_chats/index", {}) as index:
         helper = find_helper(room, index)
         if helper:
+            # Keep its stored tools in step with HELPER_TOOLS, as the swarm
+            # helper's are — its turns already run with them
+            # (routes/observatory.py _conv_config); this keeps the record true.
+            index[helper]["allowed_tools"] = list(swarm_helper.HELPER_TOOLS)
             return helper
         helper = observatory._new_conv_id(index)
         index[helper] = {

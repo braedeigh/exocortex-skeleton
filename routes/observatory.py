@@ -474,6 +474,13 @@ def _conv_config(entry):
     tools = entry.get("allowed_tools")
     if not (isinstance(tools, list) and tools):
         tools = _DEFAULT_ALLOWED_TOOLS
+    # A helper's tools come from its role, not its stored list: every helper
+    # runs with swarm_helper.HELPER_TOOLS, so one made before a tool joined the
+    # list gets it on its next turn. tools/helper_gate.py still decides what
+    # each call may actually do.
+    if entry.get("role") in _HELPER_ROLES:
+        import swarm_helper
+        tools = swarm_helper.HELPER_TOOLS
     model = entry.get("model")
     # The LANE supplies the defaults for both safety nets; an explicitly
     # written field still wins, so the ✎ dialog's per-session "asks first"

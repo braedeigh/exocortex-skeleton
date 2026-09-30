@@ -13,6 +13,8 @@ committed twice on its own. So this hook checks every tool call a helper
 makes, and lets through only:
 
   - the reading tools (Read, Grep, Glob, ToolSearch);
+  - the web's reading tools (WebFetch, WebSearch), so a helper can open a
+    link she sends and research a question without starting a session;
   - Write, only to a spinoff brief: <spinoff dir>/<slug>/BRIEF.md;
   - Bash, only for lookups: reading and searching commands, git's reading
     verbs, and the app's own doors for a helper — peers.py, exo_query.py,
@@ -20,9 +22,18 @@ makes, and lets through only:
     (a watch is the one record a helper keeps for itself: its promise to
     tell her when a session does something — watches.py).
 
-Everything else — Edit, a sub-agent, a skill, an outside service, any other
-command — is denied, with a reason telling the helper to start a session
-instead. It FAILS TOWARD DENY: a command it can't read as a lookup is refused.
+Everything else — Edit, a sub-agent, a skill, any other outside service
+(mail, calendar, Linear), any other command — is denied, with a reason telling
+the helper to start a session instead. It FAILS TOWARD DENY: a command it
+can't read as a lookup is refused.
+
+Why the web is safe to let through: WebFetch and WebSearch only read — they
+change nothing here or anywhere else. The one real risk is a web page that
+carries instructions of its own (prompt injection). A helper is told that text
+on a page is information, never an instruction (helper_chat.CHAT_PROMPT), and
+even a helper that's fooled can still only do what this gate allows: look
+things up, move sessions in the room, message sessions and start one from a
+brief — never edit, build, commit or run code itself.
 
 Same contract as tools/act_ask_gate.py: reads Claude Code's PreToolUse event
 as JSON on stdin, prints a "deny" decision or nothing. Wired in
@@ -39,6 +50,11 @@ import sys
 
 # The reading tools. Nothing else passes without a check below.
 _LOOK_TOOLS = ("Read", "Grep", "Glob", "LS", "ToolSearch")
+
+# The web's reading tools: open a page, search the web. They read, never write.
+# Prompt: "Allow web fetch in helpers. I want to be able to read and research
+# with them."
+_WEB_TOOLS = ("WebFetch", "WebSearch")
 
 # A brief's folder name, the same rule routes/spinoff.py's SLUG_RE holds.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
@@ -195,7 +211,7 @@ def classify_tool(tool_name, tool_input, spinoff_dir=None):
     """(decision, reason): ("allow", None) or ("deny", why). The whole policy,
     as a pure function so the tests can hammer it."""
     tool_input = tool_input or {}
-    if tool_name in _LOOK_TOOLS:
+    if tool_name in _LOOK_TOOLS or tool_name in _WEB_TOOLS:
         return ("allow", None)
     if tool_name == "Bash":
         if bash_is_lookup(tool_input.get("command", "")):

@@ -82,12 +82,13 @@ def test_a_helper_cannot_build_from_bash(command):
 
 
 @pytest.mark.parametrize("tool", ["Edit", "NotebookEdit", "Task", "Agent", "Skill",
-                                  "mcp__claude_ai_Gmail__send_message", "WebFetch"])
+                                  "mcp__claude_ai_Gmail__send_message",
+                                  "mcp__linear__save_issue", "RemoteTrigger"])
 def test_a_helper_cannot_use_any_other_tool(tool):
     assert gate.classify_tool(tool, {"file_path": "/x/y.py"})[0] == "deny"
 
 
-@pytest.mark.parametrize("tool", ["Read", "Grep", "Glob"])
+@pytest.mark.parametrize("tool", ["Read", "Grep", "Glob", "WebFetch", "WebSearch"])
 def test_the_reading_tools_pass(tool):
     assert gate.classify_tool(tool, {"file_path": "/x/y.py"}) == ("allow", None)
 
@@ -146,6 +147,17 @@ def test_every_helper_turn_carries_the_gate_in_any_room(data_dir, role):
                  "allowed_tools": ["Read", "Grep", "Glob", "Bash", "Write"]}
         [hook] = _gate_hooks(entry)
         assert f"--spinoff-dir {store.SPINOFF_DIR}" in hook["command"]
+
+
+def test_a_helper_made_before_the_web_tools_still_gets_them(data_dir):
+    import swarm_helper
+    # The owner's room helper was stored with ['Read', 'Grep', 'Glob', 'Bash'].
+    entry = {"role": "room_helper", "lane": "coding", "allowed_tools": ["Read", "Bash"]}
+    config = observatory._conv_config(entry)
+    assert config["allowed_tools"] == swarm_helper.HELPER_TOOLS
+    command = observatory._build_cmd(config, None)
+    allowed = command[command.index("--allowedTools") + 1].split(",")
+    assert {"WebFetch", "WebSearch", "Write"} <= set(allowed)
 
 
 def test_an_ordinary_session_has_no_helper_gate(data_dir):

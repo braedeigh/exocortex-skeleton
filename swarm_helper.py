@@ -70,11 +70,13 @@ ROLE = "swarm_helper"
 
 # What a helper's chat turn may use: reading and searching, Bash for the
 # lookups its seed points it at (peers.py show, exo_query.py, git, grep over
-# the transcripts), and Write for one thing only — the brief of a session it
-# starts to build something. This list only pre-approves; what actually holds
-# a helper to lookups is tools/helper_gate.py. Shared with the room helper
-# (room_helper.py).
-HELPER_TOOLS = ["Read", "Grep", "Glob", "Bash", "Write"]
+# the transcripts), WebFetch and WebSearch to read and research the web, and
+# Write for one thing only — the brief of a session it starts to build
+# something. This list only pre-approves; what actually holds a helper to
+# lookups is tools/helper_gate.py. Shared with the room helper
+# (room_helper.py); every helper's turn runs with it, whatever its stored
+# list says (routes/observatory.py _conv_config).
+HELPER_TOOLS = ["Read", "Grep", "Glob", "Bash", "Write", "WebFetch", "WebSearch"]
 
 # How much of each member's new activity one run reads. The helper needs the
 # shape of the work, not every line; the full transcripts are always a
