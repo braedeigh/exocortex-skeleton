@@ -164,12 +164,31 @@
   margin-top: 0;
 }
 
-/* Her answer, typed right on the card: the box and its Send side by side. */
+/* Her answer, typed right on the card: the box and its Send side by side.
+
+   The box stays at the bottom of the screen while she reads the questions
+   above it. This is a sticky footer: while the card runs below the bottom of
+   the screen the form holds there, and once she scrolls to the card's own
+   bottom it settles into its place under the last question. So she can type
+   an answer with the first question still in view, however long the list is.
+   It stops 72px short of the screen's bottom edge, clear of the roster's row
+   of round buttons and the notes pill, which float along that edge
+   (RosterPage.module.css .rail). It spans the card edge to edge and is opaque,
+   in the card's own colour, because the questions scroll underneath it.
+   Prompt: "wanting for the bottom part with text input to be floating at the
+   bottom of the screen until you reach the bottom of the card so that i can
+   type into it while looking at the top one." */
 .answerForm {
   display: flex;
   align-items: flex-end;
   gap: var(--space-2);
-  margin-top: var(--space-3);
+  position: sticky;
+  bottom: 72px;
+  z-index: 1;
+  margin: var(--space-3) calc(-1 * var(--space-4)) 0;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid color-mix(in srgb, var(--orange) 30%, transparent);
+  background: color-mix(in srgb, var(--orange) 9%, var(--card-bg));
 }
 
 .answerInput {

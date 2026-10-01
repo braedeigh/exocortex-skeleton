@@ -263,7 +263,9 @@ function DoneNote({
 }
 
 /** Waiting on her — orange, every open question numbered, and a box right
- * under them that answers into the session without opening it.
+ * under them that answers into the session without opening it. On a long list
+ * the box stays at the bottom of the screen until she reaches the end of the
+ * card, so she can type while the first question is still in view.
  *
  * The answer goes through the session's mailbox (sendToInbox), the same door
  * as typing into its chat while a turn runs: an idle session starts a turn
@@ -318,49 +320,56 @@ export function AwaitingCard({
           open →
         </button>
       </div>
-      {questions.length === 1 ? (
-        <div className={styles.question}>{questions[0]}</div>
-      ) : (
-        <ol className={styles.questionList}>
-          {questions.map((q, i) => (
-            <li key={i} className={styles.question}>
-              {q}
-            </li>
-          ))}
-        </ol>
-      )}
-      <form
-        className={styles.answerForm}
-        onSubmit={(e) => {
-          e.preventDefault();
-          send();
-        }}
-      >
-        {/* Enter makes a new line, since an answer to several questions is
-            often several lines; Ctrl/Cmd+Enter sends, like the chat. */}
-        <textarea
-          className={styles.answerInput}
-          value={answer}
-          rows={2}
-          placeholder={questions.length > 1 ? 'Answer them here…' : 'Answer here…'}
-          aria-label={`Answer ${row.title}`}
-          disabled={sendState === 'sending'}
-          onChange={(e) => setAnswer(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              send();
-            }
+      {/* The questions and the answer box share one wrapper, because the box
+          is a sticky footer (SessionLane.module.css .answerForm): it holds at
+          the bottom of the screen while the questions scroll, and the wrapper
+          is what it can't leave. The title row sits outside it, so the box
+          never rides up over the session's name. */}
+      <div>
+        {questions.length === 1 ? (
+          <div className={styles.question}>{questions[0]}</div>
+        ) : (
+          <ol className={styles.questionList}>
+            {questions.map((q, i) => (
+              <li key={i} className={styles.question}>
+                {q}
+              </li>
+            ))}
+          </ol>
+        )}
+        <form
+          className={styles.answerForm}
+          onSubmit={(e) => {
+            e.preventDefault();
+            send();
           }}
-        />
-        <button
-          type="submit"
-          className={styles.answerSend}
-          disabled={!answer.trim() || sendState === 'sending'}
         >
-          {sendState === 'sending' ? 'Sending…' : 'Send'}
-        </button>
-      </form>
+          {/* Enter makes a new line, since an answer to several questions is
+              often several lines; Ctrl/Cmd+Enter sends, like the chat. */}
+          <textarea
+            className={styles.answerInput}
+            value={answer}
+            rows={2}
+            placeholder={questions.length > 1 ? 'Answer them here…' : 'Answer here…'}
+            aria-label={`Answer ${row.title}`}
+            disabled={sendState === 'sending'}
+            onChange={(e) => setAnswer(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                send();
+              }
+            }}
+          />
+          <button
+            type="submit"
+            className={styles.answerSend}
+            disabled={!answer.trim() || sendState === 'sending'}
+          >
+            {sendState === 'sending' ? 'Sending…' : 'Send'}
+          </button>
+        </form>
+      </div>
       {sendState === 'sent' ? (
         <div className={styles.answerNote}>Sent — it has your answer.</div>
       ) : sendState && sendState !== 'sending' ? (
