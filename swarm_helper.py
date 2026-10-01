@@ -5,19 +5,24 @@ it is doing, names the swarm, and coordinates.
 they form a swarm (swarms.py). Each swarm gets a helper: an Observatory
 session of its own (so it has a card, a chat, and a mailbox other agents and
 the owner can write to), whose work is done by short, separate calls to the
-model — never one long conversation. Each call is handed:
+model — never one long conversation. One run makes several calls, side by
+side (side_by_side):
 
-  - the swarm's current summary and each member's current summary — except
-    members that finished (done, archived, handed on) over
-    config.SWARM_HELPER_FORGET_HOURS ago, which it stops rereading,
-  - what's new for each member since its summary was written — the owner's
-    asks, the agent's replies, its tool calls, the messages between members,
-  - any questions waiting in the helper's own mailbox,
+  - ONE CALL PER MEMBER that has done something since its summary was written
+    (summarise_sessions). It reads that member's current summary and what's
+    new — the owner's asks, the agent's replies, its tool calls — and writes
+    the member's new summary. A member with nothing new gets no call and
+    keeps its summary. The room helper (room_helper.py) summarises the
+    sessions working alone the same way, with the same function.
+  - ONE CALL FOR THE SWARM. It reads the swarm's current summary, every
+    member's current summary and what's new (members that finished over
+    config.SWARM_HELPER_FORGET_HOURS ago are left out), the messages between
+    members, and any questions waiting in the helper's mailbox. It hands
+    back a new name (if it has a better one), a new swarm summary, where
+    members' work differs or collides, and any messages to send — to
+    members, or answers to whoever asked.
 
-and hands back a new name (if it has a better one), a new swarm summary, a
-new summary per member, where members' work differs or collides, and any
-messages to send — to members, or answers to whoever asked. The new
-summaries REPLACE the old ones, so the next call reads only those plus
+The new summaries REPLACE the old ones, so the next run reads only those plus
 what's new: the helper's context never grows, however long the swarm runs.
 
 Every run is written down in full (`swarm_helper_runs`: its exact input and
@@ -25,9 +30,9 @@ output, cost, error) and into the helper's own chat, so the owner can see what
 information it used and what it did with it.
 
 Its chat is one conversation for the swarm's whole life. When the owner
-talks to it there, each turn starts fresh from a rolling seed (the summaries,
-the chat summary, her last few messages — helper_chat.py), so it never
-fills its context and is never continued. When the swarm closes — fewer
+talks to it there, each turn starts fresh from a rolling seed (a doc, her
+last 15 messages with its replies, and each member's summary and files —
+helper_chat.py), so it never fills its context and is never continued. When the swarm closes — fewer
 than two of its members still working (swarms.retired) — it posts a closing check — what git says shipped, what's
 uncommitted or unfinished, questions and detached jobs still waiting — and
 marks itself done (close_out, at the minute tick).
@@ -40,24 +45,28 @@ so nothing waits on the model.
 
 Touches: swarms.py (membership and the tables), peermail.py (its mailbox;
 agent messages it sends go through routes/observatory.peer_send), the session
-index (the helper's own entry — `role: "swarm_helper"`), config.py (model and
-pacing), scripts/coming_up_dispatcher.py (the minute tick), sqlstore.py
-(swarm_helper_runs), helper_chat.py (its chat's rolling context; shares
-ask_model), tests/test_swarm_helper.py, tests/test_helper_chat.py. Design:
-docs/swarms.md.
+index (the helper's own entry — `role: "swarm_helper"`), config.py (model,
+pacing, HELPER_SUMMARY_PARALLEL), scripts/coming_up_dispatcher.py (the minute
+tick), sqlstore.py (swarm_helper_runs), helper_chat.py (its chat's rolling
+context), room_helper.py (shares ask_model, side_by_side and
+summarise_sessions), tests/test_swarm_helper.py, tests/test_helper_chat.py.
+Design: docs/swarms.md.
 
 Prompt that produced this: "i want the helper to name the session and
 understand what all of them are doing and synthesize it automatically as it
 coordinates differences ... which may be done per turn and then drop the
 other summary out of the context window ... one helper per swarm. i want to
-be able to click into it and see what information is being used by it."
+be able to click into it and see what information is being used by it." —
+and, for the summaries: "If these aren't written by parallel individual
+sonnet sessions, make these parallel and individual."
 """
 import json
 import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import config
@@ -88,34 +97,44 @@ SYSTEM_PROMPT = """You are the helper for a swarm of AI coding agents working on
 app. The agents became a swarm by messaging each other. Your job:
 1. Name the swarm: 2-5 plain words for the shared project (keep the current name unless it's wrong).
 2. Summarise the swarm in a few sentences: the shared goal, where it stands, what's next.
-3. Summarise each member in 1-3 sentences: what it's doing now, what it has done, what it's waiting on.
-4. Coordinate: notice where members' work overlaps, conflicts (two editing the same file, \
+3. Coordinate: notice where members' work overlaps, conflicts (two editing the same file, \
 contradictory decisions) or depends on each other. Only when it changes a member's work, send \
 a short message to the member who needs to know. Never more than one message per member per run. \
 Check "Messages between members" first: if you (or anyone) already told a member this, don't \
 send it again — a reworded repeat is still a repeat. Don't message members the news doesn't \
 affect, don't chat, and never hand a member work outside its own brief.
-5. Answer any questions in your mailbox, addressed back to whoever asked (an agent's session id, \
+4. Answer any questions in your mailbox, addressed back to whoever asked (an agent's session id, \
 or "owner").
-You only see summaries and what's new since them; your summaries replace the old ones, so carry \
-forward anything still true. Plain words; the owner reads these."""
+You only see summaries and what's new since them. Each member's own summary is written by a \
+separate call, not by you. Your swarm summary replaces the old one, so carry forward anything \
+still true. Plain words; the owner reads these."""
 
 SCHEMA = {
     "type": "object",
     "properties": {
         "name": {"type": "string"},
         "summary": {"type": "string"},
-        "members": {"type": "array", "items": {
-            "type": "object",
-            "properties": {"conv": {"type": "string"}, "summary": {"type": "string"}},
-            "required": ["conv", "summary"]}},
         "differences": {"type": "array", "items": {"type": "string"}},
         "messages": {"type": "array", "items": {
             "type": "object",
             "properties": {"to": {"type": "string"}, "text": {"type": "string"}},
             "required": ["to", "text"]}},
     },
-    "required": ["name", "summary", "members", "messages"],
+    "required": ["name", "summary", "messages"],
+}
+
+# One session's summary, written by a call of its own (summarise_sessions).
+SESSION_PROMPT = """You keep the summary of ONE AI coding agent's session, working on one \
+person's app. You get its current summary and what it has done since that was written: the \
+owner's asks, the agent's replies, its tool calls. Write its new summary in 1-3 sentences: what \
+it's doing now, what it has done, what it's waiting on. Your summary REPLACES the old one, so \
+carry forward anything still true. Say only what the activity shows. Plain words; the owner \
+reads these."""
+
+SESSION_SCHEMA = {
+    "type": "object",
+    "properties": {"summary": {"type": "string"}},
+    "required": ["summary"],
 }
 
 
@@ -187,6 +206,24 @@ def is_helper(entry):
 
 # --- What one run reads -----------------------------------------------------------
 
+def _line_stamp(line):
+    """When a transcript line was written, as local time to the second.
+    The app's own lines carry `ts`, already local. The model's lines carry
+    `timestamp` in UTC with a trailing Z, which is turned into local time —
+    compared as written, every reply of the last few hours would look newer
+    than a summary stamped in local time."""
+    if line.get("ts"):
+        return str(line["ts"])[:19]
+    stamp = str(line.get("timestamp") or "")
+    if not stamp.endswith("Z"):
+        return stamp[:19]
+    try:
+        utc = datetime.fromisoformat(stamp[:-1]).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return stamp[:19]
+    return utc.astimezone().replace(tzinfo=None).isoformat(timespec="seconds")
+
+
 def _member_activity(conv_id, since):
     """What a member did after `since`: her asks, its replies, its tool calls,
     in order, trimmed. `since` None = everything (capped by size)."""
@@ -201,8 +238,8 @@ def _member_activity(conv_id, since):
             e = json.loads(line)
         except ValueError:
             continue
-        stamp = (e.get("ts") or e.get("timestamp") or "")[:19]
-        if since and stamp and stamp < since[:19]:
+        stamp = _line_stamp(e) if isinstance(e, dict) else ""
+        if not isinstance(e, dict) or (since and stamp and stamp < since[:19]):
             continue
         kind = e.get("type")
         if kind == "user" and isinstance(e.get("text"), str):
@@ -272,7 +309,7 @@ def gather(swarm_id, questions=()):
 
 def ask_model(text, system_prompt, schema):
     """One tool-less, single-turn model call with a structured answer.
-    Returns (answer dict, cost). Shared with helper_chat.rewrite_notes."""
+    Returns (answer dict, cost). Shared with room_helper.py."""
     from routes import observatory
     cmd = [observatory.CLAUDE_BIN, "-p", "--model", config.SWARM_HELPER_MODEL,
            "--tools", "", "--no-session-persistence", "--output-format", "json",
@@ -289,8 +326,67 @@ def ask_model(text, system_prompt, schema):
 
 
 def _call_model(text):
-    """A summarizer run's model call."""
+    """A run's call for the swarm as a whole: its name, its summary, where
+    members' work collides, and the messages to send."""
     return ask_model(text, SYSTEM_PROMPT, SCHEMA)
+
+
+def _call_session(text):
+    """One session's summary call."""
+    return ask_model(text, SESSION_PROMPT, SESSION_SCHEMA)
+
+
+def side_by_side(jobs):
+    """Run these model calls at the same time, at most
+    config.HELPER_SUMMARY_PARALLEL at once (each is a `claude` process of its
+    own, so the cap is about memory). `jobs` is {key: a function taking
+    nothing}; returns {key: (result, None)} or {key: (None, the error)} — one
+    call failing never loses the others."""
+    def attempt(job):
+        try:
+            return job(), None
+        except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as e:
+            return None, str(e)
+
+    if not jobs:
+        return {}
+    workers = max(1, min(int(config.HELPER_SUMMARY_PARALLEL), len(jobs)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {key: pool.submit(attempt, job) for key, job in jobs.items()}
+        return {key: future.result() for key, future in futures.items()}
+
+
+def session_job(conv, title, state, summary, summary_at):
+    """The summary call for one session, as a function to hand side_by_side —
+    or None when it needs no call: nothing has happened since its summary was
+    written, so the summary still stands."""
+    new = _member_activity(conv, summary_at)
+    if not new:
+        return None
+    text = "\n".join([f"# Session {conv} — {title} ({state})", "",
+                      "Current summary: " + (summary or "(none yet)"), "",
+                      f"New since {summary_at or 'it started'}:", new, ""])
+    return lambda: _call_session(text)
+
+
+def summarise_sessions(results, convs):
+    """Read the session calls out of side_by_side's results. Returns
+    ({conv: new summary}, their total cost, [what went wrong, per session]).
+    A session whose call failed or came back empty keeps its old summary."""
+    summaries, cost, errors = {}, 0.0, []
+    for conv in convs:
+        if conv not in results:
+            continue
+        found, error = results[conv]
+        if error:
+            errors.append(f"{conv}: {error}")
+            continue
+        answer, call_cost = found
+        cost += float(call_cost or 0)
+        text = str((answer or {}).get("summary") or "").strip()
+        if text:
+            summaries[conv] = text
+    return summaries, cost, errors
 
 
 def _render(answer):
@@ -312,13 +408,35 @@ def run(swarm_id, trigger="turn", question_ids=()):
     from routes import observatory
     helper = ensure_helper(swarm_id)
     questions = [q for q in (peermail.get(i) for i in question_ids) if q]
+    # Stamp the members' new summaries with when their activity was READ, not
+    # when the calls came back: what a member does while the model is thinking
+    # is still new to the next run.
+    read_at = _now()
     text = gather(swarm_id, questions)
     log_path = store.DATA_DIR / "bot_chats" / f"{helper}.jsonl"
-    answer, cost, error = None, None, None
-    try:
-        answer, cost = _call_model(text)
-    except (RuntimeError, OSError, subprocess.SubprocessError) as e:
-        error = str(e)
+    # Make every call at once: the swarm's own, and one per member in view
+    # that has done something since its summary was written.
+    index = store.read("bot_chats/index", {})
+    card = next((c for c in swarms.overview() if c["id"] == swarm_id), None)
+    shown, _ = swarms.in_helper_view(card["members"] if card else [],
+                                     index if isinstance(index, dict) else {})
+    jobs = {"swarm": lambda: _call_model(text)}
+    for m in shown:
+        job = session_job(m["conv"], m["title"], m["state"], m.get("summary"), m.get("summary_at"))
+        if job:
+            jobs[m["conv"]] = job
+    results = side_by_side(jobs)
+    found, error = results["swarm"]
+    answer, cost = found if found else (None, None)
+    summaries, sessions_cost, session_errors = summarise_sessions(
+        results, [m["conv"] for m in shown])
+    for problem in session_errors:
+        print(f"{_now()} member summary failed — {problem}", file=sys.stderr)
+    cost = (float(cost or 0) + sessions_cost) if (cost is not None or sessions_cost) else None
+    # The members' new summaries ride in the run's record and its chat post.
+    if answer:
+        answer["members"] = [{"conv": conv, "summary": summary}
+                             for conv, summary in summaries.items()]
     now = _now()
     members = set(swarms.overview_members(swarm_id))
     conn = sqlstore.open_db()
@@ -335,11 +453,12 @@ def run(swarm_id, trigger="turn", question_ids=()):
                          " updated_at = ? WHERE id = ?",
                          ((answer.get("name") or "").strip()[:80] or None,
                           answer.get("summary"), now, now, swarm_id))
-            for m in answer.get("members") or []:
-                if m.get("conv") in members:
-                    conn.execute("UPDATE swarm_members SET summary = ?, summary_at = ?"
-                                 " WHERE swarm_id = ? AND conv = ?",
-                                 (m.get("summary"), now, swarm_id, m["conv"]))
+        # A member's summary is stored even when the swarm's own call failed.
+        for conv, summary in summaries.items():
+            if conv in members:
+                conn.execute("UPDATE swarm_members SET summary = ?, summary_at = ?"
+                             " WHERE swarm_id = ? AND conv = ?",
+                             (summary, read_at, swarm_id, conv))
         conn.execute("COMMIT")
     finally:
         conn.close()
@@ -351,8 +470,8 @@ def run(swarm_id, trigger="turn", question_ids=()):
         else:
             peermail.append_line(log_path, peermail.peer_line(q, "in"))
     # Marked as a run's post, so the chat's rolling context (helper_chat.py)
-    # can tell it from a chat reply: an answer to a question is kept as part
-    # of its exchange, an unprompted update is left to the swarm summary.
+    # can tell it from a chat reply: an answer to her question is kept as part
+    # of its exchange, an unprompted update isn't replayed.
     if answer:
         peermail.append_line(log_path, {
             "type": "assistant", "timestamp": now, "helper_run": True,

@@ -15,8 +15,10 @@ at the whole room from above and fixes that. It reads only summaries:
   - the swarm's CLUSTERS, worked out here in code: the groups of members who
     messaged each other within config.ROOM_HELPER_QUIET_HOURS, each with the
     last time it messaged anyone in another cluster,
-  - each session working alone: the summary this helper wrote of it last
-    time (`session_summaries`) plus what it has done since,
+  - each session working alone: its summary (`session_summaries`) plus what
+    it has done since. Each of those summaries is written by a model call of
+    its own, made side by side with the room's call in the same run
+    (swarm_helper.summarise_sessions) — the room's call writes none of them,
   - its own last few moves, including the ones she undid,
   - and, as a section of its own, the files every open session has edited
     lately, with any file two of them share flagged (edited_files.py) — the
@@ -45,16 +47,20 @@ Its role, in her words: "your job as room helper is to babysit the sessions
 that are ongoing in the room and coordinate with them if necessary."
 
 Its chat is a helper chat like a swarm helper's (helper_chat.py): every turn
-starts fresh from a rolling seed, whose view of the world is the room overview
-(room_overview) instead of one swarm.
+starts fresh from a rolling seed — a doc, her last 15 messages with its
+replies, and every active session in the room with its summary and files.
+The room overview (room_overview) is what a RUN reads; the chat looks swarms,
+clusters and moves up when it needs them.
 
 When it runs: at the minute tick (tick), at most once every
 config.ROOM_HELPER_MIN_SEC, and only when some session in the room has done
 something since the last run. Each run is its own detached process
-(`python3 room_helper.py run <room>`), one model call.
+(`python3 room_helper.py run <room>`): one model call for the room, and one
+for each session working alone that has done something since its summary.
 
 Touches: swarms.py (placements: place, unplace, new_swarm, line_of_work),
-swarm_helper.py (ask_model, the member-activity reader, poke), sqlstore.py
+swarm_helper.py (ask_model, side_by_side, summarise_sessions, the
+member-activity reader, poke), sqlstore.py
 (session_summaries, swarm_pins, room_moves, room_helper_runs), the session
 index (the helper's own entry — `role: "room_helper"`), routes/observatory.py
 (peer_send, and its chat turns), helper_chat.py, edited_files.py (the files
@@ -105,12 +111,11 @@ running in the room and coordinate with them when it's needed — mostly by deci
 be working together. You read summaries, plus a list of the files each open session has \
 edited lately. A swarm is at least two sessions still working \
 (a session and its own continuations count as one) plus its helper; a swarm that drops to one \
-working session closes by itself, and that session shows up below as working alone. Your job:
-1. Summarise each session working alone in 1-3 sentences: what it's doing now, what it's \
-waiting on. Your summary replaces the old one, so carry forward anything still true.
-2. Write a short overview of the room: the swarms, what the solo sessions are doing, anything \
+working session closes by itself, and that session shows up below as working alone. Each \
+session's own summary is written by a separate call, not by you. Your job:
+1. Write a short overview of the room: the swarms, what the solo sessions are doing, anything \
 that looks tangled.
-3. Make moves, but ONLY when the summaries clearly show one is right:
+2. Make moves, but ONLY when the summaries clearly show one is right:
    - form: two or more sessions working alone on the same thing, or on work that collides \
 (same files, same feature) — make them a swarm so they know about each other. Two sessions \
 editing the same file (flagged under "Files being edited now") are colliding.
@@ -124,7 +129,7 @@ that would leave one behind closes that swarm, and the one left works alone too.
 Be conservative. No move is better than a wrong one. Never split clusters that messaged each \
 other within the last {quiet} hours. Never redo a move she undid. A finished or retired \
 session doesn't need moving.
-4. For every move write the reason (for the owner) and one short message to the moved \
+3. For every move write the reason (for the owner) and one short message to the moved \
 sessions: who they're now working with and why it matters to their work. One message per \
 move; don't chat.
 Use session ids exactly as given; `swarm` is the swarm id a join or split refers to. Plain \
@@ -134,10 +139,6 @@ SCHEMA = {
     "type": "object",
     "properties": {
         "overview": {"type": "string"},
-        "solos": {"type": "array", "items": {
-            "type": "object",
-            "properties": {"conv": {"type": "string"}, "summary": {"type": "string"}},
-            "required": ["conv", "summary"]}},
         "moves": {"type": "array", "items": {
             "type": "object",
             "properties": {
@@ -148,7 +149,7 @@ SCHEMA = {
                 "message": {"type": "string"}},
             "required": ["kind", "convs", "reason", "message"]}},
     },
-    "required": ["overview", "solos", "moves"],
+    "required": ["overview", "moves"],
 }
 
 
@@ -557,7 +558,7 @@ def undo(move_id):
 # --- One run ------------------------------------------------------------------------
 
 def _call_model(text, room):
-    """A room run's model call."""
+    """A room run's call for the room as a whole: its overview and its moves."""
     prompt = SYSTEM_PROMPT.format(room=room, quiet=f"{config.ROOM_HELPER_QUIET_HOURS:g}")
     return swarm_helper.ask_model(text, prompt, SCHEMA)
 
@@ -607,15 +608,37 @@ def run(room, trigger="tick"):
     """Do one room run and write everything down: summaries, the moves made,
     the moves refused. Returns the answer, or raises after recording the error."""
     helper = ensure_room_helper(room)
+    # Stamp the sessions' new summaries with when their activity was READ, not
+    # when the calls came back: what a session does while the model is thinking
+    # is still new to the next run.
+    read_at = _now()
     # The files section stands apart from the summaries (edited_files.py).
     text = room_overview(room, activity=True) + "\n" + edited_files.section(room)
-    answer, cost, error = None, None, None
-    try:
-        answer, cost = _call_model(text, room)
-    except (RuntimeError, OSError, subprocess.SubprocessError) as e:
-        error = str(e)
-    now = _now()
+    # Make every call at once: the room's own, and one per session working
+    # alone that has done something since its summary was written.
     index = store.read("bot_chats/index", {})
+    index = index if isinstance(index, dict) else {}
+    solos = solo_sessions(room, index, open_swarms(room))
+    stored = _stored_summaries(solos)
+    jobs = {"room": lambda: _call_model(text, room)}
+    for conv in solos:
+        summary, summary_at = stored.get(conv, (None, None))
+        job = swarm_helper.session_job(conv, index[conv].get("title") or conv,
+                                       swarms._status(index[conv]), summary, summary_at)
+        if job:
+            jobs[conv] = job
+    results = swarm_helper.side_by_side(jobs)
+    found, error = results["room"]
+    answer, cost = found if found else (None, None)
+    summaries, sessions_cost, session_errors = swarm_helper.summarise_sessions(results, solos)
+    for problem in session_errors:
+        print(f"{_now()} session summary failed — {problem}", file=sys.stderr)
+    cost = (float(cost or 0) + sessions_cost) if (cost is not None or sessions_cost) else None
+    # The sessions' new summaries ride in the run's record and its chat post.
+    if answer:
+        answer["solos"] = [{"conv": conv, "summary": summary}
+                           for conv, summary in summaries.items()]
+    now = _now()
     conn = sqlstore.open_db()
     try:
         sqlstore.begin_immediate(conn)
@@ -624,11 +647,11 @@ def run(room, trigger="tick"):
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (room, now, trigger, text,
              json.dumps(answer, ensure_ascii=False) if answer else None, cost, error))
-        # The new summaries REPLACE the old ones, as the swarm helper's do.
-        for solo in (answer or {}).get("solos") or []:
-            if isinstance(index.get(solo.get("conv")), dict) and solo.get("summary"):
-                conn.execute("INSERT OR REPLACE INTO session_summaries (conv, summary,"
-                             " summary_at) VALUES (?, ?, ?)", (solo["conv"], solo["summary"], now))
+        # The new summaries REPLACE the old ones, as the swarm helper's do —
+        # stored even when the room's own call failed.
+        for conv, summary in summaries.items():
+            conn.execute("INSERT OR REPLACE INTO session_summaries (conv, summary,"
+                         " summary_at) VALUES (?, ?, ?)", (conv, summary, read_at))
         conn.execute("COMMIT")
     finally:
         conn.close()

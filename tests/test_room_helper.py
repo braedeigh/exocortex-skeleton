@@ -47,12 +47,20 @@ def room(data_dir, monkeypatch):
     return sent
 
 
-def _fake_model(monkeypatch, answer, seen=None):
+def _fake_model(monkeypatch, answer, seen=None, sessions=None):
+    """Fake both kinds of call: the room's own, and the one per solo session.
+    `sessions` collects each session call's input."""
     def call(text, room):
         if seen is not None:
             seen.append(text)
         return answer, 0.02
+
+    def call_session(text):
+        if sessions is not None:
+            sessions.append(text)
+        return {"summary": "Builds the pond page."}, 0.001
     monkeypatch.setattr(room_helper, "_call_model", call)
+    monkeypatch.setattr(swarm_helper, "_call_session", call_session)
 
 
 def _bridged_swarm():
@@ -69,14 +77,15 @@ def test_a_run_reads_the_room_and_forms_a_swarm(room, monkeypatch):
     _seed("s1", "s2", "s3")
     (store.DATA_DIR / "bot_chats" / "s1.jsonl").write_text(
         json.dumps({"type": "user", "text": "build the pond page", "ts": "2026-09-27T10:00:00"}) + "\n")
-    seen = []
+    seen, sessions = [], []
     _fake_model(monkeypatch, {
         "overview": "Two sessions on the pond page.",
-        "solos": [{"conv": "s1", "summary": "Builds the pond page."}],
         "moves": [{"kind": "form", "convs": ["s1", "s2"], "reason": "both on the pond page",
-                   "message": "You're both building the pond page."}]}, seen)
+                   "message": "You're both building the pond page."}]}, seen, sessions)
     room_helper.run("coding")
     assert "build the pond page" in seen[0]
+    # s1's summary came from a call of its own; s2 and s3 did nothing, so no call.
+    assert len(sessions) == 1 and "Session s1" in sessions[0]
     [swarm_id] = swarms.sync()
     assert set(swarms.overview_members(swarm_id)) == {"s1", "s2"}
     assert swarms.swarm_of("s3") is None
@@ -92,7 +101,7 @@ def test_a_run_reads_the_room_and_forms_a_swarm(room, monkeypatch):
 
 def test_every_run_is_recorded_and_posted(room, monkeypatch):
     _seed("s1")
-    _fake_model(monkeypatch, {"overview": "Quiet.", "solos": [], "moves": []})
+    _fake_model(monkeypatch, {"overview": "Quiet.", "moves": []})
     room_helper.run("coding")
     conn = sqlstore.open_db()
     [(text, output, cost)] = conn.execute(
@@ -150,7 +159,7 @@ def test_a_move_she_undid_is_not_made_again(room):
 
 def test_a_move_that_doesnt_fit_is_refused_and_reported(room, monkeypatch):
     old = _bridged_swarm()
-    _fake_model(monkeypatch, {"overview": "o", "solos": [], "moves": [
+    _fake_model(monkeypatch, {"overview": "o", "moves": [
         {"kind": "form", "convs": ["a", "x"], "reason": "r", "message": "m"},
         {"kind": "join", "convs": ["a"], "swarm": 999, "reason": "r", "message": "m"}]})
     room_helper.run("coding")

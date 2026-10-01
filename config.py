@@ -175,6 +175,10 @@ SWARM_HELPER_TIMEOUT_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_TIMEOUT_SE
 # Her messages are short and each is capped, so 20 adds only a few KB to the seed.
 # Prompt: "maybe make it 20 messages as long as the context isn't too high."
 HELPER_CHAT_MESSAGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_MESSAGES", "20"))
+# Every session's summary is written by a model call of its own, and one run's
+# calls are made side by side (swarm_helper.side_by_side). This is how many may
+# run at once: each is a `claude` process holding a few hundred MB.
+HELPER_SUMMARY_PARALLEL = int(os.environ.get("EXOCORTEX_HELPER_SUMMARY_PARALLEL", "4"))
 # How long a finished swarm member (done, archived or handed on) stays in the
 # swarm helper's view — its runs and its chat seed — before it drops out of
 # what the helper checks. It stays a member; only the helper stops rereading it.
