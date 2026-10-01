@@ -2490,8 +2490,8 @@ def _run_ladder(conn):
         # proposal and check_proposals.py rules on it (a separate model call
         # re-reads every cited page, and the USDA figures are re-fetched); a
         # pass closes the request it answers. Written only by proposalstore.py.
-        # Not backed up with the food catalog: it's machine output that a
-        # re-run regenerates.
+        # Machine output, but backed up with the food catalog: only a paid
+        # model run would produce it again.
         #
         # The place columns are food_sources' own, with the same vocabularies,
         # except geo_source: a machine may never claim 'placed' (a location

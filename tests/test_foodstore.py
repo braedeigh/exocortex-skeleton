@@ -137,6 +137,18 @@ def test_an_empty_catalog_is_restored_from_the_mirror(data_dir):
     assert rows("SELECT COUNT(*) FROM recipe_lines WHERE food_id IS NOT NULL")[0][0] == 1
 
 
+def test_rebuild_works_on_a_database_that_has_never_seen_the_kitchen(data_dir):
+    # A restore starts from the export files alone: the rebuild is the first
+    # thing to read the kitchen's documents, and must not trip on its own lock.
+    seed_kitchen(recipes=[recipe()], trips=[trip()], items=[{"name": "Chuck roast"}])
+    foodstore.adopt()
+    for leftover in store.DATA_DIR.glob("exo.db*"):
+        leftover.unlink()
+    counts = foodstore.rebuild()
+    assert (counts["restored"], counts["recipes"], counts["trips"], counts["grocery_list"]) == \
+        (True, 1, 1, 1)
+
+
 def test_a_failed_edit_changes_nothing(data_dir):
     seed_kitchen()
     foodstore.add_food("kale")

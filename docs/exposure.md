@@ -13,8 +13,8 @@ from code applying a published method.
 | Rows parsed out of them (every sample, every result) | `commons.db` beside the files (`commonsdb.py`) | Derived and rebuildable; too big for the daily-backed-up exo.db |
 | Contaminant facts (CAS, safe dose, cancer rating, health effects), each sourced and reviewed | `hazard_facts` in exo.db (`exposurestore.py`) | Her record; backed up with the hazard tables |
 | Which PDP commodity a food is | `food_pdp_codes` | Her record |
-| What has been pulled (the memory) | `data_pulls` | One glance says what exists; pulling again is a no-op |
-| Computed scores and their working | `exposure_scores`, `exposure_terms` | Derived; a re-score replaces them |
+| What has been pulled (the memory) | `data_pulls` | One glance says what exists; pulling again is a no-op. Backed up with the hazard tables: it also remembers the literature searches |
+| Computed scores and their working | `exposure_scores`, `exposure_terms` | Derived; a re-score replaces them. Backed up with the hazard tables, so a restore shows them without a re-score |
 | A source's PDF, and the page each passage is on | `source_files`, `passage_pages` | So a claim's PDF opens at its highlight |
 
 The literature numbers (a study's mean lead in rice) stay in `hazard_measures`, reviewed like

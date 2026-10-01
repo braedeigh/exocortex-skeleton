@@ -3112,7 +3112,7 @@
   },
   "source_proposals": {
     "holds": "The machine's proposals for where a food or product comes from — answers to her requests, kept apart from her own sources and drawn as a separate 'checked by machine, not by you' layer.",
-    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output: not backed up — a re-run regenerates it.",
+    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output, but backed up with the food catalog (food_catalog.json), since only a paid model run would produce it again.",
     "kind": "record",
     "time_column": "created_at",
     "columns": {
@@ -3213,7 +3213,7 @@
   },
   "source_proposal_counties": {
     "holds": "The counties a proposal's region is drawn as, one row each, with what USDA reported for the county.",
-    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output: not backed up — a re-run regenerates it.",
+    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output, but backed up with the food catalog (food_catalog.json), since only a paid model run would produce it again.",
     "kind": "record",
     "time_column": null,
     "columns": {
@@ -3242,7 +3242,7 @@
   },
   "source_proposal_regions": {
     "holds": "The states or provinces a proposal is drawn as, anywhere in the world, one row each, by ISO 3166-2 code.",
-    "source": "Written only through proposalstore.py: by propose_sources.py when an answer names a region, and by backfill_proposal_regions.py for older proposals. Found in the proposal's own words by georegions.py; outlines from Natural Earth in the commons. Machine output: not backed up — a re-run regenerates it.",
+    "source": "Written only through proposalstore.py: by propose_sources.py when an answer names a region, and by backfill_proposal_regions.py for older proposals. Found in the proposal's own words by georegions.py; outlines from Natural Earth in the commons. Machine output, but backed up with the food catalog (food_catalog.json), since only a paid model run would produce it again.",
     "kind": "record",
     "time_column": null,
     "columns": {
@@ -3262,7 +3262,7 @@
   },
   "source_proposal_parts": {
     "holds": "One row per ingredient of a multi-ingredient product's proposal, rated on how traceable it is and how bad for health.",
-    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output: not backed up — a re-run regenerates it.",
+    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output, but backed up with the food catalog (food_catalog.json), since only a paid model run would produce it again.",
     "kind": "record",
     "time_column": null,
     "columns": {
@@ -3300,7 +3300,7 @@
   },
   "source_proposal_evidence": {
     "holds": "The evidence behind each proposal — links to research entries (cited pages, USDA queries, model claims) with the checker's verdict on each.",
-    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output: not backed up — a re-run regenerates it.",
+    "source": "Written only through proposalstore.py, by the research pass (propose_sources.py) and its checker (check_proposals.py). Machine output, but backed up with the food catalog (food_catalog.json), since only a paid model run would produce it again.",
     "kind": "record",
     "time_column": null,
     "columns": {
@@ -3406,7 +3406,7 @@
   },
   "data_pulls": {
     "holds": "The memory of what public data has been pulled: one row per dataset, year and food, with the commons file it came from, how many rows it held, and which version of the loader read it.",
-    "source": "Written by reference_loaders.py through exposurestore.record_pull each time data is pulled into commons.db. Can be rebuilt by pulling again.",
+    "source": "Written through exposurestore.record_pull: by scripts/reference_data.py each time data is pulled into commons.db, and by record_search for each literature search. The pulls can be rebuilt by pulling again; the searches cannot. Backed up to research_tables.json with the hazard tables.",
     "kind": "mirror",
     "time_column": "pulled_at",
     "columns": {
@@ -3444,7 +3444,7 @@
   },
   "exposure_scores": {
     "holds": "A computed exposure score for one food: which samples (organic, conventional or all, which years), how many, and the verdict the method's written bands give.",
-    "source": "Computed by exposure.py from the samples in commons.db and the safe doses in hazard_facts, saved through exposurestore.save_score. A re-score replaces it.",
+    "source": "Computed by exposure.py from the samples in commons.db and the safe doses in hazard_facts, saved through exposurestore.save_score. A re-score replaces it. Backed up to research_tables.json with the hazard tables.",
     "kind": "mirror",
     "time_column": "computed_at",
     "columns": {
@@ -3505,7 +3505,7 @@
   },
   "exposure_terms": {
     "holds": "The working behind a score: one line per pesticide tested, with how often it was found, the mean residue, the safe dose used, and its share of that dose.",
-    "source": "Written with its score by exposurestore.save_score.",
+    "source": "Written with its score by exposurestore.save_score, and backed up with it to research_tables.json.",
     "kind": "mirror",
     "time_column": null,
     "columns": {

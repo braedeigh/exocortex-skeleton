@@ -20,9 +20,13 @@ never deletes — the old proposal points at its replacement (superseded_by),
 and only proposals with no replacement are "live". A passed proposal that
 answers a "Request linking" request closes it (sourcestore.close_request).
 
-Not backed up with the food catalog: this is machine output a re-run regenerates.
+Backed up with the food catalog: every write here goes through foodstore's
+write transaction, so the five tables are in food_catalog.json after each one
+and come back with the foods when a rebuild finds the catalog empty. They are
+machine output, but only a paid model run would produce them again.
 
-Touches: `sqlstore.py` (the tables), `sourcestore.py` (her sources and
+Touches: `sqlstore.py` (the tables), `foodstore.py` (the write transaction and
+the backup; its merge moves a food's proposals), `sourcestore.py` (her sources and
 requests, read; a request closed on a pass), `scripts/propose_sources.py` and
 `scripts/check_proposals.py` (the callers), `tests/test_proposalstore.py`.
 
@@ -32,6 +36,7 @@ unapproved by me" — and "I want some checker built into the system."
 """
 from contextlib import contextmanager
 
+import foodstore
 import sourcestore
 import sqlstore
 
@@ -49,23 +54,9 @@ CHECK_STATUSES = ("unchecked", "passed", "failed")
 
 
 # --- connections --------------------------------------------------------------
-# One write transaction: lock up front, commit, roll back on any error — the
-# same shape as researchstore's _writing.
-
-@contextmanager
-def _writing():
-    conn = sqlstore.open_db()
-    try:
-        sqlstore.begin_immediate(conn)
-        yield conn
-        conn.execute("COMMIT")
-    except BaseException:
-        if conn.in_transaction:
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
-
+# Writes go through foodstore's write transaction (foodstore._Write), the way
+# sourcestore's do: lock up front, commit, roll back on any error, and after
+# the commit a fresh food_catalog.json — which is how these tables are backed up.
 
 @contextmanager
 def _reading():
@@ -192,7 +183,7 @@ def add(target, proposal, counties=(), evidence=(), model="", run_id="", regions
     for field in ("note", "region_name", "country", "origin_detail", "origin_url",
                   "origin_date", "summary"):
         values[field] = values[field] or ""
-    with _writing() as conn:
+    with foodstore._Write() as conn:
         columns = ["food_id", "product_id", "request_id", "amends_source_id", *values,
                    "model", "run_id"]
         cur = conn.execute(
@@ -240,7 +231,7 @@ def set_regions(proposal_id, regions):
     there's no such proposal, or it's already drawn as counties or regions."""
     if not regions:
         return False
-    with _writing() as conn:
+    with foodstore._Write() as conn:
         row = conn.execute("SELECT area_kind FROM source_proposals WHERE id = ?",
                            (proposal_id,)).fetchone()
         if row is None or row[0] != "circle":
@@ -370,7 +361,7 @@ def set_check(proposal_id, status, reason, results=None):
     proposal answers. False when there's no such proposal."""
     if status not in ("passed", "failed"):
         raise ValueError(f"a check passes or fails, not {status!r}")
-    with _writing() as conn:
+    with foodstore._Write() as conn:
         row = conn.execute("SELECT request_id FROM source_proposals WHERE id = ?",
                            (proposal_id,)).fetchone()
         if row is None:

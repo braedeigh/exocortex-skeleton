@@ -5,7 +5,8 @@ the request it answers (or a failed one closing it), a re-run deleting an old
 proposal instead of superseding it, the research pass asking twice about a
 food she already traced or requested, a citation's quote getting lost between
 the proposer and the checker, and a proposal standing on model knowledge alone
-passing the checker. The model, the web and USDA are all stubbed.
+passing the checker, and the backup — a lost database must bring every
+proposal back from food_catalog.json. The model, the web and USDA are all stubbed.
 """
 import json
 
@@ -13,6 +14,8 @@ import foodstore
 import proposalstore
 import provenance
 import sourcestore
+import sqlstore
+import store
 from scripts import check_proposals, propose_sources
 
 PAGE = "<html><body><p>Our quinoa is grown by cooperatives on the Bolivian altiplano near Oruro.</p></body></html>"
@@ -151,3 +154,51 @@ def test_the_judge_saying_no_fails_the_citation(data_dir):
     _check_all(ask=no)
     web = [e for e in proposalstore.live()[0]["evidence"] if e["role"] == "web"]
     assert {(e["check_status"], e["check_reason"]) for e in web} == {("failed", "says Peru")}
+
+
+# --- backup -----------------------------------------------------------------------
+
+_PROPOSAL_TABLES = ("source_proposals", "source_proposal_counties", "source_proposal_regions",
+                    "source_proposal_parts", "source_proposal_evidence")
+
+
+def _proposal_rows():
+    conn = sqlstore.open_db()
+    try:
+        return {table: sorted(conn.execute(f"SELECT * FROM {table}").fetchall(), key=repr)
+                for table in _PROPOSAL_TABLES}
+    finally:
+        conn.close()
+
+
+def test_proposals_come_back_from_the_backup_when_the_database_is_lost(data_dir):
+    # Every kind of row a run leaves: a replaced answer and its replacement,
+    # county and region outlines, a product's parts, evidence, and a verdict.
+    quinoa = foodstore.add_food("quinoa")
+    granola = foodstore.add_product(foodstore.add_food("granola"), "Brand granola")
+    target = proposalstore.targets(only="foods")[0]
+    _propose([target], [_answer(target["key"])])
+    _propose([target], [_answer(target["key"], name="Quinoa — Peru")])
+    parts = [{"ingredient": "oats", "place": "Canada", "transparency": "partial",
+              "geo_source": "proxy", "health_concern": "some"}]
+    _propose(proposalstore.targets(only="products"), [_answer(f"product:{granola}", parts=parts)])
+    place = {"name": "Onions", "lat": 26.2, "lng": -98.2, "precision": "area", "radius_km": 0,
+             "transparency": "partial", "origin": "usda-nass"}
+    proposalstore.add({"food_id": quinoa, "product_id": granola},
+                      dict(place, area_kind="counties", geo_source="proxy"),
+                      counties=[{"fips": "48215", "county": "Hidalgo", "state": "Texas",
+                                 "value": 1200, "unit": "ACRES"}])
+    proposalstore.add({"food_id": foodstore.add_food("onion")},
+                      dict(place, area_kind="state", geo_source="guess"),
+                      regions=[{"code": "US-TX", "name": "Texas"}])
+    _check_all()
+    before = _proposal_rows()
+    live_before = [p["name"] for p in proposalstore.live()]
+
+    # Lose the database; only the export files beside it are left.
+    for leftover in store.DATA_DIR.glob("exo.db*"):
+        leftover.unlink()
+    foodstore.rebuild()
+
+    assert all(before.values()) and (_proposal_rows(), [p["name"] for p in proposalstore.live()]) \
+        == (before, live_before)

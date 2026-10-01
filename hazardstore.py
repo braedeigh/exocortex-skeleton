@@ -142,6 +142,20 @@ _RECORD_TABLES = (
         "annotation_id", "url", "note", "author", "review", "reviewed_at", "created_at",
         "updated_at")),
     ("food_pdp_codes", ("food_id", "commodity", "commtype")),
+    # The pull ledger and the computed exposure scores with their working
+    # (exposurestore.py) ride this backup too. The scores could be worked out
+    # again from the commons, but the ledger also holds which literature
+    # searches were run, and that is written down nowhere else. After
+    # hazard_facts, which a score's working points at.
+    ("data_pulls", ("id", "dataset", "year", "scope", "file_path", "file_sha256", "rows",
+                    "detail", "loader_version", "pulled_at")),
+    ("exposure_scores", (
+        "id", "food_id", "method", "claim", "years", "sample_count", "pesticide_count",
+        "detected_count", "no_dose_count", "total_dri", "max_dri", "verdict", "reference",
+        "computed_at")),
+    ("exposure_terms", (
+        "score_id", "pesticide_code", "pesticide", "hazard_id", "samples_tested",
+        "samples_detected", "mean_ppb", "max_ppb", "dose", "dose_fact_id", "dri")),
     ("research_tables", (
         "id", "name", "kind", "topic_id", "hazard_id", "measure", "foods", "note",
         "position", "created_at")),

@@ -16,13 +16,18 @@ in docs/exposure.md). Public residue data is parsed into commons.db
                      This is the memory of what has already been pulled.
   scores             a computed exposure score per food × samples × method,
                      with one line of working per pesticide. Derived: a
-                     re-score replaces it, so it has no backup of its own.
+                     re-score replaces it.
 
 **Who writes what.** 'code' = a loader parsing a published table, 'llm' = an
 agent, 'owner' = her. Only hers is born confirmed; a fact whose value changes
-goes back to unreviewed. Facts and PDP codes are her record and ride
-hazardstore's backup (research_tables.json); the ledger and scores can be
-rebuilt from the commons, so they don't.
+goes back to unreviewed.
+
+**Backup.** Facts, PDP codes, the ledger and the scores all ride hazardstore's
+backup (research_tables.json): each is written through hazardstore's write
+transaction, which exports that file after every commit and reads it back
+when the hazard tables are found empty. Facts and PDP codes are her record.
+The scores could be worked out again from the commons, and so could most of
+the ledger, but its literature searches are written down nowhere else.
 
 Touches: `sqlstore.py` (rung 36), `hazardstore.py` (hazards, its write/read
 transactions and backup), `foodstore.py` (foods; its merge moves PDP codes),
@@ -309,9 +314,7 @@ def find_pull(dataset, year, scope, loader_version):
 
 def record_pull(dataset, year, scope, file_path, file_sha256, rows, detail, loader_version):
     """Write a pull into the ledger; pulling the same thing again updates its row."""
-    conn = sqlstore.open_db()
-    try:
-        sqlstore.begin_immediate(conn)
+    with hazardstore._Write() as conn:
         conn.execute(
             "INSERT INTO data_pulls (dataset, year, scope, file_path, file_sha256, rows, detail,"
             " loader_version) VALUES (?,?,?,?,?,?,?,?)"
@@ -320,15 +323,6 @@ def record_pull(dataset, year, scope, file_path, file_sha256, rows, detail, load
             f" rows = excluded.rows, detail = excluded.detail, pulled_at = {_NOW}",
             (dataset, int(year or 0), scope or "", file_path, file_sha256, int(rows),
              json.dumps(detail or {}, sort_keys=True), loader_version))
-        conn.execute("COMMIT")
-    except BaseException:
-        # Undo only a transaction that began: a BEGIN that timed out on the
-        # lock leaves none, and its own error is the one worth seeing.
-        if conn.in_transaction:
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
 
 
 def ledger(dataset=None):
@@ -365,9 +359,7 @@ def save_score(food_id, method, claim, years, summary, terms):
     """
     if claim not in CLAIMS:
         raise ValueError(f"claim must be one of {CLAIMS}")
-    conn = sqlstore.open_db()
-    try:
-        sqlstore.begin_immediate(conn)
+    with hazardstore._Write() as conn:
         # Replace, not accumulate: the old score and its terms go (cascade).
         conn.execute("DELETE FROM exposure_scores WHERE food_id = ? AND method = ? AND claim = ?"
                      " AND years = ?", (food_id, method, claim, years))
@@ -384,16 +376,7 @@ def save_score(food_id, method, claim, years, summary, terms):
             f"INSERT INTO exposure_terms (score_id, {', '.join(_TERM_COLUMNS)})"
             f" VALUES (?, {', '.join('?' * len(_TERM_COLUMNS))})",
             [(score_id, *(term.get(column) for column in _TERM_COLUMNS)) for term in terms])
-        conn.execute("COMMIT")
         return score_id
-    except BaseException:
-        # Undo only a transaction that began: a BEGIN that timed out on the
-        # lock leaves none, and its own error is the one worth seeing.
-        if conn.in_transaction:
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
 
 
 def _score_dict(row):

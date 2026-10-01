@@ -38,7 +38,10 @@ has matched yet, which leaves duplicates ("onion", "onions") in plain sight;
 The map's sources are her record too: `sourcestore.py` writes them through
 the same transaction below, so they ride in the same backup. So do the two
 tables behind recipe nutrients (`recipe_nutrition.py`): which USDA entry each
-food is, and her gram weights for recipe lines.
+food is, and her gram weights for recipe lines. The machine's proposals for
+where a food comes from (`proposalstore.py`) are not her record, but they
+ride in the same backup the same way, because only a paid model run would
+bring them back.
 
 Touches: `sqlstore.py` (the tables, rungs 20 and 22, and two views:
 food_last_price, recipe_cost), `store.py` (reads recipes / kitchen /
@@ -90,6 +93,24 @@ _RECORD_TABLES = (
     # Her requests to have a food's origin found (sourcestore.request).
     ("source_requests", ("id", "food_id", "food_name", "food_key", "product_id", "asked_from",
                          "status", "created_at", "closed_at")),
+    # The machine's proposals for where a food comes from (proposalstore.py).
+    # Not her record, but two model runs' worth of answers and evidence that
+    # only a paid re-run would bring back, so they are backed up with the rest.
+    # After foods, products, sources and requests, which a proposal points at.
+    ("source_proposals", (
+        "id", "food_id", "product_id", "request_id", "amends_source_id", "name", "note", "lat",
+        "lng", "precision", "radius_km", "area_kind", "region_name", "country", "transparency",
+        "geo_source", "origin", "origin_detail", "origin_url", "origin_date", "usda_commodity",
+        "summary", "worst_trace_seq", "worst_health_seq", "check_status", "check_reason",
+        "checked_at", "model", "run_id", "superseded_by", "created_at")),
+    ("source_proposal_counties", ("proposal_id", "fips", "seq", "county", "state", "value",
+                                  "unit")),
+    ("source_proposal_regions", ("proposal_id", "code", "seq", "name")),
+    ("source_proposal_parts", ("proposal_id", "seq", "ingredient", "food_id", "place",
+                               "transparency", "geo_source", "health_concern", "health_basis",
+                               "note")),
+    ("source_proposal_evidence", ("proposal_id", "entry_id", "role", "check_status",
+                                  "check_reason")),
     # Which USDA entry each food is, and her gram weights for recipe lines
     # (recipe_nutrition.py).
     ("food_usda", ("food_id", "fdc_id", "set_at")),
@@ -183,6 +204,11 @@ def _restore_if_empty(conn):
     backup = store.read(MIRROR_FILE, {})
     if not backup.get("foods"):
         return False
+    # Check what rows point at only when the whole restore commits. A replaced
+    # proposal points at its replacement, which has a higher id and so is
+    # inserted after it; checked row by row, that insert would be refused.
+    # SQLite turns this setting off again by itself at COMMIT or ROLLBACK.
+    conn.execute("PRAGMA defer_foreign_keys = ON")
     for table, cols in _RECORD_TABLES:
         rows = [tuple(r.get(c) for c in cols) for r in backup.get(table) or []]
         conn.executemany(
@@ -205,8 +231,31 @@ def _resolver(conn):
     return names, receipts
 
 
-def _refill(conn):
-    """Wipe the derived tables and read them back from the kitchen blobs."""
+# The kitchen's documents a rebuild reads, each with what an empty one looks like.
+_KITCHEN_BLOBS = (
+    ("recipes.json", {"recipes": []}),
+    ("expense_receipts.json", {}),
+    ("grocery_trips.json", {"trips": []}),
+    ("kitchen_trips.json", {"trips": []}),
+    ("kitchen.json", {}),
+)
+
+
+def _read_kitchen():
+    """Read the kitchen's documents, before the write lock is taken.
+
+    Reading a document the database has never seen writes it in from its
+    export file, on a connection of its own. Done while rebuild() holds the
+    write lock, that write waits on the rebuild's own lock until it gives up
+    with "database is locked" — which is what a rebuild on a brand-new
+    database did.
+    """
+    return {name: store.read(name, empty) or empty for name, empty in _KITCHEN_BLOBS}
+
+
+def _refill(conn, kitchen):
+    """Wipe the derived tables and read them back from the kitchen blobs
+    (`kitchen`, as _read_kitchen returns them)."""
     # Children first, so no foreign key is ever left pointing at nothing.
     for table in ("receipts", "recipe_lines", "recipes", "shopping_lines",
                   "shopping_trips", "grocery_list"):
@@ -216,7 +265,7 @@ def _refill(conn):
               "shopping_lines": 0, "grocery_list": 0, "receipts": 0}
 
     # Recipes and their lines, each line resolved to a food by name.
-    for r in store.read("recipes.json", {"recipes": []}).get("recipes") or []:
+    for r in kitchen["recipes.json"].get("recipes") or []:
         if not r.get("id"):
             continue
         conn.execute(
@@ -242,16 +291,16 @@ def _refill(conn):
     # expense_id being stamped on the trip itself.
     expense_by_photo = {
         (v or {}).get("filename"): eid
-        for eid, v in (store.read("expense_receipts.json", {}) or {}).items()
+        for eid, v in kitchen["expense_receipts.json"].items()
         if isinstance(v, dict)
     }
 
     # Shopping trips: grocery_trips carries line items; kitchen_trips only
     # totals. A kitchen trip on the same date and store as a grocery trip is
     # the same trip told twice, so it is only added when it has no twin.
-    trips = list(store.read("grocery_trips.json", {"trips": []}).get("trips") or [])
+    trips = list(kitchen["grocery_trips.json"].get("trips") or [])
     seen = {(t.get("date"), _receipt_key(t.get("store"))) for t in trips}
-    for t in store.read("kitchen_trips.json", {"trips": []}).get("trips") or []:
+    for t in kitchen["kitchen_trips.json"].get("trips") or []:
         if (t.get("date"), _receipt_key(t.get("store"))) not in seen:
             trips.append(t)
     trips.sort(key=lambda t: t.get("date") or "")
@@ -290,7 +339,7 @@ def _refill(conn):
     counts["receipts"] = _fill_receipts(conn, expense_by_photo)
 
     # The grocery list as it stands right now.
-    for seq, item in enumerate(store.read("kitchen.json", {}).get("items") or []):
+    for seq, item in enumerate(kitchen["kitchen.json"].get("items") or []):
         text = (item.get("name") or "").strip()
         if not text:
             continue
@@ -359,11 +408,12 @@ def rebuild():
     restored from its mirror, so a rebuild on a fresh database comes back with
     her foods rather than with every line unmatched.
     """
+    kitchen = _read_kitchen()
     conn = sqlstore.open_db()
     try:
         sqlstore.begin_immediate(conn)
         restored = _restore_if_empty(conn)
-        counts = _refill(conn)
+        counts = _refill(conn, kitchen)
         conn.execute("COMMIT")
     except BaseException:
         # Undo only a transaction that began: a BEGIN that lost the lock

@@ -5,8 +5,9 @@ an agent or a loader; a loader re-run quietly overwriting a value she already
 reviewed (a changed value must go back to unreviewed, the same value must
 keep her review); a disputed safe dose still being used to score; a re-score
 piling up beside the old one instead of replacing it; a pull being forgotten
-by the ledger; and the backup — facts and PDP codes are her record, so an
-emptied database must bring them back.
+by the ledger; and the backup — facts and PDP codes are her record, and the
+scores and the ledger ride the same file, so an emptied or lost database must
+bring them all back.
 """
 import pytest
 
@@ -186,6 +187,37 @@ def test_facts_and_codes_come_back_from_the_backup(world):
         conn.close()
     assert [fact["value"] for fact in exposurestore.facts_for("Chlorpropham")] == ["101-21-3"] and \
         rows("SELECT commodity FROM food_pdp_codes") == [("PO",)]
+
+
+def test_scores_and_the_ledger_come_back_from_the_backup_when_the_database_is_lost(world):
+    food_id = rows("SELECT food_id FROM food_names WHERE name = ?", ("potatoes",))[0][0]
+    dose_fact, _ = exposurestore.put_code_fact(
+        "Chlorpropham", "chronic_dose", "0.005", url=EPA_URL, amount=0.005)
+    hazard_id = rows("SELECT hazard_id FROM hazard_names WHERE name = 'chlorpropham'")[0][0]
+    terms = [dict(pesticide_code="036", pesticide="Chlorpropham", hazard_id=hazard_id,
+                  samples_tested=10, samples_detected=5, mean_ppb=100.0, max_ppb=900.0,
+                  dose=0.005, dose_fact_id=dose_fact, dri=0.2),
+             dict(pesticide_code="999", pesticide="Never found", samples_tested=10,
+                  samples_detected=0, mean_ppb=0.0)]
+    exposurestore.save_score(food_id, "dri-v1", "conventional", "2023", _summary(), terms)
+    organic = exposurestore.save_score(food_id, "dri-v1", "organic", "2023",
+                                       _summary(verdict="conventional"), terms[1:])
+    exposurestore.record_pull("usda-pdp", 2023, "PO", "usda-pdp/2023.zip", "abc", 100, {"samples": 7}, 1)
+    exposurestore.record_search("Chlorpropham", "pubmed", "chlorpropham toxicity", 40, 5)
+    tables = ("data_pulls", "exposure_scores", "exposure_terms")
+    before = {table: sorted(rows(f"SELECT * FROM {table}"), key=repr) for table in tables}
+
+    # Lose the database; only the export files beside it are left. The foods
+    # come back first, as they do in a real restore: a score points at one.
+    for leftover in store.DATA_DIR.glob("exo.db*"):
+        leftover.unlink()
+    foodstore.rebuild()
+    shown = exposurestore.food_exposure("potatoes")
+
+    after = {table: sorted(rows(f"SELECT * FROM {table}"), key=repr) for table in tables}
+    assert all(before.values()) and after == before and \
+        shown["headline"]["organic"]["id"] == organic and \
+        [search["query"] for search in exposurestore.searches_for(hazard_id)] == ["chlorpropham toxicity"]
 
 
 def test_commons_db_lives_beside_the_files(tmp_path):
