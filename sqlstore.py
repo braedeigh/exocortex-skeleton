@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 43
+_SCHEMA_VERSION = 44
 
 
 def _db_path():
@@ -207,6 +207,8 @@ _EXPECTED_TABLES = (
     "helper_watches",
     # Which pairs of sessions are in the same file (rungs 42–43).
     "file_alerts",
+    # What other people did in Linear, as the feed noticed it (rung 44).
+    "linear_events",
 )
 
 
@@ -2967,6 +2969,41 @@ def _run_ladder(conn):
         if "told" not in columns:
             conn.execute("ALTER TABLE file_alerts ADD COLUMN told INTEGER NOT NULL DEFAULT 0")
             conn.execute("UPDATE file_alerts SET told = 1")
+    if version < 44:
+        # Rung 44: the Linear feed (linear_feed.py). Once a minute the app
+        # asks Linear what changed and writes down each thing someone other
+        # than the owner did — once. This table is that "once": `key` is
+        # unique, so the same comment or move read again adds nothing.
+        # RECORDS: Linear keeps the history, but not which of it the Linear
+        # helper has been told.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS linear_events ("
+            "  id INTEGER PRIMARY KEY,"
+            # What makes the event itself: Linear's id for the comment or
+            # history row, plus what changed.
+            "  key TEXT NOT NULL UNIQUE,"
+            # When it happened, by Linear's clock (UTC), and when the app saw it.
+            "  at TEXT NOT NULL,"
+            "  seen_at TEXT NOT NULL,"
+            # comment, created, status, assignee, title, description,
+            # priority, labels, project, due, archived.
+            "  kind TEXT NOT NULL,"
+            "  issue_id TEXT,"
+            "  identifier TEXT,"
+            "  title TEXT,"
+            "  url TEXT,"
+            "  actor_id TEXT,"
+            "  actor TEXT,"
+            # One plain line: what they did. And a comment's own words.
+            "  summary TEXT NOT NULL,"
+            "  body TEXT,"
+            # 1 when it calls on the owner: a comment, or an issue given to her.
+            "  for_owner INTEGER NOT NULL DEFAULT 0,"
+            # When the Linear helper was woken with it. Empty: still waiting.
+            "  told_at TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS linear_events_at ON linear_events (at)")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

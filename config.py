@@ -114,6 +114,26 @@ SQL_AGENT_DENY_TABLES = frozenset(
 # Blank means the first team the key can see.
 LINEAR_TEAM_KEY = os.environ.get("EXOCORTEX_LINEAR_TEAM", "").strip()
 
+# The Linear feed (linear_feed.py): once a minute the app asks Linear what
+# changed, writes down what someone other than the owner did, wakes the
+# Linear helper with it, and sends her phone the ones that call on her.
+#   LINEAR_FEED               — the minute check itself. On; it does nothing
+#                               until a key is saved.
+#   LINEAR_FEED_BACKFILL_DAYS — how far back the very first look reads. Those
+#                               are listed on the page; nobody is woken for them.
+#   LINEAR_FEED_PUSH          — also notify her phone.
+#   LINEAR_HELPER_DAYS        — a session that used Linear this recently is
+#                               one of the sessions the Linear helper is shown.
+# Prompt: "I want to create something that pushes linear stuff to my app. And
+# the helpers notice it and can send out info".
+LINEAR_FEED = os.environ.get("EXOCORTEX_LINEAR_FEED", "1") != "0"
+LINEAR_FEED_BACKFILL_DAYS = float(os.environ.get("EXOCORTEX_LINEAR_FEED_BACKFILL_DAYS", "3"))
+LINEAR_FEED_PUSH = os.environ.get("EXOCORTEX_LINEAR_FEED_PUSH", "1") != "0"
+LINEAR_HELPER_DAYS = float(os.environ.get("EXOCORTEX_LINEAR_HELPER_DAYS", "3"))
+# The push door a cron script knocks on (routes/push.py's /api/push/notify).
+PUSH_NOTIFY_URL = os.environ.get("EXOCORTEX_PUSH_NOTIFY_URL",
+                                 "http://127.0.0.1:5000/api/push/notify")
+
 
 def linear_api_key_path():
     """Where the pasted Linear API key is kept: a plain file in the data dir,

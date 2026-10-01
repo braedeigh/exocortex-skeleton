@@ -262,9 +262,10 @@ _DEFAULT_LANE = "orchestra"
 # being spelled into a condition somewhere; anything not on this list asks.
 _WATCHED_LANES = ("personal", "coding", "research", "linear")
 
-# The helper sessions — a swarm's own and the room's (swarms.HELPER_ROLES).
-# Whatever room they sit in, they only look things up (tools/helper_gate.py).
-_HELPER_ROLES = ("swarm_helper", "room_helper")
+# The helper sessions — a swarm's own, the room's and the Linear helper
+# (swarms.HELPER_ROLES). Whatever room they sit in, they only look things up
+# (tools/helper_gate.py).
+_HELPER_ROLES = ("swarm_helper", "room_helper", "linear_helper")
 
 
 def _root_dir():
@@ -2826,11 +2827,11 @@ def after_turn(conv_id):
         move_system_followups(conv_id, successor)
         drain_inbox(successor)
         return
-    # A helper's chat (a swarm's or the room's) is never continued and
-    # belongs to no swarm as a member. Its only end-of-turn job makes no
+    # A helper's chat (a swarm's, a room's, the Linear helper's) is never
+    # continued and belongs to no swarm as a member. Its only end-of-turn job makes no
     # model call: a wake-up it answered with silence leaves no trace on its
     # card (helper_chat.after_turn).
-    if isinstance(entry, dict) and entry.get("role") in ("swarm_helper", "room_helper"):
+    if isinstance(entry, dict) and entry.get("role") in _HELPER_ROLES:
         try:
             import helper_chat
             helper_chat.after_turn(conv_id)
@@ -4497,11 +4498,10 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
             if card_prompt:
                 entry["last_prompt"] = card_prompt
         resume_sid = entry.get("claude_session_id")
-        # A helper's chat (a swarm's or the room's) never resumes: each turn
+        # A helper's chat (a swarm's, a room's, the Linear helper's) never resumes: each turn
         # starts fresh from a rolling seed (helper_chat.py), written just
         # below, so its context can't outgrow the window however long it runs.
-        helper_chat_entry = (dict(entry) if entry.get("role") in ("swarm_helper", "room_helper")
-                             else None)
+        helper_chat_entry = dict(entry) if entry.get("role") in _HELPER_ROLES else None
         if helper_chat_entry is not None:
             resume_sid = None
         # Attach the boot package when this send wakes a Keeper. Any chat

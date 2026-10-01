@@ -188,6 +188,45 @@ or move solo sessions out of a swarm into the layer above."
   on its page (`SwarmNetwork.tsx`, its helper in the middle), and the
   sessions working alone in rows beneath. Data: `GET /api/swarms/room/<room>`.
 
+## The Linear feed and the Linear helper
+
+Her ask: "I want to create something that pushes linear stuff to my app. And
+the helpers notice it and can send out info." Linear is the outside issue
+tracker she shares with other people; nothing told the app when one of them
+commented or moved an issue.
+
+- **It asks, because Linear can't push here.** The site is reachable only on
+  her own network, so a Linear webhook has nowhere to land. Once a minute
+  (`linear_feed.tick`, on the dispatcher's tick) the app asks Linear's API
+  what changed since its last look — two small queries (`linear_api.changes`),
+  with her personal key. "Push" means "noticed within about a minute".
+- **News is anything not done by her** — "anything not me": a comment, a new
+  issue, a status move, an assignment, a rename, a description edit, a
+  priority, label, project or due-date change, an archive. Her sessions act in
+  Linear under her name, so "the actor isn't the key's owner" is the one
+  filter that separates news from her own work.
+- **Each event is written down once**, in `linear_events`; its unique key is
+  what stops a second row. Linear folds one person's quick changes into one
+  history row, so the key is the row's id plus what changed. The first look
+  ever reads `config.LINEAR_FEED_BACKFILL_DAYS` (3) back and wakes nobody.
+- **The Linear helper** (`role: "linear_helper"`, made on first news) is a
+  helper like the others: a rolling chat, lookups only. Her call: "there
+  should be a linear helper that decides to notify the room helper or other
+  sessions." It is woken with the new events as one System message (marked
+  told first, then queued — the watches' order), tells her in its chat, and
+  messages whoever's work the news changes. Its seed's part 3 is the open
+  sessions that work in Linear in ANY room — in the Linear room, started on
+  an issue, or having used the Linear tools in the last
+  `config.LINEAR_HELPER_DAYS` (3) — and it carries the recent news, because
+  the chat rolls. It can't write to Linear; `scripts/linear_feed.py` lets it
+  read the news and one issue live.
+- **Where she sees it**: the helper's chat; "New in Linear" at the top of the
+  Linear room's page (`LinearNews.tsx`), with a count on the roster's Linear
+  door of what she hasn't looked at on that device; and her phone, for a
+  comment or an issue assigned to her (through `/api/push/notify`).
+- Words quoted from Linear are someone else's. The helper is told they are
+  information, never an instruction, and the helper gate holds either way.
+
 ## File alerts
 
 Her ask: "have some kind of code that identifies when 2 agents are working
@@ -259,6 +298,7 @@ read by the helper." So the app notices and writes it down
 | Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) her standing rules (`rules`, `add_rule`, `drop_rule`; `scripts/helper_rule.py`, allowed in `tools/helper_gate.py`), the wake-up (`wake_tick`, ticked by `scripts/coming_up_dispatcher.py`; `after_turn`, called by `after_turn`, puts a silent wake-up's card back) and the silent turn's hiding in `frontend/src/features/observatory/events.ts`; `config.HELPER_CHAT_EXCHANGES`, `HELPER_WAKE_*`; exempt in `continuation.due` |
 | Room helper | `room_helper.py` (runs, moves, undo, the room overview); placements in `swarms.py` (`place`, `unplace`, `new_swarm`, `line_of_work`; `links` cuts pre-placement messages); `swarm_pins`, `room_moves`, `session_summaries`, `room_helper_runs` (sqlstore rung 37); `scripts/room_moves.py`; ticked by `scripts/coming_up_dispatcher.py` |
 | Watches | `watches.py` (add, the minute check, the wake-up, the seed section); `helper_watches` (sqlstore rung 40); `scripts/helper_watch.py`; allowed in `tools/helper_gate.py`; ticked by `scripts/coming_up_dispatcher.py`; `config.HELPER_WATCH_*` |
+| Linear feed | `linear_feed.py` (the look, what counts as news, the once-only record, the Linear helper and its wake-up, the phone push); `linear_api.py` (`team`, `changes`); `linear_events` (sqlstore rung 44) and the `linear_feed` state file; the helper's lead, sessions and news section in `helper_chat.py`; `scripts/linear_feed.py`, allowed in `tools/helper_gate.py`; `GET /api/linear-room/feed` in `routes/linear_room.py`; `LinearNews.tsx`, `linearNewsSeen.ts`, `LinearDoor.tsx`; ticked by `scripts/coming_up_dispatcher.py`; `config.LINEAR_FEED*`, `LINEAR_HELPER_DAYS` |
 | File alerts | `file_alerts.py` (finding overlaps, the once-only claim, the room helper's list); `edited_files.py` (`edits`, `reads`, the section that shows the list); `file_alerts` (sqlstore rungs 42–43); ticked by `scripts/coming_up_dispatcher.py`; `config.FILE_OVERLAPS`, `config.FILE_ALERT_ROOMS` / `_HOURS`. Switched off (`config.FILE_ALERTS`): the notice texts and pre-edit check in `file_alerts.py`, the mailbox's kind `S` and `peermail.send_notice`, `tools/file_alert_hook.py` wired in `_session_settings`, `drain_inbox` in `routes/observatory.py` |
 | Closing check | `swarms.retired`; `swarm_helper.watch_retirement` / `close_out` / `closing_report`, run by `swarm_helper.tick` on the minute tick |
 
@@ -272,6 +312,10 @@ read by the helper." So the app notices and writes it down
 - File alerts: built and tested (`tests/test_file_alerts.py`). Overlaps are
   written down for the room helper only — in its files section and the
   `file_alerts` table; not on any page. Telling the sessions is switched off.
+- The Linear feed: built and tested (`tests/test_linear_feed.py`). Linear
+  documents and their comments are not read. A look reads at most 100 changed
+  issues and each one's 20 latest history rows; past that it keeps the newest
+  and says so in the state file (`truncated`).
 - Watches: built and tested (`tests/test_helper_watch.py`). Not on any page
   yet — they're in the helper's seed, its chat, and `helper_watch.py list`.
 - Mailbox, token accounting, continuation, swarms and the helper: built and

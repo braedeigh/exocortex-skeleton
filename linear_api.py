@@ -16,8 +16,12 @@ that every write clears.
 The key never leaves this file except as the Authorization header. It isn't
 logged, isn't put in an error message, and isn't returned to the page.
 
-Touches: config.py (the key and the team), routes/linear_room.py (the only
-caller).
+The feed (linear_feed.py) asks a different question once a minute: what
+changed since the last look. `changes` answers it, raw. Linear can't push to
+this machine, so asking is the only way to find out.
+
+Touches: config.py (the key and the team), routes/linear_room.py (the board
+and the writes), linear_feed.py (`team` and `changes`).
 """
 import json
 import time
@@ -187,6 +191,92 @@ def issue(issue_id):
     """One issue in full: its description and latest comments too. This is
     what a "Work on this" session is briefed with."""
     return _call(_ISSUE_QUERY, {"id": issue_id}).get("issue")
+
+
+# --- What changed since a moment (the feed) ----------------------------------
+
+# The feed reads in two queries, each small, for the same reason the board
+# does: Linear prices a query by how much it could return. Issues come with
+# their latest history rows (who moved, assigned, renamed or edited them);
+# comments come on their own. Both are newest first and paged.
+_FEED_ISSUES_QUERY = """
+query FeedIssues($teamId: ID!, $since: DateTimeOrDuration!, $after: String) {
+  issues(filter: { team: { id: { eq: $teamId } }, updatedAt: { gt: $since } },
+         first: 25, after: $after, orderBy: updatedAt) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      id identifier title url createdAt updatedAt
+      creator { id name displayName }
+      assignee { id }
+      history(first: 20) { nodes {
+        id createdAt updatedAt
+        actor { id name displayName }
+        botActor { name }
+        fromState { name } toState { name }
+        fromAssignee { id name displayName } toAssignee { id name displayName }
+        fromTitle toTitle updatedDescription
+        fromPriority toPriority
+        addedLabels { name } removedLabels { name }
+        fromProject { name } toProject { name }
+        fromDueDate toDueDate archived trashed
+      } }
+    }
+  }
+}
+"""
+
+_FEED_COMMENTS_QUERY = """
+query FeedComments($teamId: ID!, $since: DateTimeOrDuration!, $after: String) {
+  comments(filter: { issue: { team: { id: { eq: $teamId } } }, createdAt: { gt: $since } },
+           first: 50, after: $after, orderBy: createdAt) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      id createdAt url body
+      user { id name displayName }
+      botActor { name }
+      issue { id identifier title url assignee { id } }
+    }
+  }
+}
+"""
+
+# The most pages one look reads of each: 100 issues, 200 comments. A look
+# that hits the cap says so (`truncated`), so the caller knows it saw the
+# newest part only.
+_FEED_MAX_PAGES = 4
+
+
+def team():
+    """Who the key belongs to and the team the room works in, without its
+    issues: {"viewer": {...}, "team": {...} or None}."""
+    team_filter = {"key": {"eq": config.LINEAR_TEAM_KEY}} if config.LINEAR_TEAM_KEY else None
+    data = _call(_TEAM_QUERY, {"teamFilter": team_filter})
+    teams = (data.get("teams") or {}).get("nodes") or []
+    return {"viewer": data.get("viewer") or {}, "team": teams[0] if teams else None}
+
+
+def _pages(query, name, variables):
+    """Read a paged list to its end, or to the page cap. Returns (nodes,
+    whether the cap cut it short)."""
+    nodes, after = [], None
+    for _ in range(_FEED_MAX_PAGES):
+        page = _call(query, {**variables, "after": after}).get(name) or {}
+        nodes += page.get("nodes") or []
+        info = page.get("pageInfo") or {}
+        if not info.get("hasNextPage"):
+            return nodes, False
+        after = info.get("endCursor")
+    return nodes, True
+
+
+def changes(team_id, since):
+    """Everything in a team that changed after `since` (an ISO time, UTC):
+    the issues touched, each with its latest history rows, and the comments
+    written. Raw from Linear, by anyone — the caller decides what is news."""
+    variables = {"teamId": team_id, "since": since}
+    issues, issues_cut = _pages(_FEED_ISSUES_QUERY, "issues", variables)
+    comments, comments_cut = _pages(_FEED_COMMENTS_QUERY, "comments", variables)
+    return {"issues": issues, "comments": comments, "truncated": issues_cut or comments_cut}
 
 
 # --- Writing ----------------------------------------------------------------

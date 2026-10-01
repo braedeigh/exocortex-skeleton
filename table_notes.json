@@ -3580,5 +3580,71 @@
         "holds": "The page number, counting from 1."
       }
     }
+  },
+  "linear_events": {
+    "holds": "What other people did in the Linear team, as the app noticed it: a comment, a new issue, a status move, an assignment, an edit. One row per thing, written once. The owner's own actions, and her sessions' (they act under her name), are never rows. The Linear helper is woken with each new row and decides who needs to hear; the Linear room's page lists them.",
+    "source": "Written by linear_feed.py at the minute check (linear_feed.tick), from Linear's own API. Only told_at is ever updated, when the helper is woken.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "The row's number."
+      },
+      "key": {
+        "holds": "What makes this event itself: Linear's id for the comment or the history row, plus what changed. Unique, so reading the same thing twice adds nothing."
+      },
+      "at": {
+        "holds": "When it happened, by Linear's clock: UTC, ending in Z."
+      },
+      "seen_at": {
+        "holds": "When the app noticed it, local time."
+      },
+      "kind": {
+        "holds": "What was done.",
+        "values": {
+          "comment": "a comment on an issue",
+          "created": "a new issue",
+          "status": "moved to another status",
+          "assignee": "assigned, reassigned or unassigned",
+          "title": "renamed",
+          "description": "the description was edited",
+          "priority": "the priority changed",
+          "labels": "labels added or removed",
+          "project": "moved to another project",
+          "due": "the due date changed",
+          "archived": "archived, deleted or brought back"
+        }
+      },
+      "issue_id": {
+        "holds": "Linear's internal id of the issue."
+      },
+      "identifier": {
+        "holds": "The issue's short name, like ENG-12."
+      },
+      "title": {
+        "holds": "The issue's title when the event was seen."
+      },
+      "url": {
+        "holds": "The link to the issue, or to the comment itself."
+      },
+      "actor_id": {
+        "holds": "Linear's id of the person who did it. Empty for an integration or Linear itself."
+      },
+      "actor": {
+        "holds": "Who did it, by name."
+      },
+      "summary": {
+        "holds": "One plain line saying what they did."
+      },
+      "body": {
+        "holds": "A comment's own words, cut at 4000 characters. Empty for everything else."
+      },
+      "for_owner": {
+        "holds": "1 when it calls on the owner herself: a comment, or an issue assigned to her. These are the ones that also go to her phone."
+      },
+      "told_at": {
+        "holds": "When the Linear helper was woken with it. Empty while it's still waiting; rows read on the feed's first run are stamped without waking anyone."
+      }
+    }
   }
 }

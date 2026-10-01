@@ -63,9 +63,10 @@ import sqlstore
 import store
 
 
-# The helper sessions: a swarm's own, and the room's (room_helper.py). They
+# The helper sessions: a swarm's own, the room's (room_helper.py) and the
+# Linear helper (linear_feed.py). They
 # message everyone they watch, so their messages never link anybody.
-HELPER_ROLES = ("swarm_helper", "room_helper")
+HELPER_ROLES = ("swarm_helper", "room_helper", "linear_helper")
 
 
 def _now():

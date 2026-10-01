@@ -71,10 +71,10 @@ def due(entry):
         return False
     if entry.get("journal") is True or (entry.get("continuation") or {}).get("state"):
         return False
-    # Never a helper's chat (a swarm's or the room's). It is one
+    # Never a helper's chat (a swarm's, a room's, the Linear helper's). It is one
     # conversation for its whole life, and it can't outgrow its context:
     # every turn starts fresh from a rolling seed (helper_chat.py), so there is nothing to hand off.
-    if entry.get("role") in ("swarm_helper", "room_helper"):
+    if entry.get("role") in ("swarm_helper", "room_helper", "linear_helper"):
         return False
     if lanes.derive_lane(entry) not in config.CONTINUE_LANES:
         return False

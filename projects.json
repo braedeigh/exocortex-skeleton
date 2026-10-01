@@ -458,7 +458,7 @@
         "worktrees.py",
         "procmem.py",
         "activityfeed.py",
-        "lanes.py", "linear_api.py", "peermail.py", "swarms.py", "swarm_helper.py", "helper_chat.py", "room_helper.py", "watches.py", "edited_files.py", "file_alerts.py", "continuation.py", "sudo_requests.py"
+        "lanes.py", "linear_api.py", "peermail.py", "swarms.py", "swarm_helper.py", "helper_chat.py", "room_helper.py", "watches.py", "linear_feed.py", "edited_files.py", "file_alerts.py", "continuation.py", "sudo_requests.py"
       ],
       "routes": [
         "observatory.py",
@@ -501,13 +501,13 @@
         "spinoff_runner.py",
         "backfill_spawned_from.py",
         "spark_morning.py",
-        "sort_bot_chats.py", "peers.py", "sudo_request.py", "room_moves.py", "helper_watch.py", "helper_rule.py"
+        "sort_bot_chats.py", "peers.py", "sudo_request.py", "room_moves.py", "helper_watch.py", "helper_rule.py", "linear_feed.py"
       ],
       "tables": [
         "notes",
         "note_judgments",
         "job_runs", "agent_messages", "swarms", "swarm_members", "swarm_helper_runs",
-        "session_summaries", "swarm_pins", "room_moves", "room_helper_runs", "helper_watches", "file_alerts"
+        "session_summaries", "swarm_pins", "room_moves", "room_helper_runs", "helper_watches", "file_alerts", "linear_events"
       ],
       "collections": [
         "dev_notes",

@@ -275,3 +275,49 @@
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* "New in Linear" (LinearNews.tsx): one row per thing someone else did. The
+   whole row is a link out to Linear. */
+.news {
+  margin: 0 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.newsRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: var(--tap-target);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+
+/* One she hasn't looked at yet: set apart with the accent. */
+.newsRowNew {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.newsWhat {
+  font-size: var(--font-size-base);
+}
+
+.newsBody {
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.newsTag {
+  margin-left: var(--space-2);
+  color: var(--accent);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}

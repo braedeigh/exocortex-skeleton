@@ -39,6 +39,9 @@ And it wakes a helper whose sessions changed since its last turn — a new
 session, or a file newly edited (config.HELPER_WAKE_ON can widen this to
 files newly read) — so it can look; the helper may stay silent
 (helper_chat.wake_tick).
+And it asks Linear what changed since the last minute, writes down what
+someone other than the owner did, and wakes the Linear helper with it
+(linear_feed.tick) — the app's stand-in for a push Linear can't send here.
 
 Run by cron (the owner wires the crontab):
 
@@ -51,7 +54,7 @@ Touches: `comingup.py` (what's due, marking it), `routes/observatory.py`
 close_done_sessions / idle_check_sessions), `watches.py` (tick),
 `file_alerts.py` (tick), `scripts/keeper_rollover.py` (finding
 the pinned Keeper, the rollover lock), `tests/test_coming_up_dispatcher.py`.
-Also `helper_chat.py` (wake_tick).
+Also `helper_chat.py` (wake_tick) and `linear_feed.py` (tick).
 
 Prompt that produced this: "I'm also wanting something that can inject a
 message into the chat to have it talk to me about it. And record that it
@@ -197,6 +200,16 @@ def main():
             _log(f"room changes woke {woke} helper(s)")
     except Exception as e:
         _log(f"helper wake-up check failed: {e}")
+    # The Linear feed: someone other than the owner did something in Linear,
+    # so it is written down once and the Linear helper is woken with it
+    # (linear_feed.py). It does nothing until a Linear key is saved.
+    try:
+        import linear_feed
+        news = linear_feed.tick()
+        if news:
+            _log(f"linear feed woke the Linear helper with {news} event(s)")
+    except Exception as e:
+        _log(f"linear feed failed: {e}")
     # Turns whose host process died mid-reply are marked failed here
     # (routes/observatory.py mark_dead_turns), so a red card and an error line
     # land even when nobody has the roster open.

@@ -10,6 +10,7 @@ import {
 import { sessionLocation } from './sessionLocation';
 import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { LinearBoard } from './LinearBoard';
+import { LinearNews } from './LinearNews';
 import pageStyles from './NightCrewPage.module.css';
 import rowStyles from './HelpersPage.module.css';
 import styles from './ResearchPage.module.css';
@@ -27,9 +28,11 @@ import styles from './ResearchPage.module.css';
  * `linear`), then opens it. The roster's pickers don't offer this lane,
  * because it has no room block there.
  *
- * Above the sessions sits LinearBoard: Linear itself, live (the team's
- * issues by status, what's waiting on her, quick capture, and a "Work on
- * this" per issue that starts a session briefed with it).
+ * At the top sits LinearNews: what other people did in Linear lately, as the
+ * app's minute check wrote it down, with the door to the Linear helper.
+ * Under it, LinearBoard: Linear itself, live (the team's issues by status,
+ * what's waiting on her, quick capture, and a "Work on this" per issue that
+ * starts a session briefed with it).
  *
  * Reads GET /api/linear-room (routes/linear_room.py). The page polls only
  * while a session is running, so an idle page costs nothing. Archived
@@ -100,6 +103,8 @@ export function LinearPage() {
           change your Linear workspace (issues, projects, milestones, documents) and knows the plan it's
           working from.
         </p>
+
+        <LinearNews />
 
         <LinearBoard />
 

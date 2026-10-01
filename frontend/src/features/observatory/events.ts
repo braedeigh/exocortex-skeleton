@@ -71,9 +71,10 @@ export interface Turn {
   text: string;
   /** reminder only: who set it — 'manual' (her), 'keeper', 'job' (a
    * background job reporting back — scripts/run_detached.py), 'watch' (a
-   * helper's watch that fired — watches.py) or 'wake' (the app waking a helper
-   * because its room changed — helper_chat.py). */
-  source?: 'manual' | 'keeper' | 'job' | 'notice' | 'watch' | 'wake';
+   * helper's watch that fired — watches.py), 'wake' (the app waking a helper
+   * because its room changed — helper_chat.py) or 'linear' (what someone else
+   * did in Linear, handed to the Linear helper — linear_feed.py). */
+  source?: 'manual' | 'keeper' | 'job' | 'notice' | 'watch' | 'wake' | 'linear';
   /** A helper's wake-up it had nothing to say to: set on the wake reminder and
    * on the reply after it, and cleared on both the moment the reply holds
    * anything but HELPER_SILENT. The page leaves a silent turn out. The turn
@@ -259,6 +260,7 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
         : e.source === 'run_detached' ? 'job'
         : e.source === 'notice' ? 'notice'
         : e.source === 'helper-watch' ? 'watch'
+        : e.source === 'linear-feed' ? 'linear'
         : e.source === 'helper-wake' ? 'wake' : 'manual';
       // A wake-up is hidden until the helper answers it with something to say.
       if (t.source === 'wake') t.silent = true;

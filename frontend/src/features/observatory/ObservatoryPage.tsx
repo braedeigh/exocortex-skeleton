@@ -835,6 +835,8 @@ export function ObservatoryPage({
                         ? '◌ Room change · sent by the app'
                         : t.source === 'watch'
                         ? '◉ Watch fired · set by this helper'
+                        : t.source === 'linear'
+                        ? '◆ Linear news · sent by the app'
                         : `⏰ System reminder · set by ${t.source === 'keeper' ? 'the keeper' : 'you'}`}
                     </span>
                     <span className={styles.reminderText}>{t.text}</span>

@@ -768,6 +768,46 @@ export interface LinearRoomState {
   failed: number;
   /** The model picker's choices, so the page's "+" sheet matches the roster's. */
   model_choices: string[];
+  /** When each recent piece of Linear news happened (linear_feed.py), newest
+   * first, so the door can count what she hasn't looked at yet. */
+  news_times?: string[];
+  /** The Linear helper's session, once the feed has made it. */
+  helper?: string | null;
+}
+
+/** One thing someone other than her did in Linear, as the app's minute check
+ * wrote it down (linear_feed.py, the `linear_events` table). */
+export interface LinearEvent {
+  id: number;
+  /** When it happened, by Linear's clock (UTC, ISO). */
+  at: string;
+  kind: string;
+  /** The issue's short name ("BAS-12") and its title. */
+  identifier: string;
+  title: string;
+  url: string;
+  /** Who did it, and one plain line saying what ("moved it from Todo to Done"). */
+  actor: string;
+  summary: string;
+  /** A comment's own words; null for everything else. */
+  body: string | null;
+  /** It calls on her: a comment, or an issue assigned to her. */
+  for_owner: boolean;
+}
+
+export interface LinearFeedState {
+  events: LinearEvent[];
+  helper: string | null;
+  /** When the app last asked Linear, and what Linear said if that failed. */
+  checked_at: string | null;
+  error: string | null;
+  /** False when the feed can't run: it's switched off, or there's no key. */
+  on: boolean;
+}
+
+/** The Linear news, newest first, from the app's own record. Never calls Linear. */
+export function getLinearFeed(signal?: AbortSignal): Promise<LinearFeedState> {
+  return api.get('/api/linear-room/feed', signal);
 }
 
 /** Every Linear-lane session, archived included, newest first

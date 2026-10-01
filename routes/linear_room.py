@@ -10,13 +10,18 @@ team and which plan, and what must never be written to an outside service.
 
 The page can't use the MCP: its login belongs to Claude. So the page's own
 view of Linear goes through linear_api.py (Linear's GraphQL API, with a
-personal key she pastes in once). Nothing from Linear is stored here. The
-board is read live, with a short cache.
+personal key she pastes in once). The board is read live, with a short cache,
+and nothing of it is stored. One thing from Linear IS kept: the feed
+(linear_feed.py) writes down what other people did there, checked once a
+minute, and wakes the Linear helper with it. The page lists that news.
 
   GET  /api/linear-room          every conversation in the lane, archived
                                  included, newest first. Drawn by the Linear
                                  door on the roster and by its page. It never
                                  calls Linear, so the roster stays fast.
+  GET  /api/linear-room/feed     what other people did in Linear lately, newest
+                                 first, from the app's own record. It never
+                                 calls Linear either.
   GET  /api/linear-room/board    the team's issues grouped by status, what's
                                  waiting on her, what's blocked. Or, with no
                                  key, how to make one.
@@ -32,9 +37,9 @@ board is read live, with a short cache.
                                               when the team has no Triage.
 
 Touches: routes/observatory.py (the lane profile, the running/tokens readers,
-the model choices, the session id minting), linear_api.py, config.py (the
-key), store.LINEAR_ROOM_DIR. Callers: the frontend's LinearDoor, LinearPage
-and LinearBoard. The roster hides these sessions from the rooms (frontend
+the model choices, the session id minting), linear_api.py, linear_feed.py
+(the news and the Linear helper), config.py (the key), store.LINEAR_ROOM_DIR.
+Callers: the frontend's LinearDoor, LinearPage, LinearNews and LinearBoard. The roster hides these sessions from the rooms (frontend
 sessionFilters.roomRoster), the same way it hides research sessions.
 
 Prompts that produced this: "add the linear MCP … we are going to be working
@@ -48,6 +53,7 @@ from flask import jsonify, request
 
 import config
 import linear_api
+import linear_feed
 import store
 
 LANE = "linear"
@@ -69,12 +75,15 @@ _KEY_HELP = ("In Linear, open Settings → Security & access → Personal API ke
 def _room_rows(index):
     """Every Linear-lane conversation as a row for the door and the page.
     Membership is the lane, resolved — a session rooted in the room folder
-    counts even if its entry never had the lane written on it."""
+    counts even if its entry never had the lane written on it. The Linear
+    helper sits in the lane too, but it isn't a row: the page links to it
+    from the news."""
     from routes.observatory import _conv_lane, _effective_running, _session_tokens
 
     rows = []
     for cid, entry in index.items():
-        if not isinstance(entry, dict) or _conv_lane(entry) != LANE:
+        if not isinstance(entry, dict) or _conv_lane(entry) != LANE \
+                or entry.get("role") == linear_feed.HELPER_ROLE:
             continue
         running = bool(entry.get("running")) and _effective_running(cid, entry)
         row = {
@@ -289,12 +298,34 @@ def register(app):
         same picker the roster does."""
         from routes.observatory import _MODEL_CHOICES
 
-        rows = _room_rows(store.read("bot_chats/index", {}))
+        index = store.read("bot_chats/index", {})
+        rows = _room_rows(index)
         return jsonify({
             "sessions": rows,
             "running": sum(1 for r in rows if r["running"]),
             "failed": sum(1 for r in rows if r["last_error"] and not r["archived"]),
             "model_choices": list(_MODEL_CHOICES),
+            # When each recent piece of Linear news happened, so the door can
+            # count the ones she hasn't looked at yet.
+            "news_times": [event["at"] for event in linear_feed.recent(limit=50, days=7)],
+            "helper": linear_feed.find_helper(index),
+        })
+
+    @app.route("/api/linear-room/feed")
+    def linear_room_feed():
+        """What other people did in Linear lately, newest first, from the
+        app's own record (linear_feed.py) — plus the Linear helper's session,
+        when the feed last looked, and what Linear said if that look failed."""
+        found = linear_feed.state()
+        return jsonify({
+            "events": [{key: event[key] for key in
+                        ("id", "at", "kind", "identifier", "title", "url", "actor",
+                         "summary", "body", "for_owner")}
+                       for event in linear_feed.recent(limit=50, days=14)],
+            "helper": linear_feed.find_helper(),
+            "checked_at": found.get("polled_at"),
+            "error": found.get("error"),
+            "on": bool(config.LINEAR_FEED and config.linear_api_key()),
         })
 
     @app.route("/api/linear-room/board")
@@ -327,6 +358,7 @@ def register(app):
             return _linear_failure(error)
         _save_key(key)
         linear_api.forget_board()
+        linear_feed.forget_team()
         return jsonify({"ok": True, "name": (_person(who) or {}).get("name")})
 
     @app.route("/api/linear-room/key", methods=["DELETE"])
@@ -338,6 +370,7 @@ def register(app):
         except FileNotFoundError:
             pass
         linear_api.forget_board()
+        linear_feed.forget_team()
         return jsonify({"ok": True})
 
     @app.route("/api/linear-room/issue/<issue_id>/state", methods=["POST"])

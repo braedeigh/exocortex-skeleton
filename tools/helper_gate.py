@@ -22,7 +22,9 @@ makes, and lets through only:
     watch is a helper's promise to tell her when a session does something —
     watches.py) and helper_rule.py (her standing rules for it, in her words
     — helper_chat.py). The watches and the rules are the only records a
-    helper keeps for itself.
+    helper keeps for itself. And linear_feed.py, which reads the Linear news
+    the app has written down and one Linear issue live; it never writes to
+    Linear.
 
 Everything else — Edit, a sub-agent, a skill, any other outside service
 (mail, calendar, Linear), any other command — is denied, with a reason telling
@@ -99,9 +101,11 @@ _GIT_BRANCH = re.compile(
 # may message a session but not interrupt it — same line the act gate draws.
 # helper_watch.py writes, but only a watch: a promise it keeps (watches.py).
 # helper_rule.py writes, but only one of her standing rules (helper_chat.py).
+# linear_feed.py reads Linear and the news written down from it (linear_feed.py).
 _SCRIPTS = re.compile(
     r"^\S*python3? (?:\S*/)?scripts/"
-    r"(peers|exo_query|request_input|spinoff_open|room_moves|helper_watch|helper_rule)\.py\b")
+    r"(peers|exo_query|request_input|spinoff_open|room_moves|helper_watch|helper_rule"
+    r"|linear_feed)\.py\b")
 
 # Pointing a script at a data dir is fine: `EXOCORTEX_DATA_DIR=/x ./venv/...`.
 _ENV_PREFIX = re.compile(r"^(?:EXOCORTEX_\w+=[^\s;&|]+ +)+")
