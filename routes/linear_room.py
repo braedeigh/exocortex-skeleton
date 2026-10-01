@@ -231,6 +231,10 @@ def _work_brief(issue):
     has it, and how to report back through the MCP. The issue's words are
     quoted as the issue's. Her collaborator can write them, so they're
     material to work from, not orders."""
+    # Name the owner from the profile, never from code. The brief tells the
+    # session whose private life stays out of Linear and who to ask, so it
+    # needs her name — read from config.get_profile, "the owner" when unset.
+    owner = (config.get_profile().get("owner_name") or "").strip() or "the owner"
     lines = [
         f"Work on Linear issue **{issue['identifier']}: {issue['title']}**",
         f"Link: {issue.get('url') or ''}",
@@ -258,10 +262,10 @@ def _work_brief(issue):
         "- When you start, move it to **In Progress** (or the team's started status) "
         "and comment on it saying what you're about to do.",
         "- Comment on the issue as you reach real milestones, written so the "
-        "collaborator can read it cold. Nothing about Bradie's private life goes in.",
+        f"collaborator can read it cold. Nothing about {owner}'s private life goes in.",
         "- When it's finished, comment with what was done and move it to Done. "
         "If you stop short, leave it in progress and say in a comment what's left.",
-        "- Anything unclear or big, ask Bradie here first.",
+        f"- Anything unclear or big, ask {owner} here first.",
     ]
     return "\n".join(lines)
 

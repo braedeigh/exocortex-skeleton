@@ -214,6 +214,14 @@ def test_work_on_this_starts_one_briefed_linear_session_per_issue(linear):
     assert again == {"ok": True, "id": first["id"], "existing": True}
 
 
+def test_work_brief_names_the_owner_from_the_profile(linear):
+    client, _ = linear
+    store.write("profile", {"owner_name": "Rowan"})
+    started = client.post("/api/linear-room/issue/u1/work", json={}).get_json()
+    draft = store.read("bot_chats/index", {})[started["id"]]["draft"]
+    assert "Nothing about Rowan's private life goes in." in draft and "ask Rowan here first" in draft
+
+
 def test_a_revoked_key_sends_the_page_back_to_the_key_box(linear):
     client, _ = linear
     config.linear_api_key_path().write_text("lin_api_revoked")
