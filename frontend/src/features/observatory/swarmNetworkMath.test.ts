@@ -1,28 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { SwarmMember } from './swarmApi';
-import { centreOf, foldLinks, nodeBoxes, placeCounts, layoutSwarm, lineWidth, NETWORK_WIDTH, placeRings, placeTwoRings, shortTitle, withoutRetired } from './swarmNetworkMath';
+import { foldLinks, nodeBoxes, placeCounts, layoutSwarm, lineWidth, NETWORK_WIDTH, shortTitle, withoutRetired, type Box, type NetworkLayout } from './swarmNetworkMath';
 
 function member(conv: string): SwarmMember {
   return { conv, title: `title ${conv}`, lane: 'coding', state: 'silent', joined_at: '', summary: null, summary_at: null };
 }
-
-describe('placeRings', () => {
-  it('sits two side by side on one row', () => {
-    const [a, b] = placeRings(2);
-    expect(a.y).toBe(b.y);
-    expect(a.x).toBeLessThan(b.x);
-  });
-
-  it('stands three or more round a circle, first at the top, all inside the width', () => {
-    const seats = placeRings(7);
-    expect(Math.min(...seats.map((s) => s.y))).toBe(seats[0].y);
-    for (const s of seats) {
-      expect(s.x).toBeGreaterThan(0);
-      expect(s.x).toBeLessThan(NETWORK_WIDTH);
-      expect(s.y).toBeLessThan(s.height);
-    }
-  });
-});
 
 describe('foldLinks', () => {
   it('folds both directions of a conversation into one line', () => {
@@ -60,20 +42,6 @@ it('thickens a line with more messages, up to a cap', () => {
 it('cuts a long title at a word', () => {
   expect(shortTitle('make it such that sessions can talk to each other')).toBe('make it such that…');
   expect(shortTitle('short')).toBe('short');
-});
-
-describe('the helper seat', () => {
-  it('sits at the centre of the circle of rings', () => {
-    const centre = centreOf(placeRings(5));
-    expect(centre.x).toBe(NETWORK_WIDTH / 2);
-    const seats = placeRings(4);
-    expect(centre.y).toBeGreaterThan(seats[0].y);
-  });
-
-  it('sits halfway between two rings', () => {
-    const [a, b] = placeRings(2);
-    expect(centreOf([a, b])).toEqual({ x: (a.x + b.x) / 2, y: a.y });
-  });
 });
 
 describe('the helper threads', () => {
@@ -157,58 +125,141 @@ describe('withoutRetired', () => {
   });
 });
 
-describe('two rings: active inside, retired outside', () => {
-  const retired = (conv: string) => ({ ...member(conv), retired: true });
-  const distance = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
-  const swarmOf = (active: number, gone: number) => ({
+/* The layout, tried the way it is used: many shapes of swarm, at the widths
+   it is really shown at (a phone's bubble is about 230-350px, a phone page
+   about 400, a desk 640 and up), in the round bubble and on a page. */
+describe('fitting the drawing to the width it is shown at', () => {
+  const TITLES = ['spin: overlap-alerts', 'spin: helper-context-three-parts', 'fix the nightly tests', 'journal search'];
+  const swarmOf = (active: number, gone: number, helper = true) => ({
     members: [
-      ...Array.from({ length: gone }, (_, i) => retired(`r${i}`)),
-      ...Array.from({ length: active }, (_, i) => member(`a${i}`)),
+      ...Array.from({ length: gone }, (_, i) => ({ ...member(`r${i}`), title: `old ${TITLES[i % 4]}`, retired: true })),
+      ...Array.from({ length: active }, (_, i) => ({ ...member(`a${i}`), title: TITLES[i % 4] })),
     ],
     links: [],
+    helper_conv: helper ? 'helper' : null,
+  });
+  const SHAPES = [[1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [9, 0], [3, 3], [3, 5], [4, 12], [3, 30], [0, 30]];
+  const WIDTHS = [230, 290, 342, 400, 460, 640, 900];
+  const distance = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+  // What each agent covers on screen, in drawing units, as the drawing does it.
+  const coversOf = (layout: NetworkLayout, shown: number): Box[][] => {
+    const pxPerUnit = shown / layout.width;
+    return layout.nodes.map((n) =>
+      nodeBoxes(n, n.named ? shortTitle(n.title) : '', pxPerUnit, n.outer ? 12 : 18, layout.nameWidth - 8, n.nameAbove));
+  };
+  const overlap = (a: Box, b: Box) =>
+    Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
+  const everyCase = (round: boolean, check: (layout: NetworkLayout, shown: number, label: string) => void) => {
+    for (const shown of WIDTHS) {
+      for (const [active, gone] of SHAPES) {
+        check(layoutSwarm(swarmOf(active, gone), shown, round), shown, `${active} active, ${gone} retired, ${shown}px`);
+      }
+    }
+  };
+
+  it('keeps every ring and name inside the bubble, the helper at its exact centre', () => {
+    everyCase(true, (layout, shown, label) => {
+      expect(layout.height, label).toBe(layout.width);
+      expect(layout.centre, label).toEqual({ x: layout.width / 2, y: layout.height / 2 });
+      for (const box of coversOf(layout, shown).flat()) {
+        const reach = Math.hypot(
+          Math.max(layout.centre.x - box.left, box.right - layout.centre.x),
+          Math.max(layout.centre.y - box.top, box.bottom - layout.centre.y),
+        );
+        expect(reach, label).toBeLessThanOrEqual(layout.width / 2);
+      }
+    });
   });
 
-  it('seats active agents on the inner radius and retired ones on a wider outer one', () => {
-    const layout = layoutSwarm(swarmOf(4, 12));
-    const radii = (outer: boolean) => layout.nodes.filter((n) => n.outer === outer)
-      .map((n) => Math.round(distance(n, layout.centre)));
-    const inner = radii(false);
-    expect(inner).toHaveLength(4);
-    expect(new Set(inner.map((r) => Math.abs(r - inner[0]) <= 1)).size).toBe(1);
-    expect(Math.min(...radii(true))).toBeGreaterThan(Math.max(...inner));
-    expect(layout.nodes.filter((n) => n.outer).every((n) => n.retired)).toBe(true);
+  it('keeps every ring and name inside the page drawing, the helper in the middle, with nothing to scroll to', () => {
+    everyCase(false, (layout, shown, label) => {
+      expect(layout.centre.x, label).toBe(layout.width / 2);
+      expect(layout.width, label).toBeLessThanOrEqual(Math.max(shown, 200));
+      for (const box of coversOf(layout, shown).flat()) {
+        expect(box.left, label).toBeGreaterThanOrEqual(0);
+        expect(box.right, label).toBeLessThanOrEqual(layout.width);
+        expect(box.top, label).toBeGreaterThanOrEqual(0);
+        expect(box.bottom, label).toBeLessThanOrEqual(layout.height);
+      }
+    });
   });
 
-  it('keeps a small swarm on one circle, every name showing', () => {
-    const layout = layoutSwarm(swarmOf(3, 3));
-    expect(layout.nodes.every((n) => !n.outer && n.named)).toBe(true);
+  it('never prints a name over another agent or over the helper, and keeps rings a tap apart', () => {
+    for (const round of [true, false]) {
+      everyCase(round, (layout, shown, label) => {
+        // Only promised where it is possible: sixteen rings can't each have
+        // a tap, clear of the helper, inside a 230px drawing, nor thirty-three
+        // inside a 290px one.
+        if ((shown < 290 && layout.nodes.length > 10) || (shown < 342 && layout.nodes.length > 20)) return;
+        const covers = coversOf(layout, shown);
+        const helper = nodeBoxes(layout.centre, 'Helper', shown / layout.width);
+        covers.forEach((mine, i) => {
+          for (const box of mine) {
+            expect(helper.some((other) => overlap(box, other)), `${label}: ${layout.nodes[i].conv} on the helper`).toBe(false);
+            covers.slice(0, i).forEach((theirs, j) => {
+              if (!layout.nodes[i].named && !layout.nodes[j].named) return;
+              expect(theirs.some((other) => overlap(box, other)), `${label}: ${layout.nodes[i].conv} on ${layout.nodes[j].conv}`).toBe(false);
+            });
+          }
+          for (const other of layout.nodes.slice(0, i)) {
+            expect(distance(layout.nodes[i], other) * (shown / layout.width), label).toBeGreaterThanOrEqual(36);
+          }
+        });
+      });
+    }
   });
 
-  it('names the outer ring only when it has room', () => {
+  it('prints every name when a small swarm has the room, on a phone page as on a desk', () => {
+    for (const shown of [400, 640, 900]) {
+      for (const count of [1, 2, 3, 4, 5]) {
+        expect(layoutSwarm(swarmOf(count, 0), shown).nodes.every((n) => n.named), `${count} at ${shown}px`).toBe(true);
+      }
+    }
+    for (const count of [1, 2, 3, 4]) {
+      expect(layoutSwarm(swarmOf(count, 0), 342, true).nodes.every((n) => n.named), `${count} in a phone bubble`).toBe(true);
+    }
+  });
+
+  it('lifts two members above the helper, so their talk line clears its dot; with no helper they sit on one row', () => {
+    for (const shown of [230, 342, 640]) {
+      const layout = layoutSwarm(swarmOf(2, 0), shown, true);
+      const [a, b] = layout.nodes;
+      expect(a.y).toBe(b.y);
+      expect(layout.centre.y - a.y).toBeGreaterThanOrEqual(20);
+      expect(a.x).toBeLessThan(layout.centre.x);
+      expect(b.x).toBeGreaterThan(layout.centre.x);
+    }
+    const [a, b] = layoutSwarm(swarmOf(2, 0, false), 342).nodes;
+    expect(a.y).toBe(b.y);
+    expect(a.x).toBeLessThan(b.x);
+  });
+
+  it('puts a name above its ring only when the ring is above the helper', () => {
+    const layout = layoutSwarm(swarmOf(4, 0), 400);
+    expect(layout.nodes.map((n) => n.nameAbove)).toEqual(layout.nodes.map((n) => n.y < layout.centre.y));
+    expect(layout.nodes.some((n) => n.nameAbove)).toBe(true);
+  });
+
+  it('seats active agents on an inner ring and retired ones on a wider outer one, all round the helper', () => {
+    for (const shown of [342, 640]) {
+      const layout = layoutSwarm(swarmOf(4, 12), shown, shown === 342);
+      const radii = (outer: boolean) => layout.nodes.filter((n) => n.outer === outer).map((n) => distance(n, layout.centre));
+      expect(radii(false)).toHaveLength(4);
+      expect(Math.max(...radii(false)) - Math.min(...radii(false))).toBeLessThanOrEqual(2);
+      expect(Math.min(...radii(true))).toBeGreaterThan(Math.max(...radii(false)));
+      expect(layout.nodes.filter((n) => n.outer).every((n) => n.retired)).toBe(true);
+    }
+  });
+
+  it('keeps a small swarm on one circle, and a swarm that is all retired on the outer ring alone', () => {
+    expect(layoutSwarm(swarmOf(3, 3)).nodes.every((n) => !n.outer && n.named)).toBe(true);
+    expect(layoutSwarm(swarmOf(0, 30)).nodes.every((n) => n.outer)).toBe(true);
+  });
+
+  it('names the retired ring only when it has room, and never at the active names\' expense', () => {
     expect(layoutSwarm(swarmOf(3, 6)).nodes.every((n) => n.named)).toBe(true);
     const crowded = layoutSwarm(swarmOf(3, 45)).nodes;
     expect(crowded.filter((n) => n.outer).every((n) => !n.named)).toBe(true);
     expect(crowded.filter((n) => !n.outer).every((n) => n.named)).toBe(true);
-  });
-
-  it('keeps a crowded outer ring a tap apart and inside the width', () => {
-    const { outer } = placeTwoRings(4, 50);
-    for (let i = 0; i < outer.length; i++) {
-      const next = outer[(i + 1) % outer.length];
-      expect(distance(outer[i], next)).toBeGreaterThanOrEqual(48);
-      expect(outer[i].x).toBeGreaterThan(20);
-      expect(outer[i].x).toBeLessThan(NETWORK_WIDTH - 20);
-    }
-  });
-
-  it('seats the helper at the middle of both rings', () => {
-    const rings = placeTwoRings(5, 20);
-    expect(rings.centre.x).toBe(NETWORK_WIDTH / 2);
-    expect(rings.outer[0].y).toBeLessThan(rings.inner[0].y);
-  });
-
-  it('lays out a swarm whose every member is retired on the outer ring alone', () => {
-    const layout = layoutSwarm(swarmOf(0, 30));
-    expect(layout.nodes.every((n) => n.outer)).toBe(true);
   });
 });

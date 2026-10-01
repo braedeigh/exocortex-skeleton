@@ -3,16 +3,12 @@
    works; an extra orange ring when waiting on her); talk lines are --green,
    the helper's threads out to members are blue. */
 
-/* Wide enough that neighbouring names don't collide; a narrow phone scrolls
-   sideways rather than squeezing the labels together. */
-.scroller {
-  overflow-x: auto;
-}
-
+/* The drawing fills the width it's given and never scrolls sideways: the
+   layout is fitted to that width (swarmNetworkMath.ts layoutSwarm), and the
+   height follows from the aspect ratio SwarmNetwork.tsx sets. */
 .canvas {
   position: relative;
   width: 100%;
-  min-width: 460px;
 }
 
 .lines {
@@ -66,7 +62,9 @@
   color: #4f8fe6;
 }
 
-/* One agent. The ring's centre sits exactly on its seat; the name hangs below. */
+/* One agent. The ring's centre sits exactly on its seat; the name hangs
+   below. 132px is the widest a name runs; on a narrow drawing
+   SwarmNetwork.tsx sets a narrower width inline. */
 .node {
   position: absolute;
   transform: translate(-50%, -20px);
@@ -89,6 +87,14 @@
 .node:focus-visible {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* A ring above the helper carries its name on top: the button is turned
+   upside down and hung from its bottom edge, so the ring's centre still
+   sits on its seat (20px up from the bottom) and the name grows upward. */
+.above {
+  flex-direction: column-reverse;
+  transform: translate(-50%, calc(-100% + 20px));
 }
 
 .ringBox {
@@ -169,6 +175,11 @@
   padding-top: 8px;
 }
 
+.outer.above {
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
+
 /* No room for names on the outer ring: the button shrinks to its ring,
    and the name floats on a chip, only on hover, focus or a first tap. */
 .unnamed {
@@ -180,7 +191,9 @@
   position: absolute;
   top: 38px;
   left: 50%;
-  transform: translateX(-50%);
+  /* Centred under the ring, pushed back in near the drawing's side edges
+     (--peek-shift, set by SwarmNetwork.tsx). */
+  transform: translateX(calc(-50% + var(--peek-shift, 0px)));
   z-index: 2;
   width: max-content;
   max-width: 180px;
@@ -275,7 +288,13 @@
 }
 
 /* THE HELPER: a bigger filled dot in the middle, no ring of its own, a
-   name in bold. It glows (state_working) while a run is going. */
+   name in bold. It glows (state_working) while a run is going. Its button
+   is only as wide as its short name, so it doesn't lie over the taps of
+   the members seated close round it. */
+.helper {
+  width: 72px;
+}
+
 .helper .name {
   font-weight: 600;
 }

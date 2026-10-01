@@ -113,6 +113,7 @@ export function SwarmStack({
           swarm={swarm}
           onOpen={onOpen}
           helperWorking={!!(swarm.helper_conv && rosterById.get(swarm.helper_conv)?.running)}
+          round
         />
       </div>
 
