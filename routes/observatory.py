@@ -2742,14 +2742,15 @@ def after_turn(conv_id):
         drain_inbox(successor)
         return
     # A helper's chat (a swarm's or the room's) is never continued and
-    # belongs to no swarm as a member: its only end-of-turn job is rewriting
-    # its chat summary (helper_chat.py).
+    # belongs to no swarm as a member. Its only end-of-turn job makes no
+    # model call: a wake-up it answered with silence leaves no trace on its
+    # card (helper_chat.after_turn).
     if isinstance(entry, dict) and entry.get("role") in ("swarm_helper", "room_helper"):
         try:
             import helper_chat
-            helper_chat.rewrite_notes(conv_id)
+            helper_chat.after_turn(conv_id)
         except Exception as e:
-            print(f"helper notes failed for {conv_id}: {e}", file=sys.stderr)
+            print(f"helper after-turn failed for {conv_id}: {e}", file=sys.stderr)
         return
     continuation.check(conv_id)
     # A member of a swarm just did something: its helper updates its
@@ -4499,9 +4500,9 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         # them apart — see terminal._note_off_record.
         terminal._note_off_record(text)
 
-    # The helper chat's seed: the swarm now, the chat summary and her last
-    # messages. Written BEFORE this message goes in the log, so the seed's
-    # messages end where this new one begins.
+    # The helper chat's seed: its doc, her last messages with its replies,
+    # and the active sessions. Written BEFORE this message goes in the log,
+    # so the seed's messages end where this new one begins.
     if helper_chat_entry is not None:
         import helper_chat
         try:

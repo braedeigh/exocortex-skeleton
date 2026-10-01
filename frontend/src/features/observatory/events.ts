@@ -22,7 +22,12 @@
  *                                              sent at its set time — shown as
  *                                              System, never as her words;
  *                                              source = who set it (manual =
- *                                              her, keeper = a Keeper)
+ *                                              her, keeper = a Keeper). One
+ *                                              with source 'helper-wake' is the
+ *                                              app waking a helper because its
+ *                                              room changed: it and the reply
+ *                                              stay hidden unless the helper
+ *                                              says something (see `silent`)
  * - {type:'peer', direction, id, from_conv,     a message between two agents —
  *    from_title, to_conv, to_title, text,       'out' in the sender's chat, 'in'
  *    mode, status, held_reason}                 in the recipient's; drawn as a
@@ -58,9 +63,16 @@ export interface Turn {
   /** user/error: the text. assistant: committed markdown (authoritative).
    * decision: the exact command she approved/denied. reminder: what it says. */
   text: string;
-  /** reminder only: who set it — 'manual' (her), 'keeper', or 'job' (a
-   * background job reporting back — scripts/run_detached.py). */
-  source?: 'manual' | 'keeper' | 'job';
+  /** reminder only: who set it — 'manual' (her), 'keeper', 'job' (a
+   * background job reporting back — scripts/run_detached.py), 'watch' (a
+   * helper's watch that fired — watches.py) or 'wake' (the app waking a helper
+   * because its room changed — helper_chat.py). */
+  source?: 'manual' | 'keeper' | 'job' | 'watch' | 'wake';
+  /** A helper's wake-up it had nothing to say to: set on the wake reminder and
+   * on the reply after it, and cleared on both the moment the reply holds
+   * anything but HELPER_SILENT. The page leaves a silent turn out. The turn
+   * stays in the array, because journal highlights address turns by index. */
+  silent?: boolean;
   /** assistant only: in-flight delta text not yet confirmed by a message. */
   buffer: string;
   /** assistant only: still streaming. */
@@ -107,6 +119,10 @@ export interface Highlight {
   quote: string;
   card: string;
 }
+
+/** What a helper replies, alone, when the app woke it and it has nothing to
+ * say — the same words as helper_chat.SILENT. */
+export const HELPER_SILENT = '(nothing to say)';
 
 function turn(role: Turn['role'], text = ''): Turn {
   return { role, text, buffer: '', open: false, offRecord: false, tool: null, journaled: false };
@@ -155,9 +171,40 @@ function toolLabel(name: unknown): string {
 function openAssistant(turns: Turn[]): Turn {
   const last = turns[turns.length - 1];
   if (last && last.role === 'assistant' && last.open) return last;
-  const fresh = { ...turn('assistant'), open: true };
+  const fresh: Turn = { ...turn('assistant'), open: true };
+  // A reply to a wake-up starts hidden, and stays so until it says something.
+  if (wakeBefore(turns, turns.length)) fresh.silent = true;
   turns.push(fresh);
   return fresh;
+}
+
+/** The wake reminder this place in the chat answers, if it answers one: the
+ * reminder above it, when that is a wake-up and nothing but this same turn
+ * lies between. A turn can hold several replies with agent-message cards
+ * between them, so those cards and a reply still open are stepped over; a
+ * reply already closed belongs to an earlier turn, and ends the search. */
+function wakeBefore(turns: Turn[], index: number): Turn | null {
+  for (let i = index - 1; i >= 0; i--) {
+    const t = turns[i];
+    if (t.role === 'reminder') return t.source === 'wake' ? t : null;
+    if (t.role !== 'peer' && !(t.role === 'assistant' && t.open)) return null;
+  }
+  return null;
+}
+
+/** Show a wake-up's reply once it says something. While its text could still
+ * become HELPER_SILENT (it's empty, or the start of those words) it stays
+ * hidden; the first other word reveals it and the wake reminder above it.
+ * `closing`: the turn is over, so a half-written HELPER_SILENT counts as words. */
+function revealIfSaid(turns: Turn[], closing = false): void {
+  const index = turns.length - 1;
+  const t = turns[index];
+  if (!t || t.role !== 'assistant' || !t.silent) return;
+  const said = assistantText(t).trim();
+  if (closing ? said === '' || said === HELPER_SILENT : HELPER_SILENT.startsWith(said)) return;
+  t.silent = false;
+  const wake = wakeBefore(turns, index);
+  if (wake) wake.silent = false;
 }
 
 /**
@@ -200,7 +247,11 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       // kind so it's drawn as System — the keeper's reply follows as usual.
       const t = turn('reminder', typeof e.text === 'string' ? e.text : '');
       t.source = e.source === 'keeper' ? 'keeper'
-        : e.source === 'run_detached' ? 'job' : 'manual';
+        : e.source === 'run_detached' ? 'job'
+        : e.source === 'helper-watch' ? 'watch'
+        : e.source === 'helper-wake' ? 'wake' : 'manual';
+      // A wake-up is hidden until the helper answers it with something to say.
+      if (t.source === 'wake') t.silent = true;
       turns.push(t);
       return turns;
     }
@@ -264,6 +315,7 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
           const t = openAssistant(turns);
           t.buffer += delta.text;
           t.tool = null;
+          revealIfSaid(turns);
         }
       } else if (ev.type === 'content_block_start') {
         const block = ev.content_block as { type?: string; name?: string } | undefined;
@@ -284,6 +336,7 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       const text = t.buffer || messageText(e.message);
       t.buffer = '';
       if (text) t.text = t.text ? `${t.text}\n\n${text}` : text;
+      revealIfSaid(turns);
       return turns;
     }
     case 'result':
@@ -292,6 +345,7 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       if (last && last.role === 'assistant') {
         last.open = false;
         last.tool = null;
+        revealIfSaid(turns, true);
       }
       return turns;
     }
@@ -379,6 +433,7 @@ export function turnsFromHistory(events: unknown[]): Turn[] {
   if (last && last.role === 'assistant') {
     last.open = false;
     last.tool = null;
+    revealIfSaid(turns, true);
   }
   return turns;
 }

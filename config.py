@@ -170,11 +170,31 @@ CONTINUE_LANES = frozenset(
 SWARM_HELPER_MODEL = os.environ.get("EXOCORTEX_SWARM_HELPER_MODEL", "sonnet")
 SWARM_HELPER_MIN_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_MIN_SEC", "300"))
 SWARM_HELPER_TIMEOUT_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_TIMEOUT_SEC", "240"))
-# The helper's chat (helper_chat.py) starts every turn fresh, seeded with the
-# swarm, the chat summary, and this many of the owner's latest messages word for word.
-# Her messages are short and each is capped, so 20 adds only a few KB to the seed.
-# Prompt: "maybe make it 20 messages as long as the context isn't too high."
-HELPER_CHAT_MESSAGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_MESSAGES", "20"))
+# The helper's chat (helper_chat.py) starts every turn fresh, seeded with a
+# doc, the active sessions, and this many of the owner's latest messages to
+# the helper, each whole and with the helper's reply. Turns she didn't start
+# (a wake-up, a watch, an agent's mail) don't count toward it.
+# Prompt: "the rolling context of 15 inputs and outputs" — "specifically my
+# messages to the agent" — "always 15 no matter what."
+HELPER_CHAT_EXCHANGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_EXCHANGES", "15"))
+# The helper's wake-up (helper_chat.wake_tick): the app starts a turn in a
+# helper's chat when the sessions it watches change, and the helper may stay
+# silent. HELPER_WAKE_ON is what counts as a change:
+#   "new-or-files" — a session has a new summary AND it is new to the helper
+#                    or the list of files it has read or edited changed (the default);
+#   "summary"      — a session has a new summary;
+#   "edit"         — a session edited a file;
+#   "off"          — never.
+# HELPER_WAKE_MIN_SEC is the shortest gap between two wake-ups of one helper
+# (changes inside it are folded into the next one). HELPER_WAKE_ROLES is
+# which helpers are woken.
+# Prompt: "notified and performs a 'turn' every time a new session is
+# activated ... it doesn't necessarily have to do anything."
+HELPER_WAKE_ON = os.environ.get("EXOCORTEX_HELPER_WAKE_ON", "new-or-files")
+HELPER_WAKE_MIN_SEC = int(os.environ.get("EXOCORTEX_HELPER_WAKE_MIN_SEC", "300"))
+HELPER_WAKE_ROLES = tuple(
+    role.strip() for role in os.environ.get(
+        "EXOCORTEX_HELPER_WAKE_ROLES", "room_helper,swarm_helper").split(",") if role.strip())
 # Every session's summary is written by a model call of its own, and one run's
 # calls are made side by side (swarm_helper.side_by_side). This is how many may
 # run at once: each is a `claude` process holding a few hundred MB.

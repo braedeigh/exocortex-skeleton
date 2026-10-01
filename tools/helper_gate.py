@@ -18,9 +18,11 @@ makes, and lets through only:
   - Write, only to a spinoff brief: <spinoff dir>/<slug>/BRIEF.md;
   - Bash, only for lookups: reading and searching commands, git's reading
     verbs, and the app's own doors for a helper — peers.py, exo_query.py,
-    request_input.py, spinoff_open.py, room_moves.py and helper_watch.py
-    (a watch is the one record a helper keeps for itself: its promise to
-    tell her when a session does something — watches.py).
+    request_input.py, spinoff_open.py, room_moves.py, helper_watch.py (a
+    watch is a helper's promise to tell her when a session does something —
+    watches.py) and helper_rule.py (her standing rules for it, in her words
+    — helper_chat.py). The watches and the rules are the only records a
+    helper keeps for itself.
 
 Everything else — Edit, a sub-agent, a skill, any other outside service
 (mail, calendar, Linear), any other command — is denied, with a reason telling
@@ -96,9 +98,10 @@ _GIT_BRANCH = re.compile(
 # The app's own doors for a helper, run with the checkout's python. peers.py
 # may message a session but not interrupt it — same line the act gate draws.
 # helper_watch.py writes, but only a watch: a promise it keeps (watches.py).
+# helper_rule.py writes, but only one of her standing rules (helper_chat.py).
 _SCRIPTS = re.compile(
     r"^\S*python3? (?:\S*/)?scripts/"
-    r"(peers|exo_query|request_input|spinoff_open|room_moves|helper_watch)\.py\b")
+    r"(peers|exo_query|request_input|spinoff_open|room_moves|helper_watch|helper_rule)\.py\b")
 
 # Pointing a script at a data dir is fine: `EXOCORTEX_DATA_DIR=/x ./venv/...`.
 _ENV_PREFIX = re.compile(r"^(?:EXOCORTEX_\w+=[^\s;&|]+ +)+")

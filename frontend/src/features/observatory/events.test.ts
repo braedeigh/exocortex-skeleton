@@ -8,7 +8,7 @@
  * drifting.
  */
 import { describe, expect, it } from 'vitest';
-import { applyEvent, assistantText, lastUserTurnIndex, questionsState, turnsFromHistory, userTurn, type Turn } from './events';
+import { HELPER_SILENT, applyEvent, assistantText, lastUserTurnIndex, questionsState, turnsFromHistory, userTurn, type Turn } from './events';
 
 const delta = (text: string) => ({
   type: 'stream_event',
@@ -122,6 +122,46 @@ describe('reminder', () => {
     expect(turns[0].source).toBe('keeper');
     expect(turns[1].source).toBe('manual');
     expect(turns[0].text).toBe('Permafest is tomorrow');
+  });
+});
+
+describe("a helper's wake-up", () => {
+  const wake = { type: 'reminder', text: 'Room change — a is new', source: 'helper-wake', ts: 'x' };
+  const shown = (events: unknown[]) =>
+    turnsFromHistory(events).filter((t) => !t.silent).map((t) => t.role);
+
+  it('stays out of the chat when the helper has nothing to say, and keeps its place in the array', () => {
+    const events = [{ type: 'user', text: 'hi' }, assistant('hello'), { type: 'result' },
+      wake, assistant(HELPER_SILENT), { type: 'result' }];
+    expect(shown(events)).toEqual(['user', 'assistant']);
+    expect(turnsFromHistory(events)).toHaveLength(4);
+  });
+
+  it('shows the wake-up and the reply once the helper says something', () => {
+    expect(shown([wake, assistant('Two sessions are both in config.py.'), { type: 'result' }]))
+      .toEqual(['reminder', 'assistant']);
+  });
+
+  it('keeps hiding the closing silence after a message the helper sent an agent', () => {
+    const sent = { type: 'peer', direction: 'out', id: 1, to_conv: 'a', text: 'check config.py' };
+    expect(shown([wake, sent, assistant(HELPER_SILENT), { type: 'result' }])).toEqual(['peer']);
+  });
+
+  it('reveals the reply while it streams, at the first word that is not the silence', () => {
+    const delta = (text: string) => ({
+      type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } },
+    });
+    const turns: Turn[] = [];
+    applyEvent(turns, wake);
+    applyEvent(turns, delta('(nothing'));
+    expect(turns.every((t) => t.silent)).toBe(true);
+    applyEvent(turns, delta(' new here, but'));
+    expect(turns.some((t) => t.silent)).toBe(false);
+  });
+
+  it("never hides a reply to her own message, even one that says only the silence", () => {
+    expect(shown([{ type: 'user', text: 'anything?' }, assistant(HELPER_SILENT), { type: 'result' }]))
+      .toEqual(['user', 'assistant']);
   });
 });
 

@@ -32,17 +32,41 @@ lines say what exists *now*.
   sees only the latest summaries plus what's new, so its context never grows.
 - **One helper chat for the swarm's whole life.** The owner's chat with the
   helper is never handed off or archived while the swarm is active. Each turn
-  in it is a fresh model session, seeded with the helper's instructions, the
-  swarm's current summaries (the swarm's and each member's, written by the
-  Sonnet summarizer), the **chat summary** (what it last told her, her
-  decisions word for word, promises, open threads — rewritten by Sonnet after
-  every turn, replaced not appended) and her own last `HELPER_CHAT_MESSAGES`
-  messages verbatim (default 20). Its own replies, agents' mail and system
-  notices are not replayed. Its instructions say the view is shaped this way
-  and where to search the rest (every transcript, `peers.py show`,
-  `exo_query.py` over `agent_messages` / `tool_calls`, git). Only what the
-  model is handed rolls; the full transcript stays on disk. The chat is
-  exempt from the context cap.
+  in it is a fresh model session, seeded with **exactly three things** (her
+  spec, 2026-10-01): (1) **a doc** — that the chat is rolling and it gets only
+  the last 15 exchanges, its job, where to search the rest (every transcript,
+  `peers.py show`, `exo_query.py` over `swarms` / `agent_messages` /
+  `tool_calls`, git), and inside it her **standing rules** and its open
+  watches; (2) **her last `HELPER_CHAT_EXCHANGES` (15) messages to it, each
+  with its reply**, whole — only turns she started count, so a wake-up, a
+  watch or an agent's mail is neither counted nor replayed; (3) **one entry
+  per active session** — its summary (one summarizer call per session, run
+  side by side), every file it has edited and every file it has read, for its
+  whole life (`edited_files.edits` / `reads`; shell commands are caught only
+  when they name the file, so the lists are incomplete and the seed says so).
+  Helper sessions are never listed. There is no chat summary: nothing retells
+  the chat, and no model is called when a helper's turn ends. Only what the
+  model is handed rolls; the full transcript stays on disk. The chat is exempt
+  from the context cap.
+- **Her standing rules.** The one thing that survives the roll: a short list
+  of her lasting instructions to a helper, in her exact words with the date —
+  `<data dir>/helper_rules/room-<room>.md` or `swarm-<id>.md`, a markdown file
+  she can open and edit (a rule is a line starting `- `). The helper adds one
+  with `scripts/helper_rule.py add "<her words>"` (`list`, `drop <n>`) only
+  when she says something meant to last; the helper gate lets that write
+  through. Nothing writes to it on its own.
+- **A helper is woken when what it watches changes** (`helper_chat.wake_tick`,
+  the minute tick). Every seed records what the helper was shown of each
+  session (`bot_chats/helper_seed/<conv>.seen.json`); the tick compares the
+  sessions now against it. `config.HELPER_WAKE_ON`: `new-or-files` (default —
+  a session has a new summary and is new to the helper or its list of read and
+  edited files changed), `summary`, `edit`, or `off`. At most one wake-up per
+  `HELPER_WAKE_MIN_SEC` (300), every change since its last turn folded into
+  one System message; a handoff is the same line of work, not a new session.
+  The helper may stay silent: it replies with exactly `(nothing to say)`, the
+  chat page leaves that turn out (`events.ts`, `silent`), and its card's "last
+  active" time is put back so no unread dot lights. The transcript keeps every
+  line.
 - **Finished members drop out of the helper's view after a day.** Her ask: "drop
   off done/retired sessions from your checking after 24 hours." A member that
   is finished (the same rule as retiring, below) and whose last activity, done
@@ -135,7 +159,9 @@ or move solo sessions out of a swarm into the layer above."
   `config.ROOM_HELPER_MIN_SEC`, only when something in the room happened since.
   One tool-less Sonnet call; every run in `room_helper_runs`.
 - **Its chat** works like a swarm helper's (helper_chat.py): fresh every turn,
-  seeded with the room overview instead of one swarm.
+  with the same three-part seed; its sessions are every open session in the
+  room. The room overview (swarms, clusters, recent moves) is what a RUN
+  reads; the chat looks those up when it needs them.
 - **Watches: promises kept between turns** (`watches.py`, both kinds of
   helper). Her ask: "i need something that alerts you to watch things
   between turns." A helper's chat runs only when a turn starts, so "I'll tell
@@ -191,7 +217,7 @@ or move solo sessions out of a swarm into the layer above."
 | Continuation | `continuation.py`; `after_turn` in `routes/observatory.py` (called by `scripts/turn_host.py` when a turn ends); `peers.py handoff`; caps in `config.CONTEXT_CAPS`, rooms in `config.CONTINUE_LANES` |
 | Swarms | `swarms.py` (grouping, `swarms` / `swarm_members` tables); `routes/swarms.py`; `SwarmCard.tsx` in each room via `SessionLane.tsx`, coloured from the roster and ordered with the sessions (orange first, longest wait on top; retired members left off) by `roomOrder.ts`; `SwarmPage.tsx` at `/observatory/swarm/<id>`; the network of rings and talk-lines in `SwarmNetwork.tsx` (on the swarm page and under the Worktrees plots); the outline + name around member orbs on Terrain in `terrain/terrainSwarms.ts` (drawn by `terrainCanvas.ts`) |
 | Helper | `swarm_helper.py` (one tool-less Sonnet call per run, structured answer, every run in `swarm_helper_runs`); runs after member turns (debounced by `config.SWARM_HELPER_MIN_SEC`), on the minute tick, when a swarm forms, and straight away when messaged |
-| Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) and the running notes (`rewrite_notes`, called by `after_turn`; the chat summary, stored as `helper_notes` on the helper's index entry); `config.HELPER_CHAT_MESSAGES`; exempt in `continuation.due` |
+| Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) her standing rules (`rules`, `add_rule`, `drop_rule`; `scripts/helper_rule.py`, allowed in `tools/helper_gate.py`), the wake-up (`wake_tick`, ticked by `scripts/coming_up_dispatcher.py`; `after_turn`, called by `after_turn`, puts a silent wake-up's card back) and the silent turn's hiding in `frontend/src/features/observatory/events.ts`; `config.HELPER_CHAT_EXCHANGES`, `HELPER_WAKE_*`; exempt in `continuation.due` |
 | Room helper | `room_helper.py` (runs, moves, undo, the room overview); placements in `swarms.py` (`place`, `unplace`, `new_swarm`, `line_of_work`; `links` cuts pre-placement messages); `swarm_pins`, `room_moves`, `session_summaries`, `room_helper_runs` (sqlstore rung 37); `scripts/room_moves.py`; ticked by `scripts/coming_up_dispatcher.py` |
 | Watches | `watches.py` (add, the minute check, the wake-up, the seed section); `helper_watches` (sqlstore rung 40); `scripts/helper_watch.py`; allowed in `tools/helper_gate.py`; ticked by `scripts/coming_up_dispatcher.py`; `config.HELPER_WATCH_*` |
 | Closing check | `swarms.retired`; `swarm_helper.watch_retirement` / `close_out` / `closing_report`, run by `swarm_helper.tick` on the minute tick |
@@ -208,7 +234,9 @@ or move solo sessions out of a swarm into the layer above."
 - Mailbox, token accounting, continuation, swarms and the helper: built and
   tested.
 - The helper chat's rolling context and the closing check: built and tested
-  (`tests/test_helper_chat.py`). The swarm page doesn't show the chat
-  summary yet; it's on the helper's index entry and in its seed file.
+  (`tests/test_helper_chat.py`). The three-part seed, her standing rules and
+  the wake-up are built and tested there too. The rules have no page yet —
+  they're a file and `helper_rule.py list`. Index entries may still carry an
+  old `helper_notes` field from the chat summary; nothing reads it.
 - Swarms on the Terrain map: a faint accent outline around the member orbs
   that are on the map, with the swarm's name above it. Owner only.

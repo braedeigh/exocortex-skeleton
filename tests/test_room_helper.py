@@ -10,7 +10,7 @@ fit is refused and reported. A closed swarm is left out of the room it reads
 and can't be joined. A swarm is two sessions still working: one left on its
 own — the others finished or released — closes the swarm and works alone,
 a handoff doesn't count as a second, and a second session opens it again. Its chat never resumes and is never continued,
-and its seed is the room.
+and its seed lists the room's sessions.
 """
 import json
 
@@ -191,7 +191,7 @@ def test_its_chat_never_continues_and_seeds_from_the_room(room):
     entry["context_tokens"] = 10 ** 9
     assert not continuation.due(entry)
     seed = helper_chat.seed_text(helper, entry)
-    assert "room helper" in seed and "Sessions working alone" in seed and "s1" in seed
+    assert "room helper" in seed and "## `s1`" in seed and "working alone" in seed
     assert entry["allowed_tools"] == swarm_helper.HELPER_TOOLS
 
 

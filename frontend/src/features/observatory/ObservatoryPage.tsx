@@ -782,6 +782,8 @@ export function ObservatoryPage({
               // Keys and indices stay absolute (the turn's place in the whole
               // history), never its place in the window.
               const i = firstShown + shownIndex;
+              // Leave out a helper's wake-up it had nothing to say to (events.ts).
+              if (t.silent) return null;
               if (t.role === 'user') {
                 // A message that waited in the mailbox says where it landed,
                 // on its own line beneath — outside the message element, so the
@@ -826,6 +828,10 @@ export function ObservatoryPage({
                     <span className={styles.reminderLabel}>
                       {t.source === 'job'
                         ? '⚙ Background job finished'
+                        : t.source === 'wake'
+                        ? '◌ Room change · sent by the app'
+                        : t.source === 'watch'
+                        ? '◉ Watch fired · set by this helper'
                         : `⏰ System reminder · set by ${t.source === 'keeper' ? 'the keeper' : 'you'}`}
                     </span>
                     <span className={styles.reminderText}>{t.text}</span>

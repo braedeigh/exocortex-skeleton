@@ -38,6 +38,8 @@ LOOKUPS = [
     "./venv/bin/python3 scripts/room_moves.py list",
     "./venv/bin/python3 scripts/helper_watch.py add 2026-09-30.113857 --on done,committed"
     " --note \"tell her when the Linear board ships\"",
+    "./venv/bin/python3 scripts/helper_rule.py add \"don't move a session I saved for later\"",
+    "./venv/bin/python3 scripts/helper_rule.py list",
     "grep -il pond /x/bot_chats/*.jsonl | head",
     "grep -n \"retired\\|edges\" frontend/src/SwarmNetwork.tsx | head -80",
     "grep -rn 'a|b' . 2>/dev/null",
@@ -168,6 +170,6 @@ def test_the_helpers_instructions_say_it_never_builds(data_dir):
     import helper_chat
     prompt = helper_chat.CHAT_PROMPT.format(
         lead="", world_line="", repo="/repo", chats="/c", conv="c", data="/d",
-        spinoffs="/d/spinoffs")
+        spinoffs="/d/spinoffs", silent="(nothing)", exchanges=15)
     assert "You never build" in prompt and "/d/spinoffs/<slug>/BRIEF.md" in prompt
     assert "scripts/spinoff_open.py <slug>" in prompt

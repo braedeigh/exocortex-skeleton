@@ -34,6 +34,9 @@ minute also closes finished sessions whose done countdown has run out
 and wakes any session idle for a day to ask itself whether it's done
 (idle_check_sessions).
 
+And it wakes a helper whose sessions changed since its last turn — a new
+session, or new files read or edited — so it can look; the helper may stay
+silent (helper_chat.wake_tick).
 Run by cron (the owner wires the crontab):
 
     * * * * * EXOCORTEX_DATA_DIR=... EXOCORTEX_CONTENT_DIR=... \
@@ -46,6 +49,7 @@ close_done_sessions / idle_check_sessions), `watches.py` (tick), `scripts/keeper
 the pinned Keeper, the rollover lock), `tests/test_coming_up_dispatcher.py`.
 
 Prompt that produced this: "I'm also wanting something that can inject a
+Also `helper_chat.py` (wake_tick).
 message into the chat to have it talk to me about it. And record that it
 wasn't keeper or me but a system injection reminder. But record whether it
 was created manually or by the keeper." / "I just want it to inject without
@@ -181,6 +185,16 @@ def main():
     # Finished sessions whose countdown has run out close here
     # (routes/observatory.py close_done_sessions). Ahead of the Coming up
     # switch for the same reason as the mailbox: it isn't a reminder.
+    # The helpers' wake-up: the sessions a helper watches changed since its
+    # last turn, so its chat is woken to look — it may stay silent
+    # (helper_chat.wake_tick).
+    try:
+        import helper_chat
+        woke = helper_chat.wake_tick()
+        if woke:
+            _log(f"room changes woke {woke} helper(s)")
+    except Exception as e:
+        _log(f"helper wake-up check failed: {e}")
     try:
         closed = rr.close_done_sessions()
         if closed:

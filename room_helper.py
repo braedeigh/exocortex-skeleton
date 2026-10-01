@@ -565,7 +565,7 @@ def _call_model(text, room):
 
 def _post(helper, text, now, **marks):
     """A line in the room helper's chat, marked as its own post (not a chat
-    reply — helper_chat leaves these to the room overview)."""
+    reply — helper_chat doesn't replay these)."""
     peermail.append_line(store.DATA_DIR / "bot_chats" / f"{helper}.jsonl", {
         "type": "assistant", "timestamp": now, "helper_run": True, "helper_update": True,
         **marks, "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}})
