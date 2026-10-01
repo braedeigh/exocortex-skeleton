@@ -1,7 +1,10 @@
 /* QuestionsCard — a question set the agent filed, drawn in the chat.
    Orange because it's the same "your move" as the roster's waiting card.
    .card is the shape every set shares; .open is a set still waiting on her,
-   .settled one she's answered (or the agent replaced). */
+   .settled one she's answered (or the agent replaced). An open set sits in
+   its place and scrolls with the chat; .floated is the same card lifted over
+   the chat when she taps it, .away the marker left in its place, and .chip
+   the small button that floats it when its place is out of sight. */
 
 .card {
   margin: var(--space-4) 0 var(--space-2);
@@ -10,20 +13,94 @@
   overflow-wrap: anywhere;
 }
 
-/* Waiting on her: sticky inside the transcript column. It sits in its place
-   in the chat, and when she scrolls up it stays stuck to the bottom edge of
-   the view. Opaque, because the conversation scrolls underneath it. */
+/* Waiting on her: the orange look. It stays in the flow of the chat — nothing
+   here pins it. Opaque, because the floated copy of this same look has the
+   conversation scrolling underneath it. */
 .open {
-  position: sticky;
-  bottom: var(--space-2);
-  z-index: 2;
   border: 1px solid var(--orange);
   border-left: 3px solid var(--orange);
   background: color-mix(in srgb, var(--orange) 10%, var(--card-bg, var(--bg)));
-  box-shadow: 0 8px 24px -10px color-mix(in srgb, var(--glow-orange, var(--orange)) 70%, transparent);
-  /* A long list scrolls inside the card rather than covering the chat. */
+}
+
+/* The whole open card is a tap target (tap to float, tap to put back). */
+.tappable {
+  cursor: pointer;
+}
+
+/* Floated: lifted over the chat, in the strip just above the message box
+   (ObservatoryPage.module.css .floatStack places it). Lined up with the chat
+   column, and never taller than about half the screen: the heading stays put
+   and the questions scroll under it (.floatedBody), so the way back is always
+   reachable and the card can't cover the whole conversation. */
+.floated {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 68ch;
   max-height: 45vh;
+  margin: 0 auto;
+  box-sizing: border-box;
+  pointer-events: auto;
+  box-shadow: 0 8px 24px -10px color-mix(in srgb, var(--glow-orange, var(--orange)) 70%, transparent);
+  animation: questionsFloatIn 180ms ease-out;
+}
+
+.floatedBody {
+  min-height: 0;
   overflow-y: auto;
+}
+
+@keyframes questionsFloatIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floated {
+    animation: none;
+  }
+}
+
+/* The marker left in the chat while the card is floated: one dashed orange
+   line holding the block's place, a full-height tap target that sends the
+   card back. */
+.away {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-target);
+  margin: var(--space-4) 0 var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px dashed var(--orange);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--orange);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The chip above the message box: brings the card up when its place in the
+   chat has scrolled away. Opaque and shadowed, since it sits over the chat. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--orange) 14%, var(--card-bg, var(--bg)));
+  box-shadow: var(--shadow-card);
+  color: var(--orange);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+  animation: questionsFloatIn 150ms ease-out;
 }
 
 /* Answered or replaced: part of the record now. Stays in the chat where it
@@ -44,6 +121,35 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* An open card's top line, as a button: the heading on the left, what a tap
+   does on the right. Full tap-target height, no button chrome of its own. */
+.headButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* "Float" / "Put back": says what the tap does, pushed to the right edge. */
+.action {
+  margin-left: auto;
+  flex: none;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--orange) 55%, transparent);
+  border-radius: var(--radius-pill);
+  color: var(--orange);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
 }
 
 .dot {

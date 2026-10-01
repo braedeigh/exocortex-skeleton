@@ -451,6 +451,38 @@ export function questionsState(turns: Turn[], index: number): QuestionsState {
   return 'open';
 }
 
+/** The one question set still waiting on her, and where it sits in the chat.
+ * `turnIndex` is its place among the turns; null means the transcript has no
+ * line for it (a set filed before sets were logged), so its place is the end
+ * of the chat. `key` names this exact set, so a remembered "she floated it"
+ * stops applying the moment the set is answered or replaced. */
+export interface OpenQuestionSet {
+  questions: string[];
+  turnIndex: number | null;
+  key: string;
+}
+
+/** Find the question set still waiting on her, if there is one. Only the
+ * newest set in the chat can be open (a later one replaces it), so that is the
+ * one checked. Failing that, the roster's open set (`rosterQuestions`) counts
+ * when the transcript holds no copy of it. A copy that is already settled
+ * means she just answered and the roster poll hasn't caught up, so nothing is
+ * open. */
+export function openQuestionSet(turns: Turn[], rosterQuestions: string[]): OpenQuestionSet | null {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const questions = turns[i].questions;
+    if (turns[i].role !== 'questions' || !questions) continue;
+    if (questionsState(turns, i) === 'open') {
+      return { questions, turnIndex: i, key: `${i}:${questions.join('\n')}` };
+    }
+    break;
+  }
+  if (rosterQuestions.length === 0) return null;
+  const joined = rosterQuestions.join('\n');
+  if (turns.some((t) => t.role === 'questions' && (t.questions ?? []).join('\n') === joined)) return null;
+  return { questions: rosterQuestions, turnIndex: null, key: `end:${joined}` };
+}
+
 /** Reduce a full history into turns (conversation GET). */
 export function turnsFromHistory(events: unknown[]): Turn[] {
   const turns: Turn[] = [];

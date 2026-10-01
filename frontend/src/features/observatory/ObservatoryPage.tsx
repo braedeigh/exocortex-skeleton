@@ -9,15 +9,15 @@ import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
 import { ConversationApprovals } from '../approvals/ConversationApprovals';
 import { ChatApprovalCard } from './ChatApprovalCard';
-import { QuestionsBlock, QuestionsCard } from './QuestionsCard';
+import { QuestionsBlock, QuestionsCard, QuestionsChip, QuestionsFloating, type QuestionsFloat } from './QuestionsCard';
 import { CloseSourcePrompt, SpinoffOffer } from './SpinoffOffer';
 import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
-import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, stopConversation, streamSend } from './api';
+import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, openQuestions, stopConversation, streamSend, useSessionRoster } from './api';
 import { MemoryPrompt } from '../runqueue/MemoryPrompt';
 import { enqueueConversation, fetchHeadroom } from '../runqueue/api';
 import { shouldPrompt } from '../runqueue/memoryPrompt';
 import type { Headroom } from '../runqueue/memoryPrompt';
-import { applyEvent, assistantText, lastUserTurnIndex, questionsState, turnsFromHistory, userTurn, type Turn } from './events';
+import { applyEvent, assistantText, lastUserTurnIndex, openQuestionSet, questionsState, turnsFromHistory, userTurn, type Turn } from './events';
 import { HighlightPill, HighlightSheet } from './JournalHighlight';
 import { useJournalHighlight } from './useJournalHighlight';
 import { useComposerBox } from './useComposerBox';
@@ -28,6 +28,7 @@ import { Reply, StreamingReply, UserMessage } from './replyViews';
 import { useTurnStats } from './useTurnStats';
 import { useWordFlow } from './useWordFlow';
 import { useScrollContract } from './useScrollContract';
+import { usePlaceInView } from './usePlaceInView';
 import { useStepBack, useStepBackDismiss } from './useStepBack';
 import { PeerCard } from './PeerCard';
 import { useMessageQueue } from './useMessageQueue';
@@ -290,6 +291,30 @@ export function ObservatoryPage({
     streaming,
     writing,
   });
+
+  // The questions waiting on her, and the switch that floats them. The open
+  // set is the newest one in the chat she hasn't answered, or failing that the
+  // roster's (a set filed before sets were logged; the roster query is the
+  // shared one, so this adds no poll). She floats it by tapping it and sends
+  // it back by tapping again. What's remembered is WHICH set she floated, by
+  // its key, so the switch falls back to "in its place" by itself once that
+  // set is answered or replaced, and after a reload. See QuestionsCard.tsx.
+  // Prompt: "tap to bring up the card floating around and tap again to send it
+  // back to where it sits in the chat. Don't want it constantly scrolling with
+  // the chat."
+  const { data: roster } = useSessionRoster(true, Boolean(convId));
+  const rosterQuestions = openQuestions((roster?.sessions ?? []).find((s) => s.id === convId));
+  const openSet = convId ? openQuestionSet(turns, rosterQuestions) : null;
+  const [floatedKey, setFloatedKey] = useState<string | null>(null);
+  const questionsFloated = openSet !== null && floatedKey === openSet.key;
+  const [questionsPlaceRef, questionsPlaceInView] = usePlaceInView(scrollContract.scrollRef);
+  const questionsFloat: QuestionsFloat | undefined = openSet
+    ? {
+        floated: questionsFloated,
+        onToggle: () => setFloatedKey(questionsFloated ? null : openSet.key),
+        placeRef: questionsPlaceRef,
+      }
+    : undefined;
 
   // Step back to watch the terrain (useStepBack.ts): pull past the end of the
   // conversation and it recedes to a strip while the map takes the screen,
@@ -845,15 +870,17 @@ export function ObservatoryPage({
               }
               if (t.role === 'questions' && t.questions) {
                 // Questions the agent filed for her, kept where they were
-                // asked — open (and floating) until she replies or the agent
-                // withdraws them (her answer came by another route), then
-                // settled in place for good. See QuestionsCard.tsx.
+                // asked — open until she replies or the agent withdraws them
+                // (her answer came by another route), then settled in place
+                // for good. Only the open set gets the float switch. See
+                // QuestionsCard.tsx.
                 return (
                   <QuestionsBlock
                     key={i}
                     questions={t.questions}
                     state={questionsState(turns, i)}
                     answeredElsewhere={t.answeredElsewhere}
+                    float={openSet?.turnIndex === i ? questionsFloat : undefined}
                   />
                 );
               }
@@ -915,10 +942,12 @@ export function ObservatoryPage({
               latest words: features/observatory/SpinoffOffer. */}
           {convId ? <SpinoffOffer convId={convId} writing={writing} pinned={sessionPinned === true} /> : null}
           {/* Open questions the transcript has no line for (filed before sets
-              were logged), floating at the bottom of the chat until she
-              answers. Sets that are logged draw in place, above:
+              were logged): their place is here, at the end of the chat. Sets
+              that are logged draw in place, above:
               features/observatory/QuestionsCard. */}
-          {convId ? <QuestionsCard convId={convId} turns={turns} /> : null}
+          {openSet && openSet.turnIndex === null && questionsFloat ? (
+            <QuestionsCard set={openSet} float={questionsFloat} />
+          ) : null}
           {/* Her messages waiting for the agent, each saying why it's still
               waiting, with send now. One the server refused says "not sent"
               instead of vanishing — the composer was already cleared, so this
@@ -1000,16 +1029,42 @@ export function ObservatoryPage({
         sessionNames={schedSessions}
       />
 
-      {/* showJump alone covers a live reply scrolled out of view; catchingUp
-          covers the open-at-unread anchor's idle side — a conversation
-          that isn't writing at all still has an unread reply waiting below
-          her anchored message, so the pill stays offered until she either
-          scrolls near it herself or taps this. */}
-      {scrollContract.showJump || scrollContract.catchingUp ? (
-        <button type="button" className={styles.jumpPill} onClick={scrollContract.jumpToLatest}>
-          ↓ latest
-        </button>
-      ) : null}
+      {/* The strip just above the message box, for what floats over the chat
+          (.floatDock in the stylesheet). Top row: the "questions" chip, shown
+          only while the open set's place in the chat is out of sight and so
+          can't be tapped, and the ↓ latest pill. Under the row, the questions
+          card itself once she has floated it.
+          The pill: showJump alone covers a live reply scrolled out of view;
+          catchingUp covers the open-at-unread anchor's idle side — a
+          conversation that isn't writing at all still has an unread reply
+          waiting below her anchored message, so the pill stays offered until
+          she either scrolls near it herself or taps this. */}
+      {(() => {
+        const showChip = openSet !== null && !questionsFloated && !questionsPlaceInView;
+        const showPill = scrollContract.showJump || scrollContract.catchingUp;
+        if (!showChip && !showPill && !questionsFloated) return null;
+        return (
+          <div className={styles.floatDock}>
+            <div className={styles.floatStack}>
+              {showChip || showPill ? (
+                <div className={styles.floatRow}>
+                  {showChip && openSet ? (
+                    <QuestionsChip count={openSet.questions.length} onFloat={() => setFloatedKey(openSet.key)} />
+                  ) : null}
+                  {showPill ? (
+                    <button type="button" className={styles.jumpPill} onClick={scrollContract.jumpToLatest}>
+                      ↓ latest
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              {questionsFloated && openSet ? (
+                <QuestionsFloating questions={openSet.questions} onPutBack={() => setFloatedKey(null)} />
+              ) : null}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className={[styles.composer, offRecord ? styles.composerOff : ''].filter(Boolean).join(' ')}>
         {sendError ? <div className={styles.sendError}>{sendError}</div> : null}

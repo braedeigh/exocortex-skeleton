@@ -8,7 +8,7 @@
  * drifting.
  */
 import { describe, expect, it } from 'vitest';
-import { HELPER_SILENT, applyEvent, assistantText, lastUserTurnIndex, questionsState, turnsFromHistory, userTurn, type Turn } from './events';
+import { HELPER_SILENT, applyEvent, assistantText, lastUserTurnIndex, openQuestionSet, questionsState, turnsFromHistory, userTurn, type Turn } from './events';
 
 const delta = (text: string) => ({
   type: 'stream_event',
@@ -304,5 +304,36 @@ describe('questions', () => {
     expect(turns).toHaveLength(4);
     applyEvent(turns, { type: 'questions', questions: ['And next?'] });
     expect([questionsState(turns, 2), questionsState(turns, 4)]).toEqual(['elsewhere', 'open']);
+  });
+
+  // The card she can float is the ONE set still waiting on her. Followed
+  // through a session's life: nothing open, a set filed, a newer set replacing
+  // it (a different key, so a float on the old one doesn't carry over), her
+  // answer settling it while the roster still lists it, and an old set the
+  // transcript never logged, which sits at the end of the chat.
+  it('names the one set still open, and stops naming it once it is settled', () => {
+    const turns = turnsFromHistory([{ type: 'user', text: 'build it' }]);
+    expect(openQuestionSet(turns, [])).toBeNull();
+
+    applyEvent(turns, { type: 'questions', questions: ['Sqlite or postgres?'] });
+    const first = openQuestionSet(turns, ['Sqlite or postgres?']);
+    expect(first).toMatchObject({ questions: ['Sqlite or postgres?'], turnIndex: 1 });
+
+    applyEvent(turns, { type: 'questions', questions: ['Only: sqlite?', 'And where?'] });
+    const second = openQuestionSet(turns, ['Only: sqlite?', 'And where?']);
+    expect(second).toMatchObject({ questions: ['Only: sqlite?', 'And where?'], turnIndex: 2 });
+    expect(second?.key).not.toBe(first?.key);
+
+    turns.push(userTurn('sqlite, in data/', false));
+    expect(openQuestionSet(turns, ['Only: sqlite?', 'And where?'])).toBeNull();
+
+    applyEvent(turns, { type: 'questions', questions: ['Last one?'] });
+    applyEvent(turns, { type: 'questions-withdrawn', questions: ['Last one?'], source: 'a peer' });
+    expect(openQuestionSet(turns, [])).toBeNull();
+
+    expect(openQuestionSet(turns, ['Filed before sets were logged?'])).toMatchObject({
+      questions: ['Filed before sets were logged?'],
+      turnIndex: null,
+    });
   });
 });
