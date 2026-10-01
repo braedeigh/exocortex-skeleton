@@ -304,6 +304,37 @@
   color: var(--text-secondary);
 }
 
+/* A table in a reply scrolls sideways inside itself instead of widening the
+   page. `display: block` is what lets a table take overflow-x: on a phone a
+   six-column table is wider than the screen, and without this the whole chat
+   column would scroll. Cells keep a minimum width so a long column wraps into
+   readable lines rather than one word per line. */
+.replyBody :global(table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 var(--space-4);
+  border-collapse: collapse;
+  font-size: var(--font-size-md);
+  /* Rows sit on their own opaque card, so no watermark to win against. */
+  text-shadow: none;
+  overflow-wrap: normal;
+}
+
+.replyBody :global(th),
+.replyBody :global(td) {
+  min-width: 5.5em;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
+  text-align: left;
+  vertical-align: top;
+}
+
+.replyBody :global(th) {
+  font-weight: 600;
+}
+
 .toolNote {
   margin-top: var(--space-2);
   color: var(--text-muted);
