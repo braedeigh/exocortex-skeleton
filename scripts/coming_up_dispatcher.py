@@ -36,8 +36,9 @@ minute also closes finished sessions whose done countdown has run out
 and wakes any session idle for a day to ask itself whether it's done
 (idle_check_sessions).
 And it wakes a helper whose sessions changed since its last turn — a new
-session, or new files read or edited — so it can look; the helper may stay
-silent (helper_chat.wake_tick).
+session, or a file newly edited (config.HELPER_WAKE_ON can widen this to
+files newly read) — so it can look; the helper may stay silent
+(helper_chat.wake_tick).
 
 Run by cron (the owner wires the crontab):
 
