@@ -3546,7 +3546,7 @@
   },
   "source_files": {
     "holds": "A research source's own file (a PDF) kept in the commons, so it can be shown beside its claims exactly as published.",
-    "source": "Written by scripts/reference_data.py when a source's PDF is fetched into the commons.",
+    "source": "Written by scripts/reference_data.py when a source's PDF is fetched into the commons. Backed up in research_tables.json with the hazard tables.",
     "kind": "record",
     "time_column": "created_at",
     "columns": {
@@ -3569,7 +3569,7 @@
   },
   "passage_pages": {
     "holds": "Which page of a source's PDF each highlighted passage falls on, so the PDF opens at it.",
-    "source": "Worked out by scripts/reference_data.py from the PDF's own text. Rebuildable.",
+    "source": "Worked out by scripts/reference_data.py from the PDF's own text. Rebuildable, and also backed up in research_tables.json with the hazard tables, so a restore shows the pages without the PDFs being read again.",
     "kind": "mirror",
     "time_column": null,
     "columns": {

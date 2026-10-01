@@ -22,12 +22,14 @@ in docs/exposure.md). Public residue data is parsed into commons.db
 agent, 'owner' = her. Only hers is born confirmed; a fact whose value changes
 goes back to unreviewed.
 
-**Backup.** Facts, PDP codes, the ledger and the scores all ride hazardstore's
-backup (research_tables.json): each is written through hazardstore's write
-transaction, which exports that file after every commit and reads it back
-when the hazard tables are found empty. Facts and PDP codes are her record.
-The scores could be worked out again from the commons, and so could most of
-the ledger, but its literature searches are written down nowhere else.
+**Backup.** Facts, PDP codes, the ledger, the scores, and the source files
+with their passage pages all ride hazardstore's backup (research_tables.json):
+each is written through hazardstore's write transaction, which exports that
+file after every commit and reads it back when the hazard tables are found
+empty. Facts and PDP codes are her record. The scores could be worked out
+again from the commons, and so could most of the ledger, but its literature
+searches are written down nowhere else. The passage pages could be worked out
+again from the PDFs, but only once each source is tied to its file again.
 
 Touches: `sqlstore.py` (rung 36), `hazardstore.py` (hazards, its write/read
 transactions and backup), `foodstore.py` (foods; its merge moves PDP codes),
@@ -530,63 +532,38 @@ def searches_for(hazard_id):
 
 def set_source_file(source_id, commons_path, sha256, pages=None):
     """Tie a research source to its file in the commons (one file per source)."""
-    conn = sqlstore.open_db()
-    try:
-        sqlstore.begin_immediate(conn)
+    with hazardstore._Write() as conn:
         conn.execute(
             "INSERT INTO source_files (source_id, commons_path, sha256, pages) VALUES (?,?,?,?)"
             " ON CONFLICT (source_id) DO UPDATE SET commons_path = excluded.commons_path,"
             " sha256 = excluded.sha256, pages = excluded.pages",
             (source_id, commons_path, sha256, pages))
-        conn.execute("COMMIT")
-    except BaseException:
-        # Undo only a transaction that began: a BEGIN that timed out on the
-        # lock leaves none, and its own error is the one worth seeing.
-        if conn.in_transaction:
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
 
 
 def source_file(source_id):
     """{'commons_path', 'sha256', 'pages'} for a source with a file, else None."""
-    conn = sqlstore.open_db()
-    try:
+    # Through hazardstore's read, so a lost database is restored first.
+    with hazardstore._Read() as conn:
         row = conn.execute("SELECT commons_path, sha256, pages FROM source_files"
                            " WHERE source_id = ?", (source_id,)).fetchone()
-    finally:
-        conn.close()
     return dict(zip(("commons_path", "sha256", "pages"), row)) if row else None
 
 
 def set_passage_pages(pages):
     """Record which page each passage falls on: {annotation_id: page}."""
-    conn = sqlstore.open_db()
-    try:
-        sqlstore.begin_immediate(conn)
+    with hazardstore._Write() as conn:
         conn.executemany(
             "INSERT INTO passage_pages (annotation_id, page) VALUES (?, ?)"
             " ON CONFLICT (annotation_id) DO UPDATE SET page = excluded.page",
             list(pages.items()))
-        conn.execute("COMMIT")
-    except BaseException:
-        # Undo only a transaction that began: a BEGIN that timed out on the
-        # lock leaves none, and its own error is the one worth seeing.
-        if conn.in_transaction:
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
 
 
 def passage_page(annotation_id):
-    conn = sqlstore.open_db()
-    try:
+    """The page a passage falls on, or None when it was never placed."""
+    # Through hazardstore's read, so a lost database is restored first.
+    with hazardstore._Read() as conn:
         row = conn.execute("SELECT page FROM passage_pages WHERE annotation_id = ?",
                            (annotation_id,)).fetchone()
-    finally:
-        conn.close()
     return row[0] if row else None
 
 

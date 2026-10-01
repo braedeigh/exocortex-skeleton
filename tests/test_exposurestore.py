@@ -220,6 +220,27 @@ def test_scores_and_the_ledger_come_back_from_the_backup_when_the_database_is_lo
         [search["query"] for search in exposurestore.searches_for(hazard_id)] == ["chlorpropham toxicity"]
 
 
+def test_source_files_and_passage_pages_come_back_from_the_backup_when_the_database_is_lost(world):
+    store.write("annotations.json", {"annotations": [
+        {"id": "a1", "doc": f"entry:{SOURCE}", "start": 0, "end": 8, "exact": "EPA memo",
+         "note": "", "created": "2026-09-27 10:05"}]})
+    exposurestore.set_source_file(SOURCE, "papers/epa-memo.pdf", "abc123", 12)
+    exposurestore.set_passage_pages({"a1": 7})
+    tables = ("source_files", "passage_pages")
+    before = {table: sorted(rows(f"SELECT * FROM {table}"), key=repr) for table in tables}
+
+    # Lose the database; only the export files beside it are left. Nothing
+    # is read by hand first: the page that needs these rows is the first
+    # thing asked for, as it could be after a real restore.
+    for leftover in store.DATA_DIR.glob("exo.db*"):
+        leftover.unlink()
+    shown = exposurestore.source_file(SOURCE)
+
+    after = {table: sorted(rows(f"SELECT * FROM {table}"), key=repr) for table in tables}
+    assert all(before.values()) and after == before and \
+        shown["commons_path"] == "papers/epa-memo.pdf" and exposurestore.passage_page("a1") == 7
+
+
 def test_commons_db_lives_beside_the_files(tmp_path):
     with commonsdb.session(tmp_path) as conn:
         conn.execute("INSERT INTO pdp_samples (year, sample_pk, commod, claim) VALUES (2023, 1, 'PO', 'PO')")

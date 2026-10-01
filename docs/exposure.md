@@ -15,7 +15,7 @@ from code applying a published method.
 | Which PDP commodity a food is | `food_pdp_codes` | Her record |
 | What has been pulled (the memory) | `data_pulls` | One glance says what exists; pulling again is a no-op. Backed up with the hazard tables: it also remembers the literature searches |
 | Computed scores and their working | `exposure_scores`, `exposure_terms` | Derived; a re-score replaces them. Backed up with the hazard tables, so a restore shows them without a re-score |
-| A source's PDF, and the page each passage is on | `source_files`, `passage_pages` | So a claim's PDF opens at its highlight |
+| A source's PDF, and the page each passage is on | `source_files`, `passage_pages` | So a claim's PDF opens at its highlight. Backed up with the hazard tables |
 
 The literature numbers (a study's mean lead in rice) stay in `hazard_measures`, reviewed like
 everything else there. Computed PDP numbers do not go there: they have dimensions it lacks

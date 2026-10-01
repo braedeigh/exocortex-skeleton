@@ -159,6 +159,12 @@ _RECORD_TABLES = (
     ("research_tables", (
         "id", "name", "kind", "topic_id", "hazard_id", "measure", "foods", "note",
         "position", "created_at")),
+    # Which commons file is a research source's own PDF, and the page each
+    # passage falls on (exposurestore.py), ride this backup too. Both point
+    # at the research pool (a source, a passage), not at a hazard; a row
+    # whose source or passage is not back yet is skipped by the restore.
+    ("source_files", ("source_id", "commons_path", "sha256", "pages", "created_at")),
+    ("passage_pages", ("annotation_id", "page")),
 )
 
 # The columns of a measurement or verdict that count as its CONTENT: changing
@@ -195,6 +201,23 @@ def refresh_mirror():
     never written over a good backup."""
     with _Read() as conn:
         _export_mirror(conn)
+
+
+def _read_research_if_empty(conn):
+    """Read the research pool's documents, before the write lock is taken.
+
+    Only when there is no hazard at all, which is when a restore may follow.
+    Many rows of her record point at a source or a passage, and the restore
+    skips a row whose source is not there. Reading a document the database
+    has never seen writes it in from its export file, on a connection of its
+    own, so on a lost database this puts the sources and passages back first.
+    It cannot be done inside the lock: that write would wait on our own lock
+    until it gave up with "database is locked".
+    """
+    if conn.execute("SELECT 1 FROM hazards LIMIT 1").fetchone():
+        return
+    for name in ("research.json", "annotations.json"):
+        store.read(name, {})
 
 
 def _restore_if_empty(conn):
@@ -238,6 +261,7 @@ class _Write:
     def __enter__(self):
         self.conn = sqlstore.open_db()
         try:
+            _read_research_if_empty(self.conn)
             sqlstore.begin_immediate(self.conn)
         except BaseException:
             self.conn.close()
@@ -271,6 +295,7 @@ class _Read:
         self.conn = sqlstore.open_db()
         try:
             if not self.conn.execute("SELECT 1 FROM hazards LIMIT 1").fetchone():
+                _read_research_if_empty(self.conn)
                 sqlstore.begin_immediate(self.conn)
                 try:
                     restored = _restore_if_empty(self.conn)
