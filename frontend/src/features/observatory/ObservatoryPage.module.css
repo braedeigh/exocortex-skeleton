@@ -887,7 +887,11 @@
    the composer, so it takes no room from the conversation; .floatStack hangs
    upward from it. Anchoring to the composer's top edge rather than to a fixed
    distance from the bottom of the page means everything here clears the
-   composer however tall it gets (attached photos, a note line). */
+   composer however tall it gets (attached photos, a note line).
+   The stack is never taller than --float-room, the visible space above the
+   composer as useFloatRoom.ts measures it (less when the phone keyboard is
+   open). The floated card is the one piece that gives: it shrinks to fit and
+   its questions scroll inside it, so its top never leaves the screen. */
 .floatDock {
   flex: none;
   height: 0;
@@ -905,7 +909,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: 0 var(--space-4) var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  box-sizing: border-box;
+  max-height: var(--float-room, 80vh);
   /* Only the controls take taps — the strip itself must not block the text
      scrolling underneath it. */
   pointer-events: none;
@@ -919,6 +925,7 @@
   display: flex;
   align-items: flex-end;
   gap: var(--space-2);
+  flex: none;
   /* Pushes the row's left end in to where the 68ch chat column starts on a
      wide window; on a phone the column fills the width and this is zero. */
   padding-left: max(0px, calc((100% - 68ch) / 2));

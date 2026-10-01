@@ -29,15 +29,18 @@
 
 /* Floated: lifted over the chat, in the strip just above the message box
    (ObservatoryPage.module.css .floatStack places it). Lined up with the chat
-   column, and never taller than about half the screen: the heading stays put
-   and the questions scroll under it (.floatedBody), so the way back is always
-   reachable and the card can't cover the whole conversation. */
+   column. It is as tall as its questions need, up to the visible space above
+   the message box (.floatStack's cap, smaller when the keyboard is open).
+   Past that it stops growing: the heading stays put at the top and the rest
+   scrolls under it (.floatedBody), so the top of the card and the way back
+   are always on screen. */
 .floated {
   display: flex;
   flex-direction: column;
   width: 100%;
   max-width: 68ch;
-  max-height: 45vh;
+  flex: 0 1 auto;
+  min-height: 0;
   margin: 0 auto;
   box-sizing: border-box;
   pointer-events: auto;
@@ -45,9 +48,12 @@
   animation: questionsFloatIn 180ms ease-out;
 }
 
+/* Scrolling to the end of the questions stops there, rather than carrying on
+   into the chat underneath. */
 .floatedBody {
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 @keyframes questionsFloatIn {

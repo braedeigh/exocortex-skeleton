@@ -29,6 +29,7 @@ import { useTurnStats } from './useTurnStats';
 import { useWordFlow } from './useWordFlow';
 import { useScrollContract } from './useScrollContract';
 import { usePlaceInView } from './usePlaceInView';
+import { useFloatRoom } from './useFloatRoom';
 import { useStepBack, useStepBackDismiss } from './useStepBack';
 import { PeerCard } from './PeerCard';
 import { useMessageQueue } from './useMessageQueue';
@@ -308,6 +309,9 @@ export function ObservatoryPage({
   const [floatedKey, setFloatedKey] = useState<string | null>(null);
   const questionsFloated = openSet !== null && floatedKey === openSet.key;
   const [questionsPlaceRef, questionsPlaceInView] = usePlaceInView(scrollContract.scrollRef);
+  // Keeps the floated card inside the visible space above the message box,
+  // keyboard open or not (useFloatRoom.ts).
+  const floatDockRef = useFloatRoom();
   const questionsFloat: QuestionsFloat | undefined = openSet
     ? {
         floated: questionsFloated,
@@ -1033,7 +1037,9 @@ export function ObservatoryPage({
           (.floatDock in the stylesheet). Top row: the "questions" chip, shown
           only while the open set's place in the chat is out of sight and so
           can't be tapped, and the ↓ latest pill. Under the row, the questions
-          card itself once she has floated it.
+          card itself once she has floated it. The strip is always mounted
+          (it has no height), so useFloatRoom can keep measuring the room the
+          card may take.
           The pill: showJump alone covers a live reply scrolled out of view;
           catchingUp covers the open-at-unread anchor's idle side — a
           conversation that isn't writing at all still has an unread reply
@@ -1042,9 +1048,8 @@ export function ObservatoryPage({
       {(() => {
         const showChip = openSet !== null && !questionsFloated && !questionsPlaceInView;
         const showPill = scrollContract.showJump || scrollContract.catchingUp;
-        if (!showChip && !showPill && !questionsFloated) return null;
         return (
-          <div className={styles.floatDock}>
+          <div ref={floatDockRef} className={styles.floatDock}>
             <div className={styles.floatStack}>
               {showChip || showPill ? (
                 <div className={styles.floatRow}>

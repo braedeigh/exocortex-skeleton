@@ -18,7 +18,10 @@
  * FLOATING is a switch she flips, never a default. Tap the open block and it
  * comes up over the chat, just above the message box, and stays there while
  * she scrolls back through the conversation; a one-line marker holds its place
- * in the chat. Tap the floating card (or the marker) and it goes back. When
+ * in the chat. Tap the floating card (or the marker) and it goes back. The
+ * floating card grows to fit its questions, but never past the visible space
+ * above the message box (useFloatRoom.ts measures it, keyboard open or not):
+ * a longer list scrolls inside the card, under a heading that stays put. When
  * the block's place has scrolled out of sight there is nothing to tap, so
  * QuestionsChip stands in above the message box and floats the card. The
  * switch itself lives in ObservatoryPage.tsx, which also works out which set is
@@ -41,7 +44,8 @@
  * chat above what i send", then "Need different floating question UI. Wanting
  * to be able to tap to bring up the card floating around and tap again to send
  * it back to where it sits in the chat. Don't want it constantly scrolling with
- * the chat."
+ * the chat.", then "i want it to size to the screen if it's that big, with the
+ * extra going down at the bottom."
  */
 import type { OpenQuestionSet, QuestionsState } from './events';
 import styles from './QuestionsCard.module.css';
@@ -183,9 +187,10 @@ export function QuestionsChip({ count, onFloat }: { count: number; onFloat: () =
   );
 }
 
-/** The open set, floated: over the chat, just above the message box. The
- * heading stays put and a long list scrolls underneath it, so the way back is
- * always on screen. A tap anywhere sends it back to its place. */
+/** The open set, floated: over the chat, just above the message box, as tall
+ * as the visible space allows. The heading stays put and a longer list scrolls
+ * underneath it, so the way back is always on screen. A tap anywhere sends it
+ * back to its place. */
 export function QuestionsFloating({ questions, onPutBack }: { questions: string[]; onPutBack: () => void }) {
   return (
     <div
