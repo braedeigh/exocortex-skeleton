@@ -44,15 +44,24 @@ def sensor(data_dir, monkeypatch):
 
 def _module_under(root, name, body):
     """Write a python module into `root` and import it, so calling into it
-    produces genuine PY_START events with a co_filename under that root."""
+    produces genuine PY_START events with a co_filename under that root.
+
+    Forgets any module an earlier test imported under the same name first:
+    Python would otherwise hand that one back, from the earlier test's root,
+    and the sensor would rightly ignore it. Same guard as `_mod` in
+    tests/test_runtime_trace.py, where this bit for real."""
+    import importlib
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"{name}.py"
     path.write_text(textwrap.dedent(body))
+    sys.modules.pop(name, None)
+    importlib.invalidate_caches()
     sys.path.insert(0, str(root))
     try:
         mod = __import__(name)
     finally:
         sys.path.remove(str(root))
+    assert mod.__file__ == str(path), f"{name} was imported from {mod.__file__}, not {path}"
     return mod, path
 
 

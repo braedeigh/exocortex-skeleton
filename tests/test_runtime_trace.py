@@ -43,13 +43,30 @@ def tracer(data_dir, tmp_path):
 
 
 def _mod(root, name, body):
+    """Write a module into this test's root and import THAT file, never an
+    earlier test's module of the same name.
+
+    Python keeps every imported module in `sys.modules` for the life of the
+    process, so a plain `__import__("jr_leaf")` in a second test hands back the
+    first test's module — whose file sits under the first test's root. The
+    tracer rightly calls that file "not ours" and records nothing, and the test
+    fails for a reason that has nothing to do with the tracer. It only shows
+    when the tests run in a different order, which testmon does (it sorts by
+    how long each test took last time). So: forget the old module first, and
+    check that what came back really lives under this root."""
+    import importlib
     import sys
-    (root / f"{name}.py").write_text(textwrap.dedent(body).lstrip())
+    path = root / f"{name}.py"
+    path.write_text(textwrap.dedent(body).lstrip())
+    sys.modules.pop(name, None)
+    importlib.invalidate_caches()
     sys.path.insert(0, str(root))
     try:
-        return __import__(name)
+        mod = __import__(name)
     finally:
         sys.path.remove(str(root))
+    assert mod.__file__ == str(path), f"{name} was imported from {mod.__file__}, not {path}"
+    return mod
 
 
 def _hops(trace):
@@ -85,6 +102,24 @@ def test_a_hop_is_a_file_change_not_a_call(tracer):
     assert dsts.count("leaf_a.py") == 3
     assert "caller_a.py" in dsts        # the entry into caller_a.go itself
     assert all(s in (None, "caller_a.py") for s, _d, _f in _hops(trace))
+
+
+def test_a_module_name_reused_under_a_new_root_is_still_traced(tracer, tmp_path):
+    """Two tests that each write a module called the same thing must each get
+    their own. The second one is the one that used to come back empty: it was
+    handed the first one's module, from a root the tracer no longer watches.
+    That is what made the journey test fail only in some run orders."""
+    trace_mod, root = tracer
+    earlier = tmp_path / "earlier_app"
+    earlier.mkdir()
+    _mod(earlier, "reused_a", "def work():\n    return 1\n")
+    mod = _mod(root, "reused_a", "def work():\n    return 2\n")
+
+    trace_mod.begin("t-reused", entry="test")
+    assert mod.work() == 2
+    trace = trace_mod.finish(save=False)
+
+    assert [s["dst"] for s in trace.spans] == ["reused_a.py"]
 
 
 def test_a_call_from_outside_our_code_is_an_entry(tracer):
