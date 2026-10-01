@@ -218,6 +218,47 @@ ROOM_HELPER_QUIET_HOURS = float(os.environ.get("EXOCORTEX_ROOM_HELPER_QUIET_HOUR
 # How far back the room helper's "Files being edited now" section looks
 # (edited_files.py): a file an open session changed within it is listed.
 ROOM_HELPER_FILES_HOURS = float(os.environ.get("EXOCORTEX_ROOM_HELPER_FILES_HOURS", "2"))
+# File overlaps (file_alerts.py): once a minute the app looks for two open
+# sessions in the same file and writes each one down, once, for the room
+# helper — which decides whether to say anything to them. Two switches:
+#   FILE_OVERLAPS — the minute check that writes overlaps down. On.
+#   FILE_ALERTS   — also tell the two sessions themselves (a notice in each
+#                   one's chat, and a warning from the pre-edit hook). Off:
+#                   the owner chose "only the room helper". An overlap written
+#                   down while this is off is not told later if it's turned on.
+# FILE_ALERT_ROOMS are the rooms watched (pairs are only ever within one
+# room); FILE_ALERT_HOURS is how far back an edit or a read still counts.
+# Prompt: "That should only be read by the helper."
+FILE_OVERLAPS = os.environ.get("EXOCORTEX_FILE_OVERLAPS", "1") != "0"
+FILE_ALERTS = os.environ.get("EXOCORTEX_FILE_ALERTS", "0") != "0"
+FILE_ALERT_ROOMS = tuple(
+    room.strip() for room in os.environ.get("EXOCORTEX_FILE_ALERT_ROOMS", "coding").split(",")
+    if room.strip())
+FILE_ALERT_HOURS = float(os.environ.get("EXOCORTEX_FILE_ALERT_HOURS", "2"))
+# What an alerted session is told, when FILE_ALERTS is on. Each is one message, filled in by
+# file_alerts.py: {file} the path, {conv} and {title} the other session,
+# {doing} its summary line, {when} when it last changed the file, {read_at}
+# when the reader last read it, {hours} the window. A name a replacement
+# text leaves out is simply not used.
+# Same file: both sessions changed it. Sent to each of the two.
+FILE_ALERT_SAME_TEXT = os.environ.get("EXOCORTEX_FILE_ALERT_SAME_TEXT", (
+    "[File alert — sent by the app, not by the owner.] You and another open session have"
+    " both changed `{file}` in the last {hours}h.\n"
+    "The other session: `{conv}` ({title}) — {doing}\n"
+    "It last changed the file {when}.\n"
+    "Read the file again before you change it further. If your changes could collide,"
+    " message it: `./venv/bin/python3 scripts/peers.py send {conv} \"…\"`."
+    " You won't be alerted about this file and this session again."))
+# Stale copy: sent only to the session that read the file before the other
+# changed it. The one that made the change isn't told — it has nothing to do.
+FILE_ALERT_STALE_TEXT = os.environ.get("EXOCORTEX_FILE_ALERT_STALE_TEXT", (
+    "[File alert — sent by the app, not by the owner.] `{file}` was changed {when} by"
+    " another open session, after you last read it ({read_at}). The copy you read no"
+    " longer exists.\n"
+    "The other session: `{conv}` ({title}) — {doing}\n"
+    "Read the file again before you rely on it or change it. If your work could collide"
+    " with its, message it: `./venv/bin/python3 scripts/peers.py send {conv} \"…\"`."
+    " You won't be alerted about this file and this session again."))
 # A helper's watches (watches.py): how long a watched session must go without
 # writing a line before it counts as `stalled` (a turn's tool calls write
 # lines every few minutes, so 90 minutes of nothing means it's stuck or

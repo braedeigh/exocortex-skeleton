@@ -7,8 +7,14 @@ says "I'm in room_helper.py". So two sessions could be editing the same file
 and it would only notice by chance. This file lists, for every open session
 in a room (in a swarm or working alone): the files it changed in the last
 config.ROOM_HELPER_FILES_HOURS, and when it last touched each. Any file two
-or more open sessions touched is flagged at the top with their names, and a
-short list names the files git shows as changed that no open session claims.
+or more open sessions touched is flagged at the top with their names, a
+short list names the files git shows as changed that no open session claims,
+and another lists the overlaps the app has noticed — two sessions in one
+file, or one working from a copy another has since changed (file_alerts.py).
+
+It also answers which files a session READ (`reads`), with the same shape as
+`edits` — file_alerts.py uses it to spot a session working from a copy that
+another has since changed.
 
 Where it comes from: the `tool_calls` table (toolcallstore.py). A running
 Observatory turn folds its own tool calls into it every few seconds, so this
@@ -21,20 +27,32 @@ What it catches, and what it doesn't:
     (or committed within the window) in the app checkout, and WRITES to it —
     a `>`/`>>` or `tee` into it, `sed -i`/`perl -i`, `mv`/`cp`/`rm`/`touch`/
     `patch` on it, or a script that opens something for writing (`open(…,
-    'w')`, `write_text`) and names it. So a heredoc that edits a file is
+    'w')`, `write_text`) and names it. A verb counts only where a command
+    can start (the head of a step, after a pipe), so a message that merely
+    says "touch" or "rm" near a file's name isn't one. So a heredoc that edits a file is
     caught; one that reads the file and writes somewhere else is counted too
-    (a false alarm), and an edit through a path the command doesn't spell out
+    (a false alarm), as is a long script the log cut short (over 4,000
+    characters) that opens the file — its end, where the write would be,
+    isn't on record. An edit through a path the command doesn't spell out
     (a variable, a glob, a `cd` into a subfolder first) is missed. Bash edits
     outside the app checkout (the vault, say) are missed; Edit/Write there
     are kept. Scratch files (temp dirs, ~/.claude) are left out.
+  - Reads: a Read call always; a Bash call only when a reading command
+    (`cat`, `head`, `tail`, `sed` without -i, `grep`, `rg`, `awk`, `less`,
+    `nl`, `wc`) names a file git shows as changed, or a script opens it
+    without writing. A read through a path the command doesn't spell out is
+    missed, like an edit.
   - A session and its continuations are one line of work: files the handed-on
     session touched are listed under the one carrying the work now.
 
 Touches: toolcallstore.py (the table), swarms.py (who is retired, lines of
 work, swarm membership), lanes.py (which room), config.py
-(ROOM_HELPER_FILES_HOURS), and its two readers — room_helper.run (a run's
-input) and helper_chat.seed_text (the room helper's chat). Test:
-tests/test_edited_files.py. Design: docs/swarms.md.
+(ROOM_HELPER_FILES_HOURS), its readers — room_helper.run (the section, as
+a run's input) and helper_chat.sessions (open_lines, edits, reads,
+changed_in_git, _by_folder, _shown, _when — the helper chat's seed) — and
+file_alerts.py (which calls open_lines, edits and reads, and supplies the
+"overlaps noticed" list). Tests: tests/test_edited_files.py,
+tests/test_file_alerts.py. Design: docs/swarms.md.
 
 Prompt that produced this: "i want part of the context to be all of the
 files being edited by any agent that's open in any open session and swarm so
@@ -103,9 +121,14 @@ _SCRATCH = tuple(str(p) + os.sep for p in {Path(tempfile.gettempdir()), Path("/t
                                              Path("/var/tmp"), Path.home() / ".claude"})
 # A script that opens something to write: Python's open(…, 'w'/'a'/'x') or pathlib's writers.
 _SCRIPT_WRITES = re.compile(r"""open\([^)]*['"][wax]b?\+?['"]|\.write_(text|bytes)\(""")
+# Where a command word can stand in a shell step: at its start, after a pipe
+# or an opening bracket, or after a word that runs another command — with any
+# `NAME=value` settings in front. A verb anywhere else is just a word: a
+# message saying "I won't touch config.py" is not `touch config.py`.
+_COMMAND_START = r"(?:^\s*|[|({]\s*|(?:\b(?:sudo|xargs|then|do|else|time|exec)|-exec)\s+)(?:\w+=\S*\s+)*"
 # Shell verbs that change the file they name.
-_SHELL_VERBS = re.compile(r"(^|[\s;&|(])(sed\s+(-\S+\s+)*-i|perl\s+-\w*i|mv|cp|rm|touch|patch"
-                          r"|git\s+(mv|rm)|tee)\b")
+_SHELL_VERBS = re.compile(_COMMAND_START + r"(sed\s+(-\S+\s+)*-i|perl\s+-\w*i|mv|cp|rm|touch"
+                          r"|patch|git\s+(mv|rm)|tee)\b")
 
 
 def _names(path, repo, unique_basenames):
@@ -117,8 +140,8 @@ def _names(path, repo, unique_basenames):
         names.add(str(Path(path).relative_to(repo)))
     except ValueError:
         pass
-    if Path(path).name in unique_basenames:
-        names.add(Path(path).name)
+    if os.path.basename(path) in unique_basenames:
+        names.add(os.path.basename(path))
     return names
 
 
@@ -141,32 +164,114 @@ def _mentions(text, names):
 _HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n(.*?)\n\s*\1\b", re.S)
 
 
-def bash_writes(command, candidates, repo):
-    """The candidate files (absolute paths) this Bash command writes to — the
-    heuristic the top of the file describes."""
-    # Judge each piece on its own, so `grep f.py; python3 - <<EOF …writes g.py…`
-    # isn't an edit of f.py: each heredoc body is a piece, and the shell around
-    # them is split into its steps.
+def _pieces(command):
+    """A Bash command cut into the pieces that are judged on their own, so
+    `grep f.py; python3 - <<EOF …writes g.py…` isn't an edit of f.py: each
+    heredoc body is a piece, and the shell around them is split into its
+    steps. Returns (heredoc bodies, shell steps)."""
     bodies = [m.group(2) for m in _HEREDOC.finditer(command)]
     shell = _HEREDOC.sub("<<heredoc\n", command)
-    steps = re.split(r"&&|\|\||[;\n]", shell)
+    # A heredoc with no end is a command the log cut short (_command): what's
+    # left of its body is still a piece, marked so its missing end is known.
+    cut = _HEREDOC_CUT.search(shell)
+    if cut:
+        bodies.append(cut.group(1) + _CUT)
+        shell = shell[:cut.start()] + "<<heredoc\n"
+    return bodies, re.split(r"&&|\|\||[;\n]", shell)
+
+
+# A heredoc that starts and never ends, and the mark put on its body.
+_HEREDOC_CUT = re.compile(r"<<-?\s*['\"]?\w+['\"]?[^\n]*\n(.*)\Z", re.S)
+_CUT = "\n#…cut"
+
+
+def _command(raw, target):
+    """A Bash call's command, from its stored input. The log keeps at most
+    4,000 characters of input (toolcallstore._INPUT_CAP), so a long script
+    arrives cut off and is no longer valid JSON; then the start of the
+    command is recovered from what's there rather than thrown away."""
+    try:
+        return (json.loads(raw) or {}).get("command") or target or ""
+    except (ValueError, TypeError, AttributeError):
+        pass
+    # `command` is the input's first key (keys are stored sorted), so the cut
+    # text is the command's start. Trim the tail until it decodes as a string.
+    found = re.match(r'\{"command": "(.*)', raw or "", re.S)
+    for trim in range(8) if found else ():
+        try:
+            return json.loads('"' + found.group(1)[:len(found.group(1)) - trim] + '"')
+        except ValueError:
+            continue
+    return target or ""
+
+
+def spellings(candidates, repo):
+    """{candidate path: (its bare name, every way a command can spell it)} —
+    worked out once for a whole set of commands (edits and reads do), since
+    doing it per command was most of the time a long history took."""
     counts = {}
     for path in candidates:
-        counts[Path(path).name] = counts.get(Path(path).name, 0) + 1
-    unique = {name for name, n in counts.items() if n == 1}
+        base = os.path.basename(path)
+        counts[base] = counts.get(base, 0) + 1
+    unique = {base for base, n in counts.items() if n == 1}
+    return {path: (os.path.basename(path), _names(path, repo, unique)) for path in candidates}
+
+
+def bash_writes(command, candidates, repo, spelled=None):
+    """The candidate files (absolute paths) this Bash command writes to — the
+    heuristic the top of the file describes. `spelled` is spellings() for
+    these candidates, passed in by a caller with many commands to judge."""
+    spelled = spellings(candidates, repo) if spelled is None else spelled
+    # Skip a file the command never spells, before any pattern matching.
+    named = [path for path in candidates if spelled[path][0] in command]
+    if not named:
+        return set()
+    bodies, steps = _pieces(command)
     found = set()
-    for path in candidates:
-        names = _names(path, repo, unique)
+    for path in named:
+        names = spelled[path][1]
         if not _mentions(command, names):
             continue
         # A script (a heredoc body, or a `python3 -c` step) that writes and targets it.
-        scripted = any(_SCRIPT_WRITES.search(piece) and _script_targets(piece, names)
-                       for piece in bodies + steps)
+        # A script the log cut short hides its end, where the write usually is;
+        # one that long which opens the file is counted as writing it.
+        scripted = any((_SCRIPT_WRITES.search(piece) or piece.endswith(_CUT))
+                       and _script_targets(piece, names) for piece in bodies + steps)
         # A shell step that changes it: a verb on it, or a redirect into it.
         shelled = any(_mentions(step, names) and (_SHELL_VERBS.search(step) or any(
             re.search(r">>?\s*['\"]?" + re.escape(n) + r"(?![\w/.-])", step) for n in names))
             for step in steps)
         if scripted or shelled:
+            found.add(path)
+    return found
+
+
+# Shell verbs that read the file they name (`sed -i` is a write, and is taken
+# out by asking bash_writes first).
+_READ_VERBS = re.compile(_COMMAND_START + r"(cat|head|tail|less|nl|wc|grep|rg|awk|sed)\b")
+
+
+def bash_reads(command, candidates, repo, wanted=None, spelled=None):
+    """The candidate files (absolute paths) this Bash command reads and does
+    not write — a reading verb on the file, or a script that opens it without
+    writing. `wanted` narrows the answer to those paths; `spelled` is
+    spellings() for these candidates, as in bash_writes."""
+    spelled = spellings(candidates, repo) if spelled is None else spelled
+    # Skip a file the command never spells, before any pattern matching.
+    named = [path for path in (candidates if wanted is None else set(candidates) & set(wanted))
+             if spelled[path][0] in command]
+    if not named:
+        return set()
+    written = bash_writes(command, candidates, repo, spelled)
+    bodies, steps = _pieces(command)
+    found = set()
+    for path in named:
+        if path in written:
+            continue
+        names = spelled[path][1]
+        shelled = any(_READ_VERBS.search(step) and _mentions(step, names) for step in steps)
+        scripted = any(_script_targets(body, names) for body in bodies)
+        if shelled or scripted:
             found.add(path)
     return found
 
@@ -246,18 +351,46 @@ def edits(lines, since, repo, candidates):
     finally:
         conn.close()
     found = {face: {} for face in lines}
+    spelled = spellings(candidates, repo)
     for conv, name, target, raw, cwd, at in rows:
         if name == "Bash":
-            try:
-                command = (json.loads(raw) or {}).get("command") or target or ""
-            except (ValueError, TypeError, AttributeError):
-                command = target or ""
-            paths = bash_writes(command, candidates, repo)
+            paths = bash_writes(_command(raw, target), candidates, repo, spelled)
         else:
             paths = {_edited_path(target, cwd, repo)} - {None}
         touched = found[owner[conv]]
         for path in paths:
             touched[path] = max(touched.get(path, ""), at)
+    return found
+
+
+def reads(lines, since, repo, candidates, wanted=None):
+    """{session carrying the line: {absolute path: last read}} since `since`
+    (any old stamp, or '' for a session's whole life). The same shape and
+    arguments as `edits`: a Read call counts for any file, a Bash call only
+    for `candidates` (bash_reads). `wanted` narrows the answer to those paths."""
+    owner = {c: face for face, line in lines.items() for c in line}
+    if not owner:
+        return {}
+    conn = sqlstore.open_db()
+    try:
+        marks = ",".join("?" * len(owner))
+        rows = conn.execute(
+            f"SELECT conv, name, target, input, cwd, at FROM tool_calls"
+            f" WHERE at >= ? AND conv IN ({marks}) AND name IN ('Read', 'Bash')",
+            (since or "", *owner)).fetchall()
+    finally:
+        conn.close()
+    found = {face: {} for face in lines}
+    spelled = spellings(candidates, repo)
+    for conv, name, target, raw, cwd, at in rows:
+        if name == "Bash":
+            paths = bash_reads(_command(raw, target), candidates, repo, wanted, spelled)
+        else:
+            paths = {_edited_path(target, cwd, repo)} - {None}
+            paths = paths if wanted is None else paths & set(wanted)
+        seen = found[owner[conv]]
+        for path in paths:
+            seen[path] = max(seen.get(path, ""), at)
     return found
 
 
@@ -321,4 +454,14 @@ def section(room, index=None, repo=None, now=None):
         out += ["", "## Uncommitted in the app checkout, claimed by no open session", ""]
         out += _by_folder(unclaimed[:_UNCLAIMED_SHOWN])
         out += [f"- (+{more} more)"] if more > 0 else []
+    # Name the overlaps the app has written down (file_alerts.py): two sessions
+    # that changed one file, or one working from a copy another has changed
+    # since. Nobody but the room helper is shown this, unless a line says so.
+    import file_alerts
+    recorded = file_alerts.recorded_lines(lines, repo, today)
+    if recorded:
+        out += ["", "## Overlaps the app has noticed", "",
+                "Each pair and file is listed once, when first noticed. Unless a line says"
+                " a session was told, the sessions don't know: whether to message them,"
+                " make them a swarm or leave it is yours to decide.", ""] + recorded
     return "\n".join(out) + "\n"

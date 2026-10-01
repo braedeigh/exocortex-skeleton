@@ -435,7 +435,24 @@ def _session_settings(config, tools):
             "matcher": "Bash",
             "hooks": [{"type": "command", "command": f"{sys.executable} {detach} --hook"}],
         })
+    # Warn a session as it starts to change a file another open session has
+    # changed lately (file_alerts.py). tools/file_alert_hook.py only ever adds
+    # a note to what the agent sees — it never blocks or changes the call. For
+    # sessions in the watched rooms that can edit; never a helper, which can't.
+    if (app_config.FILE_ALERTS and config.get("conv_id") and not config.get("helper_gate")
+            and config.get("lane") in app_config.FILE_ALERT_ROOMS
+            and any(t in _FILE_ALERT_TOOLS for t in tools)):
+        alert = Path(store.BUILD_DIR) / "tools" / "file_alert_hook.py"
+        settings.setdefault("hooks", {}).setdefault("PreToolUse", []).append({
+            "matcher": "|".join(_FILE_ALERT_TOOLS),
+            "hooks": [{"type": "command", "command": f"{sys.executable} {alert}",
+                       "timeout": 15}],
+        })
     return settings
+
+
+# The tool calls that can change a file, and so pass through the file-alert hook.
+_FILE_ALERT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit", "Bash")
 
 
 # --- LEGACY: bot lookups, kept only for the legacy per-bot alias routes ------
@@ -1272,6 +1289,12 @@ def _deliver_lines(conv_id, log_path, rows, conv_journals, after_step=None):
             if arrived:
                 line["arrived"] = arrived
             peermail.append_line(log_path, line)
+        elif r["kind"] == peermail.NOTICE:
+            # A notice the app left (a file alert): a `reminder` line, which
+            # the chat draws as a System bubble — never as anyone's words.
+            peermail.append_line(log_path, {"type": "reminder", "text": r["text"],
+                                            "source": "notice", "item_id": r["id"],
+                                            "journaled": False, "ts": _now()})
         else:
             peermail.append_line(log_path, peermail.peer_line(r, "in"))
     # When what the agent receives isn't simply her words, tell the journal's
@@ -2846,6 +2869,12 @@ def drain_inbox(conv_id, fallback=False):
         rows = peermail.waiting(conv_id)
         if not rows:
             return False
+    # Never start a turn for the app's notices alone (a file alert). Nobody
+    # is waiting on an answer to one, so an idle session isn't woken: the
+    # notice stays in the mailbox and is handed in when its next turn runs
+    # (_deliver_midturn), or goes out here with the next real message.
+    if peermail.only_notices(rows):
+        return False
     # A swarm helper's mail is answered by a helper run, not a chat turn —
     # each run starts fresh from the summaries (swarm_helper.py).
     if entry.get("role") == "swarm_helper":

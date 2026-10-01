@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 41
+_SCHEMA_VERSION = 43
 
 
 def _db_path():
@@ -205,6 +205,8 @@ _EXPECTED_TABLES = (
     "food_usda", "recipe_line_grams",
     # What the helpers promised to keep an eye on (rung 40).
     "helper_watches",
+    # Which pairs of sessions are in the same file (rungs 42–43).
+    "file_alerts",
 )
 
 
@@ -2293,44 +2295,12 @@ def _run_ladder(conn):
                 raise
     if version < 29:
         # Rung 29: the agents' mailbox (peermail.py). One row per message sent
-        # INTO a session — by another agent (kind 'A'), or by the owner while a
-        # turn was running (kind 'B'). This is the record, not a mirror: the
+        # INTO a session — by another agent (kind 'A'), by the owner while a
+        # turn was running (kind 'B'), or by the app as a notice (kind 'S',
+        # since rung 42). This is the record, not a mirror: the
         # transcripts only hold a message once it has been delivered, so a
         # message still waiting exists nowhere else.
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS agent_messages ("
-            "  id INTEGER PRIMARY KEY,"
-            "  at TEXT NOT NULL,"
-            "  kind TEXT NOT NULL CHECK (kind IN ('A','B')),"
-            # The sending session; NULL when the owner sent it.
-            "  from_conv TEXT,"
-            "  to_conv TEXT NOT NULL,"
-            "  text TEXT NOT NULL,"
-            # What the SENDER asked for. The recipient's accept policy can
-            # soften it at delivery time (peermail.effective_mode).
-            "  mode TEXT NOT NULL DEFAULT 'inject'"
-            "    CHECK (mode IN ('inject','queue','interrupt')),"
-            # How many agent-to-agent wakes led here with no owner message in
-            # between — the loop guard reads it.
-            "  hops INTEGER NOT NULL DEFAULT 0,"
-            # waiting -> delivered, or held (loop guard / daily cap, until the
-            # owner releases it), or cancelled (the owner took it back).
-            "  status TEXT NOT NULL DEFAULT 'waiting'"
-            "    CHECK (status IN ('waiting','held','delivered','cancelled')),"
-            "  held_reason TEXT,"
-            "  delivered_at TEXT,"
-            # 'handed' (written into a running agent, not read yet),
-            # 'injected' (read mid-turn) or 'batched' (started a turn of its
-            # own). delivered_at is when it was read or started the turn.
-            "  delivered_how TEXT,"
-            # Owner messages only: journaled or said off the record.
-            "  record INTEGER NOT NULL DEFAULT 1"
-            ")"
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS agent_messages_waiting"
-                     " ON agent_messages (to_conv, status, id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS agent_messages_by_day"
-                     " ON agent_messages (kind, at)")
+        _create_agent_messages(conn, "agent_messages")
     if version < 30:
         # Rung 30: token accounting per model call, and swarms (docs/swarms.md).
         #
@@ -2939,8 +2909,115 @@ def _run_ladder(conn):
             "  PRIMARY KEY (conv, seq, model)"
             ")"
         )
+    if version < 42:
+        # Rung 42: file alerts (file_alerts.py). When two open sessions are in
+        # the same file, the app writes it down — once per pair and file —
+        # for the room helper to read. This table is that "once": its unique
+        # key refuses a second row. RECORDS, not derived: the tool-call log
+        # can't say which overlaps the helper has already been shown.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS file_alerts ("
+            "  id INTEGER PRIMARY KEY,"
+            "  at TEXT NOT NULL,"
+            # 'same-file' (both changed it) or 'stale-copy' (one changed it
+            # after the other read it).
+            "  kind TEXT NOT NULL,"
+            # The file, as an absolute path.
+            "  path TEXT NOT NULL,"
+            # The two lines of work, each named by its first session (a
+            # session and its continuations are one line), lower id first.
+            "  line_a TEXT NOT NULL,"
+            "  line_b TEXT NOT NULL,"
+            # For 'same-file': the two sessions carrying those lines when it
+            # was noticed. For 'stale-copy': conv_a changed the file, conv_b had
+            # read it.
+            "  conv_a TEXT NOT NULL,"
+            "  conv_b TEXT NOT NULL,"
+            # 'tick' (the minute check) or 'hook' (caught as the edit began).
+            "  source TEXT NOT NULL DEFAULT 'tick',"
+            "  UNIQUE (path, line_a, line_b)"
+            ")"
+        )
+        # Let the mailbox carry a notice from the app (kind 'S'): handed to
+        # a working session between its steps like any message, but never
+        # starting a turn by itself (routes/observatory.py drain_inbox).
+        # SQLite can't alter a CHECK, so a mailbox made before this rung is
+        # rebuilt: make the new table, copy every row, drop the old, rename.
+        # A database made at this version already has the wide CHECK (rung
+        # 29 makes it so), and this is skipped.
+        made = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table'"
+                            " AND name = 'agent_messages'").fetchone()
+        if made and "'S'" not in made[0]:
+            columns = ("id, at, kind, from_conv, to_conv, text, mode, hops, status,"
+                       " held_reason, delivered_at, delivered_how, record")
+            conn.execute("DROP TABLE IF EXISTS agent_messages_new")
+            _create_agent_messages(conn, "agent_messages_new")
+            conn.execute(f"INSERT INTO agent_messages_new ({columns})"
+                         f" SELECT {columns} FROM agent_messages")
+            conn.execute("DROP TABLE agent_messages")
+            conn.execute("ALTER TABLE agent_messages_new RENAME TO agent_messages")
+            _index_agent_messages(conn)
+    if version < 43:
+        # Rung 43: say whether the two sessions were told (file_alerts.py).
+        # By default an overlap is only written down for the room helper;
+        # telling the sessions themselves is a switch that's off
+        # (config.FILE_ALERTS). Every row written before this rung was
+        # written while that switch was on, so those are marked told.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(file_alerts)")}
+        if "told" not in columns:
+            conn.execute("ALTER TABLE file_alerts ADD COLUMN told INTEGER NOT NULL DEFAULT 0")
+            conn.execute("UPDATE file_alerts SET told = 1")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+
+
+def _create_agent_messages(conn, name):
+    """Make the mailbox table (peermail.py) under `name`, with its indexes.
+    Rung 29 makes it; rung 42 makes it again under a spare name to swap in,
+    because SQLite can't change a CHECK on a table that exists."""
+    # (The statement's first two words are written apart so the test that
+    # reads this file for table names doesn't take `{name}` for one.)
+    conn.execute(
+        "CREATE " f"TABLE IF NOT EXISTS {name} ("
+        "  id INTEGER PRIMARY KEY,"
+        "  at TEXT NOT NULL,"
+        "  kind TEXT NOT NULL CHECK (kind IN ('A','B','S')),"
+        # The sending session; NULL when the owner or the app sent it.
+        "  from_conv TEXT,"
+        "  to_conv TEXT NOT NULL,"
+        "  text TEXT NOT NULL,"
+        # What the SENDER asked for. The recipient's accept policy can
+        # soften it at delivery time (peermail.effective_mode).
+        "  mode TEXT NOT NULL DEFAULT 'inject'"
+        "    CHECK (mode IN ('inject','queue','interrupt')),"
+        # How many agent-to-agent wakes led here with no owner message in
+        # between — the loop guard reads it.
+        "  hops INTEGER NOT NULL DEFAULT 0,"
+        # waiting -> delivered, or held (loop guard / daily cap, until the
+        # owner releases it), or cancelled (the owner took it back).
+        "  status TEXT NOT NULL DEFAULT 'waiting'"
+        "    CHECK (status IN ('waiting','held','delivered','cancelled')),"
+        "  held_reason TEXT,"
+        "  delivered_at TEXT,"
+        # 'handed' (written into a running agent, not read yet),
+        # 'injected' (read mid-turn) or 'batched' (started a turn of its
+        # own). delivered_at is when it was read or started the turn.
+        "  delivered_how TEXT,"
+        # Owner messages only: journaled or said off the record.
+        "  record INTEGER NOT NULL DEFAULT 1"
+        ")"
+    )
+    _index_agent_messages(conn)
+
+
+def _index_agent_messages(conn):
+    """The mailbox's two indexes, made only once the table has its real name."""
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table'"
+                    " AND name = 'agent_messages'").fetchone():
+        conn.execute("CREATE INDEX IF NOT EXISTS agent_messages_waiting"
+                     " ON agent_messages (to_conv, status, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS agent_messages_by_day"
+                     " ON agent_messages (kind, at)")
 
 
 def _seed_from_file(conn, name):

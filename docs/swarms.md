@@ -188,6 +188,44 @@ or move solo sessions out of a swarm into the layer above."
   on its page (`SwarmNetwork.tsx`, its helper in the middle), and the
   sessions working alone in rows beneath. Data: `GET /api/swarms/room/<room>`.
 
+## File alerts
+
+Her ask: "have some kind of code that identifies when 2 agents are working
+nearby or on the same files and alert them when they are." The first build
+told the two sessions directly. In its first ten minutes it sent thirteen
+notices, none needing action, and she chose otherwise: "That should only be
+read by the helper." So the app notices and writes it down
+(`file_alerts.py`); the room helper reads it and decides what to say.
+
+- **What counts.** *Same file*: two open lines of work both changed it within
+  `config.FILE_ALERT_HOURS` (2). *Stale copy*: one changed a file the other
+  read in that window and hasn't read again since. Sharing a folder doesn't
+  count. Pairs are within one room (`config.FILE_ALERT_ROOMS`, Coding only).
+- **Read from `tool_calls`**, through `edited_files.py` (`edits`, and `reads`
+  beside it). Agents here mostly read and edit through Bash, so both count
+  Bash commands that name the file, with the limits `edited_files.py` lists.
+- **Once per pair per file.** The minute tick (`file_alerts.tick`) puts the
+  pair and the file into `file_alerts`, whose unique key refuses a second
+  row. A pair is two *lines of work*, so a continuation never overlaps with
+  its parent and a pair stays written down after either hands off. Helpers
+  and finished sessions are never part of one.
+- **Only the room helper is shown it.** Its files section
+  (`edited_files.section`, read by its fifteen-minute runs) ends with
+  "Overlaps the app has noticed", each line saying who was told — by default
+  nobody. The helper's chat can read the `file_alerts` table with its SQL
+  tool. Whether to message the two, make them a swarm or leave it is its call.
+- **Telling the sessions themselves is kept, switched off**
+  (`config.FILE_ALERTS`, `EXOCORTEX_FILE_ALERTS=1` to turn on). With it on, a
+  same-file overlap sends both sessions a notice and a stale copy sends one
+  to the reader, as mailbox kind `S` (`peermail.send_notice`): read between
+  steps by a session mid-turn, never waking an idle one (`drain_inbox`
+  starts no turn for notices alone), shown as a System bubble. A pre-edit
+  hook (`tools/file_alert_hook.py`, on Edit, Write and Bash) also warns a
+  session as it starts to change a file another changed — the edit is never
+  blocked. Rows written this way are marked `told`. An overlap written down
+  while the switch was off is not told later.
+- `EXOCORTEX_FILE_OVERLAPS=0` stops the minute check altogether.
+
 ## Stages
 
 1. **Token accounting per model call** — a `model_calls` table: one row per
@@ -221,6 +259,7 @@ or move solo sessions out of a swarm into the layer above."
 | Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) her standing rules (`rules`, `add_rule`, `drop_rule`; `scripts/helper_rule.py`, allowed in `tools/helper_gate.py`), the wake-up (`wake_tick`, ticked by `scripts/coming_up_dispatcher.py`; `after_turn`, called by `after_turn`, puts a silent wake-up's card back) and the silent turn's hiding in `frontend/src/features/observatory/events.ts`; `config.HELPER_CHAT_EXCHANGES`, `HELPER_WAKE_*`; exempt in `continuation.due` |
 | Room helper | `room_helper.py` (runs, moves, undo, the room overview); placements in `swarms.py` (`place`, `unplace`, `new_swarm`, `line_of_work`; `links` cuts pre-placement messages); `swarm_pins`, `room_moves`, `session_summaries`, `room_helper_runs` (sqlstore rung 37); `scripts/room_moves.py`; ticked by `scripts/coming_up_dispatcher.py` |
 | Watches | `watches.py` (add, the minute check, the wake-up, the seed section); `helper_watches` (sqlstore rung 40); `scripts/helper_watch.py`; allowed in `tools/helper_gate.py`; ticked by `scripts/coming_up_dispatcher.py`; `config.HELPER_WATCH_*` |
+| File alerts | `file_alerts.py` (finding overlaps, the once-only claim, the room helper's list); `edited_files.py` (`edits`, `reads`, the section that shows the list); `file_alerts` (sqlstore rungs 42–43); ticked by `scripts/coming_up_dispatcher.py`; `config.FILE_OVERLAPS`, `config.FILE_ALERT_ROOMS` / `_HOURS`. Switched off (`config.FILE_ALERTS`): the notice texts and pre-edit check in `file_alerts.py`, the mailbox's kind `S` and `peermail.send_notice`, `tools/file_alert_hook.py` wired in `_session_settings`, `drain_inbox` in `routes/observatory.py` |
 | Closing check | `swarms.retired`; `swarm_helper.watch_retirement` / `close_out` / `closing_report`, run by `swarm_helper.tick` on the minute tick |
 
 ## Status
@@ -230,6 +269,9 @@ or move solo sessions out of a swarm into the layer above."
   through the chat or `scripts/room_moves.py` (no undo button on the room map
   yet).
 
+- File alerts: built and tested (`tests/test_file_alerts.py`). Overlaps are
+  written down for the room helper only — in its files section and the
+  `file_alerts` table; not on any page. Telling the sessions is switched off.
 - Watches: built and tested (`tests/test_helper_watch.py`). Not on any page
   yet — they're in the helper's seed, its chat, and `helper_watch.py list`.
 - Mailbox, token accounting, continuation, swarms and the helper: built and

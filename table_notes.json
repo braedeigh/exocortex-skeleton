@@ -1093,7 +1093,8 @@
         "holds": "Who sent it.",
         "values": {
           "A": "another agent",
-          "B": "the owner"
+          "B": "the owner",
+          "S": "the app — a notice (a file alert, sent only while telling the sessions is switched on); read like any message, but never starts a turn by itself"
         }
       },
       "from_conv": {
@@ -1429,6 +1430,56 @@
       },
       "event": {
         "holds": "What happened, as the helper was told it."
+      }
+    }
+  },
+  "file_alerts": {
+    "holds": "Which pairs of agent sessions the app has noticed in the same file. One row per pair per file: either both changed it (same-file), or one changed it after the other read it (stale-copy). The room helper reads it and decides whether to say anything; the sessions themselves are told only when a row says so (told). The row is what stops the same overlap being counted twice.",
+    "source": "Written by file_alerts.py — by the minute check (file_alerts.tick), or, only while telling the sessions is switched on, by the pre-edit hook (tools/file_alert_hook.py). Never updated.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "The row's number."
+      },
+      "at": {
+        "holds": "When the overlap was first noticed."
+      },
+      "kind": {
+        "holds": "What kind of overlap.",
+        "values": {
+          "same-file": "both sessions changed the file",
+          "stale-copy": "one changed the file after the other read it"
+        }
+      },
+      "path": {
+        "holds": "The file, as a full path."
+      },
+      "line_a": {
+        "holds": "One of the two lines of work, named by its first session (a session and its continuations are one line). The lower id of the pair."
+      },
+      "line_b": {
+        "holds": "The other line of work — the higher id of the pair."
+      },
+      "conv_a": {
+        "holds": "One of the two sessions. For stale-copy, this is the one that changed the file."
+      },
+      "conv_b": {
+        "holds": "The other session. For stale-copy, the one that had read the file before it changed."
+      },
+      "source": {
+        "holds": "What caught it.",
+        "values": {
+          "tick": "the once-a-minute check",
+          "hook": "the pre-edit hook, as the edit began (only while telling the sessions is switched on)"
+        }
+      },
+      "told": {
+        "holds": "Whether the sessions themselves were told, as well as the room helper.",
+        "values": {
+          "0": "no — only written down for the room helper (the default)",
+          "1": "yes — for same-file both sessions, for stale-copy the one that had read it"
+        }
       }
     }
   },

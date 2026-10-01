@@ -73,7 +73,7 @@ export interface Turn {
    * background job reporting back — scripts/run_detached.py), 'watch' (a
    * helper's watch that fired — watches.py) or 'wake' (the app waking a helper
    * because its room changed — helper_chat.py). */
-  source?: 'manual' | 'keeper' | 'job' | 'watch' | 'wake';
+  source?: 'manual' | 'keeper' | 'job' | 'notice' | 'watch' | 'wake';
   /** A helper's wake-up it had nothing to say to: set on the wake reminder and
    * on the reply after it, and cleared on both the moment the reply holds
    * anything but HELPER_SILENT. The page leaves a silent turn out. The turn
@@ -257,6 +257,7 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       const t = turn('reminder', typeof e.text === 'string' ? e.text : '');
       t.source = e.source === 'keeper' ? 'keeper'
         : e.source === 'run_detached' ? 'job'
+        : e.source === 'notice' ? 'notice'
         : e.source === 'helper-watch' ? 'watch'
         : e.source === 'helper-wake' ? 'wake' : 'manual';
       // A wake-up is hidden until the helper answers it with something to say.

@@ -27,16 +27,18 @@ Rules, in order:
 Then, as a safety net, it starts any follow-up that's still waiting on an
 idle conversation — e.g. an approval whose turn process was killed — and
 does the same for the agents' mailbox (peermail.py): a message waiting for a
-session that's idle starts its turn here if nothing else did. It also checks
+session that's idle starts its turn here if nothing else did. It also writes
+down, for the room helper, when two open sessions are in the same file
+(file_alerts.py), and checks
 the helpers' watches (watches.py) and wakes a helper whose watch fired. The same
 minute also closes finished sessions whose done countdown has run out
 (scripts/session_done.py marks them; routes/observatory.py close_done_sessions),
 and wakes any session idle for a day to ask itself whether it's done
 (idle_check_sessions).
-
 And it wakes a helper whose sessions changed since its last turn — a new
 session, or new files read or edited — so it can look; the helper may stay
 silent (helper_chat.wake_tick).
+
 Run by cron (the owner wires the crontab):
 
     * * * * * EXOCORTEX_DATA_DIR=... EXOCORTEX_CONTENT_DIR=... \
@@ -45,11 +47,12 @@ Run by cron (the owner wires the crontab):
 
 Touches: `comingup.py` (what's due, marking it), `routes/observatory.py`
 (queue_followup / drain_all_followups / drain_all_inbox /
-close_done_sessions / idle_check_sessions), `watches.py` (tick), `scripts/keeper_rollover.py` (finding
+close_done_sessions / idle_check_sessions), `watches.py` (tick),
+`file_alerts.py` (tick), `scripts/keeper_rollover.py` (finding
 the pinned Keeper, the rollover lock), `tests/test_coming_up_dispatcher.py`.
+Also `helper_chat.py` (wake_tick).
 
 Prompt that produced this: "I'm also wanting something that can inject a
-Also `helper_chat.py` (wake_tick).
 message into the chat to have it talk to me about it. And record that it
 wasn't keeper or me but a system injection reminder. But record whether it
 was created manually or by the keeper." / "I just want it to inject without
@@ -164,6 +167,16 @@ def main():
             _log(f"started {ran} room helper run(s)")
     except Exception as e:
         _log(f"room helper tick failed: {e}")
+    # File overlaps: two open sessions are in the same file, so it is written
+    # down once for the room helper to read (file_alerts.py). The sessions
+    # themselves are told nothing unless config.FILE_ALERTS is on.
+    try:
+        import file_alerts
+        noticed = file_alerts.tick()
+        if noticed:
+            _log(f"file overlaps: {noticed} new, written down for the room helper")
+    except Exception as e:
+        _log(f"file overlap check failed: {e}")
     # The helpers' watches: a watched session did what a helper promised her
     # it would tell her about, so its chat is woken once (watches.py).
     try:
@@ -173,6 +186,16 @@ def main():
             _log(f"watches woke {woke} helper(s)")
     except Exception as e:
         _log(f"watch check failed: {e}")
+    # The helpers' wake-up: the sessions a helper watches changed since its
+    # last turn, so its chat is woken to look — it may stay silent
+    # (helper_chat.wake_tick).
+    try:
+        import helper_chat
+        woke = helper_chat.wake_tick()
+        if woke:
+            _log(f"room changes woke {woke} helper(s)")
+    except Exception as e:
+        _log(f"helper wake-up check failed: {e}")
     # Turns whose host process died mid-reply are marked failed here
     # (routes/observatory.py mark_dead_turns), so a red card and an error line
     # land even when nobody has the roster open.
@@ -185,16 +208,6 @@ def main():
     # Finished sessions whose countdown has run out close here
     # (routes/observatory.py close_done_sessions). Ahead of the Coming up
     # switch for the same reason as the mailbox: it isn't a reminder.
-    # The helpers' wake-up: the sessions a helper watches changed since its
-    # last turn, so its chat is woken to look — it may stay silent
-    # (helper_chat.wake_tick).
-    try:
-        import helper_chat
-        woke = helper_chat.wake_tick()
-        if woke:
-            _log(f"room changes woke {woke} helper(s)")
-    except Exception as e:
-        _log(f"helper wake-up check failed: {e}")
     try:
         closed = rr.close_done_sessions()
         if closed:
