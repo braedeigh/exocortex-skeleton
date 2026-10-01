@@ -68,6 +68,7 @@ export interface TerrainFile {
 }
 
 export interface TerrainRepo {
+  /** 'skeleton' or 'vault' on the main map; a build's own id on a build's map. */
   id: 'skeleton' | 'vault' | string;
   name: string;
   root: string;
@@ -132,6 +133,10 @@ export interface TerrainData {
    * The Files slider reads it to know whether it can grow locally or must
    * refetch. */
   file_cap: number | null;
+  /** Set only on a BUILD's map (`?build=<id>`): this payload draws one of the
+   * owner's other git folders instead of the app code and the vault, and this
+   * names it. Absent on the main map. */
+  build?: { id: string; name: string };
   repos: TerrainRepo[];
   /** Optional until the backend half lands — session orbs degrade to the
    * file-level sessions data when absent. */
@@ -178,9 +183,10 @@ export interface TerrainData {
 
 export const TERRAIN_KEY = ['terrain'] as const;
 
-function getTerrain(limit: number | null, signal?: AbortSignal): Promise<TerrainData> {
+function getTerrain(limit: number | null, build: string | null, signal?: AbortSignal): Promise<TerrainData> {
   const q = limit === null ? 'all' : String(limit);
-  return api.get(`/api/observatory/terrain?limit=${encodeURIComponent(q)}`, signal);
+  const which = build ? `&build=${encodeURIComponent(build)}` : '';
+  return api.get(`/api/observatory/terrain?limit=${encodeURIComponent(q)}${which}`, signal);
 }
 
 /**
@@ -205,11 +211,15 @@ function getTerrain(limit: number | null, signal?: AbortSignal): Promise<Terrain
  * map is then instant, served from the cache rather than the network. The
  * date controls never appear here: they filter timestamps the payload
  * already carries, entirely client-side.
+ *
+ * `build` asks for one build's map instead of the main one (the Builds room,
+ * buildsApi.ts). It is part of the query key too, so a build's map and the
+ * main map never share a cache entry; the main map's key is unchanged.
  */
-export function useTerrain(live = false, limit: number | null = 350) {
+export function useTerrain(live = false, limit: number | null = 350, build: string | null = null) {
   return useQuery({
-    queryKey: [...TERRAIN_KEY, limit] as const,
-    queryFn: async ({ signal }) => getTerrain(limit, signal),
+    queryKey: build ? ([...TERRAIN_KEY, limit, 'build', build] as const) : ([...TERRAIN_KEY, limit] as const),
+    queryFn: async ({ signal }) => getTerrain(limit, build, signal),
     staleTime: live ? 4_000 : Infinity,
     refetchInterval: live ? 5_000 : false,
     // Keep the previous tier's map on screen while a bigger one loads, so

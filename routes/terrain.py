@@ -20,6 +20,14 @@ graph). A turn part of a trace is joined to the agent's own tool calls from
 the transcript (`_agent_calls_for`), so one capture reaches from the tap to
 what the agent read and edited.
 
+BUILDS. The map above covers the two folders this system is made of.
+`?build=<id>` on the payload endpoint draws ONE of the owner's other git
+folders instead (buildlist.py — a project built elsewhere on this machine, or a
+repo cloned from GitHub), built by the same `_build_terrain` over that one
+folder. A build's map is the owner's alone: a visitor asking for one gets a
+404, the plain payload never includes a build, and so nothing about one reaches
+the published mirror. The Builds room's own doors are routes/terrain_builds.py.
+
 Git heat comes from the code-history tables in exo.db (codestore.py), not
 from running `git log` per request. On every cache miss this module first
 asks codestore.update() to catch the tables up to both repos' HEADs — cheap
@@ -56,6 +64,7 @@ import sqlite3
 import subprocess
 import time
 
+import buildlist
 import codegraph
 import codestore
 import config
@@ -145,7 +154,8 @@ _TERRAIN_DENYLIST = (
 
 # One cache slot per distinct ?limit= the client asks for (the Files slider
 # snaps to a handful of steps, so this stays small). Keyed by the resolved
-# file cap; None means "no cap — every file". Evicts the oldest slot past
+# file cap; None means "no cap — every file". A build's map (`_build_view`)
+# keeps its slots here too, keyed (build id, file cap). Evicts the oldest slot past
 # _TERRAIN_CACHE_SLOTS so a hostile/looping caller can't grow it without bound.
 #
 # A SLOT HOLDS TWO VIEWS OF ONE BUILD. The payload is view-dependent now —
@@ -445,6 +455,14 @@ def _terrain_view(slot):
     return slot["public"]
 
 
+def _readable_repos():
+    """Every folder the file doors may read from: the main map's two repos,
+    then the owner's builds. The doors need the builds so a dot on a build's
+    map opens like any other; the visitor lock (`_visitor_may_read`) still
+    allows only tracked app code, so a build's files stay the owner's."""
+    return (*observatory._terrain_repos(), *buildlist.repos())
+
+
 def _terrain_safe_path(root, relpath):
     """Resolve `relpath` under `root`, or None if it escapes, doesn't exist,
     isn't a regular file, or is read-denylisted.
@@ -456,9 +474,10 @@ def _terrain_safe_path(root, relpath):
          they LAND. This is what lets the skeleton's CLAUDE.local.md (a real
          symlink into the vault, and a file the map does show) open, while a
          symlink pointing at /etc/shadow still doesn't.
-    Both repos are readable through this endpoint by design, so allowing a
-    symlink to land in the sibling root grants nothing the caller couldn't
-    already ask for directly — but a path that *escapes both* is refused."""
+    Every root here is readable through this endpoint by design, so allowing
+    a symlink to land in a sibling root grants nothing the caller couldn't
+    already ask for directly — but a path that *escapes all of them* is
+    refused."""
     if "\0" in relpath:
         return None
     rel = relpath.replace("\\", "/").lstrip("/")
@@ -474,7 +493,7 @@ def _terrain_safe_path(root, relpath):
         candidate = Path(lexical).resolve()
     except (OSError, RuntimeError, ValueError):
         return None
-    for repo in observatory._terrain_repos():
+    for repo in _readable_repos():
         try:
             allowed = Path(repo["root"]).resolve()
         except (OSError, RuntimeError, ValueError):
@@ -498,7 +517,7 @@ def _terrain_file_target(repo_id, relpath):
     400/404/403 the caller should return as-is."""
     if not repo_id or not relpath:
         return None, (jsonify({"error": "repo and path are required"}), 400)
-    repo = next((r for r in observatory._terrain_repos() if r["id"] == repo_id), None)
+    repo = next((r for r in _readable_repos() if r["id"] == repo_id), None)
     if repo is None:
         return None, (jsonify({"error": "unknown repo"}), 404)
     resolved = _terrain_safe_path(repo["root"], relpath)
@@ -534,7 +553,7 @@ def _terrain_line_edits(resolved):
     Prompt that produced it: "can those displays show when the most recent
     code was edited by a toggleable red color like on the terrain map"."""
     # Find the repo this file really lives in; skip any root it isn't under.
-    for repo in observatory._terrain_repos():
+    for repo in _readable_repos():
         try:
             root = Path(repo["root"]).resolve()
         except (OSError, RuntimeError, ValueError):
@@ -706,14 +725,18 @@ def _terrain_git_touches(repo_id):
         return {}
 
 
-def _terrain_refresh_history():
+def _terrain_refresh_history(repos=None):
     """Catch the code-history tables up to both repos before building a
     payload. codestore.update() costs one `git rev-list` per repo when
     nothing is new, so eager-on-cache-miss keeps the map at most one cache
     TTL stale without any cron in the loop. Failure is swallowed for the
-    same reason as above: yesterday's heat beats a 500."""
+    same reason as above: yesterday's heat beats a 500.
+
+    `repos` narrows it to the ones given — a build's map catches up only its
+    own folder, and the main map never pays for a `git rev-list` over a build
+    it isn't drawing."""
     try:
-        codestore.update(observatory._terrain_repos())
+        codestore.update(observatory._terrain_repos() if repos is None else repos)
     except Exception:
         pass
 
@@ -1092,7 +1115,7 @@ def _cap_files(files_out, file_cap):
     return sorted(keep, key=lambda f: f["path"])
 
 
-def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
+def _build_terrain(file_cap=_TERRAIN_FILE_CAP, repos=None):
     """The terrain payload: per repo, per file, git touch history merged
     with which bot_chats sessions wrote/read it. Reads footprints.json (see
     scripts/extract_footprints.py) + gists.json/index.json defensively —
@@ -1100,7 +1123,16 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
 
     `file_cap` is the hottest-N-per-repo cut; None means no cut at all (the
     Files slider's "All"). Either way each repo reports `files_total`, the
-    uncapped count, so the map can say how much it isn't showing."""
+    uncapped count, so the map can say how much it isn't showing.
+
+    `repos` is which folders to draw. None is the main map's two. A build's
+    map passes its one folder, and then the payload is about that folder
+    alone: the session roster holds only the sessions that touched a file in
+    it, and the journal's month and the coil folders — both the vault's —
+    are left empty."""
+    one_build = repos is not None
+    if repos is None:
+        repos = observatory._terrain_repos()
     footprints = store.read("bot_chats/footprints", {})
     if not isinstance(footprints, dict):
         footprints = {}
@@ -1133,7 +1165,7 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
             footprints[cid] = {"files": live_files}
 
     repos_out = []
-    for repo in observatory._terrain_repos():
+    for repo in repos:
         root = repo["root"]
         files = {}   # repo-relative path -> {"touches": [...], "sessions": {conv_id: {...}}}
 
@@ -1242,6 +1274,14 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
                 if isinstance(meta, dict) and not meta.get("archived")}
     session_ids = {cid for cid, conv in footprints.items()
                    if isinstance(conv, dict) and conv.get("files")} | running_ids | open_ids
+    # A build's roster is only the sessions that touched it. The main map's
+    # roster is everyone, because that map is also where she watches agents;
+    # a build's map is a record of one folder, and an orb with no tether to
+    # any of its files would be saying nothing about it.
+    if one_build:
+        session_ids = {session["id"] for repo_out in repos_out
+                       for file_out in repo_out["files"]
+                       for session in file_out["sessions"]}
     sessions_out = []
     for cid in session_ids:
         meta = index.get(cid) if isinstance(index.get(cid), dict) else {}
@@ -1281,10 +1321,10 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
             "file_cap": file_cap,
             # The pond tile's month, counted in the journal rather than in
             # this payload's (capped) card files. See _pond_days.
-            "pond_days": _pond_days(),
+            "pond_days": [] if one_build else _pond_days(),
             # Her coil folders, each listed whole. Uncapped on purpose, and
             # which folders is hers to say — see _coil_listings.
-            "coils": _coil_listings(),
+            "coils": [] if one_build else _coil_listings(),
             "repos": repos_out,
             "sessions": sessions_out}
 
@@ -1823,6 +1863,50 @@ def _writes_in_window(trace, limit=500):
     return out
 
 
+def _build_cache_clear(build_id):
+    """Drop every cached map of one build — after it was refreshed from
+    GitHub or taken off the list, so the next look is built fresh."""
+    for key in [key for key in _terrain_cache
+                if isinstance(key, tuple) and key[0] == build_id]:
+        _terrain_cache.pop(key, None)
+
+
+def _build_view(build_id, file_cap):
+    """One build's map: the same payload as the main map, drawn over that one
+    folder, with `build` naming it.
+
+    Refuse a visitor, and refuse on a public mirror — a 404, the same answer
+    an unknown build gets, so the door doesn't say which builds exist. The
+    main map is public; a build is the owner's unless she says otherwise, and
+    this is the only door a build's file names could leave by.
+
+    A cache that expires: one slot per (build, file cap), sharing the main
+    map's slots and their timing — five minutes at rest, five seconds while
+    any session is running, so a build being worked on right now shows it."""
+    if _visitor() or config.public_only():
+        return jsonify({"error": "not found"}), 404
+    build = buildlist.find(build_id)
+    if build is None:
+        return jsonify({"error": "not found"}), 404
+    repo = {"id": build["id"], "name": build["name"], "root": build["root"]}
+    index = store.read("bot_chats/index", {})
+    anything_running = isinstance(index, dict) and bool(_terrain_running_ids(index))
+    ttl = _TERRAIN_LIVE_TTL_SEC if anything_running else _TERRAIN_CACHE_TTL_SEC
+    now = time.monotonic()
+    key = (build["id"], file_cap)
+    slot = _terrain_cache.get(key)
+    if slot is None or now - slot["computed_at"] >= ttl:
+        _terrain_refresh_history([repo])
+        while len(_terrain_cache) >= _TERRAIN_CACHE_SLOTS:
+            oldest = min(_terrain_cache, key=lambda k: _terrain_cache[k]["computed_at"])
+            _terrain_cache.pop(oldest, None)
+        payload = _build_terrain(file_cap, repos=[repo])
+        payload["build"] = {"id": build["id"], "name": build["name"]}
+        slot = {"payload": payload, "public": None, "computed_at": now}
+        _terrain_cache[key] = slot
+    return jsonify(slot["payload"])
+
+
 def register(app):
     @app.route("/api/observatory/terrain/coils/windows", methods=["POST"])
     def terrain_coil_windows():
@@ -2121,6 +2205,7 @@ def register(app):
         instead of one poll's events. Any database trouble degrades to an
         empty chip row, never a 500 — the room still draws without it."""
         _terrain_refresh_history()
+        core_repo_ids = {repo["id"] for repo in observatory._terrain_repos()}
         place_counts = {}
         front_counts = {}
         try:
@@ -2130,6 +2215,10 @@ def register(app):
                 for repo, path in conn.execute(
                     "SELECT repo, path FROM files WHERE deleted_at IS NULL"
                 ):
+                    # The tables also hold the owner's builds; this room is
+                    # about the app and the vault.
+                    if repo not in core_repo_ids:
+                        continue
                     place = _flow_place(repo, path)
                     place_counts[place] = place_counts.get(place, 0) + 1
                     subject = f"file:{repo}/{path}"
@@ -2171,6 +2260,7 @@ def register(app):
             return jsonify({"error": "bad tag"}), 400
 
         _terrain_refresh_history()
+        core_repo_ids = {repo["id"] for repo in observatory._terrain_repos()}
         days = {}
 
         def _day(d):
@@ -2184,6 +2274,10 @@ def register(app):
                 for repo, path, born, died in conn.execute(
                     "SELECT repo, path, date(first_seen), date(deleted_at) FROM files"
                 ):
+                    # The tables also hold the owner's builds; this room is
+                    # about the app and the vault.
+                    if repo not in core_repo_ids:
+                        continue
                     if ns == "place":
                         match = _flow_place(repo, path) == tag
                     else:
@@ -2217,8 +2311,14 @@ def register(app):
         slider); `?limit=0` or `?limit=all` means no cut. Each distinct limit
         gets its own cache slot, since they're genuinely different payloads.
         The date controls are NOT server-side: the client slices the touch
-        timestamps it already has, so dragging them costs no request."""
+        timestamps it already has, so dragging them costs no request.
+
+        `?build=<id>` draws one of the owner's builds instead of the main map
+        (see `_build_view`)."""
         file_cap = _terrain_file_cap_arg(request.args.get("limit"))
+        build_id = (request.args.get("build") or "").strip()
+        if build_id:
+            return _build_view(build_id, file_cap)
         # A PUSH MIRROR draws the map the private box published to it
         # (routes/terrain_mirror.py), re-cut to this request's tier — it holds
         # no repos of its own to build one from. Falling through when nothing

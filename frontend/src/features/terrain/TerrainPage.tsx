@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useRouter, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
 import { subscribeTheme } from '../../theme';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
@@ -61,6 +61,7 @@ import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
 import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
 import { TerrainGuide } from './TerrainGuide';
+import { BuildReport } from './BuildReport';
 import { markGuideDismissed, readGuideDismissed, shouldOpenGuideOnLoad } from './guideOpenPref';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import { coilWindowLabel, windowCoils } from './coilFolders';
@@ -255,6 +256,16 @@ function usePageVisible(): boolean {
  * facts the terrain payload doesn't carry, so this page also reads the
  * Observatory roster and, per hover, one small last-line fetch.
  *
+ * A BUILD'S MAP is this same page drawing one other folder. Arrive with
+ * `?build=<id>` (the Builds room links here) and the payload holds that one
+ * build instead of the app code and the vault: the title is the build's name,
+ * the territory chips give way to a door back to Builds, and a written report
+ * of what happened in it docks down the right side (BuildReport.tsx). It
+ * opens lit across its whole history, with every session that touched it on
+ * the map — a build is usually read after the fact, and a week's heat on a
+ * project from last spring would be an unlit map. Its layout is not
+ * remembered, so it can never overwrite the main map's.
+ *
  * All rendering lives in terrainCanvas.ts; all graph/heat math in
  * terrainGraph.ts (tested).
  */
@@ -345,7 +356,7 @@ function useDebounced<T>(value: T, ms: number): T {
   return settled;
 }
 
-export function TerrainPage() {
+export function TerrainPage({ build = null }: { build?: string | null } = {}) {
   const navigate = useNavigate();
   const router = useRouter();
   const pageVisible = usePageVisible();
@@ -383,13 +394,16 @@ export function TerrainPage() {
   const { data, isLoading, isError, isFetching, dataUpdatedAt, refetch } = useTerrain(
     anyRunning && pageVisible,
     tier,
+    build,
   );
   // The database's tables, for the map's table layer (tableNodes.ts). Open to
   // visitors too since the values were frosted: a stranger gets the tables,
   // their columns and their shapes, and every cell comes back as blocks
   // (routes/terrain_tables.py). Her ask: "i want it published but the actual
   // values inside of the tables will be blurred."
-  const { data: tables, refetch: refetchTables } = useTerrainTables(true);
+  // Not on a build's map: the tables are this app's database, and a build is
+  // somebody else's folder.
+  const { data: tables, refetch: refetchTables } = useTerrainTables(!build);
   useEffect(() => {
     if (data) setAnyRunning((data.sessions ?? []).some((s) => s.running));
   }, [data]);
@@ -447,7 +461,8 @@ export function TerrainPage() {
   // Heat's "All time" (note 9 in TerrainHeatBar.tsx). While on, the window is
   // worked out from the payload below; heatDays keeps what she last chose, so
   // switching it off lands back there — the same arrangement as Dynamic.
-  const [heatAllTime, setHeatAllTime] = useState(false);
+  // A build's map opens on All time (see the page note above).
+  const [heatAllTime, setHeatAllTime] = useState(Boolean(build));
   // Dynamic mode: the window stops being a setting and rides the same breath
   // the Observatory backdrop runs on — a day out to a month and back every
   // ten seconds. `breathDays` is the live value while it's on; heatDays keeps
@@ -577,6 +592,21 @@ export function TerrainPage() {
     setGuideOpen(false);
     markGuideDismissed();
   };
+  // The build's report, docked where the Guide docks — so the two take turns:
+  // opening either one closes the other. Open from the start when there is
+  // room for a split; on a phone it would cover most of the map, so there it
+  // waits behind its button.
+  const [reportOpen, setReportOpen] = useState(
+    () => Boolean(build) && typeof window !== 'undefined' && window.innerWidth > 768,
+  );
+  const openGuide = () => {
+    setReportOpen(false);
+    setGuideOpen(true);
+  };
+  const toggleReport = () => {
+    if (!reportOpen) closeGuide();
+    setReportOpen(!reportOpen);
+  };
 
   // --- journey replay ---------------------------------------------------------
   // A captured journey (Wiring room / runtime_trace.py) played back on the
@@ -608,7 +638,8 @@ export function TerrainPage() {
     setPanel((p) => (p === name ? null : name));
   };
 
-  const [pool, setPool] = useState<AgentPool>(embed ? 'open' : 'active');
+  // A build's map opens on every session that touched it, however long ago.
+  const [pool, setPool] = useState<AgentPool>(embed ? 'open' : build ? 'all' : 'active');
   const [section, setSection] = useState<AgentSection>('');
   const [agentWindow, setAgentWindow] = useState<{ from: number; to: number }>({ from: 0, to: 8 });
   const [selected, setSelected] = useState<TerrainNode | null>(null);
@@ -920,7 +951,8 @@ export function TerrainPage() {
   // static wiring plus per-collection write freshness, so it changes on the
   // order of minutes, not frames — built once per payload and only re-lit on
   // the breath below.
-  const { data: creek } = useCreek(14);
+  // Not on a build's map: the threads join this app's files to its data.
+  const { data: creek } = useCreek(14, { enabled: !build });
   const threads = useMemo(() => buildThreads(creek), [creek]);
 
   // Lit on the SAME window the gold dots ride, gold breath included, so a
@@ -1270,7 +1302,9 @@ export function TerrainPage() {
     // `remember: true` is what makes re-opening this page reopen HER map:
     // positions, the nodes she dragged, and the camera are carried across the
     // mount in layoutMemory.ts. The ambient backdrop doesn't ask for it.
-    const engine = new TerrainCanvas(canvas, initialInk, { remember: true });
+    // A build's map is not remembered: the memory holds one camera, and a
+    // build saving its own would move the main map's.
+    const engine = new TerrainCanvas(canvas, initialInk, { remember: !build });
     engineRef.current = engine;
     engine.setLineage(spinoffLinksRef.current);
     engine.setSwarms(swarmListRef.current);
@@ -1781,7 +1815,7 @@ export function TerrainPage() {
   };
 
   return (
-    <div className={[styles.page, guideOpen ? styles.guideOpen : ''].filter(Boolean).join(' ')}>
+    <div className={[styles.page, guideOpen || reportOpen ? styles.guideOpen : ''].filter(Boolean).join(' ')}>
       {/* Canvas first and full-bleed: the chrome below floats over it, so the
           map owns the whole page and shows through the controls. */}
       <div ref={wrapRef} className={styles.canvasWrap}>
@@ -1809,13 +1843,21 @@ export function TerrainPage() {
       <TerrainGuide open={guideOpen} visitor={visitor} onClose={closeGuide} />
       <div className={styles.chrome}>
         <div className={styles.topBar}>
-          <h1 className={styles.title}>Terrain</h1>
+          {/* On a build's map: the way back to the list of builds, then the
+              build's own name where the map's name would be. */}
+          {build ? (
+            <Link to="/terrain/builds" className={styles.chip} aria-label="Back to Builds">
+              ← Builds
+            </Link>
+          ) : null}
+          <h1 className={styles.title}>{build ? (data?.build?.name ?? 'Build') : 'Terrain'}</h1>
           {/* Which territories are drawn — up here with the other "how much of
               the map to show" controls (Files, Dates). The heat lens moved the
               other way, down to the bottom bar, since it's about how the map
               is coloured rather than what's in it. */}
           <div className={styles.chipRow} role="group" aria-label="Territories">
-            {(data?.repos ?? []).map((repo) => (
+            {/* A build's map has one territory, so there is nothing to choose. */}
+            {(build ? [] : (data?.repos ?? [])).map((repo) => (
               <button
                 key={repo.id}
                 type="button"
@@ -1893,10 +1935,22 @@ export function TerrainPage() {
               title="Guide — what the map shows and how to use it"
               aria-label="Guide"
               aria-expanded={guideOpen}
-              onClick={() => (guideOpen ? closeGuide() : setGuideOpen(true))}
+              onClick={() => (guideOpen ? closeGuide() : openGuide())}
             >
               <span aria-hidden="true">?</span> Guide
             </button>
+            {/* The build's written report — what was built, by whom, when. */}
+            {build ? (
+              <button
+                type="button"
+                className={[styles.chip, reportOpen ? styles.chipActive : ''].filter(Boolean).join(' ')}
+                title="Report — what was built here, by which sessions, when"
+                aria-expanded={reportOpen}
+                onClick={toggleReport}
+              >
+                Report
+              </button>
+            ) : null}
           </div>
           {/* Page tools, pushed to the right edge and away from the map's own
               controls: these act on the WORK, not on the map, so grouping them
@@ -2136,6 +2190,24 @@ export function TerrainPage() {
           Rendered above all the floating chrome (its backdrop covers the whole
           page), closed by Esc, the blur itself, or the Rooms button again. */}
       <TerrainRoomsIndex open={roomsOpen} onClose={() => setRoomsOpen(false)} />
+      {/* The build's report, docked on the right. It only asks the page for
+          things: narrow the dates to one day, ring one session's files. */}
+      {build ? (
+        <BuildReport
+          buildId={build}
+          open={reportOpen && !embed}
+          onClose={() => setReportOpen(false)}
+          range={customRange}
+          onPickRange={setCustomRange}
+          spotlighted={footprintSession}
+          onSpotlight={(id) => {
+            setFootprintSession(id);
+            setSelected(null);
+            if (id) setQuery('');
+          }}
+          onOpenSession={openSessionThere}
+        />
+      ) : null}
       </>
       )}
 

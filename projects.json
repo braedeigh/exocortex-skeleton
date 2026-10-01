@@ -526,6 +526,7 @@
       "what": "Watching the system itself: the terrain map, the creek, the pond, wiring, flow, the SQL lab, usage — and the telemetry tables they read (tool calls, requests, traces, code history, attention).",
       "modules": [
         "codestore.py",
+        "buildlist.py",
         "codegraph.py",
         "toolcallstore.py",
         "commandstore.py",
@@ -537,6 +538,7 @@
       ],
       "routes": [
         "terrain.py",
+        "terrain_builds.py",
         "terrain_mirror.py",
         "terrain_tables.py",
         "creek.py",

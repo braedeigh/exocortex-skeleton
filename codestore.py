@@ -47,7 +47,8 @@ future visualization isn't stuck with one page's taste.
 
 Touches: `sqlstore.py` (owns the schema + connection factory), `store.py`
 (BUILD_DIR / CONTENT_DIR for the default repo roots, and the bot_chats
-sidecars), `routes/terrain.py` (reads `touches()` instead of running git),
+sidecars), `buildlist.py` (the owner's other git folders, indexed here under
+their own ids and reported by `commit_log` / `repo_summary`), `routes/terrain.py` (reads `touches()` instead of running git),
 `routes/sqlab.py` (rebuild button + table list), and
 `scripts/update_code_history.py` (the hourly cron wrapper).
 
@@ -62,6 +63,7 @@ import json
 import os
 import subprocess
 
+import buildlist
 import lanes
 import sqlstore
 import store
@@ -82,6 +84,19 @@ def default_repos():
         {"id": "skeleton", "root": Path(store.BUILD_DIR)},
         {"id": "vault", "root": Path(store.CONTENT_DIR).parent},
     )
+
+
+def history_repos():
+    """Every repo whose history these tables keep: the two this system is made
+    of, plus the owner's builds (buildlist.py) — other git folders she reads on
+    Terrain, each under its own id. This is what update(), rebuild() and
+    sync_sessions() walk when they aren't handed a list.
+
+    Kept apart from default_repos() on purpose. The code graph and the tracer
+    also start from that pair, and they describe THIS app: a build is somebody
+    else's code, with history worth keeping and nothing to wire into the
+    app's own import graph."""
+    return (*default_repos(), *buildlist.repos())
 
 
 # --- reading git --------------------------------------------------------------
@@ -350,7 +365,8 @@ def _index_repo(conn, repo_id, root):
 # --- the public entry points --------------------------------------------------
 
 def update(repos=None):
-    """Catch the git tables up to both repos' HEADs. Returns
+    """Catch the git tables up to every repo's HEAD — both of this system's
+    and each build's (history_repos), unless handed a list. Returns
     {repo_id: commits_indexed}.
 
     Git is read first, with no lock held; the write lock is taken only when
@@ -364,7 +380,7 @@ def update(repos=None):
     Reading outside the lock means another update can land the same commits
     in between, so the new ones are filtered once more under the lock before
     anything is applied — applying one twice would double its line counts."""
-    repos = default_repos() if repos is None else repos
+    repos = history_repos() if repos is None else repos
     conn = sqlstore.open_db()
     try:
         found = {repo["id"]: _read_new(conn, repo["id"], repo["root"]) for repo in repos}
@@ -395,7 +411,7 @@ def rebuild(repos=None):
     The undo button, and the self-heal for anything an incremental walk got
     wrong (a rebase, a hand-poked row). Nothing here can hurt the sources:
     git and the sidecars are only ever read."""
-    repos = default_repos() if repos is None else repos
+    repos = history_repos() if repos is None else repos
     conn = sqlstore.open_db()
     try:
         sqlstore.begin_immediate(conn)
@@ -432,7 +448,7 @@ def sync_sessions(repos=None):
     because this function DELETES every `sessions` row and re-inserts it: any
     child row that didn't follow would be orphaned by construction. Returns
     {"files": n, "turns": n}."""
-    repos = default_repos() if repos is None else repos
+    repos = history_repos() if repos is None else repos
     conn = sqlstore.open_db()
     try:
         sqlstore.begin_immediate(conn)
@@ -815,6 +831,88 @@ def growth_series(repo_id):
         return [days[d] for d in sorted(days)]
     finally:
         conn.close()
+
+
+def commit_log(repo_id, limit=None):
+    """One repo's commits, newest first — what a build's report lists:
+    [{sha, ts, author, subject, files, added, removed}].
+
+    `files` is how many files the commit changed; `added`/`removed` are its
+    line counts summed over them, with a binary file counting as nothing
+    (its counts are stored as NULL — uncountable, not zero). `limit` cuts the
+    list to the newest N."""
+    conn = sqlstore.open_db()
+    try:
+        # LEFT JOIN, so a commit that changed no files (a merge) is still a row.
+        rows = conn.execute(
+            "SELECT c.sha, c.authored_ts, c.author, c.subject, COUNT(cf.file_id),"
+            "       SUM(COALESCE(cf.added, 0)), SUM(COALESCE(cf.removed, 0))"
+            " FROM commits c LEFT JOIN commit_files cf ON cf.sha = c.sha"
+            " WHERE c.repo = ? GROUP BY c.sha"
+            " ORDER BY c.authored_ts DESC, c.sha"
+            + (" LIMIT ?" if limit is not None else ""),
+            (repo_id, limit) if limit is not None else (repo_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [{"sha": sha, "ts": ts, "author": author, "subject": subject,
+             "files": files, "added": added or 0, "removed": removed or 0}
+            for sha, ts, author, subject, files, added, removed in rows]
+
+
+def repo_summary(repo_id):
+    """One repo's history in a handful of numbers — the line a build wears on
+    the Builds list: {commits, files, first, last, added, removed, days}.
+
+    `files` counts the files alive now; `first`/`last` are the oldest and
+    newest commit as unix seconds (None for a repo with no commits indexed);
+    `days` is how many distinct local days had a commit."""
+    conn = sqlstore.open_db()
+    try:
+        commits, first, last, days = conn.execute(
+            "SELECT COUNT(*), MIN(authored_ts), MAX(authored_ts),"
+            "       COUNT(DISTINCT date(authored_at))"
+            " FROM commits WHERE repo = ?", (repo_id,)).fetchone()
+        added, removed = conn.execute(
+            "SELECT SUM(COALESCE(cf.added, 0)), SUM(COALESCE(cf.removed, 0))"
+            " FROM commit_files cf JOIN commits c ON c.sha = cf.sha"
+            " WHERE c.repo = ?", (repo_id,)).fetchone()
+        files = conn.execute(
+            "SELECT COUNT(*) FROM files WHERE repo = ? AND deleted_at IS NULL"
+            "  AND first_seen IS NOT NULL", (repo_id,)).fetchone()[0]
+    finally:
+        conn.close()
+    return {"commits": commits, "files": files, "first": first, "last": last,
+            "added": added or 0, "removed": removed or 0, "days": days}
+
+
+def forget(repo_id):
+    """Delete everything these tables hold about one repo — for a build taken
+    off the list. Git is untouched, and adding the build back re-derives every
+    row, so this loses nothing. Returns how many commits were dropped."""
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        try:
+            # Children first: the rows that point at this repo's files and
+            # commits go before the files and commits themselves.
+            conn.execute(
+                "DELETE FROM session_files WHERE file_id IN"
+                " (SELECT id FROM files WHERE repo = ?)", (repo_id,))
+            conn.execute(
+                "DELETE FROM commit_files WHERE file_id IN"
+                " (SELECT id FROM files WHERE repo = ?)", (repo_id,))
+            dropped = conn.execute(
+                "DELETE FROM commits WHERE repo = ?", (repo_id,)).rowcount
+            conn.execute("DELETE FROM file_paths WHERE repo = ?", (repo_id,))
+            conn.execute("DELETE FROM files WHERE repo = ?", (repo_id,))
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
+    return dropped
 
 
 def _count(table):

@@ -187,6 +187,29 @@ function PondMotif() {
   );
 }
 
+/** A few small maps side by side — the builds room: other folders, each
+ * its own little terrain. */
+function BuildsMotif() {
+  return (
+    <svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true">
+      <g fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="1" y="3" width="18" height="34" rx="3" opacity="0.9" />
+        <rect x="23" y="3" width="18" height="34" rx="3" opacity="0.55" />
+        <rect x="45" y="3" width="18" height="34" rx="3" opacity="0.3" />
+      </g>
+      <g fill="currentColor">
+        {[[7, 12], [13, 20], [8, 28]].map(([cx, cy]) => (
+          <circle key={`a${cy}`} cx={cx} cy={cy} r="2.5" opacity="0.9" />
+        ))}
+        {[[29, 14], [35, 26]].map(([cx, cy]) => (
+          <circle key={`b${cy}`} cx={cx} cy={cy} r="2.5" opacity="0.55" />
+        ))}
+        <circle cx="54" cy="20" r="2.5" opacity="0.3" />
+      </g>
+    </svg>
+  );
+}
+
 const ROOMS: ReadonlyArray<{
   key: string;
   to: string;
@@ -235,6 +258,13 @@ const ROOMS: ReadonlyArray<{
     name: 'Growth',
     line: 'The codebase and the vault along time, accumulating.',
     motif: GrowthMotif,
+  },
+  {
+    key: 'builds',
+    to: '/terrain/builds',
+    name: 'Builds',
+    line: 'Other folders and GitHub repos, each as its own map and report.',
+    motif: BuildsMotif,
   },
   {
     key: 'creek',
@@ -309,6 +339,17 @@ export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: (
             growth: `${compact(commits)} commits since ${monthLabel(first.slice(0, 7))}`,
           }));
         }
+      })
+      .catch(() => {});
+    fetch('/api/observatory/terrain/builds', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data: { builds: { name: string }[] }) => {
+        if (!alive || !data.builds?.length) return;
+        const count = data.builds.length;
+        setFacts((f) => ({
+          ...f,
+          builds: count === 1 ? data.builds[0].name : `${count} builds`,
+        }));
       })
       .catch(() => {});
     fetch('/api/observatory/flow', { credentials: 'include' })

@@ -32,10 +32,12 @@ export const Route = createFileRoute('/terrain_/map')({
   // In the address so a refresh keeps the file open and the pane's × is a
   // real "back". A file without its repo (or the reverse) means nothing, so
   // the pair is kept or dropped together; mentions only ride with a file.
+  // `?build=<id>` draws one of the owner's builds instead of the main map
+  // (the Builds room links here). Only a well-formed id is kept.
   // `?solo=1` is the map as the only pane in its tab — where a popped-out
   // file's × lands (shell/solo.ts reads it off the URL, the route never
   // does). Kept in the schema for the same reason `embed` is.
-  validateSearch: (raw: Record<string, unknown>): { journey?: string; embed?: boolean; solo?: boolean } & CodeFileSearch => {
+  validateSearch: (raw: Record<string, unknown>): { journey?: string; embed?: boolean; solo?: boolean; build?: string } & CodeFileSearch => {
     const hasFile = typeof raw.repo === 'string' && raw.repo !== '' && typeof raw.file === 'string' && raw.file !== '';
     // The router parses a bare `mentions=4` as the number 4, so accept both.
     const mentions = typeof raw.mentions === 'number' ? String(raw.mentions) : raw.mentions;
@@ -44,6 +46,7 @@ export const Route = createFileRoute('/terrain_/map')({
       ...(typeof raw.journey === 'string' && raw.journey ? { journey: raw.journey } : {}),
       ...(raw.embed === '1' || raw.embed === 1 || raw.embed === true ? { embed: true } : {}),
       ...(raw.solo === '1' || raw.solo === 1 || raw.solo === true ? { solo: true } : {}),
+      ...(typeof raw.build === 'string' && /^[a-z0-9][a-z0-9-]{0,62}$/.test(raw.build) ? { build: raw.build } : {}),
       ...(hasFile ? { repo: raw.repo as string, file: raw.file as string } : {}),
       ...(hasMentions ? { mentions: mentions as string } : {}),
       ...(hasMentions && typeof raw.of === 'string' ? { of: raw.of } : {}),
@@ -54,5 +57,9 @@ export const Route = createFileRoute('/terrain_/map')({
 
 function TerrainRoute() {
   useDeactivateFrames();
-  return <TerrainPage />;
+  // Remount the page when the map changes between the main one and a build
+  // (the `key`): the two keep separate layouts and separate defaults, and a
+  // fresh mount is what stops one map's state from carrying into the other.
+  const { build } = Route.useSearch();
+  return <TerrainPage key={build ?? 'main'} build={build ?? null} />;
 }

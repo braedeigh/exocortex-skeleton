@@ -1,0 +1,223 @@
+/* TerrainBuildsView — the Builds room (TerrainBuildsView.tsx): a whole page,
+   like the terrain's other rooms. Full-bleed and opaque on the page
+   background, with the same short slide in from the right that says "you went
+   somewhere". Every control is a 40px target and no text is below the body
+   size. */
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  overflow-y: auto;
+  animation: pageIn 320ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view {
+    animation: none;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.heading {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sub {
+  margin: 2px 0 0;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+/* A way back, not a dismissal — the destination is named because it's a route. */
+.back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.back:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* --- the add box: one line and its button --- */
+.addRow {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.input {
+  flex: 1;
+  min-width: 14rem;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.add,
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.add {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+}
+
+.add:disabled,
+.action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.action:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.error,
+.note,
+.foot,
+.cardNote {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+.error {
+  color: var(--danger, #cd3131);
+}
+
+.note,
+.foot,
+.cardNote {
+  color: var(--text-secondary);
+}
+
+.foot {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  overflow-wrap: anywhere;
+}
+
+/* --- the builds, one card each --- */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: var(--space-2);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+}
+
+/* The door into the build's map: the whole text block is the tap target. */
+.open {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 40px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+a.open:hover .name {
+  color: var(--accent);
+}
+
+.name {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+}
+
+.line {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.where,
+.detail {
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.detail {
+  color: var(--danger, #cd3131);
+  white-space: pre-wrap;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}

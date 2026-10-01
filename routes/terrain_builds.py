@@ -1,0 +1,220 @@
+"""Terrain builds API — the doors behind the Builds room: the list of the
+owner's other git folders, adding and removing one, and one build's report.
+
+A build is a git folder that isn't part of this system — a project built in
+its own directory, or a repo cloned from GitHub (buildlist.py owns the list and
+the cloning). Terrain reads each one the way it reads the app code: its own
+map, served by routes/terrain.py at `GET /api/observatory/terrain?build=<id>`,
+and beside the map a written REPORT of what happened in it — a few summary
+numbers, the sessions that worked in it, and its commits newest first. That
+report is what this module builds.
+
+The endpoints:
+  GET    /api/observatory/terrain/builds               every build, with its state and summary
+  POST   /api/observatory/terrain/builds               add one: {source: a folder path or a GitHub address}
+  DELETE /api/observatory/terrain/builds/<id>          take one off the list (the folder stays)
+  POST   /api/observatory/terrain/builds/<id>/refresh  pull a clone up to date
+  GET    /api/observatory/terrain/builds/<id>/report   summary, sessions, commits
+
+OWNER ONLY, all of it. None of these paths is in public_config.PUBLIC_PATHS,
+so the site's gate answers a visitor 401 before a handler runs; each handler
+also refuses a visitor itself, so the answer doesn't rest on one list staying
+right.
+
+Touches: `buildlist.py` (the list, clone state, pull), `codestore.py` (each
+build's commits, indexed under its id), `routes/terrain.py` (the per-build map
+payload this report's session list is read from, and its cache).
+
+Prompt that produced this file: "I want to be able to view other folders in my
+terrain view so I can basically see a report of what happened … port any repo
+into it from GitHub and see when it was built or edited. And I can view all my
+builds in here separately."
+"""
+from flask import jsonify, request
+
+import buildlist
+import codestore
+import config
+from routes import terrain
+
+# The most commits one report carries. A build with more says so through
+# `commits_total`, and the list holds the newest.
+_REPORT_COMMITS_MAX = 2000
+
+
+def _repo(build):
+    """A build in the {id, name, root} shape the code-history walker takes."""
+    return {"id": build["id"], "name": build["name"], "root": build["root"]}
+
+
+def _summary(build):
+    """One build's summary numbers, or None when the tables can't say. The
+    report and the list are derived data — a database hiccup is an empty
+    line on a card, never a 500."""
+    try:
+        return codestore.repo_summary(build["id"])
+    except Exception:
+        return None
+
+
+def _describe(build):
+    """A build as the Builds room draws it: the list entry, where it stands
+    (ready / cloning / failed / missing), and its summary numbers."""
+    return {"id": build["id"], "name": build["name"], "root": str(build["root"]),
+            "source": build["source"], "added": build["added"],
+            **buildlist.state(build),
+            "summary": _summary(build)}
+
+
+def _catch_up(builds):
+    """Index any commits the tables don't have yet for these builds. Failure
+    is swallowed: an old summary beats no list."""
+    try:
+        codestore.update([_repo(build) for build in builds])
+    except Exception:
+        pass
+
+
+def _build_sessions(build):
+    """The sessions that touched this build, most recent first:
+    [{id, title, lane, running, last, files, writes, reads, creates}].
+
+    Read from the same payload the build's map draws (`terrain._build_terrain`
+    over this one folder), so the report and the map can't disagree about who
+    was here. Each file there lists the sessions that touched it; this turns
+    that inside out — per session, how many files and how many writes."""
+    payload = terrain._build_terrain(None, repos=[_repo(build)])
+    roster = {session["id"]: session for session in payload.get("sessions") or []}
+    totals = {}
+    for repo in payload.get("repos") or []:
+        for entry in repo.get("files") or []:
+            for touch in entry.get("sessions") or []:
+                known = roster.get(touch["id"], {})
+                total = totals.setdefault(touch["id"], {
+                    "id": touch["id"], "title": touch.get("title") or "Untitled",
+                    "lane": known.get("lane"), "running": bool(known.get("running")),
+                    "last": None, "files": 0, "writes": 0, "reads": 0, "creates": 0})
+                total["files"] += 1
+                for count in ("writes", "reads", "creates"):
+                    total[count] += int(touch.get(count) or 0)
+                # `last` is when this session last touched a file HERE, not
+                # when it last did anything anywhere.
+                if touch.get("last") and (total["last"] is None or touch["last"] > total["last"]):
+                    total["last"] = touch["last"]
+    return sorted(totals.values(), key=lambda total: total["last"] or "", reverse=True)
+
+
+def register(app):
+    def _refuse_visitor():
+        """Refuse a visitor: a 404 for anyone who isn't the owner, and on a
+        public mirror. Builds are hers alone."""
+        if terrain._visitor() or config.public_only():
+            return jsonify({"error": "not found"}), 404
+        return None
+
+    @app.route("/api/observatory/terrain/builds")
+    def terrain_builds_list():
+        """Every build on the list, each with its state and summary. Catches
+        the code-history tables up first, so a build that just finished
+        cloning arrives with its numbers."""
+        refusal = _refuse_visitor()
+        if refusal is not None:
+            return refusal
+        builds = buildlist.builds()
+        _catch_up(builds)
+        return jsonify({"builds": [_describe(build) for build in builds],
+                        "clone_dir": str(buildlist.clone_dir())})
+
+    @app.route("/api/observatory/terrain/builds", methods=["POST"])
+    def terrain_builds_add():
+        """Add a build. Body: {source, name?}. `source` is either a GitHub
+        repo address — cloned in the background, so the build comes back as
+        "cloning" — or the full path of a git folder already on this machine.
+        A refusal is a 400 carrying a sentence the room shows as written."""
+        refusal = _refuse_visitor()
+        if refusal is not None:
+            return refusal
+        body = request.get_json(silent=True) or {}
+        source = body.get("source")
+        name = body.get("name") if isinstance(body.get("name"), str) else None
+        if not isinstance(source, str) or not source.strip():
+            return jsonify({"error": "paste a GitHub repo address or a folder path"}), 400
+        source = source.strip()
+        try:
+            if buildlist.parse_github(source) is not None:
+                build = buildlist.add_github(source, name)
+            elif source.startswith(("/", "~")):
+                build = buildlist.add_folder(source, name)
+            else:
+                return jsonify({"error": "that is neither a GitHub repo address "
+                                         "(https://github.com/owner/repo) nor a full folder path"}), 400
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        _catch_up([build])
+        return jsonify({"ok": True, "build": _describe(build)})
+
+    @app.route("/api/observatory/terrain/builds/<build_id>", methods=["DELETE"])
+    def terrain_builds_remove(build_id):
+        """Take a build off the list and drop its rows from the code-history
+        tables. The folder on disk is left exactly as it is."""
+        refusal = _refuse_visitor()
+        if refusal is not None:
+            return refusal
+        if not buildlist.remove(build_id):
+            return jsonify({"error": "no such build"}), 404
+        try:
+            codestore.forget(build_id)
+        except Exception:
+            pass   # the rows are derived; the next rebuild sweeps them
+        terrain._build_cache_clear(build_id)
+        return jsonify({"ok": True})
+
+    @app.route("/api/observatory/terrain/builds/<build_id>/refresh", methods=["POST"])
+    def terrain_builds_refresh(build_id):
+        """Bring one build up to date: pull a clone from GitHub (or restart a
+        clone that failed), then index whatever is new. A local folder is only
+        re-indexed. A pull that fails answers 502 with git's own words."""
+        refusal = _refuse_visitor()
+        if refusal is not None:
+            return refusal
+        build = buildlist.find(build_id)
+        if build is None:
+            return jsonify({"error": "no such build"}), 404
+        ok, detail = buildlist.refresh(build)
+        if not ok:
+            return jsonify({"error": detail}), 502
+        _catch_up([build])
+        terrain._build_cache_clear(build_id)
+        return jsonify({"ok": True, "detail": detail, "build": _describe(build)})
+
+    @app.route("/api/observatory/terrain/builds/<build_id>/report")
+    def terrain_builds_report(build_id):
+        """One build's report: what was built, by which sessions, when.
+
+        `summary` is the handful of numbers (commits, files, first and last
+        commit, lines, days worked); `sessions` is who touched it; `commits`
+        is every commit newest first, cut to the newest
+        _REPORT_COMMITS_MAX with `commits_total` saying how many there are.
+        The page groups the commits by day itself — which day a commit falls
+        on depends on the reader's clock."""
+        refusal = _refuse_visitor()
+        if refusal is not None:
+            return refusal
+        build = buildlist.find(build_id)
+        if build is None:
+            return jsonify({"error": "no such build"}), 404
+        _catch_up([build])
+        summary = _summary(build)
+        try:
+            commits = codestore.commit_log(build["id"], limit=_REPORT_COMMITS_MAX)
+        except Exception:
+            commits = []
+        try:
+            sessions = _build_sessions(build)
+        except Exception:
+            sessions = []
+        return jsonify({"build": _describe(build),
+                        "summary": summary,
+                        "sessions": sessions,
+                        "commits": commits,
+                        "commits_total": (summary or {}).get("commits", len(commits))})

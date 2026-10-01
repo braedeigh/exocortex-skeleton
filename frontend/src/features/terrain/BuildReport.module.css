@@ -1,0 +1,254 @@
+/* BuildReport — a reading column docked down the right edge of a build's map
+   (BuildReport.tsx). It takes the Guide's slot: the page moves the map and
+   its bars over by the same width (TerrainPage.module.css `.guideOpen`), so
+   this is a split, not a lid. Opaque on purpose — text over terrain is
+   unreadable. No text below the body size; every control is a 40px target. */
+
+.panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--guide-width, min(440px, 46%));
+  /* The same layer as the Guide: above the file pane and the table window. */
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border-left: 1px solid var(--border-soft);
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.25);
+}
+
+/* On a phone there is no room for a split (the page sets --guide-width to 0
+   there), so the column becomes the lower part of the screen and the map
+   keeps the top. */
+@media (max-width: 768px) {
+  .panel {
+    top: 42%;
+    left: 0;
+    width: auto;
+    border-left: none;
+    border-top: 1px solid var(--border-soft);
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.close {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-3) var(--space-3) calc(var(--space-4, 24px) + env(safe-area-inset-bottom, 0px));
+  font-size: var(--font-size-md);
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.note,
+.where {
+  margin: 0 0 var(--space-2);
+  color: var(--text-secondary);
+}
+
+.where {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* The summary: label over value, a few to a row. */
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-2);
+}
+
+.summary dt {
+  color: var(--text-muted);
+}
+
+.summary dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.heading {
+  margin: var(--space-4, 24px) 0 var(--space-2);
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.meta {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- sessions --- */
+.session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-2) 0;
+}
+
+.session + .session {
+  border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.sessionText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 10rem;
+}
+
+.sessionTitle {
+  font-weight: 600;
+}
+
+.running {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.sessionActions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.action:hover,
+.actionOn {
+  border-color: var(--accent);
+}
+
+.actionOn {
+  background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+}
+
+/* --- commits, by day --- */
+.day {
+  margin-bottom: var(--space-3);
+}
+
+/* The day's heading is a button — it narrows the map to that day. */
+.dayHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dayHead:hover,
+.dayHeadOn {
+  border-color: var(--accent);
+}
+
+.dayHeadOn {
+  background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+}
+
+.dayName {
+  font-weight: 700;
+}
+
+.commit {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+}
+
+.time {
+  flex: none;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.commitText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.subject {
+  overflow-wrap: anywhere;
+}
