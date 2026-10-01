@@ -42,8 +42,11 @@ To her it's one continuous chat: same card, same conversation id, the whole
 transcript still on disk for the helper to search. Only what the model is
 handed rolls. The seed of the latest turn is kept at
 bot_chats/helper_seed/<conv>.md, so what the helper was working from can
-always be opened and read; beside it, <conv>.seen.json is what the helper was
-last shown of each session, which is what a wake-up is measured against.
+always be opened and read; beside it, <conv>.parts.json is the same seed kept
+in its parts, and <conv>.seen.json is what the helper was last shown of each
+session, which is what a wake-up is measured against. She reads the seed, and
+edits her standing rules, on the helper's context page
+(/observatory/context/<conv> — routes/swarms.py, HelperContextPage.tsx).
 
 Touches: routes/observatory.py (begin_turn writes the seed and passes it as
 the turn's system prompt file; after_turn calls after_turn here),
@@ -361,19 +364,43 @@ def add_rule(entry, words, day=None):
         raise ValueError("a rule needs her words")
     path = rules_path(entry)
     path.parent.mkdir(parents=True, exist_ok=True)
+    line = f'{day or datetime.now().date().isoformat()}: "{words}"'
+    path.write_text(rules_text(entry).rstrip("\n") + f"\n- {line}\n", encoding="utf-8")
+    return line
+
+
+def rules_text(entry):
+    """The whole rules file as it is now — or, when there is none yet, the
+    few lines a new one starts with (nothing is written by reading)."""
     try:
-        text = path.read_text(encoding="utf-8")
+        return rules_path(entry).read_text(encoding="utf-8")
     except OSError:
         who = (f"the {entry.get('room') or 'coding'} room's helper"
                if entry.get("role") == "room_helper"
                else "the Linear helper" if entry.get("role") == "linear_helper"
                else f"swarm {entry.get('swarm_id')}'s helper")
-        text = (f"# Standing rules — {who}\n\nYour lasting instructions to this helper, in your"
+        return (f"# Standing rules — {who}\n\nYour lasting instructions to this helper, in your"
                 " words, with the date you said them. It is handed this list at the start of"
                 " every turn. Edit it freely: one rule per line, each starting with \"- \".\n\n")
-    line = f'{day or datetime.now().date().isoformat()}: "{words}"'
-    path.write_text(text.rstrip("\n") + f"\n- {line}\n", encoding="utf-8")
-    return line
+
+
+class RulesChanged(ValueError):
+    """The rules file was changed by someone else since it was loaded."""
+
+
+def save_rules(entry, text, loaded):
+    """Replace the whole rules file with what she wrote on the helper's
+    context page. `loaded` is the text her page was showing when she started:
+    if the file says something else by now — the helper added a rule
+    meanwhile — nothing is written and RulesChanged is raised, so neither
+    edit silently wipes the other. Returns the text as saved."""
+    if rules_text(entry) != loaded:
+        raise RulesChanged("the rules changed while you were editing")
+    text = str(text or "").replace("\r\n", "\n").rstrip("\n") + "\n"
+    path = rules_path(entry)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return text
 
 
 def drop_rule(entry, number):
@@ -563,11 +590,13 @@ def _sessions_section(entry, found, finished, place, repo=None, now=None):
 
 # --- The seed ---------------------------------------------------------------------
 
-def seed_text(conv_id, entry, watched=None):
-    """Everything one chat turn starts from, as one document: the doc (with
-    her rules and the open watches), her last exchanges, the active sessions
-    (see the top of the file). `watched` is what `sessions` returned, when
-    the caller already has it."""
+def seed_parts(conv_id, entry, watched=None):
+    """Everything one chat turn starts from, as its parts in order — each
+    {"key", "title", "text"}: the doc, her rules, the open watches, (for the
+    Linear helper) the Linear news, her last exchanges, the active sessions.
+    The title is for her, on the helper's context page; the text is what the
+    model reads. `watched` is what `sessions` returned, when the caller
+    already has it."""
     chats = store.DATA_DIR / "bot_chats"
     found, finished, place = watched or sessions(entry)
     if entry.get("role") == "room_helper":
@@ -586,16 +615,27 @@ def seed_text(conv_id, entry, watched=None):
         exchanges=config.HELPER_CHAT_EXCHANGES)
     # Its open watches: the promises the app will wake it to keep.
     import watches
-    parts = ["# 1. This doc", "", prompt, "", _rules_section(entry),
-             watches.seed_section(conv_id)]
+    parts = [("doc", "The doc — its job, how its view is shaped, where to look things up",
+              f"# 1. This doc\n\n{prompt}\n"),
+             ("rules", "Your standing rules", _rules_section(entry)),
+             ("watches", "Its open watches", watches.seed_section(conv_id))]
     # The Linear helper's doc also carries the latest Linear news: its chat
     # rolls, and this is how it still knows what it was woken with before.
     if entry.get("role") == "linear_helper":
         import linear_feed
-        parts.append(linear_feed.seed_section())
-    parts += [_exchanges_section(conv_id),
-             _sessions_section(entry, found, finished, place)]
-    return "\n".join(parts) + "\n"
+        parts.append(("linear", "The latest Linear news", linear_feed.seed_section()))
+    parts += [("exchanges", f"Your last messages to it, each with its reply"
+                            f" (at most {config.HELPER_CHAT_EXCHANGES})",
+               _exchanges_section(conv_id)),
+              ("sessions", f"The active sessions in {place}",
+               _sessions_section(entry, found, finished, place))]
+    return [{"key": key, "title": title, "text": text} for key, title, text in parts]
+
+
+def seed_text(conv_id, entry, watched=None):
+    """The seed as the one document the model is handed: its parts
+    (seed_parts), one after another."""
+    return "\n".join(part["text"] for part in seed_parts(conv_id, entry, watched)) + "\n"
 
 
 def _seed_folder():
@@ -611,10 +651,39 @@ def write_seed(conv_id, entry):
     was shown of each session is kept beside it, so the next wake-up is
     measured from this turn."""
     watched = sessions(entry)
+    parts = seed_parts(conv_id, entry, watched)
     path = _seed_folder() / f"{conv_id}.md"
-    path.write_text(seed_text(conv_id, entry, watched), encoding="utf-8")
+    path.write_text("\n".join(part["text"] for part in parts) + "\n", encoding="utf-8")
+    # The same seed kept in its parts, for the helper's context page: cutting
+    # the document back apart at its headings would go wrong whenever one of
+    # her messages has a heading in it.
+    _parts_path(conv_id).write_text(json.dumps({"at": _now(), "parts": parts}), encoding="utf-8")
     _write_seen(conv_id, _seen_now(watched[0]))
     return str(path)
+
+
+def _parts_path(conv_id):
+    return _seed_folder() / f"{conv_id}.parts.json"
+
+
+def last_seed(conv_id):
+    """What the helper was handed on its latest turn, for its context page:
+    {"at": when it was written, "parts": as seed_parts} — or None when it
+    has never had a turn. A seed written before the parts were kept comes
+    back as one part holding the whole document."""
+    try:
+        kept = json.loads(_parts_path(conv_id).read_text(encoding="utf-8"))
+        if isinstance(kept, dict) and isinstance(kept.get("parts"), list):
+            return {"at": kept.get("at") or "", "parts": kept["parts"]}
+    except (OSError, ValueError):
+        pass
+    path = _seed_folder() / f"{conv_id}.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+        at = datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds")
+    except OSError:
+        return None
+    return {"at": at, "parts": [{"key": "whole", "title": "The whole document", "text": text}]}
 
 
 # --- The wake-up ------------------------------------------------------------------

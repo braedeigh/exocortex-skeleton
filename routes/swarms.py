@@ -22,19 +22,35 @@ summaries (swarm_helper.py). These routes hand that to the page:
     GET  /api/swarms/helper-of/<conv>
                                   the helper one session's chat links to (the
                                   button above its message box): its swarm's
-                                  helper, else its room's, else null.
+                                  helper, else its room's, else null — and
+                                  `is_helper`, whether that session is itself
+                                  a helper (its chat then gets a "context"
+                                  button).
+    GET  /api/swarms/helper-context/<conv>
+                                  what a helper is working from, for its
+                                  context page: the seed its latest turn was
+                                  handed, in its parts (helper_chat.py), and
+                                  her standing rules file. `?now=1` builds the
+                                  seed as it would be this minute instead —
+                                  seconds of work, so only when she asks.
+    PUT  /api/swarms/helper-context/<conv>/rules
+                                  save her standing rules file, as she edited
+                                  it on that page.
 
 Messages TO the helper don't need a route of their own: the helper is a
 session, so the chat's normal mailbox (POST
 /api/observatory/conversation/<helper>/inbox) reaches it.
 
-Touches: swarms.py, swarm_helper.py, room_helper.py, the agent_messages,
+Touches: swarms.py, swarm_helper.py, room_helper.py, helper_chat.py (the seed
+and the rules), the agent_messages,
 swarm_helper_runs and session_summaries tables, tests/test_swarm_routes.py. Design: docs/swarms.md.
 """
 import json
 
-from flask import jsonify
+from flask import jsonify, request
 
+import config
+import helper_chat
 import lanes
 import room_helper
 import sqlstore
@@ -137,6 +153,53 @@ def helper_of(conv_id):
     return link("room", room_helper.find_helper(room, index))
 
 
+def _helper_entry(conv_id):
+    """The index entry of a helper session, or None when there is no such
+    session or it isn't a helper."""
+    index = store.read("bot_chats/index", {})
+    entry = index.get(conv_id) if isinstance(index, dict) else None
+    if not isinstance(entry, dict) or entry.get("role") not in swarms.HELPER_ROLES:
+        return None
+    return entry
+
+
+def _rules_view(entry):
+    """Her standing rules for one helper, for the context page: where the
+    file is, its whole text (what she edits), and the rules the helper is
+    handed from it."""
+    path = helper_chat.rules_path(entry)
+    return {"path": str(path), "exists": path.exists(),
+            "text": helper_chat.rules_text(entry), "rules": helper_chat.rules(entry)}
+
+
+def helper_context(conv_id, now=False):
+    """What one helper is working from, for its context page — or None when
+    the session isn't a helper.
+
+    `seed` is the document its latest turn was handed, in its parts, with
+    when it was written (None when it has had no turn yet). With `now`, the
+    seed is built fresh instead: what the helper would be handed if a turn
+    started this minute. Nothing is written either way — a look from this
+    page never counts as the helper having seen anything.
+    Prompt: "some kind of option to edit the rolling context directly or at
+    least see what is in the rolling context for a room helper" — and, on
+    what to edit: "the standing rules is the part that should be edited"."""
+    entry = _helper_entry(conv_id)
+    if entry is None:
+        return None
+    if now:
+        seed = {"at": helper_chat._now(), "now": True,
+                "parts": helper_chat.seed_parts(conv_id, entry)}
+    else:
+        seed = helper_chat.last_seed(conv_id)
+        seed = dict(seed, now=False) if seed else None
+    return {"conv": conv_id, "title": entry.get("title") or conv_id,
+            "kind": entry["role"].removesuffix("_helper"),
+            "swarm_id": entry.get("swarm_id"), "room": entry.get("room"),
+            "exchanges_kept": config.HELPER_CHAT_EXCHANGES,
+            "seed": seed, "rules": _rules_view(entry)}
+
+
 def register(app):
     @app.route("/api/swarms")
     def swarms_list():
@@ -155,7 +218,32 @@ def register(app):
 
     @app.route("/api/swarms/helper-of/<conv_id>")
     def swarm_helper_of(conv_id):
-        return jsonify({"helper": helper_of(conv_id)})
+        return jsonify({"helper": helper_of(conv_id),
+                        "is_helper": _helper_entry(conv_id) is not None})
+
+    @app.route("/api/swarms/helper-context/<conv_id>")
+    def swarm_helper_context(conv_id):
+        found = helper_context(conv_id, now=request.args.get("now") == "1")
+        if found is None:
+            return jsonify({"error": "not a helper session"}), 404
+        return jsonify(found)
+
+    @app.route("/api/swarms/helper-context/<conv_id>/rules", methods=["PUT"])
+    def swarm_helper_rules(conv_id):
+        """Save her rules file. The body carries the text she wrote and the
+        text her page had loaded; a file that changed in between is not
+        overwritten — she gets 409 and the file as it is now."""
+        entry = _helper_entry(conv_id)
+        if entry is None:
+            return jsonify({"error": "not a helper session"}), 404
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body.get("text"), str) or not isinstance(body.get("loaded"), str):
+            return jsonify({"error": "text and loaded are required"}), 400
+        try:
+            helper_chat.save_rules(entry, body["text"], body["loaded"])
+        except helper_chat.RulesChanged as e:
+            return jsonify({"error": str(e), "rules": _rules_view(entry)}), 409
+        return jsonify({"ok": True, "rules": _rules_view(entry)})
 
     @app.route("/api/swarms/<int:swarm_id>/refresh", methods=["POST"])
     def swarm_refresh(swarm_id):

@@ -1,0 +1,48 @@
+/* A helper's context page. Page chrome comes from NightCrewPage.module.css
+   and the sections from SwarmPage.module.css; these are the few things that
+   are this page's own: the rules box and the title line of each seed part. */
+
+/* The rules file, whole, in a box tall enough to read a handful of rules
+   without scrolling. Monospace because it is a file: the "- " that makes a
+   line a rule has to be easy to see. */
+.rules {
+  min-height: 220px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.path {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* One part's title line: its name, and its size pushed to the far side. */
+.partTitle {
+  flex: 1;
+  padding-left: var(--space-2);
+}
+
+.partSize {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+/* A part can run to tens of thousands of characters: give it more room than
+   a helper run's box before it scrolls inside itself. */
+.partText {
+  max-height: 70vh;
+}

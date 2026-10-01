@@ -334,7 +334,9 @@ export function ObservatoryPage({
   // The helper this session answers to, for the button in the composer
   // toolbar: its swarm's helper, else its room's (routes/swarms.py helper_of).
   // null — no helper over it, or it IS the room helper — means no button.
-  const { data: helperLink } = useHelperOf(convId);
+  // A chat that is itself a helper's gets a "context" button beside it.
+  const { data: helperOf } = useHelperOf(convId);
+  const helperLink = helperOf?.helper;
   const stepBack = useStepBack({
     scrollRef: scrollContract.scrollRef,
     pageRef,
@@ -1179,6 +1181,20 @@ export function ObservatoryPage({
               }}
             >
               {helperLink.kind === 'swarm' ? 'swarm helper' : 'room helper'}
+            </button>
+          ) : null}
+          {/* In a helper's own chat: open what it is working from — the
+              document each turn starts with, and her standing rules for it
+              (HelperContextPage.tsx). A full page, so it leaves the chat. */}
+          {helperOf?.is_helper && convId ? (
+            <button
+              type="button"
+              className={styles.toolBtn}
+              title="What this helper is working from, and your standing rules for it"
+              aria-label="What this helper is working from"
+              onClick={() => void navigate({ to: '/observatory/context/$convId', params: { convId } })}
+            >
+              context
             </button>
           ) : null}
           <button

@@ -55,6 +55,19 @@ lines say what exists *now*.
   with `scripts/helper_rule.py add "<her words>"` (`list`, `drop <n>`) only
   when she says something meant to last; the helper gate lets that write
   through. Nothing writes to it on its own.
+- **She can see what a helper is working from, and edit her rules for it.**
+  Her ask: "some kind of option to edit the rolling context directly or at
+  least see what is in the rolling context for a room helper", and on what to
+  edit: "the standing rules is the part that should be edited." Every helper
+  has a context page (`/observatory/context/<helper>`; the "context" button
+  in its chat, and a link on its swarm's page). It shows the seed its last
+  turn was handed, part by part, as the model reads it — `write_seed` keeps
+  the parts beside the seed (`<conv>.parts.json`) — and can build the seed as
+  it would be this minute (seconds of work; nothing is written and it doesn't
+  count as the helper having seen anything). The rules file is edited whole
+  in a text box; a save is refused when the file changed since the page
+  loaded it (the helper added a rule meanwhile), so neither edit wipes the
+  other. The other parts are rebuilt every turn and are not editable.
 - **A helper is woken when what it watches changes** (`helper_chat.wake_tick`,
   the minute tick). Every seed records what the helper was shown of each
   session (`bot_chats/helper_seed/<conv>.seen.json`); the tick compares the
@@ -295,7 +308,7 @@ read by the helper." So the app notices and writes it down
 | Continuation | `continuation.py`; `after_turn` in `routes/observatory.py` (called by `scripts/turn_host.py` when a turn ends); `peers.py handoff`; caps in `config.CONTEXT_CAPS`, rooms in `config.CONTINUE_LANES` |
 | Swarms | `swarms.py` (grouping, `swarms` / `swarm_members` tables); `routes/swarms.py`; `SwarmCard.tsx` in each room via `SessionLane.tsx`, coloured from the roster and ordered with the sessions (orange first, longest wait on top; retired members left off) by `roomOrder.ts`; `SwarmPage.tsx` at `/observatory/swarm/<id>`; the network of rings and talk-lines in `SwarmNetwork.tsx` (on the swarm page and under the Worktrees plots); the outline + name around member orbs on Terrain in `terrain/terrainSwarms.ts` (drawn by `terrainCanvas.ts`) |
 | Helper | `swarm_helper.py` (one tool-less Sonnet call per run, structured answer, every run in `swarm_helper_runs`); runs after member turns (debounced by `config.SWARM_HELPER_MIN_SEC`), on the minute tick, when a swarm forms, and straight away when messaged |
-| Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) her standing rules (`rules`, `add_rule`, `drop_rule`; `scripts/helper_rule.py`, allowed in `tools/helper_gate.py`), the wake-up (`wake_tick`, ticked by `scripts/coming_up_dispatcher.py`; `after_turn`, called by `after_turn`, puts a silent wake-up's card back) and the silent turn's hiding in `frontend/src/features/observatory/events.ts`; `config.HELPER_CHAT_EXCHANGES`, `HELPER_WAKE_*`; exempt in `continuation.due` |
+| Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) her standing rules (`rules`, `add_rule`, `drop_rule`; `scripts/helper_rule.py`, allowed in `tools/helper_gate.py`), the wake-up (`wake_tick`, ticked by `scripts/coming_up_dispatcher.py`; `after_turn`, called by `after_turn`, puts a silent wake-up's card back) and the silent turn's hiding in `frontend/src/features/observatory/events.ts`; `config.HELPER_CHAT_EXCHANGES`, `HELPER_WAKE_*`; exempt in `continuation.due`. The context page: `seed_parts`, `last_seed`, `rules_text`, `save_rules`; `GET /api/swarms/helper-context/<conv>` and `PUT …/rules` in `routes/swarms.py`; `HelperContextPage.tsx` |
 | Room helper | `room_helper.py` (runs, moves, undo, the room overview); placements in `swarms.py` (`place`, `unplace`, `new_swarm`, `line_of_work`; `links` cuts pre-placement messages); `swarm_pins`, `room_moves`, `session_summaries`, `room_helper_runs` (sqlstore rung 37); `scripts/room_moves.py`; ticked by `scripts/coming_up_dispatcher.py` |
 | Watches | `watches.py` (add, the minute check, the wake-up, the seed section); `helper_watches` (sqlstore rung 40); `scripts/helper_watch.py`; allowed in `tools/helper_gate.py`; ticked by `scripts/coming_up_dispatcher.py`; `config.HELPER_WATCH_*` |
 | Linear feed | `linear_feed.py` (the look, what counts as news, the once-only record, the Linear helper and its wake-up, the phone push); `linear_api.py` (`team`, `changes`); `linear_events` (sqlstore rung 44) and the `linear_feed` state file; the helper's lead, sessions and news section in `helper_chat.py`; `scripts/linear_feed.py`, allowed in `tools/helper_gate.py`; `GET /api/linear-room/feed` in `routes/linear_room.py`; `LinearNews.tsx`, `linearNewsSeen.ts`, `LinearDoor.tsx`; ticked by `scripts/coming_up_dispatcher.py`; `config.LINEAR_FEED*`, `LINEAR_HELPER_DAYS` |
@@ -322,8 +335,8 @@ read by the helper." So the app notices and writes it down
   tested.
 - The helper chat's rolling context and the closing check: built and tested
   (`tests/test_helper_chat.py`). The three-part seed, her standing rules and
-  the wake-up are built and tested there too. The rules have no page yet —
-  they're a file and `helper_rule.py list`. Index entries may still carry an
+  the wake-up are built and tested there too. The seed and the rules are on
+  the helper's context page (`tests/test_swarm_routes.py`). Index entries may still carry an
   old `helper_notes` field from the chat summary; nothing reads it.
 - Swarms on the Terrain map: a faint accent outline around the member orbs
   that are on the map, with the swarm's name above it. Owner only.

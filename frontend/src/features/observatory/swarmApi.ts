@@ -13,7 +13,9 @@
  *
  * Touches: routes/swarms.py (the endpoints), terrain/codeHeatPref.ts (the sticky switch), SwarmCard.tsx and SessionLane.tsx
  * (the cards in each room), RoomMap.tsx (the room from above), SwarmPage.tsx (one swarm's page), ObservatoryPage.tsx
- * (the helper button above a chat's message box), and
+ * (the helper button above a chat's message box, and the "context" button in a
+ * helper's own chat), HelperContextPage.tsx (what a helper is working from, and
+ * her standing rules for it), and
  * terrain/TerrainPage.tsx (the outlines around swarm members on the map).
  */
 import { useQuery } from '@tanstack/react-query';
@@ -136,21 +138,79 @@ export interface HelperLink {
   title: string;
 }
 
-/** Which helper the open chat's "helper" button goes to. One small lookup per
- * chat rather than the whole swarm poll — membership changes rarely, so it's
- * re-asked every minute and whenever the window comes back into focus. */
+/** Which helper the open chat's "helper" button goes to, and whether the
+ * open chat is itself a helper's (it then gets a "context" button). One small
+ * lookup per chat rather than the whole swarm poll — membership changes
+ * rarely, so it's re-asked every minute and whenever the window comes back
+ * into focus. `is_helper` is absent from an older server. */
 export function useHelperOf(convId: string | undefined) {
   return useQuery({
     queryKey: ['swarm-helper-of', convId] as const,
     enabled: !!convId,
     queryFn: async ({ signal }) =>
-      (await api.get<{ helper: HelperLink | null }>(
+      api.get<{ helper: HelperLink | null; is_helper?: boolean }>(
         `/api/swarms/helper-of/${encodeURIComponent(convId!)}`,
         signal,
-      )).helper,
+      ),
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
+}
+
+/** One part of a helper's seed — the document a turn of its chat starts from
+ * (helper_chat.py seed_parts). `text` is exactly what the model reads. */
+export interface SeedPart {
+  key: string;
+  title: string;
+  text: string;
+}
+
+/** Her standing rules for one helper: the file, its whole text (what she
+ * edits), and the rules the helper is handed from it (its "- " lines). */
+export interface HelperRules {
+  path: string;
+  exists: boolean;
+  text: string;
+  rules: string[];
+}
+
+/** What one helper is working from (routes/swarms.py `helper_context`). */
+export interface HelperContext {
+  conv: string;
+  title: string;
+  kind: 'swarm' | 'room' | 'linear';
+  swarm_id: number | null;
+  room: string | null;
+  /** How many of her messages the seed replays (config.HELPER_CHAT_EXCHANGES). */
+  exchanges_kept: number;
+  /** null until the helper has had a turn. `now`: built this minute rather
+   * than read from what its last turn was handed. */
+  seed: { at: string; now: boolean; parts: SeedPart[] } | null;
+  rules: HelperRules;
+}
+
+/** A helper's context. Not polled: the page holds a text box she may be
+ * typing in, and building it fresh (`now`) takes the server several seconds. */
+export function fetchHelperContext(convId: string, now: boolean, signal?: AbortSignal): Promise<HelperContext> {
+  return api.get<HelperContext>(
+    `/api/swarms/helper-context/${encodeURIComponent(convId)}${now ? '?now=1' : ''}`,
+    signal,
+  );
+}
+
+export function useHelperContext(convId: string, now: boolean) {
+  return useQuery({
+    queryKey: ['helper-context', convId, now] as const,
+    queryFn: ({ signal }) => fetchHelperContext(convId, now, signal),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** Save her rules file. `loaded` is the text the page was showing when she
+ * started; the server refuses (409) if the file changed since. */
+export function saveHelperRules(convId: string, text: string, loaded: string): Promise<{ rules: HelperRules }> {
+  return api.put(`/api/swarms/helper-context/${encodeURIComponent(convId)}/rules`, { text, loaded });
 }
 
 export function useSwarm(id: number) {

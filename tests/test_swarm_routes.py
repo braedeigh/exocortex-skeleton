@@ -4,13 +4,17 @@ What these pin: the list shows a live swarm with its counts; the detail
 carries the helper's runs verbatim and the messages between members;
 unknown swarms 404; a card says whether it's closed; refresh starts a helper run; the room view lists the
 sessions working alone and the room helper's moves; helper-of links a session's
-chat to its swarm's helper, else its room's, and a helper one level up or nowhere.
+chat to its swarm's helper, else its room's, and a helper one level up or nowhere;
+a helper's context page shows the seed its last turn was handed, in parts, and
+saves her standing rules so the next seed carries them — without wiping a rule
+the helper added while she was editing.
 """
 import json
 
 import pytest
 from flask import Flask
 
+import helper_chat
 import peermail
 import sqlstore
 import store
@@ -120,3 +124,60 @@ def test_no_helper_in_the_room_means_no_link(client):
         index["p"] = {"title": "P", "lane": "personal"}
     assert _helper_of(client, "p") is None
     assert _helper_of(client, "nope") is None
+
+
+# --- The helper's context page ----------------------------------------------------
+
+def _context(client, conv, **query):
+    return client.get(f"/api/swarms/helper-context/{conv}", query_string=query)
+
+
+def test_the_context_page_shows_what_the_helper_was_handed_and_saves_her_rules(client):
+    _with_helpers()
+    entry = store.read("bot_chats/index", {})["sh"]
+    # Only a helper has a context; and before its first turn there is no seed.
+    assert _context(client, "a").status_code == 404
+    assert _helper_of(client, "a") and not client.get(
+        "/api/swarms/helper-of/a").get_json()["is_helper"]
+    assert client.get("/api/swarms/helper-of/sh").get_json()["is_helper"] is True
+    assert _context(client, "sh").get_json()["seed"] is None
+
+    # A turn starts: she had said something with a heading in it.
+    with open(store.DATA_DIR / "bot_chats" / "sh.jsonl", "w", encoding="utf-8") as log:
+        log.write(json.dumps({"type": "user", "text": "# 3. not a real part\nwho is on x.py?"})
+                  + "\n")
+    handed = open(helper_chat.write_seed("sh", entry), encoding="utf-8").read()
+    got = _context(client, "sh").get_json()
+    parts = got["seed"]["parts"]
+    assert [p["key"] for p in parts] == ["doc", "rules", "watches", "exchanges", "sessions"]
+    assert "\n".join(p["text"] for p in parts) + "\n" == handed    # the parts ARE the seed
+    assert "who is on x.py?" in parts[3]["text"] and got["seed"]["now"] is False
+    assert got["kind"] == "swarm" and got["rules"]["rules"] == []
+
+    # She writes a rule on the page; the helper adds one before she saves again.
+    loaded = got["rules"]["text"]
+    saved = client.put("/api/swarms/helper-context/sh/rules",
+                       json={"text": loaded + "- keep replies short\n", "loaded": loaded})
+    assert saved.get_json()["rules"]["rules"] == ["keep replies short"]
+    helper_chat.add_rule(entry, "never move a saved session", day="2026-10-01")
+    stale = client.put("/api/swarms/helper-context/sh/rules",
+                       json={"text": "- mine only\n", "loaded": saved.get_json()["rules"]["text"]})
+    assert stale.status_code == 409 and len(stale.get_json()["rules"]["rules"]) == 2
+    assert "never move a saved session" in helper_chat.rules_path(entry).read_text()
+
+    # The last turn's seed doesn't have the rules yet; built now, it does —
+    # and looking never counts as the helper having been shown anything.
+    seen = helper_chat._seen_path("sh").read_text()
+    assert "keep replies short" not in _context(client, "sh").get_json()["seed"]["parts"][1]["text"]
+    fresh = _context(client, "sh", now="1").get_json()["seed"]
+    assert fresh["now"] is True and "1. keep replies short" in fresh["parts"][1]["text"]
+    assert helper_chat._seen_path("sh").read_text() == seen
+    assert helper_chat.last_seed("sh")["parts"][1]["text"] == parts[1]["text"]
+
+
+def test_a_seed_written_before_parts_were_kept_still_opens_whole(client):
+    _with_helpers()
+    folder = helper_chat._seed_folder()
+    (folder / "rh.md").write_text("# 1. This doc\n\nold seed\n", encoding="utf-8")
+    [part] = _context(client, "rh").get_json()["seed"]["parts"]
+    assert part["key"] == "whole" and "old seed" in part["text"]

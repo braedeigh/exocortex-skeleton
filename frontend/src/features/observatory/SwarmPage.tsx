@@ -6,8 +6,9 @@
  * messaged each other (swarms.py), with a helper — a Sonnet that names the
  * swarm, keeps a summary of every member and notices where their work
  * collides (swarm_helper.py). This page shows, top to bottom:
- *   - a box to ask the helper about the swarm's work, and a link to its own
- *     chat (the helper is a session of its own);
+ *   - a box to ask the helper about the swarm's work, a link to its own
+ *     chat (the helper is a session of its own) and one to its context page
+ *     (HelperContextPage.tsx);
  *   - the swarm's name, the helper's summary, and where members' work differs;
  *   - the swarm as a network: rings joined by green lines where members have
  *     messaged each other (SwarmNetwork.tsx), the helper as the dot in the middle;
@@ -157,6 +158,17 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
               {swarm.helper_conv ? (
                 <button type="button" className={styles.link} onClick={() => open(swarm.helper_conv!)}>
                   Open the helper&rsquo;s chat &rarr;
+                </button>
+              ) : null}
+              {swarm.helper_conv ? (
+                <button
+                  type="button"
+                  className={styles.link}
+                  onClick={() =>
+                    void navigate({ to: '/observatory/context/$convId', params: { convId: swarm.helper_conv! } })
+                  }
+                >
+                  What the helper is working from, and your rules for it &rarr;
                 </button>
               ) : null}
             </section>
