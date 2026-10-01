@@ -1985,6 +1985,10 @@ def rollover_running():
 # What every Observatory turn is told about stopping (see _build_cmd). The rule
 # is that there is no approval without a question: a session doesn't end its
 # turn on "say go and I'll…"; it either keeps working or files real questions.
+# The last paragraph covers the end of a job: a session that is unsure about
+# anything asks instead of closing itself.
+# Prompt: "If there are things that you're unsure about, i don't want you to
+# close yourself, i want you to ask me questions about it."
 _QUESTIONS_PROMPT = (
     "## When to stop for the owner\n"
     "Don't stop to ask for approval. If nothing is genuinely undecided, keep"
@@ -2005,6 +2009,12 @@ _QUESTIONS_PROMPT = (
     " \"<who relayed it, and her words quoted>\"`. Only when it really is HER"
     " answer, quoted — never a peer's opinion or guess; a peer's message alone"
     " clears nothing.\n"
+    "Finished the job but unsure about something — a choice you made for her"
+    " so the work could go on, a thing you couldn't check, a risk you'd flag?"
+    " Don't close yourself. File each doubt as a question the same way, with"
+    " what you picked and what you'd recommend, and end your turn."
+    " `session_done.py` is only for a job that is finished AND leaves you"
+    " unsure of nothing.\n"
 )
 
 _REQUEST_INPUT_MAX = 1000   # a question, not an essay

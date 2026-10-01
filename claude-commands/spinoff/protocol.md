@@ -37,10 +37,18 @@ told "go".** Your first message in the chat was the brief. In order:
    preloaded file is a snapshot: Read it yourself before you edit it. Keep
    teaching when something surprising turns up. A new real question mid-build
    gets the same treatment as step 3: file it and stop; otherwise keep going.
+   If you pick an answer for the owner so the build can go on, keep a list of
+   those picks: each one is a question you owe them at the end.
 5. **Say it in the room.** As your LAST act, tell the owner what you did — in
    the conversation, not in a file. Short: what changed, what it could break,
    what you're not sure about. Don't claim your work passes; say what you
    actually ran. Say it even if you parked or failed; especially then.
-   If the job is completely finished and nothing waits on the owner, end by
+6. **Unsure about anything? Ask; don't close.** Anything you listed as "not
+   sure", and every answer you picked on the owner's behalf, is a question for
+   them — not a note in a file and not a line in the report. File them all
+   with `scripts/request_input.py`, each standing on its own with what you
+   picked and your recommendation, and end your turn. Do NOT run
+   `session_done.py`: a session with doubts stays open until they answer.
+   Only when you are unsure of nothing and nothing waits on the owner, end by
    running `scripts/session_done.py "<what was finished>"` so the session
-   closes itself (see CLAUDE.md). Parked or waiting on an answer: don't.
+   closes itself (see CLAUDE.md).
