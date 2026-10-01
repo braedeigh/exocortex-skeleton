@@ -339,3 +339,87 @@ def test_a_refused_filing_leaves_nothing_in_the_chat(data_dir):
     rr.request_input("c1", ["  "])
     log = store.DATA_DIR / "bot_chats" / "c1.jsonl"
     assert not log.exists() or "questions" not in log.read_text()
+
+
+# --- her answer came by another route: the session takes its own set down ----
+# She answered in a different session's chat and that session relayed her words.
+# Nothing of hers arrives here, and an agent's message clears nothing, so the
+# session that filed the questions withdraws them itself through the same door
+# (request_input.py --answered), saying where her answer came from.
+
+from scripts import request_input as request_input_script
+
+
+def _chat_lines(client, conv_id):
+    """The question-related lines of a chat, in order, as the page loads them."""
+    events = client.get(f"/api/observatory/conversation/{conv_id}?lean=1").get_json()["events"]
+    return [e for e in events if e.get("type") in ("questions", "questions-withdrawn", "peer")]
+
+
+def _roster_entry(client, conv_id):
+    sessions = client.get("/api/observatory").get_json()["sessions"]
+    return next(c for c in sessions if c["id"] == conv_id)
+
+
+def test_a_relayed_answer_lets_the_session_take_its_question_down(bot_client, monkeypatch, capsys):
+    _seed_asker(running=True)
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c2"] = {"title": "the session she answered in"}
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "c1")
+    assert request_input_script.main(["Who gets told: (a), (b) or (c)?"]) == 0
+
+    # A peer relays her answer. An agent's message clears nothing: still orange.
+    peermail.send("c1", 'She answered in my chat: "A)"', from_conv="c2")
+    _hand_in_waiting("c1")
+    assert _roster_entry(bot_client, "c1")["awaiting_questions"] == ["Who gets told: (a), (b) or (c)?"]
+
+    # The session withdraws it: the roster stops showing it as waiting...
+    assert request_input_script.main(["--answered", ' relayed by c2: she said "A)" ']) == 0
+    waiting = _roster_entry(bot_client, "c1")
+    assert "awaiting_questions" not in waiting and "awaiting_input" not in waiting
+    # ...and the chat keeps the question, the relay, and why it came down.
+    lines = _chat_lines(bot_client, "c1")
+    assert [l["type"] for l in lines] == ["questions", "peer", "questions-withdrawn"]
+    assert lines[2]["questions"] == ["Who gets told: (a), (b) or (c)?"]
+    assert lines[2]["source"] == 'relayed by c2: she said "A)"'
+
+    # A question filed afterwards is a new one, and stays up.
+    assert request_input_script.main(["And the next thing?"]) == 0
+    assert _roster_entry(bot_client, "c1")["awaiting_questions"] == ["And the next thing?"]
+    capsys.readouterr()
+
+
+def test_withdrawing_leaves_a_done_countdown_and_saved_for_later_alone(data_dir):
+    # She hasn't spoken HERE, so only the questions come off — unlike a message
+    # of hers, which also stops a done countdown and un-saves the session.
+    _seed_asker(saved_at="2026-10-01T00:00:00", done_at="2026-10-01T00:00:00")
+    rr.request_input("c1", ["Public repo?"])
+    payload, status = rr.withdraw_questions("c1", "she told the helper: public")
+    entry = store.read("bot_chats/index", {})["c1"]
+    assert status == 200 and payload["withdrawn"] == ["Public repo?"]
+    assert entry["saved_at"] and entry["done_at"]
+
+
+@pytest.mark.parametrize("arguments", [
+    ["--answered"],                      # no source at all
+    ["--answered", "   "],               # a blank source
+    ["--answered", "from c2", "extra"],  # more than one line after the flag
+])
+def test_a_withdrawal_that_does_not_say_where_is_refused(data_dir, monkeypatch, capsys, arguments):
+    _seed_asker()
+    rr.request_input("c1", ["Public repo?"])
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "c1")
+    assert request_input_script.main(arguments) != 0
+    capsys.readouterr()
+    # the question is still up, and nothing was filed as a question named "--answered"
+    assert store.read("bot_chats/index", {})["c1"]["awaiting_questions"] == ["Public repo?"]
+    assert "questions-withdrawn" not in (store.DATA_DIR / "bot_chats" / "c1.jsonl").read_text()
+
+
+def test_withdrawing_with_nothing_open_is_refused_and_leaves_no_record(data_dir):
+    _seed_asker()
+    payload, status = rr.withdraw_questions("c1", "she said so")
+    assert status == 409
+    log = store.DATA_DIR / "bot_chats" / "c1.jsonl"
+    assert not log.exists() or "questions-withdrawn" not in log.read_text()
+    assert rr.withdraw_questions("ghost", "she said so")[1] == 404

@@ -11,6 +11,9 @@
  *     scrolls back through the chat, so she can read the questions and look for
  *     the answer at the same time;
  *   - answered: she's replied since — it settles into the transcript, calmer;
+ *   - elsewhere: her answer reached the agent by another route (a peer relayed
+ *     it) and the agent took the set down itself (request_input.py --answered)
+ *     — settled the same way, with where the answer came from printed under it;
  *   - replaced: the agent filed a newer set before she replied.
  *
  * QuestionsCard is the fallback for a set with no transcript line — one filed
@@ -36,10 +39,20 @@ import styles from './QuestionsCard.module.css';
 const HEADINGS: Record<QuestionsState, (count: number) => string> = {
   open: (n) => (n > 1 ? `${n} questions for you` : 'A question for you'),
   answered: (n) => (n > 1 ? `${n} questions · answered` : 'Question · answered'),
+  elsewhere: (n) => (n > 1 ? `${n} questions · answered elsewhere` : 'Question · answered elsewhere'),
   replaced: (n) => (n > 1 ? `${n} questions · replaced by a later set` : 'Question · replaced by a later set'),
 };
 
-export function QuestionsBlock({ questions, state }: { questions: string[]; state: QuestionsState }) {
+export function QuestionsBlock({
+  questions,
+  state,
+  answeredElsewhere,
+}: {
+  questions: string[];
+  state: QuestionsState;
+  /** Where the agent said her answer came from, for a set it withdrew. */
+  answeredElsewhere?: string;
+}) {
   const many = questions.length > 1;
   return (
     <div
@@ -62,6 +75,9 @@ export function QuestionsBlock({ questions, state }: { questions: string[]; stat
       )}
       {state === 'open' ? (
         <div className={styles.hint}>Answer in the box below — it picks up from there.</div>
+      ) : null}
+      {state === 'elsewhere' && answeredElsewhere ? (
+        <div className={styles.hint}>Taken down by the agent — her answer came from: {answeredElsewhere}</div>
       ) : null}
     </div>
   );

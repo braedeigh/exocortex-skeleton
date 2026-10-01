@@ -1945,6 +1945,15 @@ def rollover_running():
 # agent sends up a question block, for it to persist in the chat above what i
 # send."
 #
+# HER ANSWER CAN COME BY ANOTHER ROUTE. The flag comes off by itself only when
+# a message of HERS reaches this session (_her_message_arrived). When she
+# answers somewhere else — in another session's chat, and a peer relays her
+# words — nothing of hers arrives here, so the session that filed the questions
+# takes them down itself (withdraw_questions, `request_input.py --answered`),
+# saying where her answer came from. No agent message ever clears them
+# automatically: most agent mail isn't her answer. Prompt: "Agent symbol stayed
+# orange when it got the answer from another chat and not me".
+#
 # Prompt: "i don't have to approve anything if there are no questions. if
 # there are questions, i want them all summarized into a card at the bottom of
 # the session ... and on the front page, i want the orange sessions to have
@@ -1967,10 +1976,17 @@ _QUESTIONS_PROMPT = (
     " stand on its own — she reads them on a card, away from the chat — so"
     " name the choice and your recommendation in it. Filing again replaces the"
     " earlier set.\n"
+    "If her answer reaches you some other way (she answered in another"
+    " session's chat and a peer passed her words on), take your questions down"
+    " yourself: `./venv/bin/python3 scripts/request_input.py --answered"
+    " \"<who relayed it, and her words quoted>\"`. Only when it really is HER"
+    " answer, quoted — never a peer's opinion or guess; a peer's message alone"
+    " clears nothing.\n"
 )
 
 _REQUEST_INPUT_MAX = 1000   # a question, not an essay
 _REQUEST_INPUT_MAX_COUNT = 12   # a handful she can answer in one reply, not a survey
+_WITHDRAW_SOURCE_MAX = 300   # where her answer came from: a line, not the answer's story
 
 
 def request_input(conv_id, questions):
@@ -2004,6 +2020,42 @@ def request_input(conv_id, questions):
                          {"type": "questions", "questions": cleaned, "ts": _now()})
     return {"ok": True, "awaiting_input": entry["awaiting_input"],
             "awaiting_questions": cleaned}, 200
+
+
+def withdraw_questions(conv_id, source):
+    """Take down the open questions on a conversation because her answer
+    reached it by another route — the one validated entry point for a session
+    withdrawing its OWN questions (scripts/request_input.py --answered).
+    `source` says where her answer came from, and is required: the chat shows
+    it, so a set never just vanishes. Returns (payload, status): 200 with the
+    questions it withdrew, 400 on a bad id / no source, 404 on an unknown
+    conversation, 409 when nothing is open. Loud, precise failures — same
+    narrow-door doctrine as open_spinoff()."""
+    if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
+        return {"error": "invalid conversation id"}, 400
+    source = str(source or "").strip()[:_WITHDRAW_SOURCE_MAX]
+    if not source:
+        return {"error": "say where her answer came from"}, 400
+    # Only the questions and the orange flag come off. Unlike a message of
+    # hers (_her_message_arrived), this leaves a gated-command card, a done
+    # countdown and "saved for later" alone: she hasn't spoken HERE.
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        withdrawn = _open_questions(entry)
+        if not withdrawn:
+            return {"error": "no open questions to withdraw"}, 409
+        entry.pop("awaiting_questions", None)
+        entry.pop("awaiting_input", None)
+    # Keep the withdrawal in the transcript too, where it happened. The chat
+    # marks the block above it "answered elsewhere" and prints the source
+    # (events.ts, case 'questions-withdrawn'). One O_APPEND write, the same as
+    # a peer card, because the turn that withdrew it is writing this log now.
+    peermail.append_line(_chats_dir() / f"{conv_id}.jsonl",
+                         {"type": "questions-withdrawn", "questions": withdrawn,
+                          "source": source, "ts": _now()})
+    return {"ok": True, "withdrawn": withdrawn, "source": source}, 200
 
 
 def _reopen_note(questions):

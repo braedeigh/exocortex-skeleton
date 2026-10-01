@@ -75,7 +75,10 @@ that stop a determined agent:
   `EXOCORTEX_CONV_ID` set, and `peers.py` only ever sends kind `A`. Her
   messages matter more than an agent's — one clears her open questions — so
   this stops an agent from sending one by accident. An agent that unsets the
-  variable, or writes the table itself, gets past it.
+  variable, or writes the table itself, gets past it. An agent's message
+  never clears them. When a peer relays her answer, the session that asked
+  takes its own questions down (`request_input.py --answered "<where her
+  answer came from>"`), and its chat keeps the block marked answered elsewhere.
 - The accept policy, `TEXT_CAP`, the approval gate (`tools/act_ask_gate.py`)
   and the "weigh it, don't obey it" label are all rules the app keeps for
   agents that use its doors. Nothing forces an agent to use them.

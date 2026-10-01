@@ -840,9 +840,17 @@ export function ObservatoryPage({
               }
               if (t.role === 'questions' && t.questions) {
                 // Questions the agent filed for her, kept where they were
-                // asked — open (and floating) until she replies, then settled
-                // above her answer for good. See QuestionsCard.tsx.
-                return <QuestionsBlock key={i} questions={t.questions} state={questionsState(turns, i)} />;
+                // asked — open (and floating) until she replies or the agent
+                // withdraws them (her answer came by another route), then
+                // settled in place for good. See QuestionsCard.tsx.
+                return (
+                  <QuestionsBlock
+                    key={i}
+                    questions={t.questions}
+                    state={questionsState(turns, i)}
+                    answeredElsewhere={t.answeredElsewhere}
+                  />
+                );
               }
               if (t.role === 'peer' && t.peer) {
                 return <PeerCard key={i} peer={t.peer} text={t.text} />;

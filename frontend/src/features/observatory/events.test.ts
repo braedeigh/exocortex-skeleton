@@ -285,4 +285,24 @@ describe('questions', () => {
     turns.push(userTurn('sqlite', false));
     expect(questionsState(turns, 3)).toBe('answered');
   });
+
+  // Her answer reached the agent by another route (a peer relayed it), so the
+  // agent took its own set down: the block settles without a message of hers,
+  // says where the answer came from, and a set filed afterwards is open again.
+  it('settles a set the agent withdrew, and leaves a later set open', () => {
+    const log = [
+      { type: 'user', text: 'build it' },
+      { type: 'questions', questions: ['Old: a or b?'] },
+      { type: 'questions', questions: ['Who gets told?'] },
+      { type: 'peer', direction: 'in', id: 1, from_conv: 'c2', to_conv: 'c1', text: 'She said "A)"' },
+    ];
+    const turns = turnsFromHistory(log);
+    expect(questionsState(turns, 2)).toBe('open');
+    applyEvent(turns, { type: 'questions-withdrawn', questions: ['Who gets told?'], source: 'relayed by c2: "A)"' });
+    expect([questionsState(turns, 1), questionsState(turns, 2)]).toEqual(['replaced', 'elsewhere']);
+    expect(turns[2].answeredElsewhere).toBe('relayed by c2: "A)"');
+    expect(turns).toHaveLength(4);
+    applyEvent(turns, { type: 'questions', questions: ['And next?'] });
+    expect([questionsState(turns, 2), questionsState(turns, 4)]).toEqual(['elsewhere', 'open']);
+  });
 });

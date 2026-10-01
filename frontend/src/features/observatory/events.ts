@@ -37,6 +37,12 @@
  *                                              (request_input.py) — drawn as
  *                                              an orange block where it was
  *                                              asked, kept after she answers
+ * - {type:'questions-withdrawn', questions,    the agent took its open set
+ *    source, ts}                                down because her answer reached
+ *                                              it by another route
+ *                                              (request_input.py --answered) —
+ *                                              marks the block above it
+ *                                              answered elsewhere
  * - {type:'peer-status', id, status}           a held agent message she let
  *                                              through — updates its card
  * - {type:'off-record-gap'}                    a cue the app fired for her (a
@@ -91,6 +97,9 @@ export interface Turn {
   decision?: 'approve' | 'deny';
   /** questions only: the set the agent filed, in its order. */
   questions?: string[];
+  /** questions only: the agent withdrew this set because her answer reached it
+   * by another route — this is where it said her answer came from. */
+  answeredElsewhere?: string;
   /** peer only: the agent message this card draws. */
   peer?: PeerMessage;
   /** Spans of this turn she highlighted into the journal. Offsets are into the
@@ -297,6 +306,19 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       turns.push(t);
       return turns;
     }
+    case 'questions-withdrawn': {
+      // The agent took its open questions down because her answer came by
+      // another route. No new block: the newest set in the chat is the one
+      // that was open, so it's marked answered elsewhere, with the source the
+      // agent gave. A line with no source still settles the block.
+      for (let i = turns.length - 1; i >= 0; i--) {
+        if (turns[i].role !== 'questions') continue;
+        turns[i].answeredElsewhere =
+          typeof e.source === 'string' && e.source.trim() ? e.source.trim() : 'another route';
+        break;
+      }
+      return turns;
+    }
     case 'peer-status': {
       // A held message she released — update the card it belongs to.
       for (const t of turns) {
@@ -410,12 +432,15 @@ export function lastUserTurnIndex(turns: Turn[]): number {
 }
 
 /** Where a filed question set stands, read off what came after it in the chat:
- * 'answered' once she's sent a message since, 'replaced' when the agent filed
- * a newer set before she did (filing replaces, never appends), else 'open'.
- * Her message wins over a later filing — it's what the set was answered by. */
-export type QuestionsState = 'open' | 'answered' | 'replaced';
+ * 'elsewhere' when the agent withdrew it because her answer reached it by
+ * another route, 'answered' once she's sent a message since, 'replaced' when
+ * the agent filed a newer set before she did (filing replaces, never appends),
+ * else 'open'. Her message wins over a later filing — it's what the set was
+ * answered by. */
+export type QuestionsState = 'open' | 'answered' | 'elsewhere' | 'replaced';
 
 export function questionsState(turns: Turn[], index: number): QuestionsState {
+  if (turns[index]?.answeredElsewhere) return 'elsewhere';
   for (let i = index + 1; i < turns.length; i++) {
     if (turns[i].role === 'user') return 'answered';
     if (turns[i].role === 'questions') return 'replaced';
