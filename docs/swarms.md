@@ -59,8 +59,9 @@ lines say what exists *now*.
   the minute tick). Every seed records what the helper was shown of each
   session (`bot_chats/helper_seed/<conv>.seen.json`); the tick compares the
   sessions now against it. `config.HELPER_WAKE_ON`: `new-or-files` (default —
-  a session has a new summary and is new to the helper or its list of read and
-  edited files changed), `summary`, `edit`, or `off`. At most one wake-up per
+  a session has a new summary and is new to the helper or has edited a file
+  it hadn't edited before), `new-or-any-files` (a newly read file counts too —
+  about as often as every summary), `summary`, `edit`, or `off`. At most one wake-up per
   `HELPER_WAKE_MIN_SEC` (300), every change since its last turn folded into
   one System message; a handoff is the same line of work, not a new session.
   The helper may stay silent: it replies with exactly `(nothing to say)`, the

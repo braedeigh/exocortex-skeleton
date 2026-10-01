@@ -326,15 +326,18 @@ def test_the_helper_is_woken_once_when_a_session_is_new_or_its_files_change(room
     _did(A, _edit(repo / "garden.py"))
     _summary(A, "Now on the garden too.", "2026-09-27T12:10:00")
     assert helper_chat.wake_tick() == 0
-    _did(B, _read(repo / "notes.py"))
-    _summary(B, "Reading the notes.", "2026-09-27T12:11:00")
+    _did(B, _edit(repo / "notes.py"))
+    _summary(B, "Editing the notes.", "2026-09-27T12:11:00")
     _gap_passes(helper)
     assert helper_chat.wake_tick() == 1
     count, told = _woken(started)
     assert count == 2 and "garden.py" in told and "notes.py" in told
     _turn_ends(helper, helper_chat.SILENT)
 
-    # A new summary with no new file is not a change.
+    # A new summary is not a change when no file is newly edited: not a file
+    # it only read, not one it had edited before.
+    _did(A, _read(repo / "docs.md"), ("Write", {"file_path": str(repo / "garden.py"),
+                                                "content": "x = 3"}))
     _summary(A, "Still on the garden.", "2026-09-27T12:20:00")
     _gap_passes(helper)
     assert helper_chat.wake_tick() == 0
@@ -358,6 +361,16 @@ def test_the_wake_up_follows_its_switch(room, monkeypatch):
 
     monkeypatch.setattr(config, "HELPER_WAKE_ON", "off")
     assert helper_chat.wake_tick() == 0
+    _did(A, _read(repo / "notes.md"))                          # a newly read file
+    monkeypatch.setattr(config, "HELPER_WAKE_ON", "new-or-files")
+    assert helper_chat.wake_tick() == 0                        # reads don't count…
+    _summary(A, "Reading the notes.", "2026-09-27T12:11:00")
+    monkeypatch.setattr(config, "HELPER_WAKE_ON", "new-or-any-files")
+    assert helper_chat.wake_tick() == 1                        # …unless it's set to
+    assert "notes.md" in started[-1][1]
+    _turn_ends(helper, helper_chat.SILENT)
+    _gap_passes(helper)
+    _summary(A, "Still building it, again.", "2026-09-27T12:12:00")
     monkeypatch.setattr(config, "HELPER_WAKE_ON", "edit")
     assert helper_chat.wake_tick() == 0                        # nothing was edited
     monkeypatch.setattr(config, "HELPER_WAKE_ON", "summary")

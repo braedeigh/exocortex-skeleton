@@ -153,7 +153,8 @@ cancels one). The app checks it every minute and wakes this chat once, with a Sy
 message saying what happened, when it fires; then keep the promise. Each watch fires once.
 
 The app also wakes you by itself when the sessions you watch change — a System message \
-headed "Room change", naming the sessions that are new or whose files changed; part 3 is \
+headed "Room change", naming the sessions that are new or that started editing a file they \
+hadn't touched; part 3 is \
 already up to date when you read it. You don't have to do anything on such a turn. Look for \
 what your job is about: two sessions in the same files that aren't working together, one \
 redoing what another did, something one should hear from another. If you find it, act as you \
@@ -650,7 +651,11 @@ def changes(found, seen, mode, repo=None):
             out.append(f"{name} has a new summary.")
         elif is_new:
             out.append(f"{name} is new to your view.")
-        elif new_edits or new_reads:
+        # A file it hadn't edited before — or, under "new-or-any-files", one
+        # it hadn't read. A busy session reads something new nearly every
+        # turn, so counting reads wakes the helper about as often as
+        # "summary" does; that's why it is the wider setting, not the default.
+        elif new_edits or (new_reads and mode == "new-or-any-files"):
             told = [f"edited {_names(new_edits, repo)}" if new_edits else "",
                     f"read {_names(new_reads, repo)}" if new_reads else ""]
             out.append(f"{name}: new files — " + "; ".join(t for t in told if t) + ".")

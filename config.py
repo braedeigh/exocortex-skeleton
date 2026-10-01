@@ -181,7 +181,10 @@ HELPER_CHAT_EXCHANGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_EXCHANGES", "1
 # helper's chat when the sessions it watches change, and the helper may stay
 # silent. HELPER_WAKE_ON is what counts as a change:
 #   "new-or-files" — a session has a new summary AND it is new to the helper
-#                    or the list of files it has read or edited changed (the default);
+#                    or has edited a file it hadn't edited before (the default);
+#   "new-or-any-files" — the same, and a file it hadn't READ before counts too.
+#                    A busy session reads something new nearly every turn, so
+#                    this wakes about as often as "summary";
 #   "summary"      — a session has a new summary;
 #   "edit"         — a session edited a file;
 #   "off"          — never.
