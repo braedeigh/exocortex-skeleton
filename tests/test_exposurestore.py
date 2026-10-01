@@ -207,11 +207,11 @@ def test_scores_and_the_ledger_come_back_from_the_backup_when_the_database_is_lo
     tables = ("data_pulls", "exposure_scores", "exposure_terms")
     before = {table: sorted(rows(f"SELECT * FROM {table}"), key=repr) for table in tables}
 
-    # Lose the database; only the export files beside it are left. The foods
-    # come back first, as they do in a real restore: a score points at one.
+    # Lose the database; only the export files beside it are left. Nothing
+    # rebuilds the foods by hand first: a contaminant page may be the first
+    # thing opened, and a score points at a food.
     for leftover in store.DATA_DIR.glob("exo.db*"):
         leftover.unlink()
-    foodstore.rebuild()
     shown = exposurestore.food_exposure("potatoes")
 
     after = {table: sorted(rows(f"SELECT * FROM {table}"), key=repr) for table in tables}

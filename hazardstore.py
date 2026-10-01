@@ -233,6 +233,15 @@ def _restore_if_empty(conn):
     backup = store.read(MIRROR_FILE, {})
     if not isinstance(backup, dict) or not backup.get("hazards"):
         return False
+    # Bring the foods back first, in this same transaction. A measurement, a
+    # verdict and a score each point at a food, and the foods only come back
+    # by themselves when a recipe page asks for a rebuild; a contaminant page
+    # opened before that would restore her record with all of those skipped.
+    # The food restore puts off its own reference checks until COMMIT; turn
+    # that off again, so a row below with a missing reference is still
+    # refused there and then, and skipped.
+    foodstore._restore_if_empty(conn)
+    conn.execute("PRAGMA defer_foreign_keys = OFF")
     skipped = 0
     for table, columns in _RECORD_TABLES:
         for record in backup.get(table) or []:
