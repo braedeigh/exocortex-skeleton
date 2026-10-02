@@ -38,10 +38,15 @@ def _seed(*conv_ids, **fields):
 @pytest.fixture
 def room(data_dir, monkeypatch):
     """A room with no detached processes, no helper runs, and the messages
-    the room helper sends collected instead of delivered."""
+    the room helper sends collected instead of delivered. A swarm's closing
+    runs where it's started, with its model call faked."""
     sent = []
     monkeypatch.setattr(room_helper, "_spawn", lambda *a, **k: True)
     monkeypatch.setattr(swarm_helper, "_spawn", lambda *a, **k: True)
+    monkeypatch.setattr(swarm_helper, "_detach",
+                        lambda swarm_id, args: swarm_helper.main(["swarm_helper.py", *args]))
+    monkeypatch.setattr(swarm_helper, "_call_closing",
+                        lambda text: ({"headline": "It closed.", "summary": "What it did."}, 0.0))
     monkeypatch.setattr(observatory, "peer_send",
                         lambda frm, to, text, mode="inject": sent.append((frm, to, text, mode)))
     return sent
