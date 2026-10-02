@@ -2828,13 +2828,17 @@ def after_turn(conv_id):
         drain_inbox(successor)
         return
     # A helper's chat (a swarm's, a room's, the Linear helper's) is never
-    # continued and belongs to no swarm as a member. Its only end-of-turn job makes no
+    # continued and belongs to no swarm as a member. Its end-of-turn jobs make no
     # model call: a wake-up it answered with silence leaves no trace on its
-    # card (helper_chat.after_turn).
+    # card (helper_chat.after_turn), and the helper of a closed swarm, having
+    # answered her, starts its countdown to closing again (swarm_helper.rest_again).
     if isinstance(entry, dict) and entry.get("role") in _HELPER_ROLES:
         try:
             import helper_chat
             helper_chat.after_turn(conv_id)
+            if entry.get("role") == "swarm_helper":
+                import swarm_helper
+                swarm_helper.rest_again(conv_id)
         except Exception as e:
             print(f"helper after-turn failed for {conv_id}: {e}", file=sys.stderr)
         return

@@ -20,7 +20,10 @@ things:
      wakes it. Inside the doc sit two short lists that are the helper's own:
      her STANDING RULES (her lasting instructions in her exact words, kept in
      a file she can open and edit — see "Her standing rules" below) and its
-     open WATCHES (watches.py). There is no retelling of the chat.
+     open WATCHES (watches.py). A swarm helper whose swarm has closed also
+     finds there what the swarm did: the closing summaries it wrote, kept
+     in `swarm_closings` (swarm_helper.closings_text), so it can answer her
+     questions about what happened. There is no retelling of the chat.
   2. HER LAST MESSAGES TO THE HELPER, EACH WITH ITS REPLY — the last
      config.HELPER_CHAT_EXCHANGES exchanges she started, whole, nothing cut.
      The reply is the helper's words, not its tool calls. Turns she didn't
@@ -53,6 +56,7 @@ the turn's system prompt file; after_turn calls after_turn here),
 edited_files.py (which files a session edited and read), swarms.py (lines of
 work, who is retired, a swarm's members), the swarm_members and
 session_summaries tables (the summaries), watches.py (the open watches),
+swarm_helper.py (the closing summaries of a swarm that has closed),
 config.py (HELPER_CHAT_EXCHANGES, HELPER_WAKE_*), scripts/helper_rule.py (the
 helper's door to its rules), scripts/coming_up_dispatcher.py (the wake-up
 tick), continuation.py (which never continues this chat),
@@ -96,7 +100,8 @@ SWARM_LEAD = """You are the helper for a swarm of AI coding agents working on on
 app — the owner, who talks to you in this chat. The agents became a swarm by messaging each \
 other. Your job: keep track of what all of them are doing, notice where their work overlaps or \
 collides, pass between them what one needs to know from another, and answer the owner's \
-questions about the swarm."""
+questions about the swarm. When the swarm closes you write a closing summary of what it did; \
+it is kept, and from then on it is in this doc under "What this swarm did"."""
 
 ROOM_LEAD = """You are the room helper for the {room} room of one person's app — the owner, \
 who talks to you in this chat. AI coding agents work there in sessions; sessions that message \
@@ -163,7 +168,7 @@ finds which sessions talked about something.
 `peers.py list` for every session running now or lately.
 - The database (read-only SQL): `EXOCORTEX_DATA_DIR={data} ./venv/bin/python3 scripts/exo_query.py \
 query "<select>"`. `swarms` holds each swarm's name and summary, `swarm_members` who is in \
-which; `room_moves` the room helper's moves (`scripts/room_moves.py list` prints the recent \
+which, `swarm_closings` what each swarm did, written when it closed; `room_moves` the room helper's moves (`scripts/room_moves.py list` prints the recent \
 ones); `agent_messages` every message between sessions (and hers sent mid-turn); `tool_calls` \
 every tool any agent ran, so any file's readers and editors. `exo_query.py schema <table>` \
 lists a table's columns.
@@ -592,7 +597,8 @@ def _sessions_section(entry, found, finished, place, repo=None, now=None):
 
 def seed_parts(conv_id, entry, watched=None):
     """Everything one chat turn starts from, as its parts in order — each
-    {"key", "title", "text"}: the doc, her rules, the open watches, (for the
+    {"key", "title", "text"}: the doc, her rules, the open watches, (for a
+    swarm helper whose swarm has closed) its closing summaries, (for the
     Linear helper) the Linear news, her last exchanges, the active sessions.
     The title is for her, on the helper's context page; the text is what the
     model reads. `watched` is what `sessions` returned, when the caller
@@ -619,6 +625,15 @@ def seed_parts(conv_id, entry, watched=None):
               f"# 1. This doc\n\n{prompt}\n"),
              ("rules", "Your standing rules", _rules_section(entry)),
              ("watches", "Its open watches", watches.seed_section(conv_id))]
+    # A swarm helper's doc carries what its swarm did, once it has closed: the
+    # closing message is posted on a turn she didn't start, so nothing else
+    # would hand it back when she asks what happened.
+    if entry.get("role") == "swarm_helper":
+        import swarm_helper
+        kept = swarm_helper.closings_text(entry.get("swarm_id"))
+        if kept:
+            parts.append(("closings", "What this swarm did — its closing summaries",
+                          f"# What this swarm did — your closing summaries\n\n{kept}"))
     # The Linear helper's doc also carries the latest Linear news: its chat
     # rolls, and this is how it still knows what it was woken with before.
     if entry.get("role") == "linear_helper":

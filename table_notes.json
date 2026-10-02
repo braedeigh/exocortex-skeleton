@@ -3646,5 +3646,43 @@
         "holds": "When the Linear helper was woken with it. Empty while it's still waiting; rows read on the feed's first run are stamped without waking anyone."
       }
     }
+  },
+  "swarm_closings": {
+    "holds": "What each swarm did, written when it closed: the helper's plain-words summary, and the closing check built from git and the session records. One row per time a swarm closed, so a swarm that opened again and closed again has more than one. The helper is handed these on every later turn, and the swarm's page shows them.",
+    "source": "Written by swarm_helper.py (close_out) once per closing. Rows are never changed; a swarm that is dissolved takes its rows with it.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "The row's number."
+      },
+      "swarm_id": {
+        "holds": "Which swarm."
+      },
+      "at": {
+        "holds": "When it closed."
+      },
+      "name": {
+        "holds": "The swarm's name when it closed."
+      },
+      "headline": {
+        "holds": "One sentence saying what the swarm did, written by the helper. Empty when the model call failed."
+      },
+      "summary": {
+        "holds": "The helper's summary of what the swarm did, in plain words. Empty when the model call failed."
+      },
+      "facts": {
+        "holds": "The closing check: commits git knows, files written but not committed, members not finished, questions still waiting on the owner, detached jobs still running."
+      },
+      "input": {
+        "holds": "Everything the helper's model was given to write the summary from, verbatim. Empty when no model was called."
+      },
+      "cost_usd": {
+        "holds": "What the summary's model call cost."
+      },
+      "error": {
+        "holds": "Why there is no summary, when there isn't one."
+      }
+    }
   }
 }

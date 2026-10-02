@@ -96,18 +96,54 @@ lines say what exists *now*.
   continuation of one; `in_helper_view` leaves those out (not even named), and
   the summarizer's "Messages between members" leaves out their messages. They
   stay members for the pages and the closing check.
-- **A closing check when the swarm retires.** A swarm is *retired* when fewer
-  than two of its lines of work are still going — the rest done (`done_at`),
-  archived, handed on to a continuation, or gone from the index, and none of
-  them mid-turn (`swarms.retired`). The helper then
-  posts one last message built from git and the session records, not the
-  agents' word: commits it made (as git announced them, checked against the
-  repo), files written but not committed, members closed without saying they
-  were done (or are still working, on their own now), questions still
-  waiting on her, detached jobs still running. Then it marks itself done;
-  the usual two-hour countdown closes it. If two lines of work are going in
-  the swarm again, the helper comes back. A closed swarm's helper isn't
-  poked by member turns (`swarm_helper.poke`).
+- **A closing summary and a closing check when the swarm retires.** A swarm
+  is *retired* when fewer than two of its lines of work are still going — the
+  rest done (`done_at`), archived, handed on to a continuation, or gone from
+  the index, and none of them mid-turn (`swarms.retired`). The helper then
+  posts one last message with two halves, and marks itself done; the usual
+  two-hour countdown closes it.
+  - *The closing summary*, written by the helper's model. Her ask: "when a
+    swarm retires, i want a summary of what was done to be written by that
+    swarm's helper, which will then be put in the chat and noted ... so i can
+    know what was completed and ask it questions about what happened." One
+    call per retirement, in a process of its own (`swarm_helper.py close
+    <id>`, started by the minute tick). It reads the swarm's last summary,
+    every member whenever it finished (its summary, what it said when it
+    marked itself done, the end of what it did), the messages between
+    members, and the closing check — which it is told is the truth about
+    what shipped: it may say something was committed only when a commit
+    there shows it.
+  - *The closing check*, plain code, built from git and the session records,
+    not the agents' word: the commits the members made, files written but not
+    committed, members closed without saying they were done (or still
+    working, on their own now), questions still waiting on her, detached jobs
+    still running. A commit is found two ways, because agents mostly commit
+    quietly: git announced it in a tool result, or a repo the session worked
+    in holds a commit made in the seconds its `git commit` command ran.
+  - *Kept.* Both go into `swarm_closings`, one row per time the swarm closed.
+    A swarm that opens again and closes again gets a new row; the earlier ones
+    stay, and the new summary is written from the last closing on. The swarm's
+    page shows them ("What this swarm did"). A dissolved swarm's rows go with it.
+  - *Handed back to the helper.* The closing message is posted on a turn she
+    didn't start, so the rolling chat would never replay it. Instead the kept
+    summaries (the latest with its closing check) are a part of the helper's
+    doc on every later turn (`swarm_helper.closings_text`, the "closings" part
+    on its context page), with every member the swarm had named by session id
+    — finished members drop out of the helper's view after a day (below), and
+    this is how it still finds their transcripts. A run that answers her from
+    the swarm page's box reads the same text (`gather`). When a closed
+    swarm's helper has answered her, it starts its countdown again
+    (`swarm_helper.rest_again`): her message took its done mark off, and a
+    helper can't mark itself done.
+  - *The room is told.* One line in the room helper's chat: the swarm closed,
+    the summary's one-sentence headline, and where the whole of it is.
+  - *When the summary can't be written* — the model call fails, or the
+    closing process dies — the closing check is posted alone, saying why, and
+    the row keeps the reason. It is never tried again by itself: one
+    retirement, one model call. `swarm_helper.py close <id>` by hand writes a
+    closing for a swarm that is closed.
+  If two lines of work are going in the swarm again, the helper comes back. A
+  closed swarm's helper isn't poked by member turns (`swarm_helper.poke`).
 - **A swarm closes when its work is over.** Her ask: "closes swarms on the
   UI when all agents within it are closed", then the two-session minimum
   above. Closed is the retired rule above (fewer than two lines of work
@@ -313,7 +349,7 @@ read by the helper." So the app notices and writes it down
 | Watches | `watches.py` (add, the minute check, the wake-up, the seed section); `helper_watches` (sqlstore rung 40); `scripts/helper_watch.py`; allowed in `tools/helper_gate.py`; ticked by `scripts/coming_up_dispatcher.py`; `config.HELPER_WATCH_*` |
 | Linear feed | `linear_feed.py` (the look, what counts as news, the once-only record, the Linear helper and its wake-up, the phone push); `linear_api.py` (`team`, `changes`); `linear_events` (sqlstore rung 44) and the `linear_feed` state file; the helper's lead, sessions and news section in `helper_chat.py`; `scripts/linear_feed.py`, allowed in `tools/helper_gate.py`; `GET /api/linear-room/feed` in `routes/linear_room.py`; `LinearNews.tsx`, `linearNewsSeen.ts`, `LinearDoor.tsx`; ticked by `scripts/coming_up_dispatcher.py`; `config.LINEAR_FEED*`, `LINEAR_HELPER_DAYS` |
 | File alerts | `file_alerts.py` (finding overlaps, the once-only claim, the room helper's list); `edited_files.py` (`edits`, `reads`, the section that shows the list); `file_alerts` (sqlstore rungs 42–43); ticked by `scripts/coming_up_dispatcher.py`; `config.FILE_OVERLAPS`, `config.FILE_ALERT_ROOMS` / `_HOURS`. Switched off (`config.FILE_ALERTS`): the notice texts and pre-edit check in `file_alerts.py`, the mailbox's kind `S` and `peermail.send_notice`, `tools/file_alert_hook.py` wired in `_session_settings`, `drain_inbox` in `routes/observatory.py` |
-| Closing check | `swarms.retired`; `swarm_helper.watch_retirement` / `close_out` / `closing_report`, run by `swarm_helper.tick` on the minute tick |
+| Closing summary and check | `swarms.retired`; `swarm_helper.watch_retirement` (run by `swarm_helper.tick` on the minute tick) starts `swarm_helper.py close <id>`; `close_out` (the model call, the record, the post, the room's line), `closing_input`, `closing_report` and `_commits_of` (the facts), `closings` / `closings_text` (the record and how the helper is handed it), `rest_again`; `swarm_closings` (sqlstore rung 45); the "closings" part in `helper_chat.seed_parts`; `closings` in `GET /api/swarms/<id>` and the "What this swarm did" section of `SwarmPage.tsx` |
 
 ## Status
 
@@ -333,8 +369,10 @@ read by the helper." So the app notices and writes it down
   yet — they're in the helper's seed, its chat, and `helper_watch.py list`.
 - Mailbox, token accounting, continuation, swarms and the helper: built and
   tested.
-- The helper chat's rolling context and the closing check: built and tested
-  (`tests/test_helper_chat.py`). The three-part seed, her standing rules and
+- The helper chat's rolling context, the closing summary and the closing
+  check: built and tested (`tests/test_helper_chat.py`). Swarms that closed
+  before the closing summary existed have none; nothing writes one for them
+  by itself. The three-part seed, her standing rules and
   the wake-up are built and tested there too. The seed and the rules are on
   the helper's context page (`tests/test_swarm_routes.py`). Index entries may still carry an
   old `helper_notes` field from the chat summary; nothing reads it.

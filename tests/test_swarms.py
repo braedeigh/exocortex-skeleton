@@ -105,6 +105,24 @@ def test_a_stored_handoff_only_swarm_is_dissolved(data_dir):
     assert store.read("bot_chats/index", {})["h"].get("archived")
 
 
+def test_a_dissolved_swarm_takes_its_closing_summaries_with_it(data_dir):
+    """A swarm whose only message was cancelled never was one: its rows go.
+    The closing summaries point at the swarm, so they must go first or the
+    dissolve fails — and every swarms page with it."""
+    import sqlstore
+    _seed("a", "b")
+    sent = peermail.send("b", "hi", from_conv="a")
+    [swarm_id] = swarms.sync()
+    conn = sqlstore.open_db()
+    conn.execute("INSERT INTO swarm_closings (swarm_id, at, facts) VALUES (?, 'x', 'facts')",
+                 (swarm_id,))
+    conn.execute("UPDATE agent_messages SET status = 'cancelled' WHERE id = ?", (sent["id"],))
+    conn.commit()
+    assert swarms.sync() == {}
+    assert conn.execute("SELECT COUNT(*) FROM swarm_closings").fetchone()[0] == 0
+    conn.close()
+
+
 def test_an_absorbed_swarms_helper_is_archived(data_dir):
     _seed("a", "b", "x", "y")
     peermail.send("b", "hi", from_conv="a")

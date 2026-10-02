@@ -507,7 +507,7 @@
         "notes",
         "note_judgments",
         "job_runs", "agent_messages", "swarms", "swarm_members", "swarm_helper_runs",
-        "session_summaries", "swarm_pins", "room_moves", "room_helper_runs", "helper_watches", "file_alerts", "linear_events"
+        "session_summaries", "swarm_pins", "room_moves", "room_helper_runs", "helper_watches", "file_alerts", "linear_events", "swarm_closings"
       ],
       "collections": [
         "dev_notes",

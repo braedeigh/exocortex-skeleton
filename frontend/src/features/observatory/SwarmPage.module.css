@@ -165,3 +165,30 @@
 .error {
   color: var(--red);
 }
+
+/* One closing: when it closed, the helper's summary, the closing check folded. */
+.closing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.closing .muted {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+/* The summary and the check are drawn from markdown: paragraphs and lists. */
+.closingBody {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.closingBody p {
+  margin: 0 0 var(--space-2);
+}
+
+.closingBody ul {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-4);
+}

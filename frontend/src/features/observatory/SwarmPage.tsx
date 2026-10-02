@@ -10,6 +10,9 @@
  *     chat (the helper is a session of its own) and one to its context page
  *     (HelperContextPage.tsx);
  *   - the swarm's name, the helper's summary, and where members' work differs;
+ *   - once the swarm has closed, what it did: the closing summary its helper
+ *     wrote, with the closing check (what git and the session records show)
+ *     folded beneath it, and any earlier closings below that;
  *   - the swarm as a network: rings joined by green lines where members have
  *     messaged each other (SwarmNetwork.tsx), the helper as the dot in the middle;
  *   - a '+' on the Sessions title line that starts a new session inside the
@@ -26,7 +29,8 @@
  *   - every helper run, each opening to show exactly what it was given and
  *     what it wrote back — the information it used, nothing hidden.
  *
- * Touches: swarmApi.ts (useSwarm, refreshSwarm), roomOrder.ts (swarmView), api.ts (the roster, sending
+ * Touches: swarmApi.ts (useSwarm, refreshSwarm), journal/markdown.ts (drawing
+ * the closing summary), roomOrder.ts (swarmView), api.ts (the roster, sending
  * to the helper's mailbox, starting and closing a session), SessionDialog.tsx
  * (the new-session sheet), SessionLane.tsx (the member
  * cards), sessionLocation.ts, routes/observatory_.swarm.$swarmId.tsx (the
@@ -36,6 +40,8 @@
  * into it and see what information is being used by it and sent between
  * sessions and summaries and whatnot. could also have an input section."
  * · "i want to make it possible to add a session per swarm room"
+ * · "when a swarm retires, i want a summary of what was done ... so i can
+ * know what was completed and ask it questions about what happened"
  */
 import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
@@ -57,6 +63,7 @@ import { SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
 import { refreshSwarm, useSwarm } from './swarmApi';
 import { swarmView } from './roomOrder';
 import { useTerrain } from '../terrain/api';
+import { mdToHtml } from '../journal/markdown';
 
 export function SwarmPage({ swarmId }: { swarmId: number }) {
   const navigate = useNavigate();
@@ -204,6 +211,35 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
                 </div>
               ) : null}
             </section>
+
+            {/* What the swarm did, once it has closed: the helper's closing
+                summary, newest first. mdToHtml escapes the text before it
+                marks it up, so the model's words can't carry markup in. */}
+            {swarm.closings && swarm.closings.length > 0 ? (
+              <section className={styles.section}>
+                <h2 className={styles.h2}>What this swarm did</h2>
+                {swarm.closings.map((c, n) => (
+                  <div key={c.id} className={styles.closing}>
+                    <p className={styles.muted}>
+                      {n === 0 ? 'Closed' : 'Closed earlier,'} {c.at.slice(0, 16).replace('T', ' ')}. Written by its
+                      helper; ask it above about what happened.
+                    </p>
+                    {c.summary ? (
+                      <div className={styles.closingBody} dangerouslySetInnerHTML={{ __html: mdToHtml(c.summary) }} />
+                    ) : (
+                      <p className={styles.error}>
+                        No summary was written ({c.error ?? 'the model call failed'}). The closing check below is what
+                        git shows.
+                      </p>
+                    )}
+                    <details className={styles.run}>
+                      <summary className={styles.runHead}>The closing check: what git and the session records show</summary>
+                      <div className={styles.closingBody} dangerouslySetInnerHTML={{ __html: mdToHtml(c.facts) }} />
+                    </details>
+                  </div>
+                ))}
+              </section>
+            ) : null}
 
             {/* Who's talking to whom, as a network. */}
             <section className={styles.section}>

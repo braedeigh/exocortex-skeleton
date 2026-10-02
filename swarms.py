@@ -45,8 +45,8 @@ page): `join` adds it as a member before it has messaged anyone, and
 This file only works out who belongs where and stores it. Naming the swarm and
 summarising its members is the helper's job (docs/swarms.md, stage 4).
 
-Touches: sqlstore.py (the `swarms`, `swarm_members`, `swarm_helper_runs` and
-`swarm_pins` tables), the `agent_messages` table (peermail.py), room_helper.py
+Touches: sqlstore.py (the `swarms`, `swarm_members`, `swarm_helper_runs`,
+`swarm_closings` and `swarm_pins` tables), the `agent_messages` table (peermail.py), room_helper.py
 (which makes the placements, through `place`), the session index
 (bot_chats/index — lanes and spinoff lineage), tests/test_swarms.py.
 Design and decisions: docs/swarms.md.
@@ -267,11 +267,13 @@ def _reconcile(conn, found, placed, index, dry):
     # Dissolve any stored swarm no group covers any more. That's a
     # swarm formed by a handoff alone (before handoffs stopped making
     # swarms), or one whose only message was cancelled: there was
-    # never a conversation, so its rows go, helper summaries with them.
+    # never a conversation, so its rows go, helper summaries and closing
+    # summaries with them.
     for gone in set(stored) - set(live):
         write("UPDATE swarms SET merged_into = NULL, updated_at = ?"
               " WHERE merged_into = ?", (now, gone))
         write("DELETE FROM swarm_helper_runs WHERE swarm_id = ?", (gone,))
+        write("DELETE FROM swarm_closings WHERE swarm_id = ?", (gone,))
         write("DELETE FROM swarm_members WHERE swarm_id = ?", (gone,))
         write("DELETE FROM swarms WHERE id = ?", (gone,))
     return live
@@ -393,7 +395,7 @@ def is_live(swarm_id):
 def retired(swarm_id, index=None):
     """Has the swarm closed — is it a live swarm with members, fewer than two
     of whose lines of work are still going (is_closed)? That's the moment its
-    helper runs its closing check (swarm_helper.close_out). A swarm that was
+    helper writes its closing summary (swarm_helper.close_out). A swarm that was
     merged into another, dissolved, or has no members is not "retired": it
     never finished, it stopped existing."""
     if index is None:

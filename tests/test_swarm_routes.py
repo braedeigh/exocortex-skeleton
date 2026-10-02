@@ -2,6 +2,7 @@
 
 What these pin: the list shows a live swarm with its counts; the detail
 carries the helper's runs verbatim and the messages between members;
+a closed swarm's page carries what it did, newest closing first;
 unknown swarms 404; a card says whether it's closed; refresh starts a helper run; the room view lists the
 sessions working alone and the room helper's moves; helper-of links a session's
 chat to its swarm's helper, else its room's, and a helper one level up or nowhere;
@@ -56,6 +57,22 @@ def test_the_detail_shows_what_the_helper_used(client):
     assert got["runs"][0]["input"] == "the input"
     assert got["differences"] == ["both edit x.py"]
     assert [m["text"] for m in got["messages"]] == ["hello"]
+
+
+def test_the_detail_shows_what_a_closed_swarm_did(client, monkeypatch):
+    [swarm_id] = swarms.sync()
+    assert client.get(f"/api/swarms/{swarm_id}").get_json()["closings"] == []
+    helper = swarm_helper.ensure_helper(swarm_id)
+    with store.mutate("bot_chats/index", {}) as index:
+        index["a"] = {"title": "A", "lane": "coding", "done_at": "2026-09-27T12:00:00"}
+    said = iter(["first time", "second time"])
+    monkeypatch.setattr(swarm_helper, "_call_closing",
+                        lambda text: ({"headline": "h", "summary": next(said)}, 0.01))
+    swarm_helper.close_out(swarm_id, helper)
+    swarm_helper.close_out(swarm_id, helper)
+    newest, older = client.get(f"/api/swarms/{swarm_id}").get_json()["closings"]
+    assert (newest["summary"], older["summary"]) == ("second time", "first time")
+    assert "What shipped" in newest["facts"] and newest["error"] is None
 
 
 def test_unknown_swarm_is_404(client):

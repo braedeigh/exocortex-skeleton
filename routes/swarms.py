@@ -12,8 +12,11 @@ summaries (swarm_helper.py). These routes hand that to the page:
     GET  /api/swarms/<id>         one swarm in full, for its page: the above,
                                   plus the helper's recent runs (exactly what it
                                   was given and what it wrote back), the
-                                  messages between members, and where the
-                                  helper saw their work differ.
+                                  messages between members, where the
+                                  helper saw their work differ, and — once
+                                  it has closed — what it did: the closing
+                                  summaries its helper wrote, newest first,
+                                  each with its closing check.
     POST /api/swarms/<id>/refresh ask the helper to update now.
     GET  /api/swarms/room/<room>  the room seen from above, for the room map:
                                   the room helper's session, the sessions
@@ -41,9 +44,9 @@ Messages TO the helper don't need a route of their own: the helper is a
 session, so the chat's normal mailbox (POST
 /api/observatory/conversation/<helper>/inbox) reaches it.
 
-Touches: swarms.py, swarm_helper.py, room_helper.py, helper_chat.py (the seed
-and the rules), the agent_messages,
-swarm_helper_runs and session_summaries tables, tests/test_swarm_routes.py. Design: docs/swarms.md.
+Touches: swarms.py, swarm_helper.py (the closing summaries), room_helper.py,
+helper_chat.py (the seed and the rules), the agent_messages,
+swarm_helper_runs, swarm_closings and session_summaries tables, tests/test_swarm_routes.py. Design: docs/swarms.md.
 """
 import json
 
@@ -92,7 +95,8 @@ def detail(swarm_id):
         conn.close()
     latest = next((r["output"] for r in runs if r["output"]), None) or {}
     return {**card, "runs": runs, "messages": messages,
-            "differences": latest.get("differences") or []}
+            "differences": latest.get("differences") or [],
+            "closings": list(reversed(swarm_helper.closings(swarm_id)))}
 
 
 def room(room_name):

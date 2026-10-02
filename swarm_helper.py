@@ -32,10 +32,18 @@ information it used and what it did with it.
 Its chat is one conversation for the swarm's whole life. When the owner
 talks to it there, each turn starts fresh from a rolling seed (a doc, her
 last 15 messages with its replies, and each member's summary and files —
-helper_chat.py), so it never fills its context and is never continued. When the swarm closes — fewer
-than two of its members still working (swarms.retired) — it posts a closing check — what git says shipped, what's
-uncommitted or unfinished, questions and detached jobs still waiting — and
-marks itself done (close_out, at the minute tick).
+helper_chat.py), so it never fills its context and is never continued.
+
+When the swarm closes — fewer than two of its members still working
+(swarms.retired) — the helper writes a CLOSING SUMMARY: one more model call,
+in a process of its own, that says in plain words what the swarm set out to
+do, what each line of work completed and what is left. It is posted in the
+helper's chat above the closing check — the facts read from git and the
+session records: what shipped, what's uncommitted or unfinished, questions
+and detached jobs still waiting. Both are kept (`swarm_closings`, one row per
+time the swarm closed) and handed back to the helper on every later turn, so
+it can answer her questions about what happened; the room's helper gets one
+line saying the swarm closed. Then the helper marks itself done (close_out).
 
 When it runs: when a member's turn ends (at most once every
 config.SWARM_HELPER_MIN_SEC per swarm — anything sooner waits for the minute
@@ -47,9 +55,11 @@ Touches: swarms.py (membership and the tables), peermail.py (its mailbox;
 agent messages it sends go through routes/observatory.peer_send), the session
 index (the helper's own entry — `role: "swarm_helper"`), config.py (model,
 pacing, HELPER_SUMMARY_PARALLEL), scripts/coming_up_dispatcher.py (the minute
-tick), sqlstore.py (swarm_helper_runs), helper_chat.py (its chat's rolling
-context), room_helper.py (shares ask_model, side_by_side and
-summarise_sessions), tests/test_swarm_helper.py, tests/test_helper_chat.py.
+tick), sqlstore.py (swarm_helper_runs, swarm_closings), helper_chat.py (its
+chat's rolling context, which carries the closing summaries), room_helper.py
+(shares ask_model, side_by_side and summarise_sessions; its chat gets the
+line saying a swarm closed), routes/swarms.py (the swarm's page shows the
+closing summaries), tests/test_swarm_helper.py, tests/test_helper_chat.py.
 Design: docs/swarms.md.
 
 Prompt that produced this: "i want the helper to name the session and
@@ -58,7 +68,11 @@ coordinates differences ... which may be done per turn and then drop the
 other summary out of the context window ... one helper per swarm. i want to
 be able to click into it and see what information is being used by it." —
 and, for the summaries: "If these aren't written by parallel individual
-sonnet sessions, make these parallel and individual."
+sonnet sessions, make these parallel and individual." — and, for the closing
+summary: "when a swarm retires, i want a summary of what was done to be
+written by that swarm's helper, which will then be put in the chat and noted
+... so i can know what was completed and ask it questions about what
+happened."
 """
 import json
 import os
@@ -136,6 +150,37 @@ SESSION_SCHEMA = {
     "properties": {"summary": {"type": "string"}},
     "required": ["summary"],
 }
+
+
+# The closing summary, written once when the swarm closes (close_out).
+CLOSING_PROMPT = """You are the helper for a swarm of AI coding agents that worked on one \
+person's app. The swarm has just closed: fewer than two of its sessions are still working. \
+Write its closing summary for the owner, so she knows what was completed and can ask you about \
+it later.
+You are given the swarm's last summary, every member with its own summary and the end of what \
+it did and said, the messages between members, and the CLOSING CHECK: facts the app read from \
+git and the session records. Write:
+- headline: ONE plain sentence, under 30 words, saying what the swarm got done.
+- summary: what the swarm set out to do; then what each line of work completed; then what is \
+left: unfinished, uncommitted, untried, or waiting on her. A few short paragraphs, or short \
+lines starting with "- ". No headings and no tables.
+The closing check is the truth about what shipped. Say something shipped or was committed only \
+when a commit in the closing check shows it, and name that commit. When an agent says it did \
+something the check doesn't show, say exactly that ("it says it did X, but no commit shows \
+it"). Where what you were given doesn't tell you, say you don't know; never guess. Plain \
+words; the owner reads this."""
+
+CLOSING_SCHEMA = {
+    "type": "object",
+    "properties": {"headline": {"type": "string"}, "summary": {"type": "string"}},
+    "required": ["headline", "summary"],
+}
+
+# How many closing summaries the helper is handed back; a swarm that has
+# closed more often than this keeps the rest in the table.
+_CLOSINGS_SHOWN = 5
+# How many of the messages between members the closing summary's call reads.
+_CLOSING_MESSAGES = 80
 
 
 def _now():
@@ -297,6 +342,11 @@ def gather(swarm_id, questions=()):
         conn.close()
     out += ["## Messages between members since the last summary", ""]
     out += [f"- {at} {a} → {b}: {_trim(t)}" for at, a, b, t in talk] or ["(none)"]
+    # A swarm that has closed: what it did, as written then. A question about
+    # what happened is answered from this — its members may be out of view.
+    kept = closings_text(swarm_id, index, mark="###")
+    if kept:
+        out += ["", "## What this swarm did — your closing summaries", "", kept]
     if questions:
         out += ["", "## Questions in your mailbox (answer each, addressed to its sender)", ""]
         for q in questions:
@@ -334,6 +384,11 @@ def _call_model(text):
 def _call_session(text):
     """One session's summary call."""
     return ask_model(text, SESSION_PROMPT, SESSION_SCHEMA)
+
+
+def _call_closing(text):
+    """The closing summary's call: what the swarm did, once, when it closes."""
+    return ask_model(text, CLOSING_PROMPT, CLOSING_SCHEMA)
 
 
 def side_by_side(jobs):
@@ -520,16 +575,39 @@ def _spawn(swarm_id, trigger, question_ids=()):
         entry["running"] = True
         entry["last_at"] = _now()
         entry.pop("helper_pending", None)
+    args = ["run", str(swarm_id), trigger]
+    if question_ids:
+        args += ["--questions", ",".join(str(i) for i in question_ids)]
+    _detach(swarm_id, args)
+    return True
+
+
+def _detach(swarm_id, args):
+    """Start `python3 swarm_helper.py <args>` as a process of its own, so
+    nothing waits on the model. What it prints goes to the swarm's helper log."""
     log = store.DATA_DIR / "bot_chats" / ".turns" / f"helper-{swarm_id}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [sys.executable, str(Path(__file__).resolve()), "run", str(swarm_id), trigger]
-    if question_ids:
-        cmd += ["--questions", ",".join(str(i) for i in question_ids)]
+    cmd = [sys.executable, str(Path(__file__).resolve()), *args]
     env = {**os.environ, "EXOCORTEX_DATA_DIR": str(store.DATA_DIR),
            "EXOCORTEX_CONTENT_DIR": str(store.CONTENT_DIR)}
     with open(log, "ab") as errf:
         subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=errf, stderr=errf,
                          start_new_session=True, env=env)
+
+
+def _spawn_close(swarm_id, helper):
+    """Start the closing of a retired swarm in its own detached process,
+    marking the helper busy. `helper_closing_at` says a closing was started:
+    the minute tick never starts a second one for the same retirement
+    (watch_retirement), so the closing summary costs one model call."""
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(helper)
+        if not isinstance(entry, dict):
+            return False
+        entry["running"] = True
+        entry["last_at"] = entry["helper_closing_at"] = _now()
+        entry.pop("helper_pending", None)
+    _detach(swarm_id, ["close", str(swarm_id)])
     return True
 
 
@@ -592,19 +670,25 @@ def tick():
     return started
 
 
-# --- When the swarm retires: the closing check --------------------------------
+# --- When the swarm retires: the closing summary and the closing check --------
 # A swarm's helper stays for as long as the swarm does. When the swarm closes
 # — fewer than two of its lines of work still going (swarms.retired: the
-# others done, closed, archived or released) — the helper posts one
-# last message — what shipped, what's left — and marks itself done, so its
-# card closes two hours later like any finished session's. The facts come from
-# git, the session index and the job folders, never from what the agents said
-# about themselves, so this is plain code, not a model call.
+# others done, closed, archived or released) — the helper posts one last
+# message and marks itself done, so its card closes two hours later like any
+# finished session's. The message has two halves:
+#   - the CLOSING SUMMARY, written by the model: what the swarm set out to
+#     do, what each line of work completed, what is left;
+#   - the CLOSING CHECK, plain code: the facts from git, the session index and
+#     the job folders, never from what the agents said about themselves. The
+#     model is handed it and told it is the truth about what shipped.
+# Both are kept in `swarm_closings` and handed back to the helper every turn.
 #
-# Prompt: "when the swarm retires ... the helper runs a closing check: what
+# Prompts: "when the swarm retires ... the helper runs a closing check: what
 # shipped (commit hashes from git, not agents' word), anything left uncommitted
 # or unfinished, open questions still waiting on her, and stray detached jobs.
-# It posts that as its final message, then closes itself."
+# It posts that as its final message, then closes itself." — and: "when a
+# swarm retires, i want a summary of what was done to be written by that
+# swarm's helper, which will then be put in the chat and noted".
 
 # A commit as git reports it when it's made: "[main a15f1a7] subject".
 _COMMIT_RE = re.compile(r"\[([\w./-]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\] ")
@@ -620,10 +704,64 @@ def _git(cwd, *args):
     return proc.stdout if proc.returncode == 0 else None
 
 
+# A shell command that makes a commit, and the folders a command names
+# (`git -C <folder>`, `cd <folder>`): the other repos a session worked in.
+_COMMIT_CMD_RE = re.compile(r"\bgit\b(?:\s+-[cC]\s+\S+)*\s+commit\b")
+_FOLDER_RE = re.compile(r"(?:\bgit\s+-C|\bcd)\s+[\"']?([^\s\"';&|]+)")
+
+
+def _epoch(stamp):
+    """A transcript line's UTC timestamp ("…Z") as seconds, or None."""
+    try:
+        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _commit_calls(raw):
+    """When a session ran `git commit`, read from its transcript: ([(started,
+    ended)] in seconds, one pair per commit command — from the moment the
+    agent asked for the command to the moment its result came back — and
+    every folder any of its shell commands named)."""
+    asked, windows, folders = {}, [], []
+    for line in raw.splitlines():
+        if "tool_use" not in line and "tool_result" not in line:
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        content = (e.get("message") or {}).get("content") if isinstance(e, dict) else None
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use" and block.get("name") == "Bash":
+                command = str((block.get("input") or {}).get("command") or "")
+                folders += [f for f in _FOLDER_RE.findall(command) if f not in folders]
+                if _COMMIT_CMD_RE.search(command) and _epoch(e.get("timestamp")):
+                    asked[block.get("id")] = _epoch(e["timestamp"])
+            elif block.get("type") == "tool_result" and block.get("tool_use_id") in asked:
+                began = asked.pop(block["tool_use_id"])
+                windows.append((began, _epoch(e.get("timestamp")) or began + 600))
+    # A commit command whose result was never written still gets ten minutes.
+    windows += [(began, began + 600) for began in asked.values()]
+    return windows, folders
+
+
 def _commits_of(conv_id, entry):
-    """The commits a session made: every commit git announced in its tool
-    results, each checked against the repo it ran in. Returns a list of
-    (hash, subject, found) — found False when that repo doesn't know it."""
+    """The commits a session made, as git tells it. Returns a list of
+    (hash, subject, found) — found False when git announced a commit that
+    the repo no longer knows.
+
+    Two ways a commit is found, because agents mostly commit quietly:
+      - git announced it in a tool result ("[main a15f1a7] subject"); each
+        is checked against the repo the session ran in;
+      - the session ran a `git commit` command, and a repo it worked in — its
+        own folder, or one a shell command of its named — holds a commit made
+        while that command ran. A quiet commit (`-q`) prints nothing, so
+        this asks git what was committed in those seconds.
+    The second can credit a session with another's commit only if both
+    committed to the same repo within the same few seconds."""
     path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
     try:
         raw = path.read_text(encoding="utf-8", errors="replace")
@@ -644,6 +782,28 @@ def _commits_of(conv_id, entry):
             out.append((short, subject, True))
         else:
             out.append((commit, "", False))
+    # The commits made while its commit commands ran, in every repo it worked in.
+    windows, folders = _commit_calls(raw)
+    if not windows:
+        return out
+    repos = []
+    for folder in [cwd] + folders:
+        if Path(folder).is_dir():
+            top = (_git(folder, "rev-parse", "--show-toplevel") or "").strip()
+            if top and top not in repos:
+                repos.append(top)
+    first = datetime.fromtimestamp(min(began for began, _ in windows) - 60)
+    known = {short for short, _, _ in out}
+    for top in repos:
+        log = _git(top, "log", "--all", "--reverse", "--format=%h\t%ct\t%s",
+                   f"--since={first.isoformat(timespec='seconds')}") or ""
+        for row in log.splitlines():
+            short, made, subject = (row.split("\t", 2) + ["", ""])[:3]
+            if short in known or not made.isdigit():
+                continue
+            if any(began - 2 <= int(made) <= ended + 2 for began, ended in windows):
+                known.add(short)
+                out.append((short, subject, True))
     return out
 
 
@@ -701,9 +861,9 @@ def closing_report(swarm_id):
         jobs += [f"- {title}: {j}" for j in observatory._unfinished_jobs(conv)]
     lines = [f"**Closing check — {name}**", "",
              "Fewer than two members of this swarm are still working, so it has closed"
-             " and this is my last message. If a second one starts working in it again,"
-             " it opens again and I come back. Checked against git and the session records, not the agents' own"
-             " accounts.", ""]
+             " and this is my last message unless you ask me something. If a second one"
+             " starts working in it again, it opens again and I come back. Checked against"
+             " git and the session records, not the agents' own accounts.", ""]
     sections = [("What shipped", shipped, "No commits."),
                 ("Written but not committed", dirty, "Nothing — every file they wrote is committed."),
                 ("Not finished", unfinished, "Every member said it was done."),
@@ -714,35 +874,259 @@ def closing_report(swarm_id):
     return "\n".join(lines).rstrip() + "\n"
 
 
-def close_out(swarm_id, helper):
-    """Post the closing check in the helper's chat and mark the helper done."""
+def closings(swarm_id):
+    """Every closing kept for this swarm, oldest first: each {"id", "at",
+    "name", "headline", "summary", "facts", "cost_usd", "error"}. A swarm
+    that absorbed another carries the absorbed one's closings too — its work
+    is this swarm's history now."""
+    conn = sqlstore.open_db()
+    try:
+        rows = conn.execute(
+            "WITH RECURSIVE family(id) AS (SELECT ? UNION SELECT s.id FROM swarms s"
+            " JOIN family f ON s.merged_into = f.id)"
+            " SELECT id, at, name, headline, summary, facts, cost_usd, error"
+            " FROM swarm_closings WHERE swarm_id IN (SELECT id FROM family)"
+            " ORDER BY at, id", (swarm_id,)).fetchall()
+    finally:
+        conn.close()
+    keys = ("id", "at", "name", "headline", "summary", "facts", "cost_usd", "error")
+    return [dict(zip(keys, row)) for row in rows]
+
+
+def _standing(entry):
+    """Where a member stands when its swarm closes, in a few plain words."""
+    if not entry:
+        return "gone from the index"
+    if not swarms.member_retired(entry):
+        return "still working, on its own now"
+    if entry.get("done_at"):
+        return "said it was done"
+    if entry.get("continued_by"):
+        return "handed its work on to a continuation"
+    return "closed without saying it was done"
+
+
+def closings_text(swarm_id, index=None, mark="##"):
+    """The kept closing summaries as the helper is handed them back — in its
+    chat's seed (helper_chat.py) and in a run that answers mail (gather).
+    Empty when the swarm has never closed. `mark` is the heading each closing
+    is put under, to fit the document it goes into.
+
+    The latest closing comes with its closing check; earlier ones with their
+    summary alone. Every member the swarm had is named at the end with its
+    session id, whenever it finished: the helper stops reading members a day
+    after they finish (swarms.in_helper_view), and this is how it still
+    finds their transcripts."""
+    kept = closings(swarm_id)
+    if not kept:
+        return ""
+    if index is None:
+        index = store.read("bot_chats/index", {})
+    index = index if isinstance(index, dict) else {}
+    out = [f"This swarm has closed {len(kept)} time{'s' if len(kept) != 1 else ''}. Each time,"
+           " you wrote what it had done and the app checked what shipped against git. These"
+           " are kept (the `swarm_closings` table) and handed to you on every turn, so you can"
+           " answer her questions about what happened. For more than they say, read a member's"
+           " transcript: every member is named at the end with its session id.", ""]
+    shown = kept[-_CLOSINGS_SHOWN:]
+    if len(kept) > len(shown):
+        out += [f"(The {len(kept) - len(shown)} before these are in the table.)", ""]
+    for closing in shown:
+        out += [f"{mark} Closed {closing['at']}", ""]
+        out += [closing["summary"] or
+                f"(No summary was written: {closing['error'] or 'the model call failed'}.)", ""]
+        if closing is shown[-1]:
+            out += [(closing["facts"] or "").strip(), ""]
+    out += [f"{mark} Every member this swarm had", ""]
+    for conv in sorted(swarms.overview_members(swarm_id)):
+        if swarms.is_helper_session(conv, index):
+            continue
+        entry = index.get(conv) if isinstance(index.get(conv), dict) else {}
+        said = f": {_trim(entry['done_note'], 200)}" if entry.get("done_note") else ""
+        out.append(f"- `{conv}` {entry.get('title') or conv} — {_standing(entry)}{said}")
+    return "\n".join(out) + "\n"
+
+
+def closing_input(swarm_id, report):
+    """Everything the closing summary's call is handed, as one document —
+    also what's stored as the closing's input, verbatim: the swarm's last
+    summary, every member (whenever it finished) with its summary and the end
+    of what it did, the messages between members, and the closing check.
+
+    A swarm that closed before is summarised from its last closing on: the
+    earlier summaries are handed over and kept, not written again."""
+    card = next((c for c in swarms.overview() if c["id"] == swarm_id), None)
+    if card is None:
+        raise KeyError(swarm_id)
+    index = store.read("bot_chats/index", {})
+    index = index if isinstance(index, dict) else {}
+    out = [f"# Swarm {swarm_id}: {card['name']}", "", "## Its last summary", "",
+           card.get("summary") or "(none written)", ""]
+    earlier = closings(swarm_id)
+    since = earlier[-1]["at"] if earlier else None
+    if earlier:
+        out += ["## It closed before", "",
+                "This swarm opened again after closing. Your earlier closing summaries are"
+                " below and are kept. Write about what happened SINCE the last one; don't"
+                " retell them.", ""]
+        for closing in earlier[-_CLOSINGS_SHOWN:]:
+            out += [f"### Closed {closing['at']}", "",
+                    closing["summary"] or "(no summary was written)", ""]
+    members = [m for m in card["members"] if not swarms.is_helper_session(m["conv"], index)]
+    for m in members:
+        entry = index.get(m["conv"]) if isinstance(index.get(m["conv"]), dict) else {}
+        out += [f"## Member {m['conv']} — {m['title']} ({_standing(entry)})", "",
+                "Its summary: " + (m.get("summary") or "(none written)")]
+        if entry.get("done_note"):
+            out.append("What it said when it finished: " + _trim(entry["done_note"]))
+        out += ["", f"The end of what it did{' since ' + since if since else ''}:",
+                _member_activity(m["conv"], since) or "(nothing)", ""]
+    conn = sqlstore.open_db()
+    try:
+        convs = [m["conv"] for m in members]
+        marks = ",".join("?" * len(convs))
+        talk = conn.execute(
+            f"SELECT at, from_conv, to_conv, text FROM agent_messages"
+            f" WHERE kind = 'A' AND status != 'cancelled' AND from_conv IN ({marks})"
+            f" AND to_conv IN ({marks}) AND at >= ? ORDER BY id DESC LIMIT ?",
+            (*convs, *convs, since or "", _CLOSING_MESSAGES)).fetchall()
+    finally:
+        conn.close()
+    out += [f"## Messages between members (the last {_CLOSING_MESSAGES} at most)", ""]
+    out += [f"- {at} {a} → {b}: {_trim(t)}" for at, a, b, t in reversed(talk)] or ["(none)"]
+    out += ["", "## The closing check — what git and the session records say", "", report]
+    return "\n".join(out) + "\n"
+
+
+def _render_closing(name, summary, error, report):
+    """The helper's last message as its chat shows it: the closing summary,
+    then the closing check."""
+    lines = [f"**What this swarm did — {name}**", ""]
+    lines.append(summary or f"I couldn't write the summary ({error}). The closing check below"
+                            " is what git and the session records say.")
+    lines += ["", "This is kept. Ask me here about what happened: I'm handed it on every turn.",
+              "", report.strip()]
+    return "\n".join(lines) + "\n"
+
+
+def _tell_room(swarm_id, name, lane, helper, headline, now):
+    """Say in the room helper's chat that this swarm closed: one line with
+    what it did and where the whole summary is, so she sees a swarm closed
+    without opening each helper. A room with no helper is told nothing."""
+    import room_helper
+    index = store.read("bot_chats/index", {})
+    room = room_helper.find_helper(lane, index if isinstance(index, dict) else {})
+    if not room or room == helper:
+        return False
+    did = headline or "No summary was written; its closing check says what git shows."
+    room_helper._post(
+        room, f"**Swarm {swarm_id} closed — {name}.** {did} The whole closing summary is in"
+              f" its helper's chat (`{helper}`) and on [its page](/observatory/swarm/{swarm_id});"
+              " ask its helper there about what happened.", now, swarm_closed=swarm_id)
+    with store.mutate("bot_chats/index", {}) as live:
+        if isinstance(live.get(room), dict):
+            live[room]["last_at"] = now
+    return True
+
+
+def close_out(swarm_id, helper, summarise=True):
+    """Close a retired swarm: write its closing summary (one model call), keep
+    it with the closing check, post both in the helper's chat, tell the room's
+    helper in a line, and mark the helper done. Returns what was posted.
+
+    A summary that can't be written never stops the closing: the closing
+    check is posted alone and the reason is kept. `summarise=False` skips the
+    model — the fallback when the closing process died before it posted."""
     from routes import observatory
+    card = next((c for c in swarms.overview() if c["id"] == swarm_id), None)
+    name = card["name"] if card else f"Swarm {swarm_id}"
     report = closing_report(swarm_id)
+    text = headline = summary = cost = error = None
+    if summarise:
+        try:
+            text = closing_input(swarm_id, report)
+            answer, cost = _call_closing(text)
+            headline = " ".join(str(answer.get("headline") or "").split()) or None
+            summary = str(answer.get("summary") or "").strip() or None
+            if not summary:
+                headline, error = None, "the model wrote nothing"
+        except (KeyError, RuntimeError, OSError, ValueError, subprocess.SubprocessError) as e:
+            error = str(e) or type(e).__name__
+    else:
+        error = "the closing run ended before it wrote one"
     now = _now()
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        conn.execute(
+            "INSERT INTO swarm_closings (swarm_id, at, name, headline, summary, facts, input,"
+            " cost_usd, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (swarm_id, now, name, headline, summary, report, text, cost, error))
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
+    # Marked as a run's own post, not a reply: the chat's rolling context
+    # doesn't replay it as part of an exchange — it is handed to the helper
+    # whole, from the table, on every turn (helper_chat.seed_parts).
+    posted = _render_closing(name, summary, error, report)
     log_path = store.DATA_DIR / "bot_chats" / f"{helper}.jsonl"
     peermail.append_line(log_path, {
-        "type": "assistant", "timestamp": now, "helper_run": True, "closing_check": True,
-        "message": {"role": "assistant", "content": [{"type": "text", "text": report}]}})
+        "type": "assistant", "timestamp": now, "helper_run": True, "helper_update": True,
+        "closing_check": True,
+        "message": {"role": "assistant", "content": [{"type": "text", "text": posted}]}})
+    if summarise:
+        peermail.append_line(log_path, {"type": "result", "total_cost_usd": cost, "ts": now,
+                                        "subtype": "success" if summary else "error"})
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(helper)
+        archived = True
         if isinstance(entry, dict):
+            archived = bool(entry.get("archived"))
             entry["helper_closed_at"] = now
             entry["last_at"] = now
+            entry["running"] = False
+            entry["cost_usd"] = round(float(entry.get("cost_usd") or 0) + float(cost or 0), 6)
             entry.pop("helper_pending", None)
-    observatory.mark_done(helper, "Closing check posted: fewer than two members of the"
-                                  " swarm are still working.")
-    return report
+            entry.pop("helper_closing_at", None)
+    # A helper already put away (a closing written again by hand) stays away.
+    if not archived:
+        observatory.mark_done(helper, "Closing summary posted: fewer than two members of"
+                                      " the swarm are still working.")
+    try:
+        _tell_room(swarm_id, name, card["lane"] if card else "coding", helper, headline, now)
+    except Exception as e:
+        print(f"{_now()} telling the room swarm {swarm_id} closed failed: {e}", file=sys.stderr)
+    return posted
 
 
 def watch_retirement(helper, entry, index):
     """At the minute tick: close out this helper's swarm the first time it's
     found retired, and bring the helper back if the swarm comes back to life
     (two of its lines of work are going again). Returns True when the
-    helper is closed out and has nothing else to do."""
-    if entry.get("running"):
-        return False
+    helper is closed out, or closing, and has nothing else to do."""
     swarm_id = entry.get("swarm_id")
     if swarm_id is None:
+        return False
+    # A closing is under way (its process writes the summary and posts). Leave
+    # it be while it runs. If it ended without posting — it crashed, or the
+    # machine restarted under it — post the closing check alone: one
+    # retirement gets one model call, never a retry every minute.
+    started = entry.get("helper_closing_at")
+    if started and not entry.get("helper_closed_at"):
+        waited = datetime.now() - datetime.fromisoformat(started)
+        if entry.get("running") and waited < timedelta(
+                seconds=config.SWARM_HELPER_TIMEOUT_SEC + 120):
+            return True
+        if swarms.retired(swarm_id, index):
+            close_out(swarm_id, helper, summarise=False)
+            return True
+        # It opened again meanwhile: there is nothing to close.
+        with store.mutate("bot_chats/index", {}) as live_index:
+            if isinstance(live_index.get(helper), dict):
+                live_index[helper].pop("helper_closing_at", None)
+                live_index[helper]["running"] = False
+        return False
+    if entry.get("running"):
         return False
     is_retired = swarms.retired(swarm_id, index)
     if entry.get("helper_closed_at"):
@@ -757,9 +1141,32 @@ def watch_retirement(helper, entry, index):
                     live.pop(field, None)
         return False
     if is_retired and not entry.get("archived"):
-        close_out(swarm_id, helper)
+        _spawn_close(swarm_id, helper)
         return True
     return False
+
+
+def rest_again(helper):
+    """When a closed swarm's helper finishes a chat turn — she asked it about
+    what happened — start its countdown again. Her message took its done mark
+    off (talking to a session keeps it open), and a helper can't mark itself
+    done, so without this its card would stay open for good. Returns True
+    when it was marked."""
+    from routes import observatory
+    entry = store.read("bot_chats/index", {}).get(helper)
+    if (not is_helper(entry) or not entry.get("helper_closed_at") or entry.get("done_at")
+            or entry.get("archived") or not swarms.retired(entry.get("swarm_id"))):
+        return False
+    _, status = observatory.mark_done(helper, "Answered about its closed swarm.")
+    return status == 200
+
+
+def _not_busy(swarm_id):
+    """Never leave the helper looking busy forever after a failed process."""
+    with store.mutate("bot_chats/index", {}) as index:
+        for entry in index.values():
+            if is_helper(entry) and entry.get("swarm_id") == swarm_id:
+                entry["running"] = False
 
 
 def main(argv):
@@ -772,14 +1179,25 @@ def main(argv):
             run(swarm_id, trigger, ids)
         except Exception as e:
             print(f"{_now()} helper run for swarm {swarm_id} failed: {e}", file=sys.stderr)
-            # Never leave the helper looking busy forever.
-            with store.mutate("bot_chats/index", {}) as index:
-                for entry in index.values():
-                    if is_helper(entry) and entry.get("swarm_id") == swarm_id:
-                        entry["running"] = False
+            _not_busy(swarm_id)
             return 1
         return 0
-    print("usage: swarm_helper.py run <swarm_id> [trigger] [--questions 1,2]", file=sys.stderr)
+    # The closing of a retired swarm (started by the minute tick; by hand it
+    # writes a closing for a swarm that closed without one).
+    if len(argv) >= 3 and argv[1] == "close":
+        swarm_id = int(argv[2])
+        try:
+            if not swarms.retired(swarm_id):
+                # Left for the tick to sort out (watch_retirement).
+                raise RuntimeError("it has not closed: two of its sessions are still working")
+            close_out(swarm_id, ensure_helper(swarm_id))
+        except Exception as e:
+            print(f"{_now()} closing swarm {swarm_id} failed: {e}", file=sys.stderr)
+            _not_busy(swarm_id)
+            return 1
+        return 0
+    print("usage: swarm_helper.py run <swarm_id> [trigger] [--questions 1,2]\n"
+          "       swarm_helper.py close <swarm_id>", file=sys.stderr)
     return 2
 
 

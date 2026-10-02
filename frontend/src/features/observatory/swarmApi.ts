@@ -81,10 +81,27 @@ export interface HelperRun {
   error: string | null;
 }
 
+/** What a swarm did, written when it closed (swarm_helper.py `close_out`):
+ * the helper's summary in plain words, and the closing check read from git
+ * and the session records. One per time the swarm closed. `summary` is null
+ * when the model call failed; `error` then says why. */
+export interface SwarmClosing {
+  id: number;
+  at: string;
+  name: string | null;
+  headline: string | null;
+  summary: string | null;
+  facts: string;
+  cost_usd: number | null;
+  error: string | null;
+}
+
 export interface SwarmDetail extends Swarm {
   runs: HelperRun[];
   messages: { id: number; at: string; from: string; to: string; text: string; mode: string; status: string }[];
   differences: string[];
+  /** Newest first. Absent from an older server, so treat it as optional. */
+  closings?: SwarmClosing[];
 }
 
 /** Every live swarm — one shared, polled query for the whole page. */

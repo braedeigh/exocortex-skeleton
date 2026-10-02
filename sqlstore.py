@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 44
+_SCHEMA_VERSION = 45
 
 
 def _db_path():
@@ -209,6 +209,8 @@ _EXPECTED_TABLES = (
     "file_alerts",
     # What other people did in Linear, as the feed noticed it (rung 44).
     "linear_events",
+    # What each swarm did, written when it closed (rung 45).
+    "swarm_closings",
 )
 
 
@@ -3004,6 +3006,34 @@ def _run_ladder(conn):
             ")"
         )
         conn.execute("CREATE INDEX IF NOT EXISTS linear_events_at ON linear_events (at)")
+    if version < 45:
+        # Rung 45: closing summaries (swarm_helper.py). When a swarm closes,
+        # its helper writes what the swarm did, in plain words, beside the
+        # closing check built from git and the session records. One row per
+        # time it closed: a swarm that opens again and closes again gets a
+        # second row, and the first is kept. RECORDS: the transcripts stay,
+        # but what the helper wrote about them can't be rebuilt.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarm_closings ("
+            "  id INTEGER PRIMARY KEY,"
+            "  swarm_id INTEGER NOT NULL REFERENCES swarms(id),"
+            "  at TEXT NOT NULL,"
+            # The swarm's name when it closed.
+            "  name TEXT,"
+            # The helper's account: one sentence, then the whole of it.
+            # Both empty when the model call failed (see `error`).
+            "  headline TEXT,"
+            "  summary TEXT,"
+            # The closing check: what git and the session records say.
+            "  facts TEXT NOT NULL,"
+            # Everything the model was handed, verbatim.
+            "  input TEXT,"
+            "  cost_usd REAL,"
+            "  error TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS swarm_closings_by_swarm"
+                     " ON swarm_closings (swarm_id, at)")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

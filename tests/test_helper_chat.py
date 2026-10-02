@@ -12,9 +12,14 @@ session is new or its files changed — once, not for a handoff, not inside
 the gap — and a wake-up it answers with silence leaves its card as it was.
 The helper chat is never continued, however big its context; a handed-off
 helper comes back as the one chat; a swarm is "retired" once fewer than two
-members are still working; and a retired swarm gets one closing check that
-names what git says shipped and what's left, after which the helper marks
-itself done.
+members are still working; and a retired swarm gets one closing summary —
+written by its helper's model, once — above the closing check that names
+what git says shipped and what's left, after which the helper marks itself
+done. That summary is kept: the helper is handed it on every later turn, by
+either door she can ask through, with every member's id long after they
+drop out of its view; the room's helper is told in a line; a swarm that
+closes again keeps the earlier summary; and a summary that can't be written
+never stops the closing or costs a second call.
 """
 import importlib.util
 import json
@@ -102,8 +107,17 @@ def _part(seed, conv):
 
 @pytest.fixture
 def helper(data_dir, monkeypatch):
-    """A two-member swarm and its helper chat, with no detached processes."""
+    """A two-member swarm and its helper chat, with no detached processes:
+    a closing runs where it's started, and its model call is faked (each
+    call's input is kept in swarm_helper.closing_calls)."""
     monkeypatch.setattr(swarm_helper, "_spawn", lambda *a, **k: True)
+    monkeypatch.setattr(swarm_helper, "_detach",
+                        lambda swarm_id, args: swarm_helper.main(["swarm_helper.py", *args]))
+    calls = []
+    monkeypatch.setattr(swarm_helper, "closing_calls", calls, raising=False)
+    monkeypatch.setattr(swarm_helper, "_call_closing", lambda text: calls.append(text) or (
+        {"headline": f"Closing {len(calls)} headline.",
+         "summary": f"Closing {len(calls)}: the pond page was built."}, 0.02))
     _seed(A, B)
     peermail.send(B, "I'm editing pond.py too", from_conv=A)
     [swarm_id] = swarms.sync()
@@ -443,7 +457,15 @@ def test_a_swarm_retires_when_fewer_than_two_members_are_working(helper):
     assert swarms.retired(swarm_id) is True                    # B alone isn't a swarm
 
 
-def test_a_retired_swarm_gets_one_closing_check_then_the_helper_is_done(helper, tmp_path):
+def _closing_post(helper):
+    """The closing message as the helper's chat holds it."""
+    path = store.DATA_DIR / "bot_chats" / f"{helper}.jsonl"
+    log = path.read_text().splitlines() if path.exists() else []
+    posts = [json.loads(line) for line in log if '"closing_check"' in line]
+    return [post["message"]["content"][0]["text"] for post in posts]
+
+
+def test_a_retired_swarm_gets_one_closing_summary_then_the_helper_is_done(helper, tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
@@ -453,23 +475,148 @@ def test_a_retired_swarm_gets_one_closing_check_then_the_helper_is_done(helper, 
     subprocess.run(git + ["commit", "-qm", "Pond page ships"], check=True)
     commit = subprocess.run(git + ["rev-parse", "--short", "HEAD"], check=True,
                             capture_output=True, text=True).stdout.strip()
+    # A second commit made quietly, the way agents mostly do: git prints
+    # nothing, so the transcript holds only the command and when it ran.
+    asked = datetime.now(timezone.utc)
+    (repo / "frog.py").write_text("y = 2\n")
+    subprocess.run(git + ["add", "frog.py"], check=True)
+    subprocess.run(git + ["commit", "-qm", "Frogs join the pond"], check=True)
+    quiet = subprocess.run(git + ["rev-parse", "--short", "HEAD"], check=True,
+                           capture_output=True, text=True).stdout.strip()
+    stamp = lambda when: when.isoformat().replace("+00:00", "Z")
+    room = room_helper.ensure_room_helper("coding")
     with store.mutate("bot_chats/index", {}) as index:
-        index[A].update(cwd=str(repo), done_at="2026-09-27T12:00:00")
+        index[A].update(cwd=str(repo), done_at="2026-09-27T12:00:00",
+                        done_note="pond page shipped")
         index[B].update(archived=True, awaiting_questions=["which colour?"])
-    _log(A, {"type": "user", "message": {"content": [{"type": "tool_result",
-          "content": f"[main {commit}] Pond page ships\n 1 file changed"}]}})
+    _log(A, {"type": "user", "text": "build the pond page", "ts": "2026-09-27T10:00:00"},
+         {"type": "user", "message": {"content": [{"type": "tool_result",
+          "content": f"[main {commit}] Pond page ships\n 1 file changed"}]}},
+         {"type": "assistant", "timestamp": stamp(asked), "message": {"content": [
+             {"type": "tool_use", "id": "toolu_quiet", "name": "Bash",
+              "input": {"command": "git add frog.py && git commit -q -m 'Frogs join the pond'"}}]}},
+         {"type": "user", "timestamp": stamp(datetime.now(timezone.utc)), "message": {"content": [
+             {"type": "tool_result", "tool_use_id": "toolu_quiet", "content": ""}]}})
 
     swarm_helper.tick()
-    report = helper_chat.exchanges(helper)[-1]["out"][-1]
-    assert f"`{commit}` Pond page ships" in report
-    assert "closed without saying it was done" in report       # B never said done
-    assert "which colour?" in report
+    # The model wrote from the members' work AND the git-checked facts.
+    [handed] = swarm_helper.closing_calls
+    assert "build the pond page" in handed and "pond page shipped" in handed
+    assert f"`{commit}` Pond page ships" in handed.split("## The closing check")[1]
+    # Its summary is posted above the closing check, in the helper's chat.
+    [post] = _closing_post(helper)
+    summary, check = post.split("**Closing check")
+    assert "Closing 1: the pond page was built." in summary
+    assert f"`{commit}` Pond page ships" in check
+    assert f"`{quiet}` Frogs join the pond" in check           # the quiet one too
+    assert "closed without saying it was done" in check        # B never said done
+    assert "which colour?" in check
     entry = _entry(helper)
-    assert entry["helper_closed_at"] and entry["done_at"]
+    assert entry["helper_closed_at"] and entry["done_at"] and not entry["running"]
+    # The room's helper is told in one line, with what was done.
+    room_log = (store.DATA_DIR / "bot_chats" / f"{room}.jsonl").read_text()
+    assert "closed" in room_log and "Closing 1 headline." in room_log and helper in room_log
 
     swarm_helper.tick()                                        # once, not every minute
-    log = (store.DATA_DIR / "bot_chats" / f"{helper}.jsonl").read_text()
-    assert log.count("Closing check") == 1
+    assert len(_closing_post(helper)) == 1 and len(swarm_helper.closing_calls) == 1
+
+
+def test_she_can_ask_a_closed_swarms_helper_what_happened(helper, monkeypatch):
+    """Her ask: "so i can know what was completed and ask it questions about
+    what happened." Days later the members are out of the helper's view and
+    the closing message was never part of an exchange — and still both doors
+    she can ask through hand the helper the summary and every member's id."""
+    swarm_id = _entry(helper)["swarm_id"]
+    long_ago = (datetime.now() - timedelta(days=3)).isoformat(timespec="seconds")
+    with store.mutate("bot_chats/index", {}) as index:
+        index[A].update(done_at=long_ago, last_at=long_ago, done_note="pond page shipped")
+        index[B].update(done_at=long_ago, last_at=long_ago)
+    swarm_helper.tick()
+    assert swarms.in_helper_view([A, B], store.read("bot_chats/index", {}))[0] == []
+
+    # Her chat with it: the turn starts, un-archived, from a seed that holds
+    # the summary, the closing check and the members — once, not also replayed.
+    with store.mutate("bot_chats/index", {}) as index:
+        index[helper]["archived"] = True                       # its countdown closed it
+    started = []
+    monkeypatch.setattr(observatory, "_mem_available_mb", lambda: None)
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, resume_sid, conv_id, log_path:
+                        started.append(config) or True)
+    assert observatory.begin_turn(helper, "what did this swarm get done?")["ok"]
+    seed = open(started[0]["system_prompt_file"], encoding="utf-8").read()
+    kept = seed.split("# What this swarm did")[1].split("# 2. Her last")[0]
+    assert "Closing 1: the pond page was built." in kept and "**What shipped**" in kept
+    assert f"`{A}`" in kept and "pond page shipped" in kept and f"`{B}`" in kept
+    assert seed.count("Closing 1: the pond page was built.") == 1
+    assert [p["key"] for p in helper_chat.last_seed(helper)["parts"]] == [
+        "doc", "rules", "watches", "closings", "exchanges", "sessions"]
+    # Having answered, it starts its countdown to closing again by itself.
+    assert "done_at" not in _entry(helper)
+    _turn_ends(helper, "It built the pond page.")
+    assert _entry(helper)["done_at"]
+
+    # The box on the swarm's page: a run answers, and reads the same record.
+    run_input = swarm_helper.gather(swarm_id)
+    assert "Closing 1: the pond page was built." in run_input and f"`{A}`" in run_input
+
+
+def test_a_swarm_that_closes_again_keeps_its_earlier_summary(helper):
+    swarm_id = _entry(helper)["swarm_id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index[A]["done_at"] = index[B]["done_at"] = "2026-09-27T12:00:00"
+    swarm_helper.tick()
+    with store.mutate("bot_chats/index", {}) as index:
+        index[A].pop("done_at")                                # both get new turns:
+        index[B].pop("done_at")                                # the swarm opens again
+    swarm_helper.tick()
+    assert "helper_closed_at" not in _entry(helper)
+    with store.mutate("bot_chats/index", {}) as index:
+        index[A]["done_at"] = index[B]["done_at"] = "2026-09-28T12:00:00"
+    swarm_helper.tick()
+
+    first, second = swarm_helper.closings(swarm_id)
+    assert (first["summary"], second["summary"]) == (
+        "Closing 1: the pond page was built.", "Closing 2: the pond page was built.")
+    # The second was written knowing the first, and the helper is handed both.
+    assert "Closing 1: the pond page was built." in swarm_helper.closing_calls[1]
+    seed = helper_chat.seed_text(helper, _entry(helper))
+    assert "Closing 1:" in seed and "Closing 2:" in seed and "closed 2 times" in seed
+
+
+def test_a_summary_that_cant_be_written_never_stops_the_closing(helper, monkeypatch):
+    swarm_id = _entry(helper)["swarm_id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index[A]["done_at"] = index[B]["done_at"] = "2026-09-27T12:00:00"
+
+    def down(text):
+        swarm_helper.closing_calls.append(text)
+        raise RuntimeError("model down")
+    monkeypatch.setattr(swarm_helper, "_call_closing", down)
+    swarm_helper.tick()
+    swarm_helper.tick()
+    # The closing check is posted alone, saying why; the model was tried once.
+    [post] = _closing_post(helper)
+    assert "couldn't write the summary (model down)" in post and "**What shipped**" in post
+    [closing] = swarm_helper.closings(swarm_id)
+    assert closing["summary"] is None and closing["error"] == "model down"
+    assert len(swarm_helper.closing_calls) == 1 and _entry(helper)["done_at"]
+
+
+def test_a_closing_process_that_dies_leaves_the_closing_check_and_no_second_call(
+        helper, monkeypatch):
+    with store.mutate("bot_chats/index", {}) as index:
+        index[A]["done_at"] = index[B]["done_at"] = "2026-09-27T12:00:00"
+    monkeypatch.setattr(swarm_helper, "_detach", lambda swarm_id, args: None)   # it never posts
+    swarm_helper.tick()
+    swarm_helper.tick()
+    assert _closing_post(helper) == [] and _entry(helper)["running"]   # left to finish
+    with store.mutate("bot_chats/index", {}) as index:
+        index[helper]["running"] = False                       # its process is gone
+    swarm_helper.tick()
+    [post] = _closing_post(helper)
+    assert "couldn't write the summary" in post and "**What shipped**" in post
+    assert swarm_helper.closing_calls == [] and _entry(helper)["done_at"]
 
 
 def test_a_swarm_that_comes_back_to_life_brings_its_helper_back(helper):
