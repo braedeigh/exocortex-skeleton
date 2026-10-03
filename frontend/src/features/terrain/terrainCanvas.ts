@@ -764,6 +764,20 @@ function isTable(n: SimNode): boolean {
  */
 const COIL_EASE = 0.14;
 
+/** How hard the rope between a grid's folder and its parent (or its
+ * sub-folders) pulls — a seventh of an ordinary folder rope (0.7). Slack
+ * enough that the collider can part grids the rope would otherwise stack. */
+const GRID_ROPE_STRENGTH = 0.1;
+
+/** How many times per tick the collider goes round pushing overlapping bodies
+ * apart. One pass only un-laps each pair once, and with grid frames a
+ * hundred units wide in a crowd, parting one pair laps the next; a few
+ * passes let the push travel through the crowd inside a single tick. */
+const COLLIDE_PASSES = 3;
+
+/** While a new map is still spreading, re-frame it every this many ticks. */
+const REFIT_EVERY_TICKS = 20;
+
 /** A table is never drawn narrower or shorter than this many SCREEN pixels, so
  * zooming far out leaves a field of small marks rather than nothing. Same idea
  * as MIN_NODE_PX. */
@@ -2898,7 +2912,17 @@ export class TerrainCanvas {
                   ? 0.01
                   : isPondTile(l.source as SimNode) || isPondTile(l.target as SimNode)
                     ? 0.15
-                    : 0.7,
+                    : // A grid's rope is slack, so the collider wins. A folder
+                      // of sixty sub-folders, each now a frame a hundred
+                      // units wide, cannot stand them all one rope-length
+                      // away — there isn't that much rim — and a taut rope
+                      // would haul them in on top of each other. Held
+                      // loosely, they're kept near their parent and left to
+                      // find room side by side.
+                      this.gridByHubId.has((l.source as SimNode).id) ||
+                        this.gridByHubId.has((l.target as SimNode).id)
+                      ? GRID_ROPE_STRENGTH
+                      : 0.7,
           ),
       )
       .force(
@@ -2924,7 +2948,12 @@ export class TerrainCanvas {
       // touching its neighbours at most and never lapping over them. A coil
       // dot is the exception: it's told zero, or it shoves its own folder
       // across the map (collideRadius, ringBodies.ts).
-      .force('collide', forceCollide<SimNode>((n) => collideRadius(this.bodyRadiusOf(n), this.onArrangement(n))))
+      .force(
+        'collide',
+        forceCollide<SimNode>((n) => collideRadius(this.bodyRadiusOf(n), this.onArrangement(n))).iterations(
+          COLLIDE_PASSES,
+        ),
+      )
       // Keep the dots out of the table section. Charge and collision only
       // push a dot away from one table at a time, which lets it slip BETWEEN
       // two shelves and sit there; this treats the whole section as one
@@ -3064,6 +3093,16 @@ export class TerrainCanvas {
         // Keep the table shelves just outside the dots as the dots spread.
         this.ticksSinceLayout += 1;
         if (this.ticksSinceLayout % SHELF_SETTLE_EVERY === 0) this.settleShelves(0.25);
+        // Keep the whole map in frame while it spreads. A map being laid out
+        // for the first time grows for a long while — the grids shoulder
+        // each other apart, and on a phone that takes a minute or more — and
+        // one framing at the start leaves most of it off the screen until
+        // the physics finally rests. So the camera follows it out, a step
+        // every so often, for as long as the once-only re-frame is still
+        // owed and she hasn't taken the camera herself.
+        if (this.refitWhenSettled && !this.cameraIsHers && this.ticksSinceLayout % REFIT_EVERY_TICKS === 0) {
+          this.fitNow();
+        }
         this.requestDraw();
       })
       // Quiescence = sleep. d3-force stops its own timer at alphaMin; one
@@ -3105,34 +3144,40 @@ export class TerrainCanvas {
   /** Center the whole graph in view (called once after first data lands). */
   fitSoon(): void {
     // Give the sim a few ticks to spread out before measuring.
-    window.setTimeout(() => {
-      if (this.destroyed || this.simNodes.length === 0) return;
-      // Never yank a camera she placed — including one restored from the last
-      // time she had this page open (layoutMemory.ts).
-      if (this.cameraIsHers) return;
-      // A focused surface frames its agent's cluster instead — don't yank the
-      // camera out to the whole graph once the orb exists to home in on.
-      if (this.focusConv && this.computeFocusTransform()) return;
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const n of this.simNodes) {
-        // A dot is framed by its centre; a table by its whole rectangle, or a
-        // tall one at the edge of the map gets framed with its top cut off.
-        const size = n.node.file?.table ? tableSize(n.node.file.table) : null;
-        const halfW = size ? size.width / 2 : 0;
-        const halfH = size ? size.height / 2 : 0;
-        minX = Math.min(minX, (n.x ?? 0) - halfW);
-        maxX = Math.max(maxX, (n.x ?? 0) + halfW);
-        minY = Math.min(minY, (n.y ?? 0) - halfH);
-        maxY = Math.max(maxY, (n.y ?? 0) + halfH);
-      }
-      const w = Math.max(1, maxX - minX + 120);
-      const h = Math.max(1, maxY - minY + 120);
-      const k = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(this.width / w, this.height / h, 1.6)));
-      const cx = (minX + maxX) / 2;
-      const cy = (minY + maxY) / 2;
-      const t = zoomIdentity.translate(this.width / 2 - cx * k, this.height / 2 - cy * k).scale(k);
-      select(this.canvas).call(this.zoomBehavior.transform, t);
-    }, 600);
+    window.setTimeout(() => this.fitNow(), 600);
+  }
+
+  /** Frame the whole map, now — unless the camera is hers, or a focused
+   * surface is framing its own agent. */
+  private fitNow(): void {
+    if (this.destroyed || this.simNodes.length === 0) return;
+    // Never yank a camera she placed — including one restored from the last
+    // time she had this page open (layoutMemory.ts).
+    if (this.cameraIsHers) return;
+    // A focused surface frames its agent's cluster instead — don't yank the
+    // camera out to the whole graph once the orb exists to home in on.
+    if (this.focusConv && this.computeFocusTransform()) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const n of this.simNodes) {
+      // A dot is framed by its centre; a table by its whole rectangle, or a
+      // tall one at the edge of the map gets framed with its top cut off.
+      // A grid's folder likewise, by its whole frame.
+      const size = n.node.file?.table ? tableSize(n.node.file.table) : null;
+      const frame = this.gridByHubId.get(n.id)?.arrangement.frame;
+      const halfW = size ? size.width / 2 : frame ? (frame.right - frame.left) / 2 : 0;
+      const halfH = size ? size.height / 2 : frame ? (frame.bottom - frame.top) / 2 : 0;
+      minX = Math.min(minX, (n.x ?? 0) - halfW);
+      maxX = Math.max(maxX, (n.x ?? 0) + halfW);
+      minY = Math.min(minY, (n.y ?? 0) - halfH);
+      maxY = Math.max(maxY, (n.y ?? 0) + halfH);
+    }
+    const w = Math.max(1, maxX - minX + 120);
+    const h = Math.max(1, maxY - minY + 120);
+    const k = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(this.width / w, this.height / h, 1.6)));
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const t = zoomIdentity.translate(this.width / 2 - cx * k, this.height / 2 - cy * k).scale(k);
+    select(this.canvas).call(this.zoomBehavior.transform, t);
   }
 
   /** Nearest node within its hit radius of a client-space point, or null.
