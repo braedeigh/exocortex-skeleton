@@ -16,6 +16,7 @@
         "proxy_auth.py",
         "apiseam.py",
         "writelog.py",
+        "tablelog.py",
         "textanchor.py",
         "textsearch.py",
         "commons.py",

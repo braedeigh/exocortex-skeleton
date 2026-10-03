@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { TerrainData, TerrainTable, TerrainTables } from './api';
+import type {
+  TerrainData,
+  TerrainTable,
+  TerrainTableActivity,
+  TerrainTables,
+  TerrainTablesActivity,
+} from './api';
 import { buildTerrainGraph } from './terrainGraph';
 import {
   COLUMN_WIDTH,
@@ -104,6 +110,58 @@ describe('addTableNodes', () => {
 
   it('leaves the payload alone before the tables have loaded', () => {
     expect(addTableNodes(payload, undefined)).toBe(payload);
+  });
+});
+
+describe('a table\'s history on the map', () => {
+  // Built the way the page builds it: activity in, graph out, read at `now`.
+  const now = 1_000_000;
+  const hour = 3600;
+  const withAgent: TerrainData = {
+    ...payload,
+    sessions: [{ id: 'agent-1', title: 'Builder', running: true, last: null }],
+  };
+  const graphFor = (tables: Record<string, Partial<TerrainTableActivity>>) => {
+    const activity: TerrainTablesActivity = {
+      recording_since: now - 24 * hour,
+      tables: Object.fromEntries(
+        Object.entries(tables).map(([name, seen]) => [
+          name,
+          { defined_at: null, migrated_at: null, rows_at: null, row_times: [], sessions: [], ...seen },
+        ]),
+      ),
+    };
+    return buildTerrainGraph(addTableNodes(withAgent, described, activity), hour, now, { runHalfLife: hour });
+  };
+  const node = (graph: ReturnType<typeof graphFor>, name: string) =>
+    graph.nodes.find((n) => n.id === tableNodeId('vault', 'data/exo.db', name))!;
+
+  it('lights red for a structure change and yellow for a row write, each on its own', () => {
+    const graph = graphFor({ todos: { migrated_at: now }, todo_subtasks: { rows_at: now } });
+    expect(node(graph, 'todos').heat).toBeCloseTo(1);
+    expect(node(graph, 'todos').runHeat ?? 0).toBe(0);
+    expect(node(graph, 'todo_subtasks').heat).toBe(0);
+    expect(node(graph, 'todo_subtasks').runHeat).toBeCloseTo(1);
+  });
+
+  it('takes the later of the migration and the definition in code as the structure time', () => {
+    const graph = graphFor({ todos: { defined_at: now - hour, migrated_at: now - 5 * hour } });
+    expect(node(graph, 'todos').heat).toBeCloseTo(0.5);
+  });
+
+  it('gives a table with no recorded time no heat at all', () => {
+    const graph = graphFor({ todos: {} });
+    expect(node(graph, 'todos').heat).toBe(0);
+    expect(node(graph, 'todos').runHeat ?? 0).toBe(0);
+  });
+
+  it('tethers the agent that wrote a table, without turning the table red', () => {
+    const writer = { id: 'agent-1', writes: 3, last: now, structure: false };
+    const stranger = { id: 'not-on-the-map', writes: 1, last: now, structure: false };
+    const graph = graphFor({ todos: { rows_at: now, sessions: [writer, stranger] } });
+    const tethers = graph.edges.filter((e) => e.kind === 'session');
+    expect(tethers.map((e) => e.target)).toEqual([tableNodeId('vault', 'data/exo.db', 'todos')]);
+    expect(node(graph, 'todos').heat).toBe(0);
   });
 });
 

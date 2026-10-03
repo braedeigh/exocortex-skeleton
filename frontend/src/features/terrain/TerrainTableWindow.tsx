@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { IconButton } from '../../ui';
-import type { TerrainTable } from './api';
+import type { TerrainTable, TerrainTablesActivity } from './api';
 import { TerrainTableSheet } from './TerrainTableSheet';
 import { TerrainTableRows, type TableJump } from './TerrainTableRows';
 import type { TableFilter } from './tableRows';
@@ -56,7 +56,13 @@ export function TerrainTableWindow({
   onPickTable,
   onOpenFile,
   onClose,
+  activity,
+  sessionTitles,
 }: {
+  /** When every table last changed, and the names of the sessions that did
+   * it — handed straight to the About card (TerrainTableSheet). */
+  activity?: TerrainTablesActivity;
+  sessionTitles?: ReadonlyMap<string, string>;
   /** The table to show, or null when the window is closed. */
   table: TerrainTable | null;
   allTables: readonly TerrainTable[];
@@ -149,6 +155,9 @@ export function TerrainTableWindow({
                 onPickTable(name);
               }}
               onOpenFile={onOpenFile}
+              activity={activity?.tables[table.name]}
+              recordingSince={activity?.recording_since}
+              sessionTitles={sessionTitles}
             />
           ) : (
             <TerrainTableRows

@@ -41,9 +41,15 @@
  * extra file per table, pathed UNDER the database file's real path
  * (`data/exo.db/todos`), so the graph's folder logic makes an `exo.db` folder
  * where the database really lives and hangs the tables off it. After the
- * dials on purpose: the Files and date dials rank files by edit history, a
- * table has none, and a dial should not be able to delete the database from
- * the map.
+ * dials on purpose: the Files and date dials rank files by git edit history,
+ * a table has none of that kind, and a dial should not be able to delete the
+ * database from the map.
+ *
+ * A TABLE'S OWN HISTORY. What a table does have is when its structure last
+ * changed and when it last had a row written (the server's table log and git,
+ * routes/terrain_tables.py build_activity). addTableNodes puts those where a
+ * file keeps its edit and run times, so the map outlines the table red and
+ * yellow on the same two sliders, and tethers the agent that wrote it.
  *
  * Everything in here is pure arithmetic and tested (tableNodes.test.ts). The
  * numbers come from GET /api/observatory/terrain/tables
@@ -62,7 +68,15 @@
  * positioned centrally between the personal and the code database rather than
  * being on the right edge".
  */
-import type { TerrainData, TerrainFile, TerrainTable, TerrainTables } from './api';
+import type {
+  TerrainData,
+  TerrainFile,
+  TerrainSession,
+  TerrainTable,
+  TerrainTableActivity,
+  TerrainTables,
+  TerrainTablesActivity,
+} from './api';
 import type { TerrainEdge, TerrainNode } from './terrainGraph';
 
 /** How wide one column's stripe is, in the map's world units. */
@@ -145,8 +159,21 @@ export function tableNodeId(repoId: string, databasePath: string, tableName: str
  * Returns the payload untouched when there is nothing to place: no tables
  * yet, a database outside every repo (`repo` null), or a repo the payload
  * doesn't carry (switched off by the repo chips, say).
+ *
+ * `activity` gives each table a history, in the three lists a file already
+ * has, so the map's existing machinery lights it without a second path:
+ *   touches   when its STRUCTURE last changed  -> red, on the Heat slider
+ *   ran       when it last had a ROW written   -> yellow, on the Active slider
+ *   sessions  the agents that wrote it         -> a tether from each orb
+ * One time in each of the first two, not a list, so a table's outline is as
+ * strong as its LAST change is recent and nothing else. A time that isn't
+ * recorded leaves its list empty, which draws no outline at all.
  */
-export function addTableNodes(data: TerrainData, tables: TerrainTables | undefined): TerrainData {
+export function addTableNodes(
+  data: TerrainData,
+  tables: TerrainTables | undefined,
+  activity?: TerrainTablesActivity,
+): TerrainData {
   if (!tables || tables.repo === null || tables.path === null || tables.tables.length === 0) {
     return data;
   }
@@ -155,15 +182,53 @@ export function addTableNodes(data: TerrainData, tables: TerrainTables | undefin
   const repos = data.repos.map((repo) => {
     if (repo.id !== tables.repo) return repo;
     placed = true;
-    const tableFiles: TerrainFile[] = tables.tables.map((table) => ({
-      path: `${databasePath}/${table.name}`,
-      touches: [],
-      sessions: [],
-      table,
-    }));
+    const titles = new Map((data.sessions ?? []).map((session) => [session.id, session.title]));
+    const tableFiles: TerrainFile[] = tables.tables.map((table) => {
+      const seen = activity?.tables[table.name];
+      const structureAt = tableStructureTime(seen);
+      const file: TerrainFile = {
+        path: `${databasePath}/${table.name}`,
+        touches: structureAt === null ? [] : [structureAt],
+        sessions: tableWriters(seen, titles),
+        table,
+      };
+      if (seen && seen.rows_at !== null) file.ran = [seen.rows_at];
+      return file;
+    });
     return { ...repo, files: [...repo.files, ...tableFiles] };
   });
   return placed ? { ...data, repos } : data;
+}
+
+/** When a table's structure last changed: the later of the two sources — the
+ * table log's own sighting of a migration, and git's date for the code that
+ * defines it. Null when neither knows. */
+export function tableStructureTime(activity: TerrainTableActivity | undefined): number | null {
+  if (!activity) return null;
+  const known = [activity.migrated_at, activity.defined_at].filter((at): at is number => at !== null);
+  return known.length > 0 ? Math.max(...known) : null;
+}
+
+/** The agents that wrote a table, in the shape a file's sessions take, so the
+ * orb tethers and the purple rings need no table-specific code. Only sessions
+ * the map already knows by name: an orb with no title is never drawn. */
+function tableWriters(
+  activity: TerrainTableActivity | undefined,
+  titles: ReadonlyMap<string, string>,
+): TerrainSession[] {
+  const writers: TerrainSession[] = [];
+  for (const writer of activity?.sessions ?? []) {
+    const title = titles.get(writer.id);
+    if (title === undefined) continue;
+    writers.push({
+      id: writer.id,
+      title,
+      writes: writer.writes,
+      reads: 0,
+      last: new Date(writer.last * 1000).toISOString(),
+    });
+  }
+  return writers;
 }
 
 /**

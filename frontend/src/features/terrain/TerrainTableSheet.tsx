@@ -1,6 +1,7 @@
-import type { TerrainTable, TerrainTableNotes } from './api';
+import type { TerrainTable, TerrainTableActivity, TerrainTableNotes } from './api';
 import { fileMentions } from './tableMentions';
 import { describeTableShape, formatBytes, tablesPointingAt } from './tableNodes';
+import { relativeAge } from './terrainGraph';
 import styles from './TerrainTableSheet.module.css';
 
 /**
@@ -84,8 +85,18 @@ export function TerrainTableSheet({
   allTables,
   onPickTable,
   onOpenFile,
+  activity,
+  recordingSince,
+  sessionTitles,
 }: {
   table: TerrainTable;
+  /** When this table last changed (its two outlines on the map), or undefined
+   * when the server hasn't said. */
+  activity?: TerrainTableActivity;
+  /** When the table log began, unix seconds — row writes before it are unknown. */
+  recordingSince?: number | null;
+  /** Session id → its title, to name the agents that wrote the table. */
+  sessionTitles?: ReadonlyMap<string, string>;
   /** Every table on the map — needed to find the keys pointing IN. */
   allTables: readonly TerrainTable[];
   /** Jump to another table's card. */
@@ -119,6 +130,17 @@ export function TerrainTableSheet({
     if (roles.length > 0) return roles.join(' · ');
     return column.notnull ? 'required' : 'optional';
   };
+
+  /** "3h ago", or "just now" — relativeAge is the map's compact form. */
+  const ago = (unixSeconds: number): string => {
+    const age = relativeAge(unixSeconds);
+    return age === 'now' ? 'just now' : `${age} ago`;
+  };
+  // Which of the two structure sources is the newer one, so the card can say
+  // where the red outline's time comes from rather than just showing a time.
+  const migratedAt = activity?.migrated_at ?? null;
+  const definedAt = activity?.defined_at ?? null;
+  const structureFromLog = migratedAt !== null && (definedAt === null || migratedAt >= definedAt);
 
   return (
     <div className={styles.body}>
@@ -157,6 +179,47 @@ export function TerrainTableSheet({
         Width is exact: one stripe per column. Height grows with the square root of the rows, so a
         table twice as tall holds about four times as many.
       </p>
+
+      {/* WHEN IT LAST CHANGED — the words behind the table's two outlines on
+          the map. Each line names its source, and an unknown time is said to
+          be unknown: the outline is simply absent then, and this is where
+          she finds out why. */}
+      {activity ? (
+        <section className={styles.section}>
+          <h3 className={styles.heading}>When it last changed</h3>
+          <p className={styles.prose}>
+            <strong>Structure (red outline):</strong>{' '}
+            {structureFromLog
+              ? `created or altered in this database ${ago(migratedAt!)}.`
+              : definedAt !== null
+                ? `its definition in the code last changed ${ago(definedAt)} (from git — the migration runs at the next reload after that).`
+                : 'not recorded — its definition could not be found in the code, and no migration has touched it since recording began.'}
+          </p>
+          <p className={styles.prose}>
+            <strong>Rows (yellow outline):</strong>{' '}
+            {activity.rows_at !== null
+              ? `last written ${ago(activity.rows_at)}.`
+              : recordingSince != null
+                ? `not recorded — nothing has written it since recording began ${ago(recordingSince)}.`
+                : 'not recorded yet.'}
+          </p>
+          {activity.sessions.length > 0 ? (
+            <p className={styles.prose}>
+              <strong>Agents that wrote it:</strong>{' '}
+              {activity.sessions
+                .map(
+                  (writer) =>
+                    `${sessionTitles?.get(writer.id) ?? writer.id} (${writer.structure ? 'structure, ' : ''}${ago(writer.last)})`,
+                )
+                .join(' · ')}
+            </p>
+          ) : null}
+          <p className={styles.note}>
+            Row writes are noted when a statement that changed at least one row goes through the
+            app's database door. A raw sqlite3 command that skips the door is not seen.
+          </p>
+        </section>
+      ) : null}
 
       {/* WHAT SHAPE */}
       <section className={styles.section}>

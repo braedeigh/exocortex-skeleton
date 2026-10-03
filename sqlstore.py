@@ -41,6 +41,7 @@ import sqlite3
 import time
 
 import store
+import tablelog
 
 _SCHEMA_VERSION = 46
 
@@ -62,7 +63,10 @@ def _connect() -> sqlite3.Connection:
     what lets the two gunicorn workers (and, later, the agent watcher) share
     the file safely.
     """
-    conn = sqlite3.connect(_db_path(), timeout=_BUSY_MS / 1000, isolation_level=None)
+    # tablelog.Connection is an ordinary connection that also settles the
+    # table log when it closes (see tablelog.watch, below).
+    conn = sqlite3.connect(_db_path(), timeout=_BUSY_MS / 1000, isolation_level=None,
+                           factory=tablelog.Connection)
     conn.execute(f"PRAGMA busy_timeout={_BUSY_MS}")
     # ASK BEFORE SETTING. journal_mode is a persistent property of the FILE, so
     # after the first ever connection the answer is already 'wal' and this is a
@@ -81,6 +85,11 @@ def _connect() -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
     _migrate(conn)
+    # Note which tables this connection writes, for the Terrain map's table
+    # outlines (tablelog.py). Switched on AFTER the ladder, so a replayed
+    # ladder's own statements aren't counted as row writes; the ladder reports
+    # what it really changed itself, in _migrate. Never raises.
+    tablelog.watch(conn)
     return conn
 
 
@@ -261,14 +270,30 @@ def _migrate(conn):
 
     begin_immediate(conn)
     try:
+        # Tell the table log which tables the ladder created or redefined.
+        # Compared by each table's stored definition before and after, because
+        # the rungs are `IF NOT EXISTS` and re-run freely: only a definition
+        # that is new or different is a real change.
+        before = _table_definitions(conn)
         _run_ladder(conn)
+        after = _table_definitions(conn)
         conn.execute("COMMIT")
+        tablelog.structure_changed(
+            [name for name, sql in after.items() if before.get(name) != sql])
     except BaseException:
         try:
             conn.execute("ROLLBACK")
         except sqlite3.OperationalError:
             pass
         raise
+
+
+def _table_definitions(conn):
+    """Every table's name and the CREATE statement SQLite holds for it — an
+    ALTER TABLE rewrites that text, so a changed definition shows up here."""
+    return dict(conn.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'table'"
+        " AND name NOT LIKE 'sqlite_%'"))
 
 
 def _run_ladder(conn):

@@ -17,6 +17,13 @@ what is INSIDE that file — so the map can give every table its own body:
                                             — when they're few — every value
                                             with how many rows carry it
 
+  GET /api/observatory/terrain/tables/activity
+                                            when each table last had its
+                                            structure changed and last had a
+                                            row written, and which agent
+                                            sessions did it — small and cheap,
+                                            so the map can ask often
+
 For each table it says how many rows it holds, how many bytes it takes on
 disk, every column (name, type, primary key, NOT NULL), its indexes, and which
 other tables it points at through foreign keys. It also says two things a
@@ -91,6 +98,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import time
 from pathlib import Path
 
@@ -98,6 +106,7 @@ from flask import jsonify, request
 
 import public_config
 import store
+import tablelog
 from routes import observatory
 
 
@@ -422,6 +431,154 @@ def build_tables():
     # page -> route -> table, and back.
     return {"repo": repo, "path": relpath, "code_repo": "skeleton", "tables": tables,
             "calls": frontend_calls()}
+
+
+# --- when each table last changed: its structure, and its rows ----------------
+#
+# The map outlines a table twice, the way it colours a file twice: RED for when
+# its structure last changed (it was created, or a migration altered it) and
+# YELLOW for when it last had a row written. Two sources, and each is named in
+# the answer so the card can say which one it is reading:
+#
+#   THE TABLE LOG (tablelog.py) notes every write that passes through the
+#   database's one door, and every table the migration ladder creates or
+#   redefines — with the agent session that did it. Exact, but it only knows
+#   what happened since it was switched on (`recording_since`).
+#
+#   GIT covers the structure's past: the newest change to the lines of code
+#   that define the table — its CREATE TABLE statement and any ALTER TABLE
+#   naming it. That is when the DEFINITION changed in code, which is the
+#   migration as written rather than as run; on an install that reloads after
+#   each change the two are the same moment.
+#
+# There is no second source for row writes. A table the log has not seen
+# written is "not recorded" — null, never a guess and never zero.
+
+_DEFINITION_LINES_MAX = 150   # a CREATE TABLE statement longer than this is cut off
+_definition_cache = {"built_at": 0.0, "tables": None, "result": None}
+
+
+def _blame_times(root, relpath):
+    """When each line of one file was last changed, as unix seconds — git
+    blame, one stamp per line. A line changed on disk and not yet committed is
+    stamped "now" by git itself. None when git can't say (not a repo, not
+    tracked)."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "blame", "--line-porcelain", "--", relpath],
+            capture_output=True, text=True, timeout=20, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return [int(line.split()[1]) for line in out.splitlines() if line.startswith("author-time ")]
+
+
+def definition_times(table_names, creates, root=None):
+    """When the code that defines each table was last changed: {table: unix
+    seconds}. A table whose definition can't be found in the code (one built
+    from a variable name, or a search index SQLite makes itself) is left out.
+
+    `creates` is the code scan's answer to "which files hold a CREATE TABLE
+    for this table" — {table: [{"path", "lines"}]} — so the files are found by
+    the same search the card's "created by" list uses."""
+    root = Path(root or store.BUILD_DIR)
+    names = sorted(table_names, key=len, reverse=True)
+    alternation = "|".join(re.escape(n) for n in names)
+    alter = re.compile(rf'ALTER\s+TABLE{_GAP}["`]?({alternation})\b') if names else None
+    found = {}
+    files = sorted({hit["path"] for hits in creates.values() for hit in hits})
+    for relpath in files:
+        stamps = _blame_times(root, relpath)
+        try:
+            lines = (root / relpath).read_text(errors="replace").split("\n")
+        except OSError:
+            continue
+        if not stamps:
+            continue
+
+        def newest(first, last):
+            span = stamps[first - 1:last]
+            return max(span) if span else None
+
+        # The CREATE TABLE statement: from the line the scan found to the line
+        # that closes it — the first one that starts with `)` or `")"`, which
+        # is how every statement in the schema file ends.
+        for name in names:
+            for hit in creates.get(name, []):
+                if hit["path"] != relpath:
+                    continue
+                for start in hit.get("lines") or [hit["line"]]:
+                    end = start
+                    while (end < len(lines) and end - start < _DEFINITION_LINES_MAX
+                           and not lines[end].strip().startswith((")", '")"'))):
+                        end += 1
+                    stamp = newest(start, end + 1)
+                    if stamp:
+                        found[name] = max(found.get(name, 0), stamp)
+        # Every ALTER TABLE naming the table, wherever it sits in the file.
+        for number, line in enumerate(lines, start=1):
+            for match in alter.finditer(line):
+                stamp = newest(number, number + 1)
+                if stamp:
+                    found[match.group(1)] = max(found.get(match.group(1), 0), stamp)
+    return found
+
+
+def _definition_times_cached(table_names):
+    """definition_times, remembered for _SCAN_TTL_SEC — a cache that expires
+    after five minutes, the same one the code scan keeps."""
+    now = time.monotonic()
+    key = tuple(sorted(table_names))
+    cache = _definition_cache
+    if (cache["result"] is None or cache["tables"] != key
+            or now - cache["built_at"] >= _SCAN_TTL_SEC):
+        code = _scan_code_cached(table_names)
+        creates = {name: verbs["creates"] for name, verbs in code.items()}
+        cache.update(built_at=now, tables=key, result=definition_times(table_names, creates))
+    return cache["result"]
+
+
+def build_activity(visitor=False):
+    """When each table's structure last changed and when it last had a row
+    written, with the agent sessions that did either.
+
+        {"recording_since": when the table log began (unix seconds) or None,
+         "tables": {name: {"defined_at":  git — the definition's last change,
+                           "migrated_at": the log — created or altered here,
+                           "rows_at":     the log — last row write,
+                           "row_times":   the log — recent row writes,
+                           "sessions":    [{"id", "writes", "last", "structure"}]}}}
+
+    Every time is unix seconds or null for "not recorded". A visitor gets the
+    times and no sessions: a session id is a timestamp of a conversation, and
+    the map's own payload is where those are anonymized."""
+    path = store.DATA_DIR / "exo.db"
+    names = []
+    if path.is_file():
+        conn = None
+        try:
+            conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+            names = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+                " AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        except sqlite3.Error:
+            names = []
+        finally:
+            if conn is not None:
+                with contextlib.suppress(sqlite3.Error):
+                    conn.close()
+    defined = _definition_times_cached(names) if names else {}
+    logged = tablelog.activity()
+    tables = {}
+    for name in names:
+        seen = logged.get(name, {})
+        tables[name] = {
+            "defined_at": defined.get(name),
+            "migrated_at": seen.get("structure_at"),
+            "rows_at": seen.get("rows_at"),
+            "row_times": seen.get("row_times", []),
+            "sessions": [] if visitor else seen.get("sessions", []),
+        }
+    return {"recording_since": tablelog.recording_since(), "tables": tables}
 
 
 # --- the rows themselves ------------------------------------------------------
@@ -1044,6 +1201,10 @@ def register(app):
     @app.route("/api/observatory/terrain/tables")
     def observatory_terrain_tables():
         return jsonify(build_tables())
+
+    @app.route("/api/observatory/terrain/tables/activity")
+    def observatory_terrain_tables_activity():
+        return jsonify(build_activity(visitor=_visitor()))
 
     @app.route("/api/observatory/terrain/tables/rows")
     def observatory_terrain_table_rows():

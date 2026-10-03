@@ -339,6 +339,7 @@ PRESENTABLE_PATHS = (
     # The SQL console (/terrain/sql) stays shut: arbitrary reads, not a
     # described shape.
     "/api/observatory/terrain/tables",
+    "/api/observatory/terrain/tables/activity",
     "/api/observatory/terrain/tables/rows",
     "/api/observatory/terrain/tables/row",
     "/api/observatory/terrain/tables/column",

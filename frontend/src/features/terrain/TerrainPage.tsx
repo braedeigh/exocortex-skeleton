@@ -13,7 +13,7 @@ import { useSessionPreview, useSessionRoster } from '../observatory/api';
 import { isUnread, openedMap } from '../observatory/readReceipts';
 import { cardState, type CardState } from '../observatory/sessionFilters';
 import { sessionLocation } from '../observatory/sessionLocation';
-import { useTerrain, useTerrainTables, type TerrainData } from './api';
+import { useTerrain, useTerrainTableActivity, useTerrainTables, type TerrainData } from './api';
 import type { FileTouchKind, TerrainNode } from './terrainGraph';
 import { buildThreads, heatThreads } from './terrainThreads';
 import {
@@ -66,7 +66,7 @@ import { markGuideDismissed, readGuideDismissed, shouldOpenGuideOnLoad } from '.
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import { coilWindowLabel, windowCoils } from './coilFolders';
 import { fileLastEdits, gridFolders } from './fileGrids';
-import { addTableNodes } from './tableNodes';
+import { addTableNodes, tableNodeId } from './tableNodes';
 import { callLinks, tableCodeLinks } from './tableMentions';
 import { lineageLinks } from './terrainLineage';
 import { swarmGroups } from './terrainSwarms';
@@ -407,6 +407,13 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
   // Not on a build's map: the tables are this app's database, and a build is
   // somebody else's folder.
   const { data: tables, refetch: refetchTables } = useTerrainTables(!build);
+  // When each table last changed, for its outlines and the agents tethered to
+  // it. Asked again every ten seconds while an agent is running, so a table an
+  // agent just wrote lights up while she watches.
+  const { data: tableActivity, refetch: refetchTableActivity } = useTerrainTableActivity(
+    !build,
+    anyRunning && pageVisible,
+  );
   useEffect(() => {
     if (data) setAnyRunning((data.sessions ?? []).some((s) => s.running));
   }, [data]);
@@ -733,7 +740,34 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
   const refreshMap = () => {
     void refetch();
     void refetchTables();
+    void refetchTableActivity();
   };
+
+  // Session id → title, so the table card can name the agents that wrote it.
+  const sessionTitles = useMemo(
+    () => new Map((data?.sessions ?? []).map((session) => [session.id, session.title])),
+    [data?.sessions],
+  );
+
+  // Flash a table when its newest change advances between two polls — "this
+  // table was just written", the same one-second flash a file dot gets when an
+  // agent touches it. The first answer flashes nothing: there is no earlier
+  // one to have advanced from.
+  const lastTableActivity = useRef<typeof tableActivity>(undefined);
+  useEffect(() => {
+    const before = lastTableActivity.current;
+    lastTableActivity.current = tableActivity;
+    if (!before || !tableActivity || !tables || tables.repo === null || tables.path === null) return;
+    const changed = new Set<string>();
+    for (const [name, now] of Object.entries(tableActivity.tables)) {
+      const was = before.tables[name];
+      const newest = Math.max(now.rows_at ?? 0, now.migrated_at ?? 0);
+      if (was && newest > Math.max(was.rows_at ?? 0, was.migrated_at ?? 0)) {
+        changed.add(tableNodeId(tables.repo, tables.path, name));
+      }
+    }
+    if (changed.size > 0) engineRef.current?.flash(changed);
+  }, [tableActivity, tables]);
 
   // How many nodes she's dragged into place — reported by the engine, and the
   // only reason the "release" chip exists. It appears when there's something to
@@ -875,10 +909,12 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
 
   // Put the database's tables on the map: one body per table, added AFTER the
   // dials so neither the Files cut nor the date range can remove them — both
-  // rank by edit history, and a table has none. See tableNodes.ts.
+  // rank by git edit history, which a table doesn't have. Its own history
+  // (structure changed, row written, which agent) rides in with
+  // `tableActivity`. See tableNodes.ts.
   const withTables = useMemo(
-    () => (filtered ? addTableNodes(filtered, tables) : null),
-    [filtered, tables],
+    () => (filtered ? addTableNodes(filtered, tables, tableActivity) : null),
+    [filtered, tables, tableActivity],
   );
 
   // `alwaysOrbIds` = every agent in the pool. Orbs are otherwise built by
@@ -2324,6 +2360,8 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
         // opened it from.
         table={codeFile ? null : (selected?.file?.table ?? null)}
         allTables={tables?.tables ?? []}
+        activity={tableActivity}
+        sessionTitles={sessionTitles}
         onClose={() => setSelected(null)}
         onPickTable={(tableName) => {
           // Jump to a joined table's card: same window, different table.

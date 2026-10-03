@@ -112,6 +112,10 @@
  * leave room for the section, and the 'shelfKeepOut' force pushes any dot
  * that drifts in back out through the side facing its own repo. Unlike the tile
  * they name themselves, because a rectangle with no name teaches nothing.
+ * A table wears its history as OUTLINES rather than as a body colour: red for
+ * when its structure last changed, yellow for when it last had a row written,
+ * purple when an agent on the map wrote it — and that agent's orb is tethered
+ * to it by a dashed line that is drawn but never pulls (`drawTable`).
  * Hovering one keeps the tables it's joined to lit; CLICKING one pins that
  * lighting on (`holdFileHover`) so it can be read without holding the mouse
  * still, and reports the tap through `onTap` like any file — the page makes
@@ -2917,7 +2921,13 @@ export class TerrainCanvas {
           // the cards hub, not sprung to it.
           .strength((l) =>
             l.kind === 'session'
-              ? 0.06
+              ? // A tether to a TABLE is drawn and never pulls: the shelves
+                // stand in the corridor the orbs are fenced out of
+                // (fenceOrbsOut), so a pull would only park every agent that
+                // wrote a row against that fence.
+                isTable(l.source as SimNode) || isTable(l.target as SimNode)
+                ? 0
+                : 0.06
               : // The coil's dots are pinned, so the folder rope may not pull
                 // on them — and it's the one thing that could tear the spiral
                 // apart, since every one of those hundred ropes hauls on the
@@ -4391,8 +4401,8 @@ export class TerrainCanvas {
    *
    * Opaque on purpose: lines are painted before bodies, so a solid table
    * hides anything that happens to pass behind it instead of looking crossed
-   * out. Neutral ink, not heat — a table has no edit history on this map, and
-   * wearing the ramp's cold black would claim it's an old file.
+   * out. The body stays neutral ink; a table's history is worn as OUTLINES
+   * (drawTable's last block), so its shape is never recoloured by its heat.
    */
   /**
    * Where a line coming from (fromX, fromY) should meet a table: the point on
@@ -4424,7 +4434,13 @@ export class TerrainCanvas {
     return [cx + dx * reach, cy + dy * reach];
   }
 
-  private drawTable(n: SimNode): void {
+  private drawTable(
+    n: SimNode,
+    emberHot: string,
+    goldHot: string,
+    hoverAgent: string | null,
+    now: number,
+  ): void {
     const table = n.node.file?.table;
     if (!table) return;
     const { ctx, theme, transform } = this;
@@ -4465,6 +4481,53 @@ export class TerrainCanvas {
     if (table.rows === 0) ctx.setLineDash([3 / transform.k, 3 / transform.k]);
     ctx.strokeRect(x0, y0, width, height);
     ctx.setLineDash([]);
+
+    // The table's history, worn as outlines round the rectangle — the same two
+    // fires a file dot wears, on the same two sliders:
+    //   RED     its structure last changed (created, or a migration altered
+    //           it) — fades over the Heat window.
+    //   YELLOW  it last had a row written — fades over the Active window.
+    //   PURPLE  an agent on this map wrote it — the ring a file gets, squared.
+    // Each sits one step further out than the last, so all three can show at
+    // once. Strength is the raw heat of the table's ONE time (tableNodes.ts
+    // hands over a single stamp per colour), which is 1 right now and halves
+    // each half-life. A table with no recorded time has heat 0 and gets no
+    // outline — "not recorded" is drawn as nothing, never as a cold colour.
+    //
+    // Prompt that produced it: "I want databases to have red heat map outlines
+    // and yellow activity outlines" / "red comes from if a migration to the
+    // table happened or it was created. A row creation is yellow."
+    const base = ctx.globalAlpha;
+    const step = 3 / transform.k;
+    let reach = step * 0.75;
+    const outline = (colour: string, alpha: number, weight: number): void => {
+      ctx.globalAlpha = base * alpha;
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = weight / transform.k;
+      ctx.strokeRect(x0 - reach, y0 - reach, width + reach * 2, height + reach * 2);
+      reach += step;
+    };
+    const structureHeat = Math.min(1, n.node.heat);
+    const rowHeat = Math.min(1, n.node.runHeat ?? 0);
+    if (structureHeat > 0.02) outline(emberHot, glowAlpha(structureHeat), 2.2);
+    if (rowHeat > 0.02) outline(goldHot, glowAlpha(rowHeat), 2.2);
+
+    // Which agent's ring: the hovered agent's own relationship first, else
+    // whatever the shown agents earned — the same order the file dots use,
+    // and the same fade for a ring that isn't the hovered agent's.
+    const own = hoverAgent !== null ? this.hoverRings.get(n.id) : undefined;
+    const ring = own ?? this.focusRings.get(n.id) ?? this.agentRings.get(n.id);
+    if (ring) outline(this.orbStroke, hoverAgent !== null && !own ? 0.1 : 1, 2.4);
+
+    // One-shot flash: a hot-end frame swelling and fading over a second —
+    // "this table was just written", the dots' flash made square.
+    const expiry = this.flashes.get(n.id);
+    if (expiry !== undefined && expiry > now) {
+      const p = 1 - (expiry - now) / 1000;
+      reach += (10 * p) / transform.k;
+      outline(goldHot, (1 - p) * 0.85, 2.5);
+    }
+    ctx.globalAlpha = base;
   }
 
   /**
@@ -5307,8 +5370,8 @@ export class TerrainCanvas {
       // No rope from the database's folder to each table: standing on the
       // shelves already says they belong to it, and thirty-one lines fanning
       // out of one corner would bury the foreign keys, which are the lines
-      // worth reading.
-      if (link.kind !== 'fk' && (isTable(s) || isTable(t))) continue;
+      // worth reading. An agent's tether to a table it wrote still draws.
+      if ((link.kind ?? 'tree') === 'tree' && (isTable(s) || isTable(t))) continue;
       // Nor any rope into a dot on the upload coil — same complaint as the
       // shelves, one order of magnitude worse: a hundred lines fanning out of
       // the folder at the coil's centre would fill the spiral solid and bury
@@ -5571,7 +5634,7 @@ export class TerrainCanvas {
       if (n.node.kind === 'file' && n.node.file?.table) {
         // A database table — drawn as its own shape, columns wide and rows
         // tall, rather than as a dot.
-        this.drawTable(n);
+        this.drawTable(n, ramp[ramp.length - 1], goldRamp[goldRamp.length - 1], hover, now);
         continue;
       }
 

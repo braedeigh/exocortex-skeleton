@@ -63,7 +63,10 @@ export interface TerrainFile {
   /** Synthetic only — the server never sends this on a file. A table node
    * (tableNodes.ts) carries the table it stands for here, so the canvas can
    * draw it as a rectangle (columns wide, rows tall) and the page can show
-   * its columns when she taps it. */
+   * its columns when she taps it. On a table node the three lists above are
+   * re-used for the table's own history: `touches` is when its structure last
+   * changed, `ran` when it last had a row written, and `sessions` the agents
+   * that wrote it (tableNodes.ts addTableNodes). */
   table?: TerrainTable;
 }
 
@@ -350,6 +353,63 @@ export function useTerrainTables(enabled: boolean) {
       api.get<TerrainTables>('/api/observatory/terrain/tables', signal),
     enabled,
     staleTime: 5 * 60_000,
+  });
+}
+
+// --- when each table last changed, for its two outlines -----------------------
+
+/** One agent session that changed a table. */
+export interface TerrainTableWriter {
+  /** The conversation id — the same id the map's session orbs carry. */
+  id: string;
+  /** How many times the table log noted this session writing the table (at
+   * most one a minute, so "a few" means "over a few minutes", not "few rows"). */
+  writes: number;
+  /** Its last write, unix seconds. */
+  last: number;
+  /** True when it changed the table's definition, not only its rows. */
+  structure: boolean;
+}
+
+/** What is known about when one table changed. Every time is unix seconds, or
+ * null for "not recorded" — which is not the same as "never", and is drawn as
+ * no outline rather than a cold one. */
+export interface TerrainTableActivity {
+  /** From git: the newest change to the code that defines the table (its
+   * CREATE TABLE statement, or an ALTER TABLE naming it). */
+  defined_at: number | null;
+  /** From the table log: when this database actually created or altered it. */
+  migrated_at: number | null;
+  /** From the table log: the last time a statement wrote its rows. */
+  rows_at: number | null;
+  /** Recent row writes, newest first. */
+  row_times: number[];
+  /** Agent sessions that wrote it. Empty for a visitor. */
+  sessions: TerrainTableWriter[];
+}
+
+/** GET /api/observatory/terrain/tables/activity (routes/terrain_tables.py
+ * build_activity). `recording_since` is when the table log (tablelog.py) was
+ * switched on: nothing about row writes is known before it. */
+export interface TerrainTablesActivity {
+  recording_since: number | null;
+  tables: Record<string, TerrainTableActivity>;
+}
+
+/**
+ * When each table last changed. Small and cheap to build, and kept apart from
+ * useTerrainTables for that reason: that one counts every table's rows and is
+ * fetched once, this one is asked again every ten seconds while an agent is
+ * running (`live`), so a table an agent just wrote lights up while she watches.
+ */
+export function useTerrainTableActivity(enabled: boolean, live: boolean) {
+  return useQuery({
+    queryKey: ['terrain-tables-activity'] as const,
+    queryFn: async ({ signal }) =>
+      api.get<TerrainTablesActivity>('/api/observatory/terrain/tables/activity', signal),
+    enabled,
+    staleTime: live ? 8_000 : 60_000,
+    refetchInterval: live ? 10_000 : false,
   });
 }
 

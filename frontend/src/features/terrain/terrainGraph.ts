@@ -617,9 +617,14 @@ export function computeFileHeat(file: TerrainFile, lens: HeatSpan, nowSeconds: n
   const halfLife = halfLifeSeconds(lens);
   if (halfLife <= 0) return 0;
   const allTouches: number[] = [...file.touches];
-  for (const session of file.sessions) {
-    const last = sessionLastSeconds(session.last);
-    if (last !== null) allTouches.push(last);
+  // A table's red means its STRUCTURE changed, and an agent writing rows into
+  // it is the other colour — so a table's sessions stay out of this sum. (A
+  // session that did change the structure is already in `touches`.)
+  if (!file.table) {
+    for (const session of file.sessions) {
+      const last = sessionLastSeconds(session.last);
+      if (last !== null) allTouches.push(last);
+    }
   }
   let heat = 0;
   for (const ts of allTouches) {
