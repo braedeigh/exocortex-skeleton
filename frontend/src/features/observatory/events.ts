@@ -45,6 +45,11 @@
  *                                              answered elsewhere
  * - {type:'peer-status', id, status}           a held agent message she let
  *                                              through — updates its card
+ * - {type:'context-loaded', text}               the app handed the agent her
+ *                                              journal cards about a person or
+ *                                              thread she just named
+ *                                              (tools/mention_context.py) —
+ *                                              a small grey line saying whose
  * - {type:'off-record-gap'}                    a cue the app fired for her (a
  *                                              red card's resume nudge), plus
  *                                              every off-record turn logged
@@ -69,7 +74,7 @@
 import type { Arrival } from './queuedMessages';
 
 export interface Turn {
-  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision' | 'reminder' | 'peer' | 'questions';
+  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision' | 'reminder' | 'peer' | 'questions' | 'context';
   /** user/error: the text. assistant: committed markdown (authoritative).
    * decision: the exact command she approved/denied. reminder: what it says. */
   text: string;
@@ -259,6 +264,11 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
     }
     case 'off-record-gap':
       turns.push(turn('gap'));
+      return turns;
+    case 'context-loaded':
+      // The app loaded journal context for a name she mentioned. A line of its
+      // own, so she can see what the agent was handed beyond her words.
+      turns.push(turn('context', typeof e.text === 'string' ? e.text : ''));
       return turns;
     case 'decision': {
       // She tapped Approve/Deny on a gated command. Off the record (never

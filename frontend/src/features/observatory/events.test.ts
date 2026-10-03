@@ -114,6 +114,19 @@ describe('applyEvent', () => {
   });
 });
 
+describe('context-loaded', () => {
+  it('is a line of its own between her message and the reply', () => {
+    const turns = turnsFromHistory([
+      { type: 'user', text: 'saw Robin today' },
+      { type: 'context-loaded', text: 'loaded: Robin — 3 cards, 2026-09-03 to 2026-09-20' },
+      assistant('How was it?'),
+      { type: 'result' },
+    ]);
+    expect(turns.map((t) => t.role)).toEqual(['user', 'context', 'assistant']);
+    expect(turns[1].text).toBe('loaded: Robin — 3 cards, 2026-09-03 to 2026-09-20');
+  });
+});
+
 describe('reminder', () => {
   it('is its own System turn carrying who set it, never a user turn', () => {
     const turns: Turn[] = [];

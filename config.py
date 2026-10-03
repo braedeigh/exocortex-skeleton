@@ -306,3 +306,20 @@ try:
                         for k, v in _sudo_override.items()}
 except (ValueError, TypeError, AttributeError, KeyError):
     pass
+
+# Context on mention (tools/mention_context.py): the first time the owner names
+# a person or a thread in a session, a hook hands the agent her recent journal
+# cards about them. MENTION_CONTEXT=0 turns it off. MENTION_CONTEXT_ROOMS are
+# the Observatory rooms whose sessions get it (a journaling session always
+# does); the default leaves build rooms out, so journal text never lands in a
+# build chat. The amount: the last MENTION_CONTEXT_DAYS days, capped at the
+# newest MENTION_CONTEXT_CARDS cards — and when that window is empty, the
+# newest MENTION_CONTEXT_CARDS of any age.
+# Prompt: "The first time someone is mentioned in a session, the hook runs and
+# pulls up the last month of data or the last 20 messages about them."
+MENTION_CONTEXT = os.environ.get("EXOCORTEX_MENTION_CONTEXT", "1") != "0"
+MENTION_CONTEXT_ROOMS = tuple(
+    room.strip() for room in os.environ.get("EXOCORTEX_MENTION_CONTEXT_ROOMS", "personal").split(",")
+    if room.strip())
+MENTION_CONTEXT_DAYS = int(os.environ.get("EXOCORTEX_MENTION_CONTEXT_DAYS", "30"))
+MENTION_CONTEXT_CARDS = int(os.environ.get("EXOCORTEX_MENTION_CONTEXT_CARDS", "20"))

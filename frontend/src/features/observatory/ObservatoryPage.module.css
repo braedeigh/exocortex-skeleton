@@ -768,6 +768,13 @@
   color: var(--text);
 }
 
+/* The grey "loaded: …" line under a message that named a person or thread. */
+.contextLoaded {
+  margin: var(--space-2) 0 var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
 .gap {
   margin: var(--space-6) 0;
   text-align: center;

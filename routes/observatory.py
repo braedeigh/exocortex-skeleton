@@ -450,6 +450,20 @@ def _session_settings(config, tools):
             "hooks": [{"type": "command", "command": f"{sys.executable} {alert}",
                        "timeout": 15}],
         })
+    # Hand the agent her journal cards about a person or thread the first time
+    # she names them (tools/mention_context.py). A UserPromptSubmit hook: it
+    # runs on each message she sends, and what it prints lands in the agent's
+    # context. For a journaling session and for sessions in the rooms named in
+    # config.MENTION_CONTEXT_ROOMS; never a helper, whose chat starts fresh
+    # every turn and would lose the pack.
+    if (app_config.MENTION_CONTEXT and config.get("conv_id") and not config.get("helper_gate")
+            and (config.get("journal")
+                 or config.get("lane") in app_config.MENTION_CONTEXT_ROOMS)):
+        mention = Path(store.BUILD_DIR) / "tools" / "mention_context.py"
+        settings.setdefault("hooks", {}).setdefault("UserPromptSubmit", []).append({
+            "hooks": [{"type": "command", "command": f"{sys.executable} {mention}",
+                       "timeout": 15}],
+        })
     return settings
 
 
@@ -511,6 +525,8 @@ def _conv_config(entry):
     act_gate = entry.get("act_gate")
     return {
         "lane": lane,
+        # A journaling session (the Keeper). Read by _session_settings.
+        "journal": entry.get("journal") is True,
         "allowed_tools": list(tools),
         "cwd": entry.get("cwd") or str(store.CONTENT_DIR.parent),
         "system_prompt_file": entry.get("system_prompt_file"),

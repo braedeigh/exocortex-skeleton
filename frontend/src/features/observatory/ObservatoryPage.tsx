@@ -836,6 +836,15 @@ export function ObservatoryPage({
                   </div>
                 );
               }
+              if (t.role === 'context') {
+                // Journal context the app loaded for a name she mentioned —
+                // a small grey line, so she knows what the agent was handed.
+                return (
+                  <div key={i} className={styles.contextLoaded}>
+                    {t.text}
+                  </div>
+                );
+              }
               if (t.role === 'decision') {
                 // A gated command she approved/denied — the actual command,
                 // labelled, so the transcript says what she did (green ✓ /
