@@ -65,7 +65,7 @@ import { BuildReport } from './BuildReport';
 import { markGuideDismissed, readGuideDismissed, shouldOpenGuideOnLoad } from './guideOpenPref';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import { coilWindowLabel, windowCoils } from './coilFolders';
-import { fileBirths, gridFolders } from './fileGrids';
+import { fileLastEdits, gridFolders } from './fileGrids';
 import { addTableNodes } from './tableNodes';
 import { callLinks, tableCodeLinks } from './tableMentions';
 import { lineageLinks } from './terrainLineage';
@@ -1298,20 +1298,21 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
   useEffect(() => {
     engineRef.current?.setPondNodes(pondNodeIds);
   }, [pondNodeIds]);
-  // When each file was born — its first commit — read off the RAW payload,
-  // before the date dial strips touches, so narrowing the dates can't
-  // re-order a grid (fileGrids.ts fileBirth).
-  const births = useMemo(() => (data ? fileBirths(data) : null), [data]);
-  // Every code folder's files as a grid, oldest top-left (fileGrids.ts),
+  // When each file was last edited, read off the RAW payload, before the
+  // date dial strips touches, so narrowing the dates can't re-order a grid
+  // (fileGrids.ts fileLastEdit).
+  const lastEdits = useMemo(() => (data ? fileLastEdits(data) : null), [data]);
+  // Every code folder's files as a grid, edited longest ago top-left
+  // (fileGrids.ts),
   // handed over as an ORDER per folder: the engine pins file 0 in the top-left
   // cell and fills on from there (terrainCanvas.setGrids). Built from the
   // drawn graph, so a repo toggled off takes its grids with it. A coil's
   // dots stay on their spiral.
   const grids = useMemo(() => {
-    if (!visible || !births) return [];
+    if (!visible || !lastEdits) return [];
     const coilDots = new Set((coiled?.coils ?? []).flatMap((coil) => coil.spiralIds));
-    return gridFolders(visible.nodes, births, { skipIds: coilDots });
-  }, [visible, births, coiled]);
+    return gridFolders(visible.nodes, lastEdits, { skipIds: coilDots });
+  }, [visible, lastEdits, coiled]);
 
 
   // "Nothing here" is now a statement about the chosen dials, not just the

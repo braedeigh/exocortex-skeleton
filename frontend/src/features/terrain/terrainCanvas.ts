@@ -118,8 +118,9 @@
  * the second click on the same table the one that opens its card.
  *
  * THE GRIDS are how the app code's files sit. Each code folder's own files
- * are pinned in rows and columns around the folder node — oldest top-left,
- * newest along the bottom-right edges, each dot sized by its file's bytes —
+ * are pinned in rows and columns around the folder node — the one edited
+ * longest ago top-left, then down each column to the one edited most
+ * recently bottom-right, each dot sized by its file's bytes —
  * and the folder outline is drawn as the grid's frame (`setGrids`,
  * `placeGrids`; the order and geometry live in fileGrids.ts). Only the
  * folders float: each carries one collision circle round its whole frame, so
@@ -128,8 +129,10 @@
  * coils.
  *
  * Prompt that produced it: "I want my terrain files instead stored in grids.
- * With newest on the bottom right and oldest on the top left. I want them to
- * be dot grids and scaled by size = size of file."
+ * [...] I want them to be dot grids and scaled by size = size of file." →
+ * "arranged with the oldest edited in the top left corner, moving down in
+ * columns to more newly edited files [...] until the newest files on the
+ * bottom right."
  *
  * Every file dot NAMES ITSELF under the cursor (`hoverLabel`), on a plate of
  * the map's background so the name is readable over a dense field — pointing
@@ -744,7 +747,7 @@ const POND_TILE_COLLIDE_R = (POND_TILE_SIDE / 2) * Math.SQRT2 + 3;
  * see pondNodes.ts.) The physics treats it specially in three places: its
  * collision radius, its mooring spring, and its ballast in the tick. */
 /** A folder's grid once resolved against the graph: the folder node it
- * rides, its file dots oldest first, and the cells they're pinned to
+ * rides, its file dots in grid order, and the cells they're pinned to
  * (fileGrids.ts). */
 interface PlacedGrid {
   hub: SimNode;
@@ -1687,7 +1690,7 @@ export class TerrainCanvas {
   private unpaidDots: Set<string> = new Set();
   /**
    * The grids: every code folder's own files laid out in rows and columns,
-   * oldest top-left, newest along the bottom-right edges (fileGrids.ts says
+   * edited longest ago top-left, most recently bottom-right (fileGrids.ts says
    * which files and in what order; the page hands them over in setGrids).
    *
    * Built exactly like a coil: the folder node floats on the physics like
@@ -3595,8 +3598,9 @@ export class TerrainCanvas {
 
   /**
    * Hand the engine its grids: for each, the folder node it rides and its
-   * files oldest first (fileGrids.ts gridFolders). Order is the geometry —
-   * file 0 is the top-left cell — so ids are an array. Pass an empty list to
+   * files in grid order, the one edited longest ago first (fileGrids.ts
+   * gridFolders). Order is the geometry — file 0 is the top-left cell — so
+   * ids are an array. Pass an empty list to
    * let every file float free again.
    */
   setGrids(specs: readonly GridPins[]): void {
@@ -4112,11 +4116,11 @@ export class TerrainCanvas {
    * Runs once per setGraph (and per setGrids), never per tick: an
    * arrangement depends only on how many files a folder has.
    *
-   * A grid that GREW keeps its old dots where they were on the map: the
-   * frame got bigger, so its centre — where the folder node sits — moved
-   * relative to cell 0, and the folder is moved by exactly that much the
-   * other way. The new file appears at the bottom-right edge; nothing else
-   * shifts.
+   * A grid whose square GREW keeps its top-left corner where it was on the
+   * map: the frame got bigger, so its centre — where the folder node sits —
+   * moved relative to cell 0, and the folder is moved by exactly that much
+   * the other way. The grid grows down and to the right, not outward in
+   * every direction.
    */
   private placeGrids(byId: ReadonlyMap<string, SimNode>): void {
     const before = new Map(this.grids.map((grid) => [grid.hub.id, grid]));

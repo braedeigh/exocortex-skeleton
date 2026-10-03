@@ -1,6 +1,7 @@
 /**
- * fileGrids.ts — a folder's code files laid out as a grid of dots, oldest at
- * the top-left and newest toward the bottom-right.
+ * fileGrids.ts — a folder's code files laid out as a grid of dots, the one
+ * edited longest ago at the top-left and the one edited most recently at the
+ * bottom-right.
  *
  * Pure geometry and ordering: no DOM, no physics, no canvas. TerrainPage asks
  * `gridFolders` which files go in which folder's grid, in what order;
@@ -11,21 +12,17 @@
  * grid. It's the same move the coils make (coilFolders.ts, spiralLayout.ts):
  * the folder floats, and its dots ride it at fixed offsets.
  *
- * ORDER IS BIRTH, NOT LAST EDIT. A file's place in its grid is when it was
- * first committed — the oldest touch in its git history, which the payload
- * carries whole (codestore.py `touches`). Last-edit order would reshuffle the
- * grid every time an agent saved a file; the dot's colour already says how
- * recently it was touched, so the position can say something that never
- * changes. A file git hasn't seen yet is the newest thing there is and goes
- * last.
+ * ORDER IS LAST EDIT — the same fact the dot's colour shows. A file's place
+ * in its grid is when it was last edited: its newest commit, or an agent's
+ * write since then. So the grid reads as a gradient: cold in the top-left,
+ * hot in the bottom-right. Editing a file moves it to the end and closes the
+ * gap it left; that reshuffle is the point, not a cost.
  *
- * THE FILL IS IN SQUARE SHELLS, so a new file never moves an old one. Cells
- * 0–3 fill a 2×2; cells 4–8 add a column down the right and then a row along
- * the bottom, making a 3×3; and so on. A plain left-to-right grid can't do
- * that: when it grows a column, every row reflows and every dot moves. In
- * shell order every ROW still reads oldest→newest left to right and every
- * COLUMN oldest→newest top to bottom — the oldest file is the top-left dot,
- * and the newest ones are always along the bottom and right edges.
+ * THE FILL IS DOWN THE COLUMNS OF A SQUARE. The grid is as many cells tall
+ * as the smallest square that holds every file (ten files → 4 tall). Dots
+ * fill the left column top to bottom, then the next column to its right, and
+ * so on, so the newest file is the last dot of the last column. The square
+ * grows as the folder does.
  *
  * SIZE IS FILE SIZE. Each dot is fileRadius(bytes) (terrainCanvas.ts, a log
  * scale), and the grid's pitch is fixed to fit the BIGGEST possible dot with
@@ -35,9 +32,13 @@
  * Tested in fileGrids.test.ts.
  *
  * Prompt that produced it: "I want my terrain files instead stored in grids.
- * With newest on the bottom right and oldest on the top left. I want them to
- * be dot grids and scaled by size = size of file. I want all code/ app files
- * organized this way on the terrain."
+ * [...] I want them to be dot grids and scaled by size = size of file. I want
+ * all code/ app files organized this way on the terrain." → "the dots should
+ * be colored by when they were last edited, and they should be arranged with
+ * the oldest edited in the top left corner, moving down in columns to more
+ * newly edited files, with another row of more newly edited files on the
+ * right, until the newest files on the bottom right [...] they should be
+ * growing squares."
  */
 import type { TerrainData, TerrainFile } from './api';
 import type { TerrainNode } from './terrainGraph';
@@ -71,22 +72,23 @@ export interface GridRect {
   bottom: number;
 }
 
+/** How many cells tall a grid of `count` dots is: the side of the smallest
+ * square that holds them all. */
+export function gridSide(count: number): number {
+  return Math.max(1, Math.ceil(Math.sqrt(count)));
+}
+
 /**
- * Which cell the index-th oldest file sits in: the shell fill described above.
- *
- * Shell `k` is everything that turns a k×k square into a (k+1)×(k+1) one: the
- * new right-hand column first, top to bottom, then the new bottom row, left
- * to right, ending in the bottom-right corner.
+ * Which cell the index-th dot sits in, in a grid of `count`: down the first
+ * column, then down the next one to its right.
  */
-export function gridCell(index: number): { col: number; row: number } {
-  const shell = Math.floor(Math.sqrt(index));
-  const along = index - shell * shell;
-  if (along < shell) return { col: shell, row: along };
-  return { col: along - shell, row: shell };
+export function gridCell(index: number, count: number): { col: number; row: number } {
+  const side = gridSide(count);
+  return { col: Math.floor(index / side), row: index % side };
 }
 
 export interface GridArrangement {
-  /** One spot per dot, oldest first, relative to the frame's CENTRE — the
+  /** One spot per dot, in grid order, relative to the frame's CENTRE — the
    * point the folder node sits on. */
   spots: { x: number; y: number }[];
   /** The frame around the dots, relative to the same centre. */
@@ -97,11 +99,12 @@ export interface GridArrangement {
   origin: { x: number; y: number };
 }
 
-/** Lay `count` dots out in shell order, and the frame that holds them. */
+/** Lay `count` dots out down the columns of a square, and the frame that
+ * holds them. */
 export function gridArrangement(count: number, pitch: number = GRID_PITCH): GridArrangement {
   // Work in cell space first (cell 0 at 0,0), measuring how far the grid
   // reaches, then shift everything so the frame's centre is the origin.
-  const cells = Array.from({ length: count }, (_, i) => gridCell(i));
+  const cells = Array.from({ length: count }, (_, i) => gridCell(i, count));
   let cols = 1;
   let rows = 1;
   for (const cell of cells) {
@@ -173,53 +176,54 @@ export function rectExit(
 }
 
 /**
- * When a file was born, in unix seconds: its first commit, or — for a file
- * git hasn't seen — the earliest stamp of an agent that CREATED it. Null when
- * neither is known; the grid treats that as newest.
+ * When a file was last edited, in unix seconds: its newest commit, or an
+ * agent's last write to it if that is later — the same two facts the dot's
+ * colour is made from. Null when neither is on record; the grid treats that
+ * as newest, since a file git has never seen is one that was just made.
  *
  * Must be read off the payload BEFORE the date dial strips touches
  * (filterTerrainData), or narrowing the dates would re-order every grid.
  */
-export function fileBirth(file: TerrainFile): number | null {
-  let born = Infinity;
-  for (const ts of file.touches) if (ts < born) born = ts;
-  if (Number.isFinite(born)) return born;
+export function fileLastEdit(file: TerrainFile): number | null {
+  let edited = -Infinity;
+  for (const ts of file.touches) if (ts > edited) edited = ts;
   for (const s of file.sessions) {
-    if ((s.creates ?? 0) <= 0 || typeof s.last !== 'string') continue;
+    if ((s.writes ?? 0) <= 0 || typeof s.last !== 'string') continue;
     const ms = Date.parse(s.last);
-    if (Number.isFinite(ms)) born = Math.min(born, ms / 1000);
+    if (Number.isFinite(ms)) edited = Math.max(edited, ms / 1000);
   }
-  return Number.isFinite(born) ? born : null;
+  return Number.isFinite(edited) ? edited : null;
 }
 
-/** Every file's birth in a payload, by the node id the graph gives it. */
-export function fileBirths(data: TerrainData): Map<string, number | null> {
-  const births = new Map<string, number | null>();
+/** Every file's last edit in a payload, by the node id the graph gives it. */
+export function fileLastEdits(data: TerrainData): Map<string, number | null> {
+  const edits = new Map<string, number | null>();
   for (const repo of data.repos) {
-    for (const file of repo.files) births.set(`${repo.id}:file:${file.path}`, fileBirth(file));
+    for (const file of repo.files) edits.set(`${repo.id}:file:${file.path}`, fileLastEdit(file));
   }
-  return births;
+  return edits;
 }
 
 /** One grid as the canvas asks for it: the folder at its centre, and its
- * files oldest first. */
+ * files in grid order, the one edited longest ago first. */
 export interface GridPins {
   folderId: string;
   ids: string[];
 }
 
 /**
- * Group the graph's code files into one grid per folder, each oldest first.
+ * Group the graph's code files into one grid per folder, each ordered by
+ * last edit, longest ago first.
  *
  * Left out: files in GRID_SKIP_REPOS, anything in `skipIds` (the coils' dots,
  * which have their own spiral), and the synthetic bodies — the pond tile and
- * the database tables, which have shapes of their own. Ties on birth (one
- * commit that added several files) break by path, so the order never
+ * the database tables, which have shapes of their own. Ties (one
+ * commit that edited several files) break by path, so the order never
  * depends on the order the payload happened to list them in.
  */
 export function gridFolders(
   nodes: readonly TerrainNode[],
-  births: ReadonlyMap<string, number | null>,
+  lastEdits: ReadonlyMap<string, number | null>,
   options: { skipRepos?: ReadonlySet<string>; skipIds?: ReadonlySet<string> } = {},
 ): GridPins[] {
   const skipRepos = options.skipRepos ?? GRID_SKIP_REPOS;
@@ -232,13 +236,13 @@ export function gridFolders(
     if (list) list.push(node);
     else byFolder.set(node.parentId, [node]);
   }
-  const bornAt = (node: TerrainNode) => births.get(node.id) ?? Infinity;
+  const editedAt = (node: TerrainNode) => lastEdits.get(node.id) ?? Infinity;
   return [...byFolder.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([folderId, files]) => ({
       folderId,
       ids: files
-        .sort((a, b) => bornAt(a) - bornAt(b) || (a.path ?? a.id).localeCompare(b.path ?? b.id))
+        .sort((a, b) => editedAt(a) - editedAt(b) || (a.path ?? a.id).localeCompare(b.path ?? b.id))
         .map((node) => node.id),
     }));
 }

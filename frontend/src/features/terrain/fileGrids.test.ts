@@ -3,7 +3,7 @@ import type { TerrainData, TerrainFile } from './api';
 import {
   GRID_PITCH,
   GRID_RING_GAP,
-  fileBirths,
+  fileLastEdits,
   gridArrangement,
   gridFolders,
   rectExit,
@@ -12,16 +12,16 @@ import { buildTerrainGraph } from './terrainGraph';
 import { fileRadius } from './terrainCanvas';
 
 /**
- * fileGrids.test.ts — each folder's code files as a grid of dots, oldest at
- * the top-left, newest toward the bottom-right (fileGrids.ts).
+ * fileGrids.test.ts — each folder's code files as a grid of dots, the one
+ * edited longest ago top-left, the one edited most recently bottom-right
+ * (fileGrids.ts).
  *
  * Run the way the Files room runs it: a payload goes through
  * buildTerrainGraph, the grids are read off the graph, and positions come out
- * of gridArrangement. Pinned here: the corner rule (oldest top-left, every
- * row and column running oldest → newest); that a new file only ever ADDS a
- * dot — nothing already on the map moves; that order is by birth, so an
- * agent editing an old file doesn't drag it to the end; and that the biggest
- * dot with its ring still fits its cell.
+ * of gridArrangement. Pinned here: the reading order (down each column, then
+ * the next column to the right, in a square); that order is by LAST EDIT —
+ * a commit or an agent's write — so editing an old file sends it to the end;
+ * and that the biggest dot with its ring still fits its cell.
  */
 
 const DAY = 86400;
@@ -43,7 +43,7 @@ function payload(files: TerrainFile[], repo = 'skeleton'): TerrainData {
 /** Where each file in `folder` lands, as {path: {col,row}} in pitches. */
 function placed(data: TerrainData, folder = 'skeleton:dir:src') {
   const graph = buildTerrainGraph(data, 'week', NOW);
-  const grid = gridFolders(graph.nodes, fileBirths(data)).find((g) => g.folderId === folder)!;
+  const grid = gridFolders(graph.nodes, fileLastEdits(data)).find((g) => g.folderId === folder)!;
   const { spots, origin } = gridArrangement(grid.ids.length);
   return new Map(
     grid.ids.map((id, i) => [
@@ -57,52 +57,61 @@ function placed(data: TerrainData, folder = 'skeleton:dir:src') {
 }
 
 describe('a folder grid', () => {
-  // Thirty files, born a day apart, listed newest first — the opposite of
-  // the order the grid has to put them in.
+  // Thirty files, each last edited a day after the one before, listed newest
+  // first — the opposite of the order the grid has to put them in.
   const files = Array.from({ length: 30 }, (_, i) =>
-    file(`src/f${String(i).padStart(2, '0')}.ts`, [NOW - (60 - i) * DAY]),
+    file(`src/f${String(i).padStart(2, '0')}.ts`, [NOW - (60 - i) * DAY, NOW - 200 * DAY]),
   ).reverse();
 
-  it('puts the oldest file top-left and runs every row and column oldest to newest', () => {
+  it('reads down each column, then the next column right, oldest edit top-left to newest bottom-right', () => {
     const cells = placed(payload(files));
+    // Thirty files need a square six tall: five full columns.
+    for (let i = 0; i < 30; i += 1) {
+      expect(cells.get(`src/f${String(i).padStart(2, '0')}.ts`)).toEqual({ col: Math.floor(i / 6), row: i % 6 });
+    }
     expect(cells.get('src/f00.ts')).toEqual({ col: 0, row: 0 });
-    const byCell = new Map([...cells].map(([path, c]) => [`${c.col},${c.row}`, Number(path.slice(5, 7))]));
-    for (const [key, age] of byCell) {
-      const [col, row] = key.split(',').map(Number);
-      const right = byCell.get(`${col + 1},${row}`);
-      const below = byCell.get(`${col},${row + 1}`);
-      if (right !== undefined) expect(right).toBeGreaterThan(age);
-      if (below !== undefined) expect(below).toBeGreaterThan(age);
+    expect(cells.get('src/f29.ts')).toEqual({ col: 4, row: 5 });
+  });
+
+  it('stays a square as the folder grows', () => {
+    for (const count of [1, 2, 4, 5, 9, 10, 16, 17, 60, 100]) {
+      const cells = [...placed(payload(files.concat(files, files, files).slice(0, count).map((f, i) => ({ ...f, path: `src/g${i}.ts` })))).values()];
+      const side = Math.ceil(Math.sqrt(count));
+      expect(Math.max(...cells.map((c) => c.row)) + 1).toBe(Math.min(side, count));
+      expect(Math.max(...cells.map((c) => c.col)) + 1).toBe(Math.ceil(count / side));
     }
   });
 
-  it('adds a new file as one more dot without moving any file already there', () => {
-    const before = placed(payload(files));
-    for (let extra = 1; extra <= 12; extra += 1) {
-      const born = Array.from({ length: extra }, (_, i) => file(`src/new${i}.ts`, [NOW - DAY + i * 60]));
-      const after = placed(payload([...files, ...born]));
-      for (const [path, cell] of before) expect(after.get(path)).toEqual(cell);
-    }
-  });
-
-  it('orders by when a file was born, not when it was last edited', () => {
-    // f00 is the oldest file, edited again an hour ago; an uncommitted file
-    // (no history at all) is the newest thing in the folder.
-    const edited = files.map((f) => (f.path === 'src/f00.ts' ? { ...f, touches: [NOW - 3600, ...f.touches] } : f));
-    const cells = placed(payload([...edited, file('src/fresh.ts', [])]));
-    expect(cells.get('src/f00.ts')).toEqual({ col: 0, row: 0 });
-    const graph = buildTerrainGraph(payload([...edited, file('src/fresh.ts', [])]), 'week', NOW);
-    const grid = gridFolders(graph.nodes, fileBirths(payload([...edited, file('src/fresh.ts', [])])))[0];
-    expect(grid.ids[grid.ids.length - 1]).toBe('skeleton:file:src/fresh.ts');
+  it('orders by when a file was last edited, by a commit or by an agent, not when it was made', () => {
+    // f00 was edited longest ago — until a commit an hour ago; f01 until an
+    // agent wrote to it ten minutes ago (not yet committed); an agent only
+    // READING f02 changes nothing; a file with no history at all is newest.
+    const session = (last: number, writes: number) => ({
+      id: 's', title: 's', writes, reads: 1, last: new Date(last * 1000).toISOString(),
+    });
+    const edited = files.map((f) =>
+      f.path === 'src/f00.ts'
+        ? { ...f, touches: [NOW - 3600, ...f.touches] }
+        : f.path === 'src/f01.ts'
+          ? { ...f, sessions: [session(NOW - 600, 2)] }
+          : f.path === 'src/f02.ts'
+            ? { ...f, sessions: [session(NOW - 60, 0)] }
+            : f,
+    );
+    const data = payload([...edited, file('src/fresh.ts', [])]);
+    const graph = buildTerrainGraph(data, 'week', NOW);
+    const order = gridFolders(graph.nodes, fileLastEdits(data))[0].ids.map((id) => id.split(':file:')[1]);
+    expect(order[0]).toBe('src/f02.ts');
+    expect(order.slice(-3)).toEqual(['src/f00.ts', 'src/f01.ts', 'src/fresh.ts']);
   });
 
   it('leaves the vault, coil dots, the pond tile and tables out of the grids', () => {
     const vault = payload([file('notes/a.md', [NOW]), file('notes/b.md', [NOW])], 'vault');
     const graph = buildTerrainGraph(vault, 'week', NOW);
-    expect(gridFolders(graph.nodes, fileBirths(vault))).toEqual([]);
+    expect(gridFolders(graph.nodes, fileLastEdits(vault))).toEqual([]);
     const code = payload([file('src/a.ts', [NOW]), file('src/b.ts', [NOW])]);
     const codeGraph = buildTerrainGraph(code, 'week', NOW);
-    const grids = gridFolders(codeGraph.nodes, fileBirths(code), { skipIds: new Set(['skeleton:file:src/a.ts']) });
+    const grids = gridFolders(codeGraph.nodes, fileLastEdits(code), { skipIds: new Set(['skeleton:file:src/a.ts']) });
     expect(grids).toEqual([{ folderId: 'skeleton:dir:src', ids: ['skeleton:file:src/b.ts'] }]);
   });
 
