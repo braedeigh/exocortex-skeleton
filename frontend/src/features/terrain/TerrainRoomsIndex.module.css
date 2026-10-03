@@ -21,12 +21,13 @@
      colour key z5) — the whole map, controls included, blurs as one. */
   z-index: 9;
   display: flex;
-  /* Every room is a card here, which is more than one screen holds on a
-     laptop: the hallway scrolls, and "safe" keeps the first row reachable
-     instead of centring it off the top. */
-  align-items: safe center;
+  /* Let the hallway scroll. Every room is a card here, which is more than
+     one screen holds, on a phone most of all. The scrolling stays inside the
+     hallway instead of dragging the page behind it. */
   justify-content: center;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: var(--space-4);
   background: color-mix(in srgb, var(--bg) 45%, transparent);
   backdrop-filter: var(--frost-veil);
@@ -52,6 +53,10 @@
   gap: var(--space-3);
   /* Three cards a row on a wide screen. */
   max-width: 900px;
+  /* Centre the cards when they fit, start at the top when they don't. Auto
+     margins do this in every browser; centring with align-items would push
+     the first row off the top where it can't be scrolled back to. */
+  margin: auto;
 }
 
 /* A door, drawn as a card: opaque, generous, one whole tap target. The motif
