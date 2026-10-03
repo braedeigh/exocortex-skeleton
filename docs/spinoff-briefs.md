@@ -84,11 +84,15 @@ the dump fail harmlessly when the tables exist; the `INSERT`s load).
 could match, and checks every file against its row word for word
 (`--check`). It deletes nothing.
 
+On this install the folders were deleted by hand on 2026-10-03, on the owner's
+say, after a clean `--check` (343 files matched). They remain in the vault's
+git history. Any other install runs the import first and deletes its own.
+
 Sessions that were already running keep working:
 
 - An entry whose `system_prompt_file` still exists on disk keeps using that
-  file. When the file is gone, the turn is handed the same text from the
-  database.
+  file. When the file is gone (the usual case once the folders are deleted),
+  the turn is handed the same text from the database.
 - A brief written the old way, as `spinoffs/<slug>/BRIEF.md`, is taken into
   the database when its session is opened (`briefstore.latest`).
 - Closing a session that has a folder still files the folder in
