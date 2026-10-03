@@ -41,7 +41,7 @@ links:
   - composes linear.room: The Linear door sits on the roster.
   - composes spinoffs.tree: The spinoff tree door sits at the bottom of the roster.
   - composes worktrees.map: The worktree map door sits on the roster.
-fingerprint: 79eee2942353
+fingerprint: b1f4a4b90ee7
 written: 2026-10-02
 ---
 
