@@ -1079,7 +1079,7 @@
   },
   "agent_messages": {
     "holds": "Every message sent into an agent session's mailbox: one agent writing to another (kind A), or the owner typing while a turn was running (kind B). Who sent it, to which session, the text, how hard the sender knocked (inject, queue or interrupt), and whether it's still waiting, was held by a brake, delivered (mid-turn or as its own turn) or taken back.",
-    "source": "Written by peermail.py when a message is sent (scripts/peers.py for agents, the chat's send box for the owner) and updated as it's delivered. This is the record — a waiting message exists nowhere else.",
+    "source": "Written by peermail.py when a message is sent (scripts/peers.py for agents, the chat's send box for the owner) and updated as it's delivered. This is the record — a waiting message exists nowhere else. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "record",
     "time_column": "at",
     "columns": {
@@ -1200,7 +1200,7 @@
   },
   "swarms": {
     "holds": "Groups of agent sessions that have messaged each other. Each has a number that stays the same as it grows, a name its helper gives it, the room its card sits in, its helper's session, and the helper's current summary of the whole group.",
-    "source": "Rows are made by swarms.py when it finds two or more linked sessions in agent_messages; names and summaries are written by the swarm's helper. The record for those.",
+    "source": "Rows are made by swarms.py when it finds two or more linked sessions in agent_messages; names and summaries are written by the swarm's helper. The record for those. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "record",
     "time_column": "created_at",
     "columns": {
@@ -1235,7 +1235,7 @@
   },
   "swarm_members": {
     "holds": "Which sessions belong to which swarm, when each joined, and the helper's current summary of what that session is doing.",
-    "source": "Membership by swarms.py from who has messaged whom (and which session continued which); only ever grows. Summaries by the helper.",
+    "source": "Membership by swarms.py from who has messaged whom (and which session continued which); only ever grows. Summaries by the helper. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "mixed",
     "time_column": "joined_at",
     "columns": {
@@ -1258,7 +1258,7 @@
   },
   "swarm_helper_runs": {
     "holds": "Every time a swarm's helper ran: what started it, the exact input it was given, what it wrote back, what it cost, and any error — so what the helper used is always visible.",
-    "source": "Written by the helper runner each time it runs.",
+    "source": "Written by the helper runner each time it runs. Not rebuildable: the hourly backup dumps this table as text, one file per day.",
     "kind": "record",
     "time_column": "at",
     "columns": {
@@ -1290,7 +1290,7 @@
   },
   "session_summaries": {
     "holds": "The room helper's summary of each session working alone — what it's doing now and what it's waiting on. Swarm members' summaries live on swarm_members; this is the same thing for everyone else.",
-    "source": "Written by the room helper (room_helper.py) each time it runs; each new summary replaces the old.",
+    "source": "Written by the room helper (room_helper.py) each time it runs; each new summary replaces the old. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "record",
     "time_column": "summary_at",
     "columns": {
@@ -1307,7 +1307,7 @@
   },
   "swarm_pins": {
     "holds": "Where the room helper placed a session: in a swarm, or released to work alone. A placement overrides the messages the session exchanged before it, so a swarm glued together by old messages can come apart.",
-    "source": "Written by swarms.place when the room helper (or scripts/room_moves.py) makes a move; put back by an undo.",
+    "source": "Written by swarms.place when the room helper (or scripts/room_moves.py) makes a move; put back by an undo. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "record",
     "time_column": "at",
     "columns": {
@@ -1327,7 +1327,7 @@
   },
   "room_moves": {
     "holds": "Every move the room helper made — forming, joining, splitting or releasing swarms — with its reason and what it replaced, so any move can be undone.",
-    "source": "Written by room_helper.execute, from its runs or from scripts/room_moves.py; undone_at set by an undo.",
+    "source": "Written by room_helper.execute, from its runs or from scripts/room_moves.py; undone_at set by an undo. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "record",
     "time_column": "at",
     "columns": {
@@ -1365,7 +1365,7 @@
   },
   "room_helper_runs": {
     "holds": "Every time a room's helper ran: what started it, the exact input it was given, what it wrote back, what it cost, and any error — so what the helper used is always visible.",
-    "source": "Written by the room helper runner each time it runs.",
+    "source": "Written by the room helper runner each time it runs. Not rebuildable: the hourly backup dumps this table as text, one file per day.",
     "kind": "record",
     "time_column": "at",
     "columns": {
@@ -1397,7 +1397,7 @@
   },
   "helper_watches": {
     "holds": "What the helpers promised to keep an eye on: each watch is one session to watch, what to wait for (done, asked, committed, stalled, error) and the promise in the helper's words — and, once it fires, what happened.",
-    "source": "Written by watches.add when a helper runs scripts/helper_watch.py from its chat; closed by the minute tick (watches.tick) when it fires or expires, or by a drop.",
+    "source": "Written by watches.add when a helper runs scripts/helper_watch.py from its chat; closed by the minute tick (watches.tick) when it fires or expires, or by a drop. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "record",
     "time_column": "created_at",
     "columns": {
@@ -1435,7 +1435,7 @@
   },
   "file_alerts": {
     "holds": "Which pairs of agent sessions the app has noticed in the same file. One row per pair per file: either both changed it (same-file), or one changed it after the other read it (stale-copy). The room helper reads it and decides whether to say anything; the sessions themselves are told only when a row says so (told). The row is what stops the same overlap being counted twice.",
-    "source": "Written by file_alerts.py — by the minute check (file_alerts.tick), or, only while telling the sessions is switched on, by the pre-edit hook (tools/file_alert_hook.py). Never updated.",
+    "source": "Written by file_alerts.py — by the minute check (file_alerts.tick), or, only while telling the sessions is switched on, by the pre-edit hook (tools/file_alert_hook.py). Never updated. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "record",
     "time_column": "at",
     "columns": {
@@ -2059,7 +2059,7 @@
   },
   "claim_sources": {
     "holds": "Which sources back which claims — one row per claim-and-source pair, saying whether the source supports, contradicts, or merely contextualises the claim, and optionally pointing at the exact highlighted passage that is the evidence.",
-    "source": "Written by researchstore.py's link helpers from the claims view. Deleting either the claim or the source deletes the link; deleting the annotation keeps the link and blanks the pointer to it.",
+    "source": "Written by researchstore.py's link helpers from the claims view. Deleting either the claim or the source deletes the link; deleting the annotation keeps the link and blanks the pointer to it. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "store",
     "time_column": "created",
     "columns": {
@@ -2090,7 +2090,7 @@
   },
   "claim_values": {
     "holds": "The number inside a claim, when it has one: what the claim is about, what was measured, the amount and unit, per what, from which year, and how far it is trusted. One row per claim at most.",
-    "source": "Written by researchstore.py's set_claim_value helper from the claims view. Deleting the claim deletes its value.",
+    "source": "Written by researchstore.py's set_claim_value helper from the claims view. Deleting the claim deletes its value. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "store",
     "time_column": null,
     "columns": {
@@ -3583,7 +3583,7 @@
   },
   "linear_events": {
     "holds": "What other people did in the Linear team, as the app noticed it: a comment, a new issue, a status move, an assignment, an edit. One row per thing, written once. The owner's own actions, and her sessions' (they act under her name), are never rows. The Linear helper is woken with each new row and decides who needs to hear; the Linear room's page lists them.",
-    "source": "Written by linear_feed.py at the minute check (linear_feed.tick), from Linear's own API. Only told_at is ever updated, when the helper is woken.",
+    "source": "Written by linear_feed.py at the minute check (linear_feed.tick), from Linear's own API. Only told_at is ever updated, when the helper is woken. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "record",
     "time_column": "at",
     "columns": {
@@ -3649,7 +3649,7 @@
   },
   "swarm_closings": {
     "holds": "What each swarm did, written when it closed: the helper's plain-words summary, and the closing check built from git and the session records. One row per time a swarm closed, so a swarm that opened again and closed again has more than one. The helper is handed these on every later turn, and the swarm's page shows them.",
-    "source": "Written by swarm_helper.py (close_out) once per closing. Rows are never changed; a swarm that is dissolved takes its rows with it.",
+    "source": "Written by swarm_helper.py (close_out) once per closing. Rows are never changed; a swarm that is dissolved takes its rows with it. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "record",
     "time_column": "at",
     "columns": {

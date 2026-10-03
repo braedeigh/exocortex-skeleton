@@ -67,15 +67,16 @@ the hidden instructions whole, and any handoffs.
 ## Backup and restore
 
 `exo.db` itself is not in the hourly backup (it is past GitHub's file size
-limit). The vault's `scripts/git_backup.sh` writes `spinoff_briefs` and
-`spinoff_handoffs` out as text every hour, to `data/spinoff_briefs.sql`,
-beside the `job_runs` dump. `spinoff_contexts` is left out on purpose: it is
-several megabytes of copies of files that were on disk, and a session that has
-lost its context still has its brief.
+limit). The vault's `scripts/exo_db_dumps.py`, run by its `git_backup.sh`,
+writes `spinoff_briefs` and `spinoff_handoffs` out as text every hour, to
+`data/spinoff_briefs.sql`, beside the other records the database holds alone.
+`spinoff_contexts` is left out on purpose: it is several megabytes of copies
+of files that were on disk, and a session that has lost its context still has
+its brief.
 
-To restore into a database that has the tables but not the rows:
-`sqlite3 data/exo.db < data/spinoff_briefs.sql` (the `CREATE TABLE` lines in
-the dump fail harmlessly when the tables exist; the `INSERT`s load).
+To restore: `python3 scripts/exo_db_dumps.py --load`, from the vault. It adds
+the rows that are missing and leaves alone the ones that are there. (It is a
+Python script because the `sqlite3` command-line tool may not be installed.)
 
 ## The old folders
 
