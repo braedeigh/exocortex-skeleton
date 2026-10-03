@@ -51,12 +51,11 @@ export interface RememberedLayout {
 
 /** Versioned, so a change to the stored shape — or to what the positions
  * MEAN — is ignored rather than mis-read: a bad recall would scatter the map,
- * and there's nothing here worth migrating. v3 is the folder grids
- * (fileGrids.ts) standing clear of each other: a folder is a body the size
- * of its whole grid, and positions saved before the grids could part would
- * restore with them lying on top of each other, too gently warmed to come
- * apart. */
-const STORAGE_KEY = 'terrain.layout.v3';
+ * and there's nothing here worth migrating. v2 came with the folder grids
+ * (fileGrids.ts): a folder became a body the size of its whole grid, so
+ * positions settled for small floating folders would have restored with the
+ * grids lying on top of each other, too gently warmed to come apart. */
+const STORAGE_KEY = 'terrain.layout.v2';
 
 /** Stop writing past this many characters rather than throw a quota error at
  * her on the way out of the page. ~2MB of a typical 5MB budget, which a map of
