@@ -61,6 +61,17 @@ def test_the_apps_own_write_marks_the_table_and_names_no_agent(client, monkeypat
     assert todos["sessions"] == []
 
 
+def test_the_turn_hosts_bookkeeping_is_not_an_agents_write(client, monkeypatch):
+    """A turn host can inherit the id of the agent that started it; what it
+    writes is the app recording a turn, so it names no agent."""
+    import store
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "2026-01-01.000000")
+    monkeypatch.setattr(store, "_stats_caller_cache", "turn_host")
+    _add_todo()
+    todos = _activity(client)["tables"]["todos"]
+    assert todos["rows_at"] is not None and todos["sessions"] == []
+
+
 def test_reading_a_table_is_not_a_write(client, monkeypatch):
     monkeypatch.setenv("EXOCORTEX_CONV_ID", "2026-01-01.000000")
     conn = sqlstore.open_db()

@@ -223,6 +223,22 @@ def structure_changed(tables):
             pass
 
 
+# The app's own processes. One of these can be STARTED by an agent (a session
+# that spins off another launches that session's turn host) and so inherit the
+# agent's conversation id — but what it writes is the app's bookkeeping about a
+# turn, not an agent changing a table.
+_APP_CALLERS = frozenset({"turn_host", "gunicorn"})
+
+
+def _session(caller):
+    """Which agent session this process is writing for: the conversation id
+    every Observatory turn hands to the commands it runs, or '' when the
+    process is the app itself or nothing set one."""
+    if caller in _APP_CALLERS:
+        return ""
+    return os.environ.get("EXOCORTEX_CONV_ID") or ""
+
+
 def _note(table, kind, force=False):
     """Write one sighting down — this is a debounce: a table already noted by
     this process in the last minute is skipped, so a burst of a thousand
@@ -233,6 +249,7 @@ def _note(table, kind, force=False):
         return
     _noted[key] = now
     stamp = int(now)
+    caller = store._stats_caller()
     conn = _connect()
     try:
         conn.execute(
@@ -241,9 +258,8 @@ def _note(table, kind, force=False):
             " VALUES (?, ?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(table_name, kind, conv, caller, day) DO UPDATE SET"
             "  last_at = excluded.last_at, count = count + 1",
-            (table, kind, os.environ.get("EXOCORTEX_CONV_ID") or "",
-             store._stats_caller(), datetime.fromtimestamp(now).strftime("%Y-%m-%d"),
-             stamp, stamp),
+            (table, kind, _session(caller), caller,
+             datetime.fromtimestamp(now).strftime("%Y-%m-%d"), stamp, stamp),
         )
     finally:
         conn.close()
