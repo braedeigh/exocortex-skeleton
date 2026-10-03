@@ -144,7 +144,7 @@ def test_only_her_own_words_can_trigger_a_load(vault):
 def test_the_pack_stays_under_the_harness_limit_and_says_what_waited(vault, monkeypatch):
     conn = sqlstore.open_db()
     for minute in range(10, 30):
-        add_card(conn, f"2026-03-26.09{minute}b", "Robin " + "long " * 800)
+        add_card(conn, f"2026-03-26.09{minute}b", "Robin " + "long " * 800, tags=["robin"])
         add_card(conn, f"2026-03-27.09{minute}b", "Juniper " + "long " * 800)
     conn.commit()
     conn.close()
@@ -210,3 +210,49 @@ def test_only_personal_and_journaling_sessions_are_wired(data_dir):
     assert hooked({"lane": "orchestra", "journal": True})
     assert not hooked({"lane": "coding"})
     assert not hooked({"lane": "personal", "helper_gate": True})
+
+
+# --- Names that can't be trusted as a bare word (namerisk.py) -----------------
+
+WILL = "# Will\n\nA made-up man she met once.\n"
+
+
+@pytest.fixture
+def common_word_name(vault):
+    """A person whose name is an ordinary word: one card really about him,
+    tagged, and thirty that only use the word."""
+    (vault / "people" / "will.md").write_text(WILL)
+    conn = sqlstore.open_db()
+    add_card(conn, "2026-02-01.0900b", "met Will at the party", tags=["will"])
+    for minute in range(10, 40):
+        add_card(conn, f"2026-03-10.09{minute}b", "I will do the dishes later")
+    conn.commit()
+    conn.close()
+    return vault
+
+
+def test_a_name_that_is_an_ordinary_word_loads_nothing_when_used_as_the_word(common_word_name):
+    assert send("Will upgrade the updater tonight") is None
+    assert send("i will do it") is None
+
+
+def test_a_common_word_name_written_as_a_name_loads_only_the_tagged_cards(common_word_name):
+    pack = pack_of(send("I saw Will again"))
+    assert "met Will at the party" in pack
+    assert "dishes" not in pack
+
+
+def test_two_people_sharing_a_first_name_each_load_only_their_own_tagged_cards(vault):
+    (vault / "people" / "sam.md").write_text("# Sam\n\nA made-up neighbour.\n")
+    (vault / "people" / "sam-okafor.md").write_text("# Sam Okafor\n\nA made-up dentist.\n")
+    conn = sqlstore.open_db()
+    add_card(conn, "2026-03-20.1000b", "Sam fixed the fence", tags=["sam"])
+    add_card(conn, "2026-03-21.1000b", "Sam says no cavities", tags=["sam-okafor"])
+    add_card(conn, "2026-03-22.1000b", "Sam waved, not sure which")
+    conn.commit()
+    conn.close()
+    pack = pack_of(send("Sam came by"))
+    sections = {block.split(" — ")[0]: block for block in pack.split("## Person: ")[1:]}
+    assert "fence" in sections["Sam"] and "cavities" not in sections["Sam"]
+    assert "cavities" in sections["Sam Okafor"] and "fence" not in sections["Sam Okafor"]
+    assert "not sure which" not in pack

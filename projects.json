@@ -68,7 +68,8 @@
         "cardstore.py",
         "cardsearch.py",
         "recap_summary.py",
-        "comingup.py"
+        "comingup.py",
+        "namerisk.py"
       ],
       "routes": [
         "cards.py",
@@ -102,6 +103,7 @@
         "update_cards.py",
         "keeper_rollover.py",
         "cricket_swarm.sh",
+        "thread_tending.py",
         "cricket_housekeep.sh",
         "make_photo_thumbs.py"
       ],

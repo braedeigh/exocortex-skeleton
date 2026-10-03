@@ -19,6 +19,13 @@ cards ever, however old. Only her own cards (`who = 'B'`).
 names them. Both, because tagging happens overnight: today's cards about
 someone are not tagged yet.
 
+**Names that can't be trusted as a bare word.** Some names are ordinary words
+(a person called Will, in a journal full of "I will"), and some are shared by
+two people. `namerisk.py` works out which, from the tagger's own verdicts. For
+those names the text match is dropped and only tagged cards count, so their
+cards from today load a day late. A common-word name also has to be written
+capitalised in the middle of a sentence before it counts as a mention at all.
+
 **Once per session.** What was loaded is remembered in a small file per
 session (`bot_chats/mention_context/<session>.json` in the data folder).
 
@@ -95,8 +102,10 @@ def _state_dir():
 def _names_signature():
     """A fingerprint of the people and thread folders: how many files, and the
     newest change time. When it differs from the cached one, a file was added,
-    removed or edited, and the names are read again."""
-    parts = []
+    removed or edited, and the names are read again. Today's date is part of
+    it too: which names are risky is judged from the cards, so it is re-judged
+    once a day."""
+    parts = [date.today().isoformat()]
     for folder in ("people", "Threads"):
         newest, count = 0, 0
         try:
@@ -113,19 +122,30 @@ def _read_names():
     """Every person and thread as {key, kind, slug, name, file, terms}, read
     from the vault files through the app's own parsers. `terms` are the words
     that count as a mention: a person's first name, full name and aliases; a
-    thread's name and aliases."""
+    thread's name and aliases. A person also carries `weak` and `shared`: the
+    terms that can't be trusted as a bare word match (see namerisk.py)."""
     # Imported here, not at the top: these pull in Flask, which costs a third
     # of a second, and the cache below means most runs never need them.
-    from routes import entities, threads
+    import namerisk
+    from routes import threads
 
+    people = namerisk.all_people()
+    try:
+        with closing(_read_only_connection()) as conn:
+            risky = namerisk.classify(conn, people)
+    except sqlite3.Error:
+        # No database to judge by: only the shared names can be known.
+        shared = namerisk.shared_terms(people)
+        risky = {person["slug"]: {"weak": [], "shared": [
+            term for term in person["terms"] if term.lower() in shared]} for person in people}
     names = []
-    for person in entities.people_index().values():
-        terms = [person["name"].split()[0] if person["name"].split() else "",
-                 person["name"]] + list(person.get("aliases") or [])
+    for person in people:
+        risk = risky.get(person["slug"], {})
         names.append({
-            "key": f"person:{Path(person['file']).stem}", "kind": "person",
-            "slug": Path(person["file"]).stem, "name": person["name"],
-            "file": person["file"], "terms": _clean_terms(terms),
+            "key": f"person:{person['slug']}", "kind": "person",
+            "slug": person["slug"], "name": person["name"],
+            "file": person["file"], "terms": person["terms"],
+            "weak": risk.get("weak", []), "shared": risk.get("shared", []),
         })
     for thread in threads.threads_index().values():
         terms = [thread["name"]] + list(thread.get("aliases") or [])
@@ -200,15 +220,32 @@ def owner_words(prompt):
     return "\n".join(kept)
 
 
+def _untrusted(entry):
+    """The lowercased terms of this entry that a bare text match can't be
+    trusted for: weak ones and shared ones."""
+    return {term.lower() for term in (entry.get("weak") or []) + (entry.get("shared") or [])}
+
+
 def find_mentions(text, names):
-    """The people and threads named in `text`, in the order they first appear."""
+    """The people and threads named in `text`, in the order they first appear.
+
+    A weak term (a name that is also an ordinary word) only counts when it is
+    written capitalised in the middle of a sentence. Every other term counts as
+    a whole word in any case."""
+    import namerisk
+
     found = []
     for entry in names:
-        if not entry["terms"]:
-            continue
-        match = _term_pattern(entry["terms"]).search(text)
+        weak = {term.lower() for term in entry.get("weak") or []}
+        plain = [term for term in entry["terms"] if term.lower() not in weak]
+        match = _term_pattern(plain).search(text) if plain else None
         if match:
             found.append((match.start(), entry))
+            continue
+        for term in entry.get("weak") or []:
+            if namerisk.named_midsentence(text, term):
+                found.append((text.find(term[:1].upper() + term[1:]), entry))
+                break
     found.sort(key=lambda pair: pair[0])
     return [entry for _, entry in found]
 
@@ -238,13 +275,17 @@ def cards_about(conn, entry, today=None):
     universal `tags` table under this kind's namespace) or when its text names
     them. The word index finds text candidates quickly but folds word endings,
     so each untagged candidate is checked again with the whole-word pattern.
+    Only trusted terms are matched in text: a weak or shared name counts by
+    tag alone.
 
     The window: the last MENTION_CONTEXT_DAYS days, newest MENTION_CONTEXT_CARDS;
     if that is empty, the newest MENTION_CONTEXT_CARDS of any age."""
     today = today or date.today()
     limit = app_config.MENTION_CONTEXT_CARDS
     since = (today - timedelta(days=app_config.MENTION_CONTEXT_DAYS)).isoformat()
-    pattern = _term_pattern(entry["terms"])
+    untrusted = _untrusted(entry)
+    text_terms = [term for term in entry["terms"] if term.lower() not in untrusted]
+    pattern = _term_pattern(text_terms) if text_terms else None
 
     tagged = {row[0] for row in conn.execute(
         "SELECT card_id FROM card_tags WHERE tag = ?"
@@ -258,13 +299,14 @@ def cards_about(conn, entry, today=None):
                " AND (c.id IN (SELECT card_id FROM card_tags WHERE tag = ?)"
                "   OR c.id IN (SELECT substr(subject, 6) FROM tags"
                "               WHERE ns = ? AND tag = ? AND subject LIKE 'card:%')"
-               "   OR c.id IN (SELECT card_id FROM cards_fts WHERE cards_fts MATCH ?))"
-               " ORDER BY c.ts DESC, c.id DESC")
-        rows = conn.execute(sql, parameters + [
-            entry["slug"], entry["kind"], entry["slug"], _fts_query(entry["terms"])])
+               + ("   OR c.id IN (SELECT card_id FROM cards_fts WHERE cards_fts MATCH ?)"
+                  if text_terms else "") +
+               ") ORDER BY c.ts DESC, c.id DESC")
+        rows = conn.execute(sql, parameters + [entry["slug"], entry["kind"], entry["slug"]]
+                            + ([_fts_query(text_terms)] if text_terms else []))
         kept = []
         for row in rows:
-            if row["id"] in tagged or pattern.search(row["body"] or ""):
+            if row["id"] in tagged or (pattern and pattern.search(row["body"] or "")):
                 kept.append(row)
                 if len(kept) >= limit:
                     break

@@ -10,6 +10,7 @@ Commit is delegated back to the Rust binary (no --stage) so there is exactly ONE
 writer of build_todos.json — the validated "narrow door" stays the only way in.
 """
 from datetime import datetime
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -215,6 +216,32 @@ def _commit_life_patch(payload):
             prov.append_agent_note(item, note)
 
 
+# ── card_untag: take a wrong tag off a journal card ──
+# Staged by the nightly thread tending (scripts/thread_tending.py) when a
+# session judges that a card does not belong to a thread or is not about a
+# person. Removing a tag hides the card from that thread or person, so it is
+# never done without the owner's tap.
+
+def _commit_card_untag(payload):
+    """Remove one tag from one card through the journal engine's own `untag`
+    verb, which also re-renders every view the tag fed. Fails loudly on a bad
+    or missing card id, so the item stays queued."""
+    import sys
+
+    card_id = (payload.get("card_id") or "").strip()
+    tag = (payload.get("tag") or "").strip()
+    _day, _clock, _body = _read_card(card_id)      # refuses a bad or missing id
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", tag):
+        raise RuntimeError(f"card_untag: bad tag: {tag!r}")
+    stream_py = Path(__file__).resolve().parent.parent / "tools" / "stream" / "stream.py"
+    result = subprocess.run(
+        [sys.executable, str(stream_py), "untag", card_id, tag],
+        env={**os.environ, "TULKU_STREAM_ROOT": str(store.CONTENT_DIR)},
+        capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "card_untag: untag failed")
+
+
 def _card_sources(card):
     """A card's `source` may be a single string or a list — always give back
     a list, so the caller can pass one `--source` flag per entry."""
@@ -321,6 +348,9 @@ def _commit(change):
             _commit_agent_note(payload)
         else:
             _commit_life_patch(payload)
+        return
+    elif kind == "card_untag":
+        _commit_card_untag(payload)
         return
     elif kind == "profile":
         # Conversational door for the owner profile (docs/PERSONALIZE.md) —

@@ -102,4 +102,17 @@ for entry in "${IDS[@]}"; do
   run_one "$id" "$model"
 done
 
+# Thread tending: after the crickets (so the `cards` cricket's people tags are in),
+# check that the day's cards sit under the right threads and people — one main
+# session, then one isolated session per active thread and per ambiguous name.
+# The script does every write; see scripts/thread_tending.py. Skipped when a
+# single cricket was asked for by id. THREAD_TENDING=0 turns it off.
+if [ -z "$ONLY" ] && [ "${THREAD_TENDING:-1}" != "0" ] && [ "${CRICKET_DRY_RUN:-0}" != "1" ]; then
+  log "--- thread tending start ---"
+  EXOCORTEX_DATA_DIR="${EXOCORTEX_DATA_DIR:-$VAULT/data}" EXOCORTEX_CONTENT_DIR="${EXOCORTEX_CONTENT_DIR:-$VAULT/tulku}" CLAUDE_BIN="$CLAUDE_BIN" \
+    "$SKELETON/venv/bin/python3" "$SKELETON/scripts/thread_tending.py" \
+    "$TARGET" --crickets-dir "$CRICKETS" >> "$LOG" 2>&1
+  log "--- thread tending done (exit=$?) ---"
+fi
+
 log "=== swarm end (target=$TARGET) ==="
