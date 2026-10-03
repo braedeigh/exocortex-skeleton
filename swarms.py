@@ -332,9 +332,9 @@ def finished_at(entry):
     return max(stamps) if stamps else None
 
 
-def is_helper_session(conv_id, index):
-    """Is this a helper session — a swarm's or the room's (HELPER_ROLES) — or
-    a continuation of one? Helpers could once be handed off like any Coding
+def helper_role(conv_id, index):
+    """Which kind of helper this session is (one of HELPER_ROLES), or None
+    when it isn't one. Helpers could once be handed off like any Coding
     session, and the successor ("Swarm helper · … (cont.)") carries no role of
     its own, so the handoff chain (spawned_from) is walked back to find one."""
     seen = set()
@@ -342,13 +342,19 @@ def is_helper_session(conv_id, index):
         seen.add(conv_id)
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
-            return False
+            return None
         if entry.get("role") in HELPER_ROLES:
-            return True
+            return entry["role"]
         if entry.get("spawned_via") != "continue":
-            return False
+            return None
         conv_id = entry.get("spawned_from")
-    return False
+    return None
+
+
+def is_helper_session(conv_id, index):
+    """Is this a helper session — a swarm's, the room's or Linear's
+    (HELPER_ROLES) — or a continuation of one (helper_role)?"""
+    return helper_role(conv_id, index) is not None
 
 
 def in_helper_view(members, index, now=None):

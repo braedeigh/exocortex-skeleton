@@ -71,6 +71,7 @@ import config
 import runtime_sensor
 import runtime_trace
 import store
+import swarms
 from routes import observatory
 from routes import terrain_mirror
 from routes.tags import _SLUG_RE as _GROWTH_TAG_SLUG_RE
@@ -838,7 +839,36 @@ def _pond_days(days=_POND_TILE_DAYS, today=None):
     return [{"day": day, "touches": sorted(buckets[day], reverse=True)} for day in window]
 
 
+def _helper_title(conv_id, index):
+    """What the map calls a helper session, or None when it isn't one. The
+    room helper is "Room helper"; a swarm's helper is "Swarm helper: <the
+    swarm's name>", the name read from its index title ("Swarm helper ·
+    <name>", kept current by swarm_helper.run); any other helper keeps its
+    index title."""
+    if not isinstance(index, dict):
+        return None
+    role = swarms.helper_role(conv_id, index)
+    if role is None:
+        return None
+    if role == "room_helper":
+        return "Room helper"
+    title = str((index.get(conv_id) or {}).get("title") or "").strip()
+    if role == "swarm_helper":
+        name = title.partition("·")[2].strip()
+        return f"Swarm helper: {name}" if name else "Swarm helper"
+    return title or None
+
+
 def _terrain_session_title(conv_id, gists, index):
+    """The name a session wears on the map: a helper is named for its role
+    (_helper_title); any other session by its gist title — the one written
+    from what it actually did — then its index title.
+
+    Prompt: "i want the room helper named Room helper and then swarm helper:
+    title"."""
+    helper = _helper_title(conv_id, index)
+    if helper:
+        return helper
     gist = gists.get(conv_id) if isinstance(gists, dict) else None
     if isinstance(gist, dict) and gist.get("title"):
         return gist["title"]

@@ -364,3 +364,39 @@ def test_a_private_parent_link_goes_opaque_but_still_joins(data_dir):
     roster = terrain._redact_sessions(payload)["sessions"]
     parent, child = roster
     assert child["spawned_from"] == parent["id"] != PERSONAL_ID
+
+
+# --- what a HELPER session is called on the map ------------------------------
+
+def test_a_helper_is_named_for_its_role_not_its_gist(owner, sessions):
+    """A helper's gist title is written from whatever its chat last talked
+    about ("Room state and active swarms"), which says nothing about what the
+    orb is. On the map the room helper reads "Room helper" and a swarm's
+    helper "Swarm helper: <the swarm's name>" — a continuation of one too,
+    though it carries no role of its own — on the roster and on the file
+    cards alike. An ordinary session keeps its gist title."""
+    room, swarm, continued = "2026-09-27.213703", "2026-10-02.191913", "2026-10-02.200000"
+    with store.mutate("bot_chats/index", {}) as index:
+        index[room] = {"title": "Room helper · Coding", "role": "room_helper",
+                       "room": "coding", "lane": "coding"}
+        index[swarm] = {"title": "Swarm helper · Terrain Map Rooms", "role": "swarm_helper",
+                        "swarm_id": 23, "lane": "coding"}
+        index[continued] = {"title": "Swarm helper · Terrain Map Rooms (cont.)",
+                            "spawned_via": "continue", "spawned_from": swarm, "lane": "coding"}
+    store.write("bot_chats/gists", {
+        room: {"title": "Room state and active swarms"},
+        swarm: {"title": "Terrain Map Rooms Feature"},
+        continued: {"title": "Helper session continuation"},
+        CODING_ID: {"title": "Coils, as the gist tells it"}})
+    with store.mutate("bot_chats/footprints", {}) as footprints:
+        footprints[swarm] = {"files": {sessions: {"writes": 0, "reads": 1, "creates": 0,
+                                                  "last": "2026-10-02T19:30:00Z"}}}
+
+    payload = owner.get("/api/observatory/terrain?limit=all").get_json()
+    titles = {s["id"]: s["title"] for s in payload["sessions"]}
+    assert titles[room] == "Room helper"
+    assert titles[swarm] == "Swarm helper: Terrain Map Rooms"
+    assert titles[continued] == "Swarm helper: Terrain Map Rooms (cont.)"
+    assert titles[CODING_ID] == "Coils, as the gist tells it"
+    cards = {s["id"]: s["title"] for s in _file_card_sessions(payload)}
+    assert cards[swarm] == "Swarm helper: Terrain Map Rooms"
