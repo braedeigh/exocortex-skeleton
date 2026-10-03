@@ -559,16 +559,25 @@ export function ObservatoryPage({
           convRef.current = conv;
           pointAtNewSession(conv);
         }
+        // Only a `done` frame means the reply is finished. The stream can also
+        // just stop — the server closes it after half an hour, and a deploy
+        // or a dropped connection ends it with no error — while the turn
+        // carries on writing server-side. Treating that as the end left the
+        // reply cut off on screen, so a stream that ends without `done` goes
+        // back to watching the record instead.
+        let sawDone = false;
         await streamSend(
           conv,
           text,
           { record: !sendOffRecord, signal: ctrl.signal },
           (event) => {
+            if (event.type === 'done') sawDone = true;
             applyEvent(turnsRef.current, event);
             setTurns([...turnsRef.current]);
             turnStats.apply(event, Date.now());
           },
         );
+        if (!sawDone) await reattachApi.reattach(conv);
         markConversationOpened(conv);
       } catch (e) {
         if (ctrl.signal.aborted) {

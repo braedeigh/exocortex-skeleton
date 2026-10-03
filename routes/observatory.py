@@ -1608,6 +1608,17 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                     except Exception:
                         pass    # accounting must never cost the turn
                 if event.get("type") != "stream_event":
+                    # The typing first, then the message it built. The deltas
+                    # are flushed on a timer (below), so the last few are
+                    # usually still in memory when their finished message
+                    # arrives. Writing the message out ahead of them hands a
+                    # watcher a reply whose typing stops short, and then the
+                    # missing words a moment later, after the message that
+                    # already held them. _stream_events reads on the strength
+                    # of this order.
+                    if live_f is not None:
+                        live_f.flush()
+                        last_flush = time.monotonic()
                     log.write(json.dumps(event) + "\n")
                     log.flush()   # the log is what a re-attaching client reads
                 elif live_f is not None:
@@ -1790,10 +1801,11 @@ def _stream_events(conv_id, skip_events=0, start_offset=0, first_frame=None,
 
     Two files, tailed together. The transcript is the spine (every committed
     event, durable, flushed per write) and the `.live` sidecar carries token
-    deltas. Interleaving between the two is best-effort on purpose: deltas only
-    ever paint a preview that the next authoritative `assistant` message
-    overwrites, so a delta arriving a beat late costs nothing, and paying for
-    strict ordering between two files would buy nothing back.
+    deltas. One ordering between the two is guaranteed: a message is never
+    sent ahead of the typing that built it (see the loop below). The other
+    direction is left loose — typing for the NEXT message may go out a beat
+    before the message in front of it — because the client handles that and
+    strict ordering between two files would cost a lock for nothing.
 
     Where to start is asked two ways, because the two callers know two
     different things. `skip_events` is a COUNT, for a client reconnecting with
@@ -1829,14 +1841,27 @@ def _stream_events(conv_id, skip_events=0, start_offset=0, first_frame=None,
         started = last_spoke = time.monotonic()
         ticks = 0
         running = True
+        cut_short = False
         while True:
-            # DELTAS BEFORE THE TRANSCRIPT, every cycle, and the order is
-            # load-bearing. A delta appends to the client's in-flight buffer;
-            # the `assistant` message that follows replaces it authoritatively.
-            # Read the other way round, a cycle that picks up both at once
-            # hands over the finished message FIRST and then the deltas that
-            # built it — which re-fills a buffer the message had just settled,
-            # and paints the tail of the reply twice on screen.
+            # Never hand over a message ahead of the typing that built it. A
+            # delta appends to the client's in-flight buffer and the
+            # `assistant` message that follows settles it; a delta arriving
+            # AFTER its message re-fills a buffer that was just settled, and
+            # paints the tail of the reply twice on screen.
+            #
+            # Two orders make that hold, and both are load-bearing. The
+            # transcript is READ first and the sidecar second: the writer
+            # flushes the sidecar before it writes each transcript line
+            # (_run_turn), so by the time a message can be read here, all its
+            # typing is already on disk and the sidecar read that follows picks
+            # it up. Read the other way round, the message can land between the
+            # two reads with typing this cycle never saw. Then the deltas are
+            # SENT first and the transcript lines second.
+            #
+            # What can still happen is the harmless direction: the sidecar read
+            # reaches a little past the message, into the typing of the next
+            # one. The client keeps that typing (events.ts, `assistant`).
+            lines, offset = _read_whole_lines(path, offset)
             # The sidecar is truncated at the start of every turn. A watcher
             # still holding an offset from the last one would be seeking past
             # the end of the new file and would sit there reading nothing for
@@ -1854,7 +1879,6 @@ def _stream_events(conv_id, skip_events=0, start_offset=0, first_frame=None,
                 except ValueError:
                     continue
                 last_spoke = time.monotonic()
-            lines, offset = _read_whole_lines(path, offset)
             for raw in lines:
                 sent += 1
                 if sent <= skip_events:
@@ -1867,7 +1891,10 @@ def _stream_events(conv_id, skip_events=0, start_offset=0, first_frame=None,
             # `running` is only ever set False after a read, so the events
             # written between the last read and the flag clearing are always
             # sent before this loop leaves.
-            if not running or time.monotonic() - started > _FOLLOW_MAX_SEC:
+            if not running:
+                break
+            if time.monotonic() - started > _FOLLOW_MAX_SEC:
+                cut_short = True
                 break
             # Checked on the very first pass, not after the first interval:
             # watching a turn that has already finished is the common case (a
@@ -1886,14 +1913,22 @@ def _stream_events(conv_id, skip_events=0, start_offset=0, first_frame=None,
                 yield ": keepalive\n\n"
                 last_spoke = time.monotonic()
             time.sleep(_FOLLOW_POLL_SEC)
-        # `done` closes the turn for the send client (which used to get it off
-        # the in-process queue); `follow_end` tells a reconnecting one that the
-        # reply ENDED rather than that its connection died — the two are
-        # indistinguishable to an SSE reader otherwise. Both go to everyone:
-        # the reducer treats a second closer as a no-op, and one shape for all
-        # watchers is worth more than saving a frame.
-        yield _sse({"type": "done", "conversation_id": conv_id})
-        yield _sse({"type": "follow_end", "count": sent})
+        # Say how the stream ended. `done` means the TURN is over, and is what
+        # the chat closes the reply on — so it is only sent when the turn
+        # really is over. A stream that ran into its time limit while the
+        # agent was still working ends with `follow_end` alone, marked
+        # `running`, and the client goes back to watching (the chat page
+        # re-attaches when a stream ends with no `done`). Sending `done` there
+        # told the page a reply had finished half an hour into a turn that
+        # was still writing.
+        # `follow_end` goes to everyone: it tells a reconnecting client that
+        # the stream ENDED rather than that its connection died — the two are
+        # indistinguishable to an SSE reader otherwise.
+        if not cut_short:
+            yield _sse({"type": "done", "conversation_id": conv_id})
+            yield _sse({"type": "follow_end", "count": sent})
+        else:
+            yield _sse({"type": "follow_end", "count": sent, "running": True})
 
     return generate
 

@@ -161,6 +161,69 @@ def test_the_host_writes_the_turn_from_outside_the_web_app(data_dir, tmp_path):
     assert not live_path.exists()
 
 
+TYPING_STUB = """#!/usr/bin/env python3
+import sys, json, time
+sys.stdin.read()
+def say(event):
+    print(json.dumps(event), flush=True)
+for word in ("The ", "whole ", "reply."):
+    say({"type": "stream_event", "event": {"type": "content_block_delta",
+        "delta": {"type": "text_delta", "text": word}}})
+say({"type": "assistant", "message": {"role": "assistant",
+    "content": [{"type": "text", "text": "The whole reply."}]}})
+time.sleep(3)      # the agent is off running a tool; nothing more is typed
+say({"type": "result", "subtype": "success", "session_id": "sid-t"})
+"""
+
+
+def test_a_message_is_never_on_disk_ahead_of_the_typing_that_built_it(
+        data_dir, tmp_path):
+    """The cut-off reply. The typing goes to a sidecar file that is flushed on
+    a timer, and the finished message goes to the transcript at once — so the
+    message used to be readable while its last words were still in memory. A
+    watcher then showed a reply that stopped short, and got the missing words
+    afterwards as if they were new. By the time the message is in the
+    transcript, every word of its typing must be in the sidecar."""
+    conv_id = "2026-01-01.030303"
+    chats = store.DATA_DIR / "bot_chats"
+    chats.mkdir(parents=True, exist_ok=True)
+    log_path = chats / f"{conv_id}.jsonl"
+    live_path = chats / f"{conv_id}.live"
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id] = {"bot": "keeper", "running": True,
+                          "last_at": "2026-01-01T03:03:03", "cost_usd": 0.0}
+    stub = tmp_path / "claude-typing-stub"
+    stub.write_text(TYPING_STUB)
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+    job = tmp_path / "job.json"
+    job.write_text(json.dumps({
+        "conv_id": conv_id, "config": {"cwd": str(tmp_path)}, "text": "ping",
+        "resume_sid": None, "log_path": str(log_path),
+        "live_path": str(live_path), "data_dir": str(store.DATA_DIR),
+        "content_dir": str(store.CONTENT_DIR), "claude_bin": str(stub),
+    }))
+    host = Path(observatory.__file__).resolve().parents[1] / "scripts" / "turn_host.py"
+    proc = subprocess.Popen([sys.executable, str(host), str(job)],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        # Wait for the message to reach the transcript, then look at the
+        # sidecar at once — while the stub is still asleep, so nothing but
+        # the write order can have put the typing there.
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if log_path.exists() and '"assistant"' in log_path.read_text():
+                break
+            time.sleep(0.02)
+        else:
+            raise AssertionError("the message never reached the transcript")
+        typed = "".join(
+            json.loads(line)["event"]["delta"]["text"]
+            for line in live_path.read_text().splitlines())
+        assert typed == "The whole reply."
+    finally:
+        proc.wait(timeout=60)
+
+
 def test_the_host_records_an_agent_that_never_starts(data_dir, tmp_path):
     """If the agent can't be launched, only the host knows — the web request
     returned long ago. Leaving `running` set here would recreate the exact

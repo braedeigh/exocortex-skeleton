@@ -57,6 +57,38 @@ describe('applyEvent', () => {
     expect(assistantText(turns[0])).toBe('block one.block two.');
   });
 
+  it('shows the whole reply when the typed preview stopped short of the message', () => {
+    // The preview and the message travel separately, so the message can land
+    // while the last words of the preview are still on their way (or never
+    // come: the preview file is deleted when the turn ends). The reply must
+    // not end where the preview happened to stop.
+    const turns: Turn[] = [userTurn('hi', false)];
+    applyEvent(turns, delta('The answer is '));
+    applyEvent(turns, assistant('The answer is forty-two.'));
+    applyEvent(turns, { type: 'result', subtype: 'success' });
+    expect(assistantText(turns[1])).toBe('The answer is forty-two.');
+  });
+
+  it('never prints a reply twice, whatever order the preview and the message arrive in', () => {
+    // One reply of two spoken messages with a tool call between them, fed
+    // with every way the preview can be out of step: short, exact, running
+    // ahead into the next message, and missing its opening words.
+    const toolCall = { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Read' }] } };
+    const orders: unknown[][] = [
+      [delta('Let me '), delta('look.'), assistant('Let me look.'), toolCall, delta('Found it.'), assistant('Found it.')],
+      [delta('Let me '), assistant('Let me look.'), toolCall, delta('Found'), assistant('Found it.')],
+      [delta('Let me look.'), delta('Found '), assistant('Let me look.'), toolCall, delta('it.'), assistant('Found it.')],
+      [delta('Let me look.'), toolCall, assistant('Let me look.'), delta('Found it.'), assistant('Found it.')],
+      [delta('me look.'), assistant('Let me look.'), toolCall, assistant('Found it.')],
+    ];
+    for (const order of orders) {
+      const turns: Turn[] = [];
+      for (const event of order) applyEvent(turns, event);
+      applyEvent(turns, { type: 'done' });
+      expect(assistantText(turns[0])).toBe('Let me look.\n\nFound it.');
+    }
+  });
+
   it('joins multiple assistant messages in one turn (tool-use rounds) as paragraphs', () => {
     const turns: Turn[] = [];
     applyEvent(turns, assistant('Let me look.'));

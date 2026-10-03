@@ -177,7 +177,9 @@ export function assistantText(t: Turn): string {
   return t.buffer ? (t.text ? `${t.text}\n\n${t.buffer}` : t.buffer) : t.text;
 }
 
-function messageText(message: unknown): string {
+/** The words in a message: its text blocks, joined as paragraphs. `joiner` ''
+ * gives them run together instead, which is how the deltas carried them. */
+function messageText(message: unknown, joiner = '\n\n'): string {
   const content = (message as { content?: unknown })?.content;
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -187,7 +189,7 @@ function messageText(message: unknown): string {
       (b as { type?: unknown }).type === 'text' &&
       typeof (b as { text?: unknown }).text === 'string')
     .map((b) => b.text)
-    .join('\n\n');
+    .join(joiner);
 }
 
 /** Friendly label for a tool_use block — presence, not a debug trace. */
@@ -378,14 +380,40 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
     }
     case 'assistant': {
       const t = openAssistant(turns);
-      // Fold what the deltas already put on screen, not the authoritative
-      // message text: a multi-block message joins its blocks with '\n\n'
-      // that the deltas never carried, and that reshaping shifts every
-      // later character offset — remounting the word flow's spans mid-cool
-      // (a cooled word suddenly flashes ember again). History replay logs
-      // no deltas, so buffer is empty there and the message text is used.
-      const text = t.buffer || messageText(e.message);
-      t.buffer = '';
+      // Settle the typed preview against the finished message. The message is
+      // the truth about WHAT was said; the preview (the delta buffer) is only
+      // kept where it says the same thing, because swapping one for the other
+      // reshapes the text and remounts the word flow's spans mid-cool (a
+      // cooled word suddenly flashes ember again).
+      //
+      // The preview and the message travel in two separate files
+      // (routes/observatory.py `_stream_events`), so the preview can be short
+      // of the message, or ahead of it, when the message lands:
+      //   - no words in the message (a tool call, a thought): nothing to
+      //     settle — whatever is typed stays typed, for the message it belongs to
+      //   - preview is the START of the message: its tail hadn't arrived —
+      //     take the message, which only adds to what's on screen
+      //   - preview runs PAST the message: the extra is the next message
+      //     already typing — settle this one, keep the rest typing
+      //   - preview is the message's blocks run together: same words, and the
+      //     message's '\n\n' joins would shift every later offset — keep the
+      //     preview
+      //   - anything else: the preview is damaged; the message replaces it
+      // History replay logs no deltas, so the buffer is empty there and the
+      // message text is used.
+      // Prompt: "The LLM responses keep getting cut off before they're done
+      // and sometimes send duplications."
+      const said = messageText(e.message);
+      let text = '';
+      if (said) {
+        if (t.buffer.startsWith(said)) {
+          text = said;
+          t.buffer = t.buffer.slice(said.length);
+        } else {
+          text = t.buffer !== '' && t.buffer === messageText(e.message, '') ? t.buffer : said;
+          t.buffer = '';
+        }
+      }
       if (text) t.text = t.text ? `${t.text}\n\n${text}` : text;
       // Note which swarm this line says closed. It stays part of the reply it
       // lands in rather than becoming a turn of its own: journal highlights
