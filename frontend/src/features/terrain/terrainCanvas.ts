@@ -105,6 +105,20 @@
  * still, and reports the tap through `onTap` like any file — the page makes
  * the second click on the same table the one that opens its card.
  *
+ * THE GRIDS are how the app code's files sit. Each code folder's own files
+ * are pinned in rows and columns around the folder node — oldest top-left,
+ * newest along the bottom-right edges, each dot sized by its file's bytes —
+ * and the folder outline is drawn as the grid's frame (`setGrids`,
+ * `placeGrids`; the order and geometry live in fileGrids.ts). Only the
+ * folders float: each carries one collision circle round its whole frame, so
+ * grids bump each other like big bodies while the dots inside never move.
+ * The vault keeps the free-floating dots, and its time-stamped folders their
+ * coils.
+ *
+ * Prompt that produced it: "I want my terrain files instead stored in grids.
+ * With newest on the bottom right and oldest on the top left. I want them to
+ * be dot grids and scaled by size = size of file."
+ *
  * Every file dot NAMES ITSELF under the cursor (`hoverLabel`), on a plate of
  * the map's background so the name is readable over a dense field — pointing
  * at something is the gesture that asks "what is this". It also says WHERE IT
@@ -207,6 +221,17 @@ import { swarmHull, swarmNameAnchor, type SwarmGroup } from './terrainSwarms';
 import { homeChain, wiringTarget } from './hoverSelection';
 import { nearestExit, placeOrbNames, spreadOrbs, type Box, type NameAsk } from './agentLayout';
 import { spiralSpots, tipCurve, type SpiralArrangement } from './spiralLayout';
+import {
+  GRID_RING_GAP,
+  GRID_TAB,
+  gridArrangement,
+  gridBodyRadius,
+  gridFrameOutline,
+  rectExit,
+  type GridArrangement,
+  type GridPins,
+  type GridRect,
+} from './fileGrids';
 import { STRAIGHTEN_MS, payoutDurationMs, payoutProgress, payoutStepMs } from './coilPayout';
 import {
   chainGlow,
@@ -697,6 +722,15 @@ const POND_TILE_COLLIDE_R = (POND_TILE_SIDE / 2) * Math.SQRT2 + 3;
 /** Is this sim node the pond tile? (The one file node carrying day buckets —
  * see pondNodes.ts.) The physics treats it specially in three places: its
  * collision radius, its mooring spring, and its ballast in the tick. */
+/** A folder's grid once resolved against the graph: the folder node it
+ * rides, its file dots oldest first, and the cells they're pinned to
+ * (fileGrids.ts). */
+interface PlacedGrid {
+  hub: SimNode;
+  dots: SimNode[];
+  arrangement: GridArrangement;
+}
+
 function isPondTile(n: SimNode): boolean {
   return n.node.file?.days !== undefined;
 }
@@ -1613,6 +1647,21 @@ export class TerrainCanvas {
   /** Dots a pull has put on a coil that haven't come out of its tip yet —
    * not drawn, not tappable. Refilled by every settleCoils. */
   private unpaidDots: Set<string> = new Set();
+  /**
+   * The grids: every code folder's own files laid out in rows and columns,
+   * oldest top-left, newest along the bottom-right edges (fileGrids.ts says
+   * which files and in what order; the page hands them over in setGrids).
+   *
+   * Built exactly like a coil: the folder node floats on the physics like
+   * any other, its dots are pinned at fixed offsets from it every tick, and
+   * the folder carries one collision circle around its whole frame, so the
+   * map flows around a grid instead of through it. The folder outline is
+   * drawn as the grid's frame.
+   */
+  private grids: PlacedGrid[] = [];
+  private gridSpecs: readonly GridPins[] = [];
+  private gridByHubId: Map<string, PlacedGrid> = new Map();
+  private gridDotIds: ReadonlySet<string> = new Set();
   /** The pay-out's frame loop, while one is running (runCoilFrames). */
   private coilFrame: number | null = null;
   /** The coil whose tip curve is under the mouse, by hub id — drawn brighter. */
@@ -1902,6 +1951,12 @@ export class TerrainCanvas {
         coil.dots.map((dot) => bodyRadius(dot.radius, this.isRinged(dot))),
       );
     }
+    // A grid's folder holds the ground for its whole frame, for the same
+    // reason; and a dot ON a grid wears its ring hugging it, because it's
+    // pinned in a cell and can't shoulder its neighbours away.
+    const grid = this.gridByHubId.get(n.id);
+    if (grid !== undefined) return gridBodyRadius(grid.arrangement.frame);
+    if (this.onGrid(n)) return n.radius + (this.isRinged(n) ? GRID_RING_GAP : 0);
     return bodyRadius(n.radius, this.isRinged(n));
   }
 
@@ -2711,6 +2766,7 @@ export class TerrainCanvas {
 
     this.placeShelves(byId, repoIds, anchorFor, shelves);
     this.placeCoils(byId);
+    this.placeGrids(byId);
 
     // Which tables each table is joined to by a foreign key, either direction
     // — what a hover over a table keeps lit. Rebuilt only here, with the
@@ -2801,9 +2857,10 @@ export class TerrainCanvas {
                 // same hub. The strand drawn through the coil says where they
                 // live instead. Only the TREE rope is cut: a session tether
                 // still pulls, which parks an agent's orb beside the photos
-                // it opened, exactly as it does everywhere else.
+                // it opened, exactly as it does everywhere else. A grid's
+                // dots are pinned the same way, for the same reason.
                 (l.kind ?? 'tree') === 'tree' &&
-                  (this.onCoil(l.source as SimNode) || this.onCoil(l.target as SimNode))
+                  (this.onArrangement(l.source as SimNode) || this.onArrangement(l.target as SimNode))
                 ? 0
                 : // The shelves are pinned, so no spring may pull on them. A
                 // link touching a table does nothing at all; the one rope
@@ -2827,8 +2884,8 @@ export class TerrainCanvas {
           // pinned), and a hundred of them repelling from inside one small
           // disc would blow the surrounding map outward far past the
           // clearing the coil actually needs — which its folder's collision
-          // body already reserves, exactly once.
-          this.onCoil(n)
+          // body already reserves, exactly once. Grid dots likewise.
+          this.onArrangement(n)
             ? 0
             :
           // A table pushes harder than anything else on the map — about twice
@@ -2843,7 +2900,7 @@ export class TerrainCanvas {
       // touching its neighbours at most and never lapping over them. A coil
       // dot is the exception: it's told zero, or it shoves its own folder
       // across the map (collideRadius, ringBodies.ts).
-      .force('collide', forceCollide<SimNode>((n) => collideRadius(this.bodyRadiusOf(n), this.onCoil(n))))
+      .force('collide', forceCollide<SimNode>((n) => collideRadius(this.bodyRadiusOf(n), this.onArrangement(n))))
       // Keep the dots out of the table section. Charge and collision only
       // push a dot away from one table at a time, which lets it slip BETWEEN
       // two shelves and sit there; this treats the whole section as one
@@ -2960,7 +3017,8 @@ export class TerrainCanvas {
           // is now one of the biggest bodies on the map, and d3 has no mass,
           // so without this it gets carried by every wave passing through the
           // crowd — towing a hundred pinned dots behind it.
-          if (!isPondTile(sn) && !this.coilByHubId.has(sn.id)) continue;
+          // A grid's folder is as big a body as a coil's, and gets the same.
+          if (!isPondTile(sn) && !this.coilByHubId.has(sn.id) && !this.gridByHubId.has(sn.id)) continue;
           sn.vx = (sn.vx ?? 0) * 0.3;
           sn.vy = (sn.vy ?? 0) * 0.3;
         }
@@ -2968,6 +3026,7 @@ export class TerrainCanvas {
         // spots. Every tick, not on the shelves' slower cadence: the hub
         // moves every tick and the dots have to move with it.
         this.settleCoils(COIL_EASE);
+        this.settleGrids();
         this.fenceOrbsOut();
         // Keep the table shelves just outside the dots as the dots spread.
         this.ticksSinceLayout += 1;
@@ -2985,6 +3044,7 @@ export class TerrainCanvas {
         // mid-glide would leave the chain half paid out, frozen, with nothing
         // left running to finish it.
         this.settleCoils(1);
+        this.settleGrids();
         // Quiescence is the natural moment to write the map down: this is the
         // arrangement she'd want back.
         this.saveLayout();
@@ -3073,6 +3133,25 @@ export class TerrainCanvas {
         }
         continue;
       }
+      // A grid's folder is hit by its TAB — the strip along the top of its
+      // frame, with the name above it — never by its centre, which sits in
+      // the middle of its own dots and would steal their taps.
+      const gridHere = this.gridByHubId.get(n.id);
+      if (gridHere) {
+        const frame = this.gridFrameOf(gridHere);
+        const slop = TAP_RADIUS_PX / 2 / k;
+        const inside =
+          wx >= frame.left - slop &&
+          wx <= frame.right + slop &&
+          wy >= frame.top - (LABEL_PX + 8) / k &&
+          wy <= frame.top + GRID_TAB + slop / 2;
+        const bandDist = Math.abs(wy - frame.top);
+        if (inside && bandDist < bestDist) {
+          best = n;
+          bestDist = bandDist;
+        }
+        continue;
+      }
       // Generous, screen-space hit radius: the node's own drawn radius or a
       // fingertip's ~20px, whichever is bigger on screen.
       const hit = Math.max(n.radius, TAP_RADIUS_PX / k);
@@ -3109,8 +3188,9 @@ export class TerrainCanvas {
     if (!node) return false;
     // A coil dot is pinned to its spot on the spiral and would be shoved
     // straight back on the next tick, exactly like a table on its shelf. The
-    // coil's FOLDER is draggable, though, and the whole spiral rides it.
-    return !isTable(node) && !this.shelfHubIds.has(node.id) && !this.onCoil(node);
+    // coil's FOLDER is draggable, though, and the whole spiral rides it. A
+    // grid is the same: its dots stay in their cells, its folder carries it.
+    return !isTable(node) && !this.shelfHubIds.has(node.id) && !this.onArrangement(node);
   }
 
   /**
@@ -3438,6 +3518,37 @@ export class TerrainCanvas {
     // be told, or the map would go on treating that centre as a plain folder
     // and thread itself straight through the arms.
     this.reshapeBodies();
+  }
+
+  /**
+   * Hand the engine its grids: for each, the folder node it rides and its
+   * files oldest first (fileGrids.ts gridFolders). Order is the geometry —
+   * file 0 is the top-left cell — so ids are an array. Pass an empty list to
+   * let every file float free again.
+   */
+  setGrids(specs: readonly GridPins[]): void {
+    const same =
+      specs.length === this.gridSpecs.length &&
+      specs.every((spec, i) => {
+        const was = this.gridSpecs[i];
+        return (
+          spec.folderId === was.folderId &&
+          spec.ids.length === was.ids.length &&
+          spec.ids.every((id, j) => id === was.ids[j])
+        );
+      });
+    if (same) return;
+    this.gridSpecs = specs;
+    if (this.simNodes.length === 0) return;
+    // Lay them out now rather than at the next setGraph — the page hands the
+    // grids over and builds the graph in separate effects, in no fixed order
+    // (the same reason setCoils winds at once).
+    this.placeGrids(new Map(this.simNodes.map((n) => [n.id, n])));
+    // Folders just grew bodies the size of their frames, and d3 caches
+    // collision radii — tell the forces, and let the map make room.
+    this.reshapeBodies();
+    const sim = this.sim;
+    if (sim && sim.alpha() < 0.3) sim.alpha(0.3).restart();
   }
 
   setPondLit(lit: boolean): void {
@@ -3922,6 +4033,78 @@ export class TerrainCanvas {
     }
   }
 
+  /**
+   * Resolve the grids the page asked for into real nodes and lay each out.
+   *
+   * Runs once per setGraph (and per setGrids), never per tick: an
+   * arrangement depends only on how many files a folder has.
+   *
+   * A grid that GREW keeps its old dots where they were on the map: the
+   * frame got bigger, so its centre — where the folder node sits — moved
+   * relative to cell 0, and the folder is moved by exactly that much the
+   * other way. The new file appears at the bottom-right edge; nothing else
+   * shifts.
+   */
+  private placeGrids(byId: ReadonlyMap<string, SimNode>): void {
+    const before = new Map(this.grids.map((grid) => [grid.hub.id, grid]));
+    const placed: PlacedGrid[] = [];
+    const dotIds = new Set<string>();
+    for (const spec of this.gridSpecs) {
+      const hub = byId.get(spec.folderId);
+      if (!hub) continue;
+      // A coil's dots belong to its spiral; the page leaves them out, and
+      // this is the belt to that braces.
+      const dots = spec.ids
+        .map((id) => byId.get(id))
+        .filter((n): n is SimNode => n !== undefined && !this.coilDotIds.has(n.id));
+      if (dots.length === 0) continue;
+      const arrangement = gridArrangement(dots.length);
+      const was = before.get(hub.id);
+      if (was !== undefined && hub.x !== undefined && hub.y !== undefined) {
+        // Keep cell 0 still: hub + origin is where it sits on the map.
+        const dx = was.arrangement.origin.x - arrangement.origin.x;
+        const dy = was.arrangement.origin.y - arrangement.origin.y;
+        if (dx !== 0 || dy !== 0) {
+          hub.x += dx;
+          hub.y += dy;
+          if (hub.fx != null) hub.fx += dx;
+          if (hub.fy != null) hub.fy += dy;
+        }
+      }
+      placed.push({ hub, dots, arrangement });
+      for (const dot of dots) dotIds.add(dot.id);
+    }
+    this.grids = placed;
+    this.gridDotIds = dotIds;
+    this.gridByHubId = new Map(placed.map((grid) => [grid.hub.id, grid]));
+    this.settleGrids();
+  }
+
+  /** Pin every grid's dots to their cells around wherever their folder is
+   * this tick — the same pinning a coil's dots get (settleCoils): fx/fy hold
+   * a dot, and its velocity is zeroed so the sim can still fall quiet. */
+  private settleGrids(): void {
+    for (const grid of this.grids) {
+      const hubX = grid.hub.x ?? 0;
+      const hubY = grid.hub.y ?? 0;
+      grid.dots.forEach((dot, i) => {
+        const spot = grid.arrangement.spots[i];
+        dot.fx = dot.x = hubX + spot.x;
+        dot.fy = dot.y = hubY + spot.y;
+        dot.vx = 0;
+        dot.vy = 0;
+      });
+    }
+  }
+
+  /** A grid's frame where it stands on the map this frame, in world units. */
+  private gridFrameOf(grid: PlacedGrid): GridRect {
+    const { frame } = grid.arrangement;
+    const x = grid.hub.x ?? 0;
+    const y = grid.hub.y ?? 0;
+    return { left: x + frame.left, top: y + frame.top, right: x + frame.right, bottom: y + frame.bottom };
+  }
+
   /** Is any coil still moving on its own clock — paying out, or its curve
    * straightening? */
   private coilsInMotion(): boolean {
@@ -4102,12 +4285,19 @@ export class TerrainCanvas {
     ctx.restore();
   }
 
-  /** Is this dot wound onto any coil? Pinned, so the springs and the charge
-   * must leave it alone, and the tree edge into it isn't drawn — the strand
-   * along its coil says where it lives far better than a hundred lines
-   * fanning out of one folder could. */
-  private onCoil(n: SimNode): boolean {
-    return this.coilDotIds.has(n.id);
+  /** Is this dot pinned in a folder's grid? */
+  private onGrid(n: SimNode): boolean {
+    return this.gridDotIds.has(n.id);
+  }
+
+  /** Is this dot pinned in an arrangement — wound onto a coil, or set in a
+   * grid? Either way the springs and the charge leave it alone, it's told
+   * zero body in the collider (its folder holds the ground), it can't be
+   * dragged on its own, and the tree rope into it isn't drawn — the strand
+   * along a coil, or the frame round a grid, says where it lives far better
+   * than a hundred lines fanning out of one folder could. */
+  private onArrangement(n: SimNode): boolean {
+    return this.coilDotIds.has(n.id) || this.gridDotIds.has(n.id);
   }
 
   /**
@@ -4947,7 +5137,9 @@ export class TerrainCanvas {
       // the one line that's worth reading there, which is the strand running
       // along it (drawCoilStrands). A session tether still draws: which agent
       // opened which photo is exactly what the coil's own shape can't say.
-      if ((link.kind ?? 'tree') === 'tree' && (this.onCoil(s) || this.onCoil(t))) continue;
+      // A grid's dots get no rope either: the frame around them already says
+      // which folder they're in.
+      if ((link.kind ?? 'tree') === 'tree' && (this.onArrangement(s) || this.onArrangement(t))) continue;
       // A line with BOTH ends inside the lit answer is the hover's own: the
       // hovered file's chain of folders running up the tree, or a hovered
       // table's foreign keys. It draws at full strength wherever it runs,
@@ -5046,9 +5238,18 @@ export class TerrainCanvas {
         ctx.fill();
         continue;
       }
+      // A rope into a grid starts at its frame, not its centre — the centre
+      // is the middle of a field of dots, and a line run to it would cross
+      // the files it's meant to lead to.
+      let from = { x: s.x ?? 0, y: s.y ?? 0 };
+      let to = { x: t.x ?? 0, y: t.y ?? 0 };
+      const fromGrid = this.gridByHubId.get(s.id);
+      const toGrid = this.gridByHubId.get(t.id);
+      if (fromGrid) from = rectExit(from, to, this.gridFrameOf(fromGrid));
+      if (toGrid) to = rectExit(to, from, this.gridFrameOf(toGrid));
       ctx.beginPath();
-      ctx.moveTo(s.x ?? 0, s.y ?? 0);
-      ctx.lineTo(t.x ?? 0, t.y ?? 0);
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
       ctx.stroke();
     }
     ctx.setLineDash([]);
@@ -5290,11 +5491,14 @@ export class TerrainCanvas {
         // zoom). A repo takes a heavier line than a folder: the two are the
         // same shape at different ranks, and rank was carried by size alone,
         // which a hot folder grown by its children's heat could eat up.
-        const { height } = folderBox(nr);
-        const outline = roundedPolygonPoints(
-          folderOutline(n.x ?? 0, n.y ?? 0, nr, transform.k),
-          height * 0.2,
-        );
+        // A folder holding a grid is drawn as that grid's FRAME instead: the
+        // same folder shape, stretched round its rows of dots (fileGrids.ts).
+        const gridHere = this.gridByHubId.get(n.id);
+        const frameRect = gridHere ? this.gridFrameOf(gridHere) : null;
+        const height = frameRect ? frameRect.bottom - frameRect.top : folderBox(nr).height;
+        const outline = frameRect
+          ? roundedPolygonPoints(gridFrameOutline(frameRect), Math.min(10, height * 0.2))
+          : roundedPolygonPoints(folderOutline(n.x ?? 0, n.y ?? 0, nr, transform.k), height * 0.2);
         ctx.lineWidth = (n.node.kind === 'repo' ? 2.6 : 1.8) / transform.k;
         // Big enough on screen to read as a mixture: paint each file type its
         // share of the border, so the folder says what's IN it and not only
@@ -5542,8 +5746,12 @@ export class TerrainCanvas {
       // lit set is named only if pointing at it is still a question the map
       // is willing to answer, which it isn't once something is picked out.
       if (n.node.kind !== 'repo' && dimmed && !inPrint && !namesItself) continue;
-      const sx = (n.x ?? 0) * k + transform.x;
-      const sy = (n.y ?? 0) * k + transform.y;
+      // A folder holding a grid is named at its frame's top-left corner, over
+      // the tab, rather than over its centre, which is the middle of its dots.
+      const labelGrid = this.gridByHubId.get(n.id);
+      const labelFrame = labelGrid ? this.gridFrameOf(labelGrid) : null;
+      const sx = (labelFrame ? labelFrame.left : (n.x ?? 0)) * k + transform.x;
+      const sy = (labelFrame ? labelFrame.top : (n.y ?? 0)) * k + transform.y;
       if (sx < -80 || sx > this.width + 80 || sy < -40 || sy > this.height + 40) continue;
       // Names follow their orbs into the background: with a hover up, the
       // other agents' titles recede alongside their rings rather than sitting
@@ -5558,7 +5766,14 @@ export class TerrainCanvas {
           : UNSELECTED_FADE;
       ctx.globalAlpha =
         (hover !== null && n.node.kind === 'session' && !hovered ? 0.3 : 1) * kinLabelFade;
-      if (n.node.kind === 'repo') {
+      if (labelFrame !== null && (n.node.kind === 'repo' || n.node.kind === 'dir')) {
+        const align: CanvasTextAlign = ctx.textAlign;
+        ctx.textAlign = 'left';
+        ctx.font = n.node.kind === 'repo' ? `700 ${LABEL_PX + 2}px ${this.fontFamily}` : `600 ${LABEL_PX}px ${this.fontFamily}`;
+        ctx.fillStyle = n.node.kind === 'repo' ? theme.text : theme.textSecondary;
+        ctx.fillText(n.node.label, sx + 2, sy - 5);
+        ctx.textAlign = align;
+      } else if (n.node.kind === 'repo') {
         ctx.font = `700 ${LABEL_PX + 2}px ${this.fontFamily}`;
         ctx.fillStyle = theme.text;
         ctx.fillText(n.node.label, sx, sy - n.radius * k - 5);

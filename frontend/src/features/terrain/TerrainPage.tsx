@@ -65,6 +65,7 @@ import { BuildReport } from './BuildReport';
 import { markGuideDismissed, readGuideDismissed, shouldOpenGuideOnLoad } from './guideOpenPref';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
 import { coilWindowLabel, windowCoils } from './coilFolders';
+import { fileBirths, gridFolders } from './fileGrids';
 import { addTableNodes } from './tableNodes';
 import { callLinks, tableCodeLinks } from './tableMentions';
 import { lineageLinks } from './terrainLineage';
@@ -1269,23 +1270,20 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
   useEffect(() => {
     engineRef.current?.setPondNodes(pondNodeIds);
   }, [pondNodeIds]);
-  // The coil, handed over as an ORDER and a centre: the engine pins dot 0
-  // innermost and winds the rest out from there (terrainCanvas.setCoils).
-  useEffect(() => {
-    // Each coil, handed over as an ORDER and a centre: the engine pins dot 0
-    // innermost and winds the rest out from there (terrainCanvas.setCoils).
-    // The caption is the line it wears under its own name — "1mo · 53 of
-    // 685". Without it a centre is a control with no reading on it, and the
-    // only way to know what tapping did is to count dots.
-    engineRef.current?.setCoils(
-      (coiled?.coils ?? []).map((coil) => ({
-        folderId: coil.folderId,
-        ids: coil.spiralIds,
-        caption: `${coilWindowLabel(coil.windowDays)} · ${coil.shown} of ${coil.total}`,
-        canPull: coil.pullTo !== undefined,
-      })),
-    );
-  }, [coiled, coilWindows]);
+  // When each file was born — its first commit — read off the RAW payload,
+  // before the date dial strips touches, so narrowing the dates can't
+  // re-order a grid (fileGrids.ts fileBirth).
+  const births = useMemo(() => (data ? fileBirths(data) : null), [data]);
+  // Every code folder's files as a grid, oldest top-left (fileGrids.ts),
+  // handed over as an ORDER per folder: the engine pins file 0 in the top-left
+  // cell and fills on from there (terrainCanvas.setGrids). Built from the
+  // drawn graph, so a repo toggled off takes its grids with it. A coil's
+  // dots stay on their spiral.
+  const grids = useMemo(() => {
+    if (!visible || !births) return [];
+    const coilDots = new Set((coiled?.coils ?? []).flatMap((coil) => coil.spiralIds));
+    return gridFolders(visible.nodes, births, { skipIds: coilDots });
+  }, [visible, births, coiled]);
 
 
   // "Nothing here" is now a statement about the chosen dials, not just the
@@ -1558,6 +1556,30 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
         })),
     );
   }, [flowData]);
+
+  // The coils and the grids are handed over AFTER the engine is made (the
+  // lifecycle effect above): effects run in the order they're written, and
+  // on a remount with the payload already cached these would otherwise run
+  // while there's no engine yet, and nothing would hand them over again.
+  useEffect(() => {
+    // Each coil, handed over as an ORDER and a centre: the engine pins dot 0
+    // innermost and winds the rest out from there (terrainCanvas.setCoils).
+    // The caption is the line it wears under its own name — "1mo · 53 of
+    // 685". Without it a centre is a control with no reading on it, and the
+    // only way to know what tapping did is to count dots.
+    engineRef.current?.setCoils(
+      (coiled?.coils ?? []).map((coil) => ({
+        folderId: coil.folderId,
+        ids: coil.spiralIds,
+        caption: `${coilWindowLabel(coil.windowDays)} · ${coil.shown} of ${coil.total}`,
+        canPull: coil.pullTo !== undefined,
+      })),
+    );
+  }, [coiled, coilWindows]);
+
+  useEffect(() => {
+    engineRef.current?.setGrids(grids);
+  }, [grids]);
 
   // Data / lens / repo-visibility changes re-feed the sim (positions carry
   // over inside setGraph, so this re-warms rather than re-explodes).

@@ -115,7 +115,7 @@ describe('layoutMemory', () => {
   });
 
   it('reads nothing out of a corrupt store rather than scattering the map', async () => {
-    localStorage.setItem('terrain.layout.v1', '{not json');
+    localStorage.setItem('terrain.layout.v2', '{not json');
     const fresh = await reload();
     expect(fresh.recallLayout()).toBeNull();
   });
