@@ -275,7 +275,7 @@ export function WorkshopPage({ agent }: { agent?: string }) {
           <h2 className={styles.title}>Workshop</h2>
           <p className={styles.sub}>An agent&rsquo;s desk — every file it&rsquo;s writing, open at once.</p>
         </div>
-        <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
           ← Terrain
         </Link>
       </header>

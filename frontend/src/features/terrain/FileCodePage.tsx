@@ -104,7 +104,7 @@ export function FileCodePage({
             aria-label="Close — go to the Terrain map"
             title="Go to the Terrain map"
             data-track="code-solo-to-terrain"
-            onClick={() => void navigate({ to: '/terrain/map', search: { solo: true } })}
+            onClick={() => void navigate({ to: '/terrain/files', search: { solo: true } })}
           >
             &times;
           </IconButton>

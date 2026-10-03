@@ -532,7 +532,7 @@ export function CreekView() {
           >
             Reads
           </button>
-          <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+          <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
             ← Terrain
           </Link>
         </div>

@@ -29,7 +29,7 @@ const CONV_URL = conversationUrl(CONV);
 describe('the window gate', () => {
   it('a pure watching window (terrain + flow) does not claim conversations', () => {
     const tree = row(
-      panel({ id: 'map', url: '/terrain/map' }),
+      panel({ id: 'map', url: '/terrain/files' }),
       panel({ id: 'p', kind: 'primary' }),
     );
     expect(windowAcceptsConversations(tree, '/terrain/flow')).toBe(false);

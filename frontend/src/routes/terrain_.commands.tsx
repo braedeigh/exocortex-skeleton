@@ -8,7 +8,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * Claude Code transcripts by commandstore.py (GET /api/usage/commands).
  *
  * Un-nested (the `terrain_.` prefix) like its neighbours, so the map unmounts
- * and this room owns the screen; "← Terrain" walks back to /terrain/map. Same
+ * and this room owns the screen; "← Terrain" walks back to /terrain/files. Same
  * auth guard as the rest of the terrain, since it names repo-side surfaces.
  */
 export const Route = createFileRoute('/terrain_/commands')({

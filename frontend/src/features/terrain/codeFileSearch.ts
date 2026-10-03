@@ -5,7 +5,7 @@ import type { TerrainNode } from './terrainGraph';
  * codeFileSearch.ts — the file open over the Terrain map, spelled as part of
  * the map's address:
  *
- *   /terrain/map?repo=skeleton&file=routes/spa.py&mentions=4,9&of=todos
+ *   /terrain/files?repo=skeleton&file=routes/spa.py&mentions=4,9&of=todos
  *
  * WHY THE OPEN FILE LIVES IN THE ADDRESS. When it was only held in the page's
  * memory, a refresh forgot it and dropped her back on the bare map, and the

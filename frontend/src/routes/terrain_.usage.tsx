@@ -11,7 +11,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * inside TerrainPage's <Outlet/> as an inset glass panel, and it kept having
  * to fight the live map behind it for legibility. Now it's a whole page — the
  * map unmounts, this room owns the screen, and "← Terrain" walks back to
- * /terrain/map. The URL didn't move, so routes/spa.py and old links are
+ * /terrain/files. The URL didn't move, so routes/spa.py and old links are
  * untouched. Same auth guard as the map, since it names repo-side surfaces.
  */
 export const Route = createFileRoute('/terrain_/usage')({

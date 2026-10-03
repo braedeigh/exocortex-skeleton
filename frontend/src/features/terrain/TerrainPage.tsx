@@ -206,7 +206,7 @@ function usePageVisible(): boolean {
 }
 
 /**
- * /terrain/map — "where is being worked on": every file the observatory's
+ * /terrain/files — "where is being worked on": every file the observatory's
  * sessions touched in the window, as a force-directed tree per repo (App
  * code / Vault), files glowing ember by recency. This is where /terrain
  * lands, and the terrain's other rooms (/terrain/usage, /terrain/sql) are
@@ -922,7 +922,7 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
   const openCodeFile = useCallback(
     (repo: string, path: string, mentions?: CodeMentions) => {
       void navigate({
-        to: '/terrain/map',
+        to: '/terrain/files',
         search: (previous) => searchWithCodeFile(previous as CodeFileSearch, repo, path, mentions),
       });
     },
@@ -941,7 +941,7 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
       return;
     }
     void navigate({
-      to: '/terrain/map',
+      to: '/terrain/files',
       search: (previous) => searchWithoutCodeFile(previous as CodeFileSearch),
       replace: true,
     });
@@ -1834,7 +1834,7 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
       {/* The embed view has no chrome at all (see `embed` above): both bars
           and the colour key stay unmounted, and one door floats bottom-right. */}
       {embed ? (
-        <a className={styles.embedOpen} href="/terrain/map" target="_top" rel="noopener">
+        <a className={styles.embedOpen} href="/terrain/files" target="_top" rel="noopener">
           Open Terrain <span aria-hidden="true">&#8599;</span>
         </a>
       ) : null}

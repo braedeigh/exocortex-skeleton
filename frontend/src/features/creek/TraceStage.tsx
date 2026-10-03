@@ -42,7 +42,7 @@ export function TraceStage({
           <span className={styles.wfEntry}>journey · {trace.label || trace.id}</span>
           <span className={styles.wfMeta}>
             {trace.parts.length} parts · {formatDuration(trace.duration_us)} window ·{' '}
-            <Link to="/terrain/map" search={{ journey: trace.id }} className={styles.replayLink}>
+            <Link to="/terrain/files" search={{ journey: trace.id }} className={styles.replayLink}>
               replay on the terrain →
             </Link>
           </span>

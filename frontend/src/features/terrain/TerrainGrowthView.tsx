@@ -403,7 +403,7 @@ export function TerrainGrowthView() {
           <h2 className={styles.title}>How it&rsquo;s grown</h2>
           <p className={styles.sub}>The same system along time — code and vault, accumulating.</p>
         </div>
-        <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
           ← Terrain
         </Link>
       </header>

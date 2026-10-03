@@ -11,7 +11,7 @@ describe('which section a page belongs to', () => {
   it('gives Pond to Pond even though Terrain also claims /terrain', () => {
     // Longest claim wins — first-match would make the Pond tab unreachable.
     expect(sectionForUrl('/terrain/pond')?.id).toBe('pond');
-    expect(sectionForUrl('/terrain/map')?.id).toBe('terrain');
+    expect(sectionForUrl('/terrain/files')?.id).toBe('terrain');
     expect(sectionForUrl('/terrain/usage')?.id).toBe('terrain');
   });
 
@@ -83,7 +83,7 @@ describe('shortcut sections', () => {
 describe('what the active tab is called', () => {
   it('wears the section name on its own front page', () => {
     expect(pageLabel('/observatory')).toBe('Observatory');
-    expect(pageLabel('/terrain/map')).toBe('Terrain');
+    expect(pageLabel('/terrain/files')).toBe('Terrain');
     expect(pageLabel('/todos')).toBe('Dashboard');
   });
 

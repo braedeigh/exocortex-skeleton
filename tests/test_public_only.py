@@ -121,6 +121,7 @@ def test_not_yet_presentable_is_closed_to_a_stranger(stranger, path):
 
 def test_presentable_and_shell_stay_open(mirror):
     assert mirror.get("/").status_code == 200
+    assert mirror.get("/terrain/files").status_code == 200
     assert mirror.get("/terrain/map").status_code == 200
     assert mirror.get("/api/observatory/terrain").status_code == 200
     assert mirror.get("/api/version").status_code == 200
@@ -159,7 +160,7 @@ def test_the_three_tiers_do_not_overlap():
 
 # --- who may frame the mirror (server.frame_policy) ----------------------------
 # The portfolio page at the apex domain embeds /terrain/map?embed=1 in an
-# <iframe>; nothing else on the mirror may be framed, by anyone, and the
+# <iframe>, which the client forwards to /terrain/files; nothing else on the mirror may be framed, by anyone, and the
 # private instance sends no policy at all (its own surfaces frame each other).
 
 def test_only_the_map_may_be_framed_and_only_by_the_configured_origins(mirror, monkeypatch):
@@ -167,6 +168,8 @@ def test_only_the_map_may_be_framed_and_only_by_the_configured_origins(mirror, m
     assert mirror.get("/terrain/map").headers["Content-Security-Policy"] == \
         "frame-ancestors https://example.org https://www.example.org"
     assert mirror.get("/terrain/map?embed=1").headers["Content-Security-Policy"] == \
+        "frame-ancestors https://example.org https://www.example.org"
+    assert mirror.get("/terrain/files?embed=1").headers["Content-Security-Policy"] == \
         "frame-ancestors https://example.org https://www.example.org"
     # The food map is the second exhibit, framed the same way.
     assert mirror.get("/food-map?embed=1").headers["Content-Security-Policy"] == \

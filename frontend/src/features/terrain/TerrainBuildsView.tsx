@@ -13,7 +13,7 @@ import styles from './TerrainBuildsView.module.css';
  * The main map covers the two folders this system is made of. A BUILD is
  * anything else — a project built in its own directory on this machine, or a
  * repo cloned from GitHub. Tapping a card opens that build's own map
- * (/terrain/map?build=<id>), which carries a written report of what happened
+ * (/terrain/files?build=<id>), which carries a written report of what happened
  * in it beside the dots (BuildReport.tsx). A build never joins the main map.
  *
  * Adding takes one line: a GitHub repo address (cloned in the background —
@@ -119,7 +119,7 @@ export function TerrainBuildsView() {
             Other folders, each read as its own map and a report of what happened in it.
           </p>
         </div>
-        <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
           ← Terrain
         </Link>
       </header>
@@ -156,7 +156,7 @@ export function TerrainBuildsView() {
             {/* The card's body is the door: a ready build opens its map. One
                 that isn't ready has no map worth opening, so it is plain text. */}
             {build.state === 'ready' ? (
-              <Link to="/terrain/map" search={{ build: build.id }} className={styles.open}>
+              <Link to="/terrain/files" search={{ build: build.id }} className={styles.open}>
                 <span className={styles.name}>{build.name}</span>
                 <span className={styles.line}>{summaryLine(build.summary)}</span>
                 <span className={styles.where}>{build.source ?? build.root}</span>

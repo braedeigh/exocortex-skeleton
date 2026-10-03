@@ -8,7 +8,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
 // tracing read-only.
 //
 // `?embed=1` is the EXHIBIT: chrome-free, the map filling the frame, built for
-// the portfolio page's <iframe> the same way /terrain/map?embed=1 is
+// the portfolio page's <iframe> the same way /terrain/files?embed=1 is
 // (shell/embed.ts). `?recipe=<id>` opens with that recipe already traced —
 // the portfolio passes both, so the frame is alive before anyone touches it.
 // The id travels in the URL rather than living here, so the skeleton never

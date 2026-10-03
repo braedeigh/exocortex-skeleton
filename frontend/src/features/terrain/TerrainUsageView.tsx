@@ -96,7 +96,7 @@ export function TerrainUsageView() {
         </div>
         {/* Back to the map, not a close ×: a page returns you somewhere named,
             and the terrain's map is where this room's door is. */}
-        <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
           ← Terrain
         </Link>
       </header>

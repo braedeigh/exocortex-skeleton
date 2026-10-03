@@ -69,6 +69,8 @@ def _file(c, repo, path):
 
 
 def test_map_page_and_payload_open_to_visitors(visitor):
+    assert visitor.get("/terrain/files").status_code == 200
+    # The old address still opens, so old links reach the client's forward.
     assert visitor.get("/terrain/map").status_code == 200
     resp = visitor.get("/api/observatory/terrain")
     assert resp.status_code == 200

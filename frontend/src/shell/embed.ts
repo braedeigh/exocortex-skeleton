@@ -1,7 +1,7 @@
 /**
  * embed.ts — is this window the EMBED view of the Terrain map?
  *
- * `/terrain/map?embed=1` is the map cut down to sit in an <iframe> on the
+ * `/terrain/files?embed=1` is the map cut down to sit in an <iframe> on the
  * owner's portfolio page: no chrome, the breathing heat preset, the Open
  * agent pool, and one "Open Terrain ↗" door to the full map (see
  * features/terrain/TerrainPage.tsx). The shell's own chrome (TopTabs) reads

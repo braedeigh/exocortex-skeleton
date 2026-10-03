@@ -23,7 +23,7 @@ export const Route = createFileRoute('/')({
       // the whole site, every screen size; on the private site's logged-out
       // view a phone still gets the FakeTerminal landing first.
       if (window.PUBLIC_ONLY || window.matchMedia(DESKTOP_QUERY).matches) {
-        throw redirect({ to: '/terrain/map' });
+        throw redirect({ to: '/terrain/files' });
       }
       return;
     }

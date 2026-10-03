@@ -232,7 +232,7 @@ function PublicHeader() {
       <div className={styles.publicLinks}>
         {/* /about is closed to visitors since 2026-09-17 (public_config
             _NOT_YET_PRESENTABLE); bring its link back with the page. */}
-        <Link to="/terrain/map" className={styles.publicLink}>
+        <Link to="/terrain/files" className={styles.publicLink}>
           Terrain
         </Link>
         {window.PUBLIC_ONLY ? null : (
@@ -582,7 +582,7 @@ export function TopTabs({ subRowOnly = false }: { subRowOnly?: boolean } = {}) {
         {/* Terrain holds this slot instead of Research (her call — it's the
             surface she actually works from now). Research kept its route and
             moved into the More menu. startsWith, not equality: the terrain is
-            several full pages sharing the /terrain prefix (/terrain/map, where
+            several full pages sharing the /terrain prefix (/terrain/files, where
             /terrain lands, plus the rooms /terrain/usage and /terrain/sql),
             and the tab stays lit in every one of them. */}
         <button

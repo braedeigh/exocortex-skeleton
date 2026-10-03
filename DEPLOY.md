@@ -87,7 +87,7 @@ door into the private instance. Nothing in the app writes in this mode that you'
 want to keep, so the data copy can be overwritten freely (an hourly `git reset
 --hard` mirror works). The Observatory and terminal stay unreachable.
 
-The **Terrain map** (`/terrain/map`) is open to visitors — on the mirror and on
+The **Terrain map** (`/terrain/files`; the old `/terrain/map` address forwards there) is open to visitors — on the mirror and on
 the private site's logged-out view alike. They see every file from both repos
 and the session orbs with their titles; what they cannot do is read a personal
 file: `/api/observatory/terrain/file` answers `403 {"private": true}` for
@@ -100,11 +100,11 @@ dashboard, about, kitchen, money … — closed, each line ready to move back up
 when the owner calls it presentable). On the mirror `/` lands on the map, full
 width. Contract: `tests/test_terrain_public.py`, `tests/test_public_only.py`.
 
-`/terrain/map?embed=1` is the map with no chrome — breathing heat, the Open agent
+`/terrain/files?embed=1` (or the old `/terrain/map?embed=1`, which forwards) is the map with no chrome — breathing heat, the Open agent
 pool, an "Open Terrain ↗" button — made to sit in an `<iframe>` on a portfolio page.
 Set `EXOCORTEX_FRAME_ANCESTORS="https://your-site.org https://www.your-site.org"` in
 the mirror's service environment: the mirror then answers
-`Content-Security-Policy: frame-ancestors <those>` on `/terrain/map` and
+`Content-Security-Policy: frame-ancestors <those>` on `/terrain/files`, `/terrain/map` and
 `frame-ancestors 'none'` everywhere else. Unset, nothing on the mirror can be framed.
 
 ### A live map, without publishing the private box

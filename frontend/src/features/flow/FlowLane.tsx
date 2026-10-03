@@ -233,7 +233,7 @@ export function FlowLane() {
           <h2 className={styles.title}>Flow</h2>
           <p className={styles.sub}>Code as it&rsquo;s being written — newest first.</p>
         </div>
-        <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
           ← Terrain
         </Link>
       </header>

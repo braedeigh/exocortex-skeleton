@@ -6,10 +6,10 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * /terrain/builds — the Builds room: the owner's other git folders (projects
  * built elsewhere on this machine, repos cloned from GitHub), one card each,
  * and the box that adds another (features/terrain/TerrainBuildsView). A card
- * opens that build's own map at /terrain/map?build=<id>.
+ * opens that build's own map at /terrain/files?build=<id>.
  *
  * Un-nested (the `terrain_.` prefix) like its neighbours, so the map unmounts
- * and this room owns the screen; "← Terrain" walks back to /terrain/map.
+ * and this room owns the screen; "← Terrain" walks back to /terrain/files.
  * Owner only: a build's file names and commit messages are hers, so a visitor
  * is redirected away here and the server refuses the data regardless.
  */

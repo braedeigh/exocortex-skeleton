@@ -10,7 +10,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * inset glass panel over the live map, and its glass had to be pushed to 98%
  * opaque before a code editor was readable over moving dots — the clearest
  * sign it wanted to be a page. Now the map unmounts and this room owns the
- * screen; "← Terrain" walks back to /terrain/map. The URL didn't move, so
+ * screen; "← Terrain" walks back to /terrain/files. The URL didn't move, so
  * routes/spa.py and old links are untouched.
  *
  * /sql still exists as a standalone full-width page rendering the same

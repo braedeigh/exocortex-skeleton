@@ -17,7 +17,7 @@ describe('what a tile catches, from the page it shows', () => {
 
   it('an ordinary page catches nothing', () => {
     expect(intentKindsForUrl('/todos')).toEqual([]);
-    expect(intentKindsForUrl('/terrain/map')).toEqual([]);
+    expect(intentKindsForUrl('/terrain/files')).toEqual([]);
     expect(intentKindsForUrl('/')).toEqual([]);
   });
 

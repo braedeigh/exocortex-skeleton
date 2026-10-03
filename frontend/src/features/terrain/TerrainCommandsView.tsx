@@ -111,7 +111,7 @@ export function TerrainCommandsView() {
             Every <code>/</code> command you&rsquo;ve run — and the ones you haven&rsquo;t.
           </p>
         </div>
-        <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
           ← Terrain
         </Link>
       </header>

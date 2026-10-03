@@ -15,7 +15,7 @@ export function PublicLanding() {
       <FakeTerminal />
       <div className={styles.actions}>
         {/* The map is the one page a visitor can open (public_config). */}
-        <Link to="/terrain/map" className={styles.explore}>
+        <Link to="/terrain/files" className={styles.explore}>
           Explore the map
         </Link>
         {window.PUBLIC_ONLY ? null : (

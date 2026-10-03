@@ -154,6 +154,6 @@ export function useLayout(): [LayoutNode, (next: LayoutNode | ((cur: LayoutNode)
  *  likely to be the reason you split in the first place. It inherits the tab
  *  set of the panel it was split off, since a panel you just made beside
  *  another is almost always for the same kind of work. */
-export function newRoutePanel(setId?: string, url = '/terrain/map'): PanelNode {
+export function newRoutePanel(setId?: string, url = '/terrain/files'): PanelNode {
   return { type: 'panel', id: newId('panel'), kind: 'route', url, ...(setId ? { setId } : {}) };
 }

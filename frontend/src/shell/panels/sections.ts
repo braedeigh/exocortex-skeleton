@@ -47,7 +47,7 @@ export const SECTIONS: Section[] = [
   // `?conv=latest` resolves to the pinned Keeper session server-side.
   { id: 'keeper', label: 'Keeper', icon: '🕯', home: '/observatory/session?conv=latest', claims: [] },
   { id: 'research', label: 'Research', icon: '🔎', home: '/research/claims', claims: ['/research'] },
-  { id: 'terrain', label: 'Terrain', icon: '🗺', home: '/terrain/map', claims: ['/terrain'] },
+  { id: 'terrain', label: 'Terrain', icon: '🗺', home: '/terrain/files', claims: ['/terrain'] },
   { id: 'pond', label: 'Pond', icon: '🐟', home: '/terrain/pond', claims: ['/terrain/pond'] },
   { id: 'flow', label: 'Flow', icon: '🫧', home: '/terrain/flow', claims: ['/terrain/flow'] },
   { id: 'workshop', label: 'Workshop', icon: '🛠', home: '/terrain/workshop', claims: ['/terrain/workshop'] },

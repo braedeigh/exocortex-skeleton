@@ -143,8 +143,8 @@ def register(app):
     @app.route("/about")
     # Session-visualization surfaces (born native, no Flask ancestor):
     @app.route("/terrain")
-    # ...and the pages under it: /terrain/map (where /terrain lands) plus the
-    # rooms /terrain/usage and /terrain/sql — each a full page in the SPA now,
+    # ...and the pages under it: /terrain/files (the heatmap, where /terrain
+    # lands), /terrain/map and every other room — each a full page in the SPA,
     # not a child panel. Without this, a refresh or a pasted link inside any
     # of them 404'd.
     @app.route("/terrain/<path:rest>")

@@ -290,6 +290,14 @@ PRESENTABLE_PATHS = (
     # prefix, so a new endpoint under /terrain/ is closed until someone adds
     # it here on purpose.
     "/terrain",
+    # The heatmap's address since 2026-10-02 ("Files"), when /terrain/map was
+    # handed to the new box-and-arrow Map room. /terrain/map stays listed so
+    # every old link — the portfolio's ?embed=1 iframe included — still gets
+    # the page shell; the client then forwards a visitor, and any heatmap
+    # link, on to /terrain/files (frontend routes/terrain_.map.tsx). The Map
+    # itself reads its own owner-only endpoint, so the open shell shows a
+    # visitor nothing of it.
+    "/terrain/files",
     "/terrain/map",
     "/api/observatory/terrain",
     "/api/observatory/terrain/file",

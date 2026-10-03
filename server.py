@@ -130,7 +130,11 @@ app.after_request(add_conditional_cache)
 # frame-ancestors 'none'. The private instance is left alone — its own
 # surfaces frame each other (/files/, /terminal/) and it isn't the thing a
 # stranger can reach.
-_FRAMEABLE_PATHS = ("/terrain/map", "/food-map")
+# /terrain/map is where the portfolio's iframe still points; the client
+# forwards it to /terrain/files, the heatmap's own address since 2026-10-02,
+# inside the same framed document. Both are listed so a direct link to either
+# frames.
+_FRAMEABLE_PATHS = ("/terrain/files", "/terrain/map", "/food-map")
 
 
 @app.after_request

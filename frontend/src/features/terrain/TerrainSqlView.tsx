@@ -35,7 +35,7 @@ export function TerrainSqlView() {
         </div>
         {/* Back to the map, not a close × — same as the usage room. A page
             returns you somewhere named. */}
-        <Link to="/terrain/map" className={styles.back} aria-label="Back to the terrain map">
+        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
           ← Terrain
         </Link>
       </header>

@@ -37,7 +37,7 @@ describe('routeActivity', () => {
   });
 
   it('splits beside the primary panel when the conversation is nowhere in view', () => {
-    const tree = row(panel({ id: 'm', url: '/terrain/map' }), panel({ id: 'p', kind: 'primary' }));
+    const tree = row(panel({ id: 'm', url: '/terrain/files' }), panel({ id: 'p', kind: 'primary' }));
     expect(routeActivity(tree, CONV, '/todos')).toEqual({ kind: 'split', targetId: 'p', url: activityUrl(CONV) });
   });
 });
