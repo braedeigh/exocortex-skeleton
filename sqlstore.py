@@ -42,7 +42,7 @@ import time
 
 import store
 
-_SCHEMA_VERSION = 45
+_SCHEMA_VERSION = 46
 
 
 def _db_path():
@@ -211,6 +211,7 @@ _EXPECTED_TABLES = (
     "linear_events",
     # What each swarm did, written when it closed (rung 45).
     "swarm_closings",
+    "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs",
 )
 
 
@@ -3034,6 +3035,67 @@ def _run_ladder(conn):
         )
         conn.execute("CREATE INDEX IF NOT EXISTS swarm_closings_by_swarm"
                      " ON swarm_closings (swarm_id, at)")
+    if version < 46:
+        # Rung 46: spinoff briefs (briefstore.py). What each spun-off session
+        # was asked to do, the files preloaded into its instructions, and the
+        # handoffs sessions write when they fill their context. They used to
+        # be a folder of files per job (spinoffs/<slug>/BRIEF.md, CONTEXT.md,
+        # HANDOFF.md). RECORDS: a brief is the only account of what a session
+        # was asked for, so the briefs and handoffs are dumped as text by the
+        # hourly backup. The contexts sit in a table of their own so that dump
+        # stays small: a context is a copy of files that were on disk.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS spinoff_briefs ("
+            "  id INTEGER PRIMARY KEY,"
+            # The job's name: a few lowercase words joined by hyphens.
+            "  slug TEXT NOT NULL,"
+            "  written_at TEXT NOT NULL,"
+            # The session that wrote it. Empty: the app itself, or a terminal.
+            "  written_by TEXT,"
+            # The brief, whole. It is the new session's first message.
+            "  body TEXT NOT NULL,"
+            # The session started on it. Empty until one is.
+            "  conv TEXT,"
+            "  opened_at TEXT,"
+            # The session whose work this one carries on, for a continuation.
+            "  continues TEXT,"
+            # Which listed files were pasted into the instructions, and which
+            # were too big and left for the session to read. JSON lists.
+            "  preloaded TEXT,"
+            "  too_big TEXT,"
+            # The folder it was imported from, for a brief that began as a file.
+            "  imported_from TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS spinoff_briefs_by_slug"
+                     " ON spinoff_briefs (slug, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS spinoff_briefs_by_conv"
+                     " ON spinoff_briefs (conv)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS spinoff_contexts ("
+            "  brief_id INTEGER PRIMARY KEY REFERENCES spinoff_briefs(id),"
+            "  at TEXT NOT NULL,"
+            # The session's hidden instructions: the Protocol and the files.
+            "  body TEXT NOT NULL"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS spinoff_handoffs ("
+            "  id INTEGER PRIMARY KEY,"
+            # The session that wrote it. Empty for an imported file whose
+            # writer couldn't be worked out.
+            "  conv TEXT,"
+            "  at TEXT NOT NULL,"
+            "  body TEXT NOT NULL,"
+            # The session that took over from it. Empty until one does.
+            "  to_conv TEXT,"
+            # For an imported file: the job folder it sat in and its name.
+            "  slug TEXT,"
+            "  imported_from TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS spinoff_handoffs_by_conv"
+                     " ON spinoff_handoffs (conv)")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

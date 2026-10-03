@@ -3684,5 +3684,92 @@
         "holds": "Why there is no summary, when there isn't one."
       }
     }
-  }
+  },
+    "spinoff_briefs": {
+      "holds": "What each spun-off session was asked to do: the brief, whole, tagged by the job's name and the date it was written. One row per brief. A brief no session has started on yet is a draft; once a session starts on it the row names that session and is not changed again. A continuation is a row of its own that names the session it carries on from.",
+      "source": "Written by briefstore.py: scripts/spinoff_brief.py saves an agent's brief, and the app's own buttons (helpers, stewards, forks, the nightly test fixer, continuations) save theirs. routes/spinoff.py stamps the session when it starts one. Briefs written before 2026-10-02 were files and were brought in by scripts/import_spinoff_briefs.py. Not rebuildable: the hourly backup dumps this table as text.",
+      "kind": "record",
+      "time_column": "written_at",
+      "columns": {
+        "id": {
+          "holds": "The row's number. A session's entry carries it as spinoff_brief."
+        },
+        "slug": {
+          "holds": "The job's name: a few lowercase words joined by hyphens."
+        },
+        "written_at": {
+          "holds": "When the brief was written."
+        },
+        "written_by": {
+          "holds": "The session that wrote it. Empty when the app itself or a terminal did."
+        },
+        "body": {
+          "holds": "The brief, whole, as Markdown. It is the new session's first message."
+        },
+        "conv": {
+          "holds": "The session started on this brief. Empty until one is."
+        },
+        "opened_at": {
+          "holds": "When that session was started."
+        },
+        "continues": {
+          "holds": "For a continuation: the session whose work this one carries on."
+        },
+        "preloaded": {
+          "holds": "The files from the brief's Where to look list that were pasted into the session's instructions, as a JSON list."
+        },
+        "too_big": {
+          "holds": "The listed files that were too big to paste and were left for the session to read, as a JSON list."
+        },
+        "imported_from": {
+          "holds": "For a brief that began as a file: the folder it was brought in from."
+        }
+      }
+    },
+    "spinoff_contexts": {
+      "holds": "The hidden instructions built for a brief when its session started: the Protocol, and the listed files as they were at that moment. One row per brief that has any. Every turn of the session is handed this text.",
+      "source": "Written by briefstore.py (opened) when routes/spinoff.py starts a session. Kept apart from spinoff_briefs so the hourly text dump of the briefs stays small; this table is not in that dump, since it is a copy of files that were on disk.",
+      "kind": "record",
+      "time_column": "at",
+      "columns": {
+        "brief_id": {
+          "holds": "Which brief, by its row number in spinoff_briefs."
+        },
+        "at": {
+          "holds": "When the snapshot was taken."
+        },
+        "body": {
+          "holds": "The instructions, whole."
+        }
+      }
+    },
+    "spinoff_handoffs": {
+      "holds": "What a session wrote when it filled its context and handed its work to a fresh one: the goal, what is done, what is left. One row per handoff.",
+      "source": "Written by briefstore.py from continuation.py (hand_off) when a session runs scripts/peers.py handoff. Handoffs written before 2026-10-02 were files and were brought in by scripts/import_spinoff_briefs.py. Not rebuildable: the hourly backup dumps this table as text.",
+      "kind": "record",
+      "time_column": "at",
+      "columns": {
+        "id": {
+          "holds": "The row's number."
+        },
+        "conv": {
+          "holds": "The session that wrote it. Empty for an imported file whose writer couldn't be worked out."
+        },
+        "at": {
+          "holds": "When it was written."
+        },
+        "body": {
+          "holds": "The handoff, whole, as Markdown."
+        },
+        "to_conv": {
+          "holds": "The session that took the work over. Empty until one does."
+        },
+        "slug": {
+          "holds": "For an imported file: the job folder it sat in."
+        },
+        "imported_from": {
+          "holds": "For an imported file: its path."
+        }
+      }
+    }
 }
