@@ -525,6 +525,7 @@
       "modules": [
         "codestore.py",
         "buildlist.py",
+        "codemap.py",
         "codegraph.py",
         "toolcallstore.py",
         "commandstore.py",
@@ -537,6 +538,7 @@
       "routes": [
         "terrain.py",
         "terrain_builds.py",
+        "terrain_map.py",
         "terrain_mirror.py",
         "terrain_tables.py",
         "creek.py",
@@ -552,6 +554,7 @@
       "tools": [],
       "scripts": [
         "update_code_history.py",
+        "codemap.py",
         "extract_footprints.py",
         "usage_events.py",
         "usage_rollup.py",

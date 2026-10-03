@@ -30,7 +30,7 @@ from routes import (
     entities, threads, person, shell, cards, journal_search, photos, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
-    observatory, swarms, terrain, terrain_builds, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
+    observatory, swarms, terrain, terrain_builds, terrain_map, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
     branches, worktree_map, sudo, recordings, research_room, linear_room,
     sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
     exposure, nutrition, georegions, transcripts, recipe_nutrition, recipe_share,
@@ -1263,6 +1263,9 @@ if features.enabled("observatory"):
     # The owner's other git folders, each with its own map and report
     # (routes/terrain_builds.py). Owner only, like the table doors above.
     terrain_builds.register(app)
+    # Codebase maps drawn as boxes and named links, read from markdown in each
+    # repo (routes/terrain_map.py, codemap.py). Owner only, like the builds.
+    terrain_map.register(app)
     # The night crew rides the same flag: its UI lives inside the observatory,
     # and its merge endpoint runs git against the live checkout — with the
     # observatory off, that door must not answer either.

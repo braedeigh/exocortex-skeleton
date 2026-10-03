@@ -297,6 +297,26 @@ function ActivityMotif() {
   );
 }
 
+/** Boxes in layers with arrows running down between them — the map room's
+ * own drawing, one box lit as if selected. */
+function MapMotif() {
+  return (
+    <svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true">
+      <g fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="22" y="1" width="20" height="10" rx="2" opacity="0.9" />
+        <rect x="2" y="29" width="18" height="10" rx="2" opacity="0.45" />
+        <rect x="23" y="29" width="18" height="10" rx="2" opacity="0.45" />
+        <rect x="44" y="29" width="18" height="10" rx="2" opacity="0.9" />
+      </g>
+      <g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+        <path d="M28 11 V20 H11 V27" opacity="0.4" />
+        <path d="M32 11 V27" opacity="0.4" />
+        <path d="M36 11 V20 H53 V27" opacity="0.9" />
+      </g>
+    </svg>
+  );
+}
+
 const ROOMS: ReadonlyArray<{
   key: string;
   to: string;
@@ -310,6 +330,13 @@ const ROOMS: ReadonlyArray<{
     name: 'Files',
     line: 'Every file in both repos, glowing where the work has been.',
     motif: FilesMotif,
+  },
+  {
+    key: 'map',
+    to: '/terrain/map',
+    name: 'Map',
+    line: 'A codebase as boxes and named arrows — open a box to see its parts.',
+    motif: MapMotif,
   },
   {
     key: 'usage',
@@ -513,6 +540,22 @@ export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: (
         setFacts((f) => ({
           ...f,
           wiring: `${compact(graph.counts!.files)} files · ${compact(graph.counts!.edges)} edges`,
+        }));
+      })
+      .catch(() => {});
+    fetch('/api/observatory/terrain/maps', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data: { maps: { boxes?: number; stale?: number }[] }) => {
+        if (!alive || !data.maps?.length) return;
+        // How many codebases, how many boxes, and how many have drifted —
+        // stale is the one number that asks for a session's attention.
+        const boxes = data.maps.reduce((sum, m) => sum + (m.boxes ?? 0), 0);
+        const stale = data.maps.reduce((sum, m) => sum + (m.stale ?? 0), 0);
+        setFacts((f) => ({
+          ...f,
+          map: `${data.maps.length} ${data.maps.length === 1 ? 'codebase' : 'codebases'} · ${boxes} boxes${
+            stale ? ` · ${stale} stale` : ''
+          }`,
         }));
       })
       .catch(() => {});
