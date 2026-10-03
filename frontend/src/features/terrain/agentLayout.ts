@@ -1,9 +1,13 @@
 /**
  * agentLayout.ts — where the agent orbs and their names are allowed to sit.
  *
- * Three small pieces of geometry, kept out of the canvas so they can be tested
+ * Four small pieces of geometry, kept out of the canvas so they can be tested
  * without a browser:
  *
+ *   ROOM SIDE      an agent from the Coding room belongs on the left of the
+ *                  map, one from the Personal room on the right. Where a new
+ *                  orb first appears, and where a gentle sideways pull holds
+ *                  it until its files pull harder.
  *   FENCE EXIT     an orb found inside the table section is moved to the
  *                  nearest edge of it. Orbs have no repo of their own, so they
  *                  can't leave "toward home" the way the file dots do — and an
@@ -17,10 +21,12 @@
  *                  way the table names already avoid each other. Screen space,
  *                  so it holds at every zoom without moving anything on the map.
  *
- * Used by terrainCanvas.ts (the 'orbSpread' force, the tick handler, and the
- * orb-name pass in draw()).
+ * Used by terrainCanvas.ts (the orb seed and the 'x' force in setGraph, the
+ * 'orbSpread' force, the tick handler, and the orb-name pass in draw()).
  *
- * Prompt that produced it: "i need for the agent dots to be repulsed by the
+ * Prompt that produced it: "Agents in terrain spawned in the coding room
+ * should spawn on the left side of terrain. Agents spawning in personal should
+ * be spawning over to the right" / "i need for the agent dots to be repulsed by the
  * sql tables … i want the names of the agents to be fully displayed when i
  * hover over them, and … less overlap between them" / "i want [the names to
  * move instead of the map], but i want the agents to push each other apart
@@ -34,6 +40,26 @@ export interface Box {
   top: number;
   right: number;
   bottom: number;
+}
+
+/**
+ * Which side of the map an agent's room puts it on: the x to appear at and be
+ * pulled toward, or null for "no side — leave it where the map puts it".
+ *
+ * Coding goes to the LEFTMOST repo's anchor and Personal to the RIGHTMOST.
+ * The sides are read off the screen, not off repo names, so the rule holds
+ * whatever the repos are called. Every other room (Orchestra, Research,
+ * Linear, or none) has no side. A map with only one repo on it — a build's
+ * map, or the main map with a repo switched off — has no left and right
+ * ground to stand on, so nobody gets a side there either.
+ */
+export function laneSideX(lane: string, repoAnchorXs: readonly number[]): number | null {
+  if (lane !== 'coding' && lane !== 'personal') return null;
+  if (repoAnchorXs.length < 2) return null;
+  const leftmost = Math.min(...repoAnchorXs);
+  const rightmost = Math.max(...repoAnchorXs);
+  if (leftmost === rightmost) return null;
+  return lane === 'coding' ? leftmost : rightmost;
 }
 
 /**

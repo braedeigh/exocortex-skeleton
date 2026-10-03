@@ -1,7 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { nearestExit, placeOrbNames, spreadOrbs, type NameAsk } from './agentLayout';
+import { laneSideX, nearestExit, placeOrbNames, spreadOrbs, type NameAsk } from './agentLayout';
 
 const zone = { left: 0, top: 0, right: 400, bottom: 200 };
+
+describe('laneSideX', () => {
+  it('puts Coding on the left and Personal on the right, whichever order the repos come in', () => {
+    for (const anchors of [[200, 900], [900, 200], [900, 550, 200]]) {
+      expect(laneSideX('coding', anchors)).toBe(200);
+      expect(laneSideX('personal', anchors)).toBe(900);
+    }
+  });
+
+  it('gives every other room no side', () => {
+    for (const lane of ['orchestra', 'research', 'linear', '']) {
+      expect(laneSideX(lane, [200, 900])).toBeNull();
+    }
+  });
+
+  it('gives nobody a side on a map with one repo', () => {
+    expect(laneSideX('coding', [500])).toBeNull();
+    expect(laneSideX('personal', [])).toBeNull();
+  });
+});
 
 describe('nearestExit', () => {
   it('leaves an orb outside the fence alone', () => {

@@ -48,7 +48,9 @@
  *
  * Orb names move out of each other's way (`drawOrbNames`, agentLayout.ts),
  * orbs keep a wide personal space from each other (the 'orbSpread' force),
- * and orbs are fenced out of the table section (`fenceOrbsOut`).
+ * and orbs are fenced out of the table section (`fenceOrbsOut`). An orb's
+ * ROOM gives it a side: Coding agents appear on the left and are gently
+ * pulled there, Personal agents on the right (`laneSideX`, used in setGraph).
  *
  * Hover also reports OUT, through `onHoverAgent`: the conversation id plus
  * where its orb is sitting on screen right now, which is what /terrain hangs
@@ -219,7 +221,7 @@ import type { CallLink, TableCodeLink } from './tableMentions';
 import { lineageArrow, type LineageLink } from './terrainLineage';
 import { swarmHull, swarmNameAnchor, type SwarmGroup } from './terrainSwarms';
 import { homeChain, wiringTarget } from './hoverSelection';
-import { nearestExit, placeOrbNames, spreadOrbs, type Box, type NameAsk } from './agentLayout';
+import { laneSideX, nearestExit, placeOrbNames, spreadOrbs, type Box, type NameAsk } from './agentLayout';
 import { spiralSpots, tipCurve, type SpiralArrangement } from './spiralLayout';
 import {
   GRID_RING_GAP,
@@ -816,6 +818,13 @@ const ORB_PERSONAL_SPACE = 130;
 /** How much of an orb pair's overlap is corrected per tick. Not scaled by the
  * sim's cooling (like collision), so the tethers can't win it back. */
 const ORB_SPREAD_STRENGTH = 0.6;
+/** How hard an agent's orb is pulled sideways toward its room's side of the
+ * map (laneSideX, agentLayout.ts). Soft on purpose: an orb with no files
+ * rests on its side, and one whose files are all on the FAR side still
+ * settles most of the way over to them (about two thirds of the way with one
+ * file, about three quarters with five or more — measured in a small
+ * simulation of these forces, not on the live map). */
+const ORB_SIDE_PULL = 0.015;
 /** The shelves re-measure where the dots are once every this many physics
  * ticks — often enough to glide with the map as it settles, rare enough that
  * walking a few thousand positions costs nothing noticeable. */
@@ -2709,8 +2718,23 @@ export class TerrainCanvas {
       return { x: this.width / 2 + offset, y: this.height / 2 };
     };
 
+    // Give each agent's orb the side of the map its room belongs on. Coding
+    // is the leftmost repo's anchor, Personal the rightmost (laneSideX,
+    // agentLayout.ts); null for every other room and for a one-repo map,
+    // which leaves that orb exactly as it was before sides existed. Used
+    // twice below: where a new orb with no files yet first appears, and as
+    // the target of the gentle sideways pull in the 'x' force.
+    //
+    // Prompt that produced it: "Agents in terrain spawned in the coding room
+    // should spawn on the left side of terrain. Agents spawning in personal
+    // should be spawning over to the right".
+    const repoAnchorXs = repoIds.map((id) => anchorFor(id).x);
+    const orbSideX = (node: TerrainNode): number | null =>
+      node.kind === 'session' ? laneSideX(node.session?.lane ?? '', repoAnchorXs) : null;
+
     // Session orbs seed at the centroid of their footprint files, so a new
     // orb fades in amid its own territory instead of streaking across the map.
+    // One with no files placed yet seeds on its room's side instead.
     const orbSeed = new Map<string, { x: number; y: number; n: number }>();
     for (const e of edges) {
       if (e.kind !== 'session') continue;
@@ -2733,7 +2757,7 @@ export class TerrainCanvas {
       const anchor = anchorFor(node.repoId);
       const parent = node.parentId ? byId.get(node.parentId) : undefined;
       const seed = orbSeed.get(node.id);
-      const seedX = seed && seed.n > 0 ? seed.x / seed.n : (parent?.x ?? anchor.x);
+      const seedX = seed && seed.n > 0 ? seed.x / seed.n : (parent?.x ?? orbSideX(node) ?? anchor.x);
       const seedY = seed && seed.n > 0 ? seed.y / seed.n : (parent?.y ?? anchor.y);
       const sn: SimNode = {
         id: node.id,
@@ -3000,7 +3024,16 @@ export class TerrainCanvas {
           ORB_SPREAD_STRENGTH,
         );
       })
-      .force('x', forceX<SimNode>((n) => anchorFor(n.node.repoId).x).strength((n) => (n.node.kind === 'session' ? 0 : 0.045)))
+      // Pull everything gently toward its home, left to right. A file or
+      // folder's home is its repo's anchor. An orb's home is its room's side
+      // (orbSideX above), pulled more softly than its tethers pull, so its
+      // files still win once it has a few; an orb with no side isn't pulled.
+      .force(
+        'x',
+        forceX<SimNode>((n) => orbSideX(n.node) ?? anchorFor(n.node.repoId).x).strength((n) =>
+          n.node.kind !== 'session' ? 0.045 : orbSideX(n.node) === null ? 0 : ORB_SIDE_PULL,
+        ),
+      )
       .force('y', forceY<SimNode>((n) => anchorFor(n.node.repoId).y).strength((n) => (n.node.kind === 'session' ? 0 : 0.055)))
       // A map restored from memory is already settled: it gets the faintest
       // warmth, enough to place whatever is new and no more. A rebuild while
