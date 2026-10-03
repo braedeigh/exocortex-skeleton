@@ -99,6 +99,9 @@ Sessions that were already running keep working:
 - Closing a session that has a folder still files the folder in
   `spinoff_archive/` (`archive_spinoff`). A session born since has no folder.
 
-`spinoffs/.kickoffs/` is not briefs: it holds each start-up's log (and, for a
-moment, the kickoff text on its way to the runner). It stays where it is and
-prunes itself after 14 days.
+Each start-up's log (and, for a moment, the kickoff text on its way to the
+runner) is not a brief and is not kept in the data dir: it goes to
+`store.SPINOFF_KICKOFF_DIR` (`/var/tmp/exo-spinoff-kickoffs` unless
+`EXOCORTEX_SPINOFF_KICKOFF_DIR` says otherwise) and prunes itself after 14
+days. With that, nothing writes to `spinoffs/` any more and the folder can be
+removed.

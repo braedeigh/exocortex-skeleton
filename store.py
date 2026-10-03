@@ -79,11 +79,17 @@ RECORDINGS_DIR = Path(os.environ.get("EXOCORTEX_RECORDINGS_DIR", DATA_DIR / "rec
 # this folder (its CLAUDE.md is the skill). Defaults to a `triage/` at the
 # deployment root (sibling of the data dir), next to recipes/; override via env.
 TRIAGE_DIR = Path(os.environ.get("EXOCORTEX_TRIAGE_DIR", DATA_DIR.parent / "triage"))
-# Spinoff: the folder the spawn door (routes/spinoff.py) keeps its start-up
-# logs in (.kickoffs/). Briefs themselves are rows in the database now
-# (briefstore.py, docs/spinoff-briefs.md); the <slug>/ folders here are from
-# before that, one per job, each with its BRIEF.md.
+# Spinoff: where brief FOLDERS lived before briefs became rows in the database
+# (briefstore.py, docs/spinoff-briefs.md) — one <slug>/ per job, each with its
+# BRIEF.md. Nothing is written here now; it is read only to take in a brief an
+# old session still writes as a file, and by the one-time import.
 SPINOFF_DIR = Path(os.environ.get("EXOCORTEX_SPINOFF_DIR", DATA_DIR / "spinoffs"))
+# Where the spawn door (routes/spinoff.py) keeps each start-up's log. Outside
+# the data dir on purpose: these are throwaway logs, not the owner's data, so
+# they don't belong in a folder that gets backed up. /var/tmp like the detached
+# jobs' logs (scripts/run_detached.py): it survives a reboot, plain /tmp doesn't.
+SPINOFF_KICKOFF_DIR = Path(os.environ.get("EXOCORTEX_SPINOFF_KICKOFF_DIR")
+                           or "/var/tmp/exo-spinoff-kickoffs")
 # Where an old brief FOLDER goes when its session is closed (only sessions born
 # before briefs moved to the database have one). Moved, never deleted. A
 # SIBLING of SPINOFF_DIR rather than a folder

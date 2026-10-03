@@ -31,6 +31,7 @@ def spinoff_client(data_dir, monkeypatch):
     # import time from the (real) DATA_DIR, so it needs its own monkeypatch
     # to land under the same isolated tree.
     monkeypatch.setattr(store, "SPINOFF_DIR", data_dir / "spinoffs")
+    monkeypatch.setattr(store, "SPINOFF_KICKOFF_DIR", data_dir / "spinoff-kickoffs")
     # A mint now LAUNCHES the session (scripts/spinoff_runner.py, detached).
     # Tests must never actually spawn claude, so Popen is recorded instead of
     # run; `client._launches` is what the launch assertions read.
@@ -494,10 +495,11 @@ def test_filing_a_slug_that_was_never_spun_off_is_a_quiet_no_op(data_dir, monkey
     assert spinoff.archive_spinoff("") is None
 
 
-def test_kickoff_paperwork_is_pruned_but_recent_diagnostics_survive(data_dir):
+def test_kickoff_paperwork_is_pruned_but_recent_diagnostics_survive(data_dir, monkeypatch):
     """The .log is the only trace of a spawn that never woke up, so pruning is
     by AGE, not on sight. Briefs are never touched by this."""
-    kick = store.SPINOFF_DIR / ".kickoffs"
+    kick = data_dir / "spinoff-kickoffs"
+    monkeypatch.setattr(store, "SPINOFF_KICKOFF_DIR", kick)
     kick.mkdir(parents=True)
     old, new = kick / "2026-01-01.old.log", kick / "2026-08-22.new.log"
     old.write_text("stale")

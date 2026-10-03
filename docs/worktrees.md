@@ -168,7 +168,7 @@ Briefs are rows in the database, not files: [`spinoff-briefs.md`](spinoff-briefs
   *asked* to do, including which forks the owner had already ruled on. Git can
   reconstruct what changed and never what was wanted.
 
-The `.kickoffs/` folder beside them is the opposite again: pure plumbing. The
+The kickoff folder (`store.SPINOFF_KICKOFF_DIR`, outside the data dir) is the opposite again: pure plumbing. The
 `.txt` is one fixed sentence handed across a process boundary so the brief path
 never touches a shell, and `spinoff_runner.py` deletes it the moment it's read.
 The `.log` catches a detached runner's stderr and is the only trace when a spawn

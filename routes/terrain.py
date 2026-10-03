@@ -1200,7 +1200,16 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP, repos=None):
                 rel = rel.replace(os.sep, "/")
                 if _terrain_denylisted(rel):
                     continue
-                entry = files.setdefault(rel, {"touches": [], "sessions": {}})
+                # Leave a file that no longer exists off the map. Git's own
+                # list above is living files only; a footprint on a path
+                # that is neither in it nor on disk is a file a session once
+                # read or wrote and that has since been deleted or moved —
+                # drawing it kept whole deleted folders on the map.
+                entry = files.get(rel)
+                if entry is None:
+                    if not os.path.exists(abspath):
+                        continue
+                    entry = files[rel] = {"touches": [], "sessions": {}}
                 sess = entry["sessions"].setdefault(
                     conv_id, {"id": conv_id, "title": _terrain_session_title(conv_id, gists, index),
                               "writes": 0, "reads": 0, "creates": 0, "last": None})

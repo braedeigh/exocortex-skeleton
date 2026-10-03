@@ -126,7 +126,7 @@ def _prune_kickoffs():
     tidy it. Unlike a brief this carries no record — the .txt is a copy of the
     brief's text, and the .log is empty unless a spawn broke.
     """
-    kick_dir = store.SPINOFF_DIR / ".kickoffs"
+    kick_dir = store.SPINOFF_KICKOFF_DIR
     cutoff = time.time() - KICKOFF_KEEP_DAYS * 86400
     try:
         for path in kick_dir.glob("*"):
@@ -509,7 +509,7 @@ def _launch_runner(conv_id, kickoff):
     if not runner.exists():
         return False
     try:
-        kick_dir = store.SPINOFF_DIR / ".kickoffs"
+        kick_dir = store.SPINOFF_KICKOFF_DIR
         kick_dir.mkdir(parents=True, exist_ok=True)
         _prune_kickoffs()
         kick_path = kick_dir / f"{conv_id}.txt"

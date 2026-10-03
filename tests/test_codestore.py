@@ -224,6 +224,50 @@ def test_sync_sessions_makes_the_footprints_joinable(data_dir, tmp_path):
     assert _rows("SELECT first_seen FROM files WHERE path = 'uncommitted.py'") == [(None,)]
 
 
+def test_a_session_that_read_a_deleted_file_does_not_bring_it_back(data_dir, tmp_path):
+    """A folder of files is deleted and committed; sessions that once read
+    them are still in the footprints. The files must stay off the map through
+    every later sync — and a row an older sync already revived is put right."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "briefs/one/BRIEF.md", "one\n")
+    _commit(repo, "briefs/two/BRIEF.md", "two\n")
+    _commit(repo, "kept.py", "x\n")
+    _git(repo, "rm", "-rq", "briefs")
+    _git(repo, "commit", "-q", "-m", "briefs live in the database now")
+    (store.DATA_DIR / "bot_chats").mkdir(exist_ok=True)
+    store.write("bot_chats/index", {"conv-1": {"title": "Read the briefs"}})
+    store.write("bot_chats/footprints", {"conv-1": {"files": {
+        str(repo / "briefs/one/BRIEF.md"): {"writes": 1, "reads": 4, "creates": 1,
+                                            "last": "2026-06-01T09:30:00"},
+        str(repo / "kept.py"): {"writes": 0, "reads": 1, "creates": 0, "last": None},
+    }}})
+
+    codestore.rebuild(_repos(repo))
+    codestore.sync_sessions(_repos(repo))
+    assert set(codestore.touches("skeleton")) == {"kept.py"}
+    # The session's touch is still on record, on the deleted file's own row.
+    assert _rows("SELECT sf.reads FROM session_files sf JOIN files f ON f.id = sf.file_id"
+                 " WHERE f.path = 'briefs/one/BRIEF.md'") == [(4,)]
+
+    # A row revived by the old sync (deleted_at wiped) is buried again, with
+    # the time of the commit that deleted it.
+    conn = sqlite3.connect(store.DATA_DIR / "exo.db")
+    conn.execute("UPDATE files SET deleted_at = NULL WHERE path LIKE 'briefs/%'")
+    conn.commit()
+    conn.close()
+    codestore.sync_sessions(_repos(repo))
+    assert set(codestore.touches("skeleton")) == {"kept.py"}
+    deleted = _rows("SELECT f.deleted_at, c.authored_at FROM files f, commits c"
+                    " WHERE f.path LIKE 'briefs/%' AND c.subject LIKE 'briefs live%'")
+    assert len(deleted) == 2 and all(at == when for at, when in deleted)
+
+    # Written again but not yet committed: it is on disk, so it is alive.
+    (repo / "briefs/one").mkdir(parents=True)
+    (repo / "briefs/one/BRIEF.md").write_text("back\n")
+    codestore.sync_sessions(_repos(repo))
+    assert _rows("SELECT deleted_at FROM files WHERE path = 'briefs/one/BRIEF.md'") == [(None,)]
+
+
 def test_sessions_carry_their_real_lane_and_keeper_flag(data_dir, tmp_path):
     # Older sessions never stored a lane — SQL used to show them blank. And
     # every session says bot="keeper", so that column can't find the journal.

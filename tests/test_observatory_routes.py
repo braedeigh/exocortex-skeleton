@@ -1339,14 +1339,21 @@ def test_footprint_merge_maps_abs_path_to_repo_relative(terrain_client, tmp_path
                                            "last": "2026-01-02T00:00:00Z"},
                 str(skeleton / "uncommitted.py"): {"writes": 1, "reads": 0,
                                                    "last": "2026-01-02T00:00:00Z"},
+                str(skeleton / "old-briefs/job/BRIEF.md"): {
+                    "writes": 1, "reads": 2, "last": "2026-01-01T00:00:00Z"},
             },
             "extracted_at": "2026-01-02T00:00:00",
         },
     })
+    (skeleton / "uncommitted.py").write_text("x = 1\n")
 
     data = terrain_client.get("/api/observatory/terrain").get_json()
     skel_out = next(r for r in data["repos"] if r["id"] == "skeleton")
     by_path = {f["path"]: f for f in skel_out["files"]}
+
+    # a file the session once wrote that is no longer on disk (and that git
+    # doesn't list as living) is not drawn: the map shows what exists
+    assert "old-briefs/job/BRIEF.md" not in by_path
 
     # abs path -> repo-relative path, git touches present
     assert by_path["app.py"]["sessions"] == [

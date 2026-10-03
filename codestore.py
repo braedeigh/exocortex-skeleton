@@ -232,7 +232,7 @@ def _live_paths(conn, repo_id):
     ).fetchall())
 
 
-def _file_row(conn, repo_id, path, live, seen_at=None):
+def _file_row(conn, repo_id, path, live, seen_at=None, revive=True):
     """The file_id that owns `path` right now, minting a row if none does.
 
     Resurrection rule: if the path's most recent owner (file_paths) still
@@ -240,6 +240,10 @@ def _file_row(conn, repo_id, path, live, seen_at=None):
     a file deleted and restored is one file, not two. A row whose current
     path has moved on (renamed away) is NOT resurrected; the path gets a
     fresh row and file_paths repoints to the new occupant.
+
+    `revive=False` finds that deleted row and hands it back STILL deleted.
+    The sessions sync asks for this: a session having once read a file is
+    not the file coming back.
     """
     fid = live.get(path)
     if fid is not None:
@@ -249,6 +253,8 @@ def _file_row(conn, repo_id, path, live, seen_at=None):
         " WHERE p.repo = ? AND p.path = ? AND f.path = ?",
         (repo_id, path, path),
     ).fetchone()
+    if row is not None and not revive:
+        return row[0]
     if row is not None:
         fid = row[0]
         conn.execute("UPDATE files SET deleted_at = NULL WHERE id = ?", (fid,))
@@ -485,6 +491,27 @@ def sync_turns():
     return n
 
 
+def _bury_deleted(conn, roots):
+    """Mark deleted again any file whose newest commit deleted it and which
+    is not on disk. This is the repair for rows an earlier sessions sync
+    revived by mistake (a footprint on a file that no longer exists): the
+    commit that removed it is still in commit_files, so its time is put back.
+    A file that is on disk is left alone — it was recreated and not yet
+    committed."""
+    for repo_id, root in roots:
+        rows = conn.execute(
+            "SELECT f.id, f.path, c.authored_at, cf.status FROM files f"
+            " JOIN commit_files cf ON cf.file_id = f.id"
+            " JOIN commits c ON c.sha = cf.sha"
+            " WHERE f.repo = ? AND f.deleted_at IS NULL"
+            " ORDER BY c.authored_ts", (repo_id,)).fetchall()
+        newest = {fid: (path, when, status) for fid, path, when, status in rows}
+        for fid, (path, when, status) in newest.items():
+            if status == "D" and not os.path.exists(os.path.join(root, path)):
+                conn.execute(
+                    "UPDATE files SET deleted_at = ? WHERE id = ?", (when, fid))
+
+
 def _sync_sessions(conn, repos):
     index = store.read("bot_chats/index", {})
     if not isinstance(index, dict):
@@ -526,6 +553,7 @@ def _sync_sessions(conn, repos):
     # it (same relpath dance routes/terrain.py does) and skip the rest — a
     # session reading /etc/hosts is not part of either codebase's story.
     roots = [(r["id"], str(Path(r["root"]))) for r in repos]
+    _bury_deleted(conn, roots)
     live_by_repo = {rid: _live_paths(conn, rid) for rid, _ in roots}
     n = 0
     for cid, conv in footprints.items():
@@ -547,9 +575,14 @@ def _sync_sessions(conn, repos):
             if placed is None:
                 continue
             rid, rel = placed
-            # A session can touch a file git has never seen (uncommitted
-            # work) — it still gets a files row, with first_seen NULL.
-            fid = _file_row(conn, rid, rel, live_by_repo[rid])
+            # Hang the touch on the file's row without bringing a deleted
+            # file back. A session can touch a file git has never seen
+            # (uncommitted work) — it still gets a files row, with first_seen
+            # NULL. But a file git has seen DELETED stays deleted unless it
+            # is on disk again right now: an old read of it is history, and
+            # reviving the row drew folders of long-gone files on Terrain.
+            fid = _file_row(conn, rid, rel, live_by_repo[rid],
+                            revive=os.path.exists(abspath))
             conn.execute(
                 "INSERT INTO session_files"
                 " (session_id, file_id, writes, reads, creates, last)"

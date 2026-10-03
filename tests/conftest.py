@@ -53,6 +53,9 @@ if _FIRST_PASS:
 # the shared /tmp; nested, the whole family stays inside the throwaway tree.
     os.environ["EXOCORTEX_DATA_DIR"] = os.path.join(_TEST_ROOT, "data")
     os.environ["EXOCORTEX_CONTENT_DIR"] = os.path.join(_TEST_ROOT, "content")
+    # The spinoff start-up logs default to /var/tmp, not to a folder derived
+    # from the data dir, so they need pointing into the throwaway tree by name.
+    os.environ["EXOCORTEX_SPINOFF_KICKOFF_DIR"] = os.path.join(_TEST_ROOT, "spinoff-kickoffs")
 
 # No test runs as an agent session. EXOCORTEX_CONV_ID is set in every
 # Observatory turn, so a suite started from inside one would inherit that
@@ -99,7 +102,7 @@ if _FIRST_PASS:
     for _name in ("DATA_DIR", "CONTENT_DIR", "UPLOAD_DIR", "UPLOAD_ARCHIVE_DIR", "THUMB_DIR",
                   "RECEIPTS_DIR", "RECIPES_DIR",
                   "ARCHIVALS_DIR", "RECORDINGS_DIR",
-                  "TRIAGE_DIR", "SPINOFF_DIR", "PERSON_SKILL_DIR",
+                  "TRIAGE_DIR", "SPINOFF_DIR", "SPINOFF_KICKOFF_DIR", "PERSON_SKILL_DIR",
                   "RESEARCH_DIR", "RESEARCH_FILER_DIR", "RESEARCH_RUNNER_DIR",
                   "RESEARCH_DEEP_DIR", "RESEARCH_WORKER_DIR", "RESEARCH_DISTILLER_DIR"):
         _root = getattr(store, _name, None)
