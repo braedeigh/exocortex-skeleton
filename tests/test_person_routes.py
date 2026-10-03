@@ -96,7 +96,8 @@ def test_summarize_mints_a_personal_helper_session(client, monkeypatch, data_dir
     assert resp.status_code == 200
     assert data["ok"] is True and data["newly_spawned"] is True
     assert data["kind"] == "person" and data["lane"] == "personal"
-    brief = (data_dir / "spinoffs" / "person-sage" / "BRIEF.md").read_text()
+    import briefstore
+    brief = briefstore.latest("person-sage")["body"]
     assert "Sage" in brief
     assert str(store.CONTENT_DIR / "people/sage.md") in brief
     entry = store.read("bot_chats/index", {})[data["conversation_id"]]

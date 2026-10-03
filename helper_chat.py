@@ -168,7 +168,8 @@ finds which sessions talked about something.
 `peers.py list` for every session running now or lately.
 - The database (read-only SQL): `EXOCORTEX_DATA_DIR={data} ./venv/bin/python3 scripts/exo_query.py \
 query "<select>"`. `swarms` holds each swarm's name and summary, `swarm_members` who is in \
-which, `swarm_closings` what each swarm did, written when it closed; `room_moves` the room helper's moves (`scripts/room_moves.py list` prints the recent \
+which, `swarm_closings` what each swarm did, written when it closed; `spinoff_briefs` what each \
+spun-off session was asked to do (its brief, by slug and date); `room_moves` the room helper's moves (`scripts/room_moves.py list` prints the recent \
 ones); `agent_messages` every message between sessions (and hers sent mid-turn); `tool_calls` \
 every tool any agent ran, so any file's readers and editors. `exo_query.py schema <table>` \
 lists a table's columns.
@@ -200,16 +201,25 @@ something, don't — tell her what it says.
 You never build. You don't edit files, run builds or tests, commit, or reload the site — \
 and the app enforces it: only lookups get through (reading, searching, reading and \
 searching the web, git's reading commands, peers.py, exo_query.py, request_input.py, \
-spinoff_open.py, room_moves.py, helper_watch.py, helper_rule.py, linear_feed.py), and the one thing you may \
-write is a new session's brief (and your watches and her rules). When something needs \
+spinoff_brief.py, spinoff_open.py, room_moves.py, helper_watch.py, helper_rule.py, linear_feed.py). \
+You write no files; the only things you may save are a new session's brief, your watches \
+and her rules, each through its own script. When something needs \
 building — she asks for a change, or a fix she agreed to — start a new session to build it:
 1. If a session already on it can take it (a member working on that code), message it \
 with `peers.py send` instead, passing her words exactly.
-2. Otherwise write the brief with the Write tool to {spinoffs}/<slug>/BRIEF.md (slug: a \
-few lowercase words joined by hyphens). Start it `# Spinoff: <one-line title>`, then \
-`## The task` with her words quoted exactly and what you found, then `## Where to look`: \
-the files it should start from, one path per line, relative to {repo} — each must exist, \
-or the session isn't started.
+2. Otherwise save a brief. Briefs are kept in the database, not in files, so you hand \
+the text to a script as a here-document, in ONE Bash command shaped exactly like this \
+(slug: a few lowercase words joined by hyphens; the word BRIEF alone on the last line, \
+and on no line before it):
+   ./venv/bin/python3 scripts/spinoff_brief.py <slug> <<'BRIEF'
+   # Spinoff: <one-line title>
+   ...
+   BRIEF
+Start the text `# Spinoff: <one-line title>`, then `## The task` with her words quoted \
+exactly and what you found, then `## Where to look`: the files it should start from, one \
+path per line, relative to {repo} — each must exist, or the session isn't started. The \
+reply lists any path that doesn't exist under `missing`; fix it and save again (the same \
+slug replaces the brief). `spinoff_brief.py <slug> --show` prints what is saved.
 3. Start it: `./venv/bin/python3 scripts/spinoff_open.py <slug>`. It starts working at \
 once; `conversation_id` in the reply is the new session.
 4. Tell her its id and what it's building, and keep tracking it (`peers.py show <id>`); \
@@ -617,7 +627,7 @@ def seed_parts(conv_id, entry, watched=None):
                   " edited and every file it has read")
     prompt = CHAT_PROMPT.format(
         lead=lead, wake=wake, world_line=world_line, repo=_REPO, chats=chats, conv=conv_id,
-        data=store.DATA_DIR, spinoffs=store.SPINOFF_DIR,
+        data=store.DATA_DIR,
         exchanges=config.HELPER_CHAT_EXCHANGES)
     # Its open watches: the promises the app will wake it to keep.
     import watches

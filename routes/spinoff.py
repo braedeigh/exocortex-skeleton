@@ -1,13 +1,19 @@
 """Spinoff — the shared spawn door for /spinoff.
 
-A skill in any Claude session writes a brief to SPINOFF_DIR/<slug>/BRIEF.md and
-calls this; it mints an Observatory conversation (routes/observatory.py)
-config'd as a builder session and starts it working. The session's first
-message is the brief's own text, so she can read in the chat what it was asked
-to do; the files the brief lists under "Where to look" (and the default
-Protocol, when the brief has none) are pasted into its hidden instructions —
-see "The kickoff" below. The brief travels by FILE, never typed or
-shell-interpolated anywhere.
+A skill in any Claude session saves a brief under a slug (scripts/
+spinoff_brief.py, which takes it on standard input) and calls this; it mints
+an Observatory conversation (routes/observatory.py) config'd as a builder
+session and starts it working. The session's first message is the brief's own
+text, so she can read in the chat what it was asked to do; the files the brief
+lists under "Where to look" (and the default Protocol, when the brief has
+none) are pasted into its hidden instructions — see "The kickoff" below.
+
+Briefs live in the database, not in files (briefstore.py, docs/
+spinoff-briefs.md): the brief, the hidden instructions built from it and any
+handoff are rows in exo.db, and a session's entry carries `spinoff_brief`, its
+brief's row id. GET /api/spinoff/brief/<conv> reads them back for the
+session's brief page. A brief still never rides a command line: it reaches the
+door on standard input and the runner by file.
 
 A spinoff lands in the ROOM ITS SENDER IS STANDING IN — a /spinoff run from a
 Personal-room session mints a Personal child, from Coding a Coding one — unless
@@ -55,6 +61,7 @@ from pathlib import Path
 
 from flask import jsonify, request
 
+import briefstore
 import store
 import worktrees
 from routes.observatory import (_BUILDER_TOOLS, _CONV_ID_RE, _DEFAULT_LANE, _LANES,
@@ -73,13 +80,12 @@ KICKOFF_KEEP_DAYS = 14
 
 
 def archive_spinoff(slug):
-    """Move a finished session's brief out of the live folder. Never deletes.
+    """Move a finished session's brief FOLDER out of the live folder. Never deletes.
 
-    A brief is the one record of what a session was ASKED to do. Git shows what
-    changed; nothing else shows what was wanted, or which forks the owner had
-    already ruled on before the work started. So closing a session files the
-    brief rather than dropping it, and `ls spinoffs/` goes back to meaning
-    "what is in flight".
+    Only for a session born before briefs moved to the database: it has a
+    `spinoffs/<slug>/` folder, and closing it files that folder. A session born
+    since has no folder (its brief is a row, which stays where it is), and
+    this is a no-op for it.
 
     Slugs get REUSED — the spawn door rejoins an existing slug, and a later
     spinoff can legitimately take the same name — so an archive collision is a
@@ -174,8 +180,8 @@ def _live_conv_for(index, slug):
 # --- The kickoff: the brief itself, with its files preloaded -----------------
 # A spinoff's first message IS its brief, so she can read in the chat what the
 # session was asked to do. The files the brief lists under "## Where to look"
-# are pasted into the session's hidden instructions (CONTEXT.md, attached as
-# the entry's system_prompt_file), because a session only ASKED to read them
+# are pasted into the session's hidden instructions (kept in the database as
+# the brief's context — briefstore.py), because a session only ASKED to read them
 # opened 60 of 69 across six measured spinoffs, and skipped mostly the tests.
 # A brief with no Protocol of its own gets the default one in there too.
 #
@@ -230,15 +236,15 @@ def _where_to_look(brief_text, cwd):
     return entries, errors
 
 
-def _write_context(slug, brief_text, entries):
-    """Write the session's hidden instructions. Returns (path, preloaded, too_big).
+def _build_context(brief_text, entries):
+    """Build the session's hidden instructions. Returns (text, preloaded, too_big).
 
     The default Protocol goes in when the brief has none of its own (the app's
     own briefs — triage, helpers, forks, stewards — carry theirs, and it shows
     in the chat with the rest of the brief). Then each listed file, fenced,
     under its path, until the size caps; what doesn't fit, or isn't text, is
-    returned as `too_big` for the kickoff to name. `path` is None when there
-    was nothing to write, so the entry gets no system_prompt_file at all."""
+    returned as `too_big` for the kickoff to name. `text` is None when there
+    was nothing to put in it, so the brief gets no context at all."""
     parts, preloaded, too_big, total = [], [], [], 0
     if _section(brief_text, "Protocol") is None:
         parts.append(PROTOCOL_FILE.read_text(encoding="utf-8").strip())
@@ -268,9 +274,7 @@ def _write_context(slug, brief_text, entries):
                      + "\n\n".join(snapshots))
     if not parts:
         return None, preloaded, too_big
-    context = store.SPINOFF_DIR / slug / "CONTEXT.md"
-    context.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
-    return context, preloaded, too_big
+    return "\n\n".join(parts) + "\n", preloaded, too_big
 
 
 def _kickoff_text(brief_text, preloaded, too_big):
@@ -289,7 +293,7 @@ def _kickoff_text(brief_text, preloaded, too_big):
 
 
 def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
-                 parent=None, via=None):
+                 parent=None, via=None, brief_id=None):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
 
     Mints (or rejoins) an Observatory conversation for the spinoff and, by
@@ -336,10 +340,17 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
     when there is a calling session and "app" when there isn't. Written only
     at mint; a rejoin never rewrites a child's parentage.
 
+    The brief is read from the database: the newest one saved under `slug`
+    (briefstore.to_open). `brief_id` names one row outright instead, and skips
+    the rejoin — a continuation (continuation.py) keeps its job's slug, and the
+    session it continues is still live under that slug when it is opened.
+
     The kickoff is the brief's text (_kickoff_text), and a brief whose "Where
     to look" names a file that doesn't exist is refused with a 400 before
-    anything is minted. The listed files are preloaded into CONTEXT.md beside
-    the brief and attached as the entry's system_prompt_file (_write_context).
+    anything is minted. The listed files are preloaded into the brief's context
+    (_build_context), kept in the database beside the brief; the entry carries
+    `spinoff_brief`, and each turn is handed the context from there
+    (routes/observatory.py begin_turn).
     """
     if not SLUG_RE.match(slug or ""):
         return {"error": "bad slug"}, 400
@@ -353,10 +364,6 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
         return {"error": f"unknown model {model!r} "
                          f"(choices: {', '.join(_MODEL_CHOICES)})"}, 400
 
-    brief = store.SPINOFF_DIR / slug / "BRIEF.md"
-    if not brief.exists():
-        return {"error": f"no brief at {brief}"}, 400
-
     _chats_dir()   # the index (and its .lock) lives inside it
 
     # Read first, WITHOUT the lock, only to decide the room and to skip minting
@@ -365,10 +372,19 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
     # across that would stall live turns. The authoritative check is the locked
     # one below — this read can be stale and it costs nothing when it is.
     snapshot = store.read("bot_chats/index", {})
-    if _live_conv_for(snapshot, slug):
+    rejoin = brief_id is None
+    if rejoin and _live_conv_for(snapshot, slug):
         cid = _live_conv_for(snapshot, slug)
         return {"ok": True, "conversation_id": cid, "newly_spawned": False,
-                "lane": _conv_lane(snapshot[cid]), "brief": str(brief)}, 200
+                "lane": _conv_lane(snapshot[cid]),
+                "brief": snapshot[cid].get("spinoff_brief")}, 200
+
+    # Find the brief to start from: the named row, else the newest one saved
+    # under this slug.
+    brief = briefstore.get(brief_id) if brief_id else briefstore.to_open(slug)
+    if brief is None or brief["slug"] != slug:
+        return {"error": f"no brief saved for {slug!r} — save one first: "
+                         "scripts/spinoff_brief.py <slug> (the brief on standard input)"}, 400
 
     # The room decides where the child is rooted — the app checkout for Coding,
     # the parent of both repos for Personal — and cwd is the one thing a
@@ -388,7 +404,7 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
     cwd, wt_path, wt_branch = profile["cwd"], None, None
     # Check the brief's file list before anything is made: a path that
     # doesn't exist refuses the spawn, so nothing needs undoing.
-    brief_text = brief.read_text(encoding="utf-8")
+    brief_text = brief["body"]
     entries, missing = _where_to_look(brief_text, cwd)
     if missing:
         return {"error": "Where to look names files that don't exist: "
@@ -404,12 +420,12 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
 
     # The first message is the brief itself; its files and (if it has none of
     # its own) the Protocol ride in the hidden instructions.
-    context, preloaded, too_big = _write_context(slug, brief_text, entries)
+    context, preloaded, too_big = _build_context(brief_text, entries)
     kickoff = _kickoff_text(brief_text, preloaded, too_big)
 
     raced = None
     with store.mutate("bot_chats/index", {}) as index:
-        raced = _live_conv_for(index, slug)
+        raced = _live_conv_for(index, slug) if rejoin else None
         if not raced:
             conv_id = _new_conv_id(index)
             index[conv_id] = {
@@ -424,8 +440,9 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
             index[conv_id]["spawned_via"] = via
             if parent:
                 index[conv_id]["spawned_from"] = parent
-            if context:
-                index[conv_id]["system_prompt_file"] = str(context)
+            # Which brief row this session was started on. Its context, if
+            # it has one, is handed to every turn from the database.
+            index[conv_id]["spinoff_brief"] = brief["id"]
             if model:
                 # On the entry, not the reply alone: per-turn resolution
                 # (observatory's effective_model) reads it from here, so the
@@ -441,9 +458,14 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
     if raced:
         if wt_path:
             worktrees.remove(wt_path)
+        theirs = store.read("bot_chats/index", {})[raced]
         return {"ok": True, "conversation_id": raced, "newly_spawned": False,
-                "lane": _conv_lane(store.read("bot_chats/index", {})[raced]),
-                "brief": str(brief)}, 200
+                "lane": _conv_lane(theirs), "brief": theirs.get("spinoff_brief")}, 200
+
+    # Record on the brief which session it started, and keep that session's
+    # hidden instructions beside it. Before the launch: the kickoff turn reads
+    # the context from here.
+    briefstore.opened(brief["id"], conv_id, preloaded, too_big, context)
 
     # Outside the index lock — launching a runner that immediately posts a send
     # (which takes that same lock) while still holding it would deadlock.
@@ -459,7 +481,7 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
         "autostart": True,
         "model": model,
         "spawned_from": parent,
-        "brief": str(brief),
+        "brief": brief["id"],
         "worktree": str(wt_path) if wt_path else None,
         "branch": wt_branch,
     }, 200
@@ -524,9 +546,10 @@ _OFFER_MAX_SLUGS = 6   # "spin off 1 and 3", not a batch job
 def _brief_title(slug):
     """The one-line title from the brief's `# Spinoff: <title>` heading, or the
     slug when the heading isn't there — the Go card names each session by it."""
+    brief = briefstore.latest(slug)
     try:
-        first = (store.SPINOFF_DIR / slug / "BRIEF.md").read_text().splitlines()[0]
-    except (OSError, IndexError):
+        first = brief["body"].splitlines()[0]
+    except (TypeError, IndexError):
         return slug
     title = re.sub(r"^#\s*(Spinoff:\s*)?", "", first).strip()
     return title or slug
@@ -550,8 +573,9 @@ def offer_spinoff(conv_id, slugs, lane=None):
     for slug in slugs:
         if not SLUG_RE.match(slug):
             return {"error": f"bad slug {slug!r}"}, 400
-        if not (store.SPINOFF_DIR / slug / "BRIEF.md").exists():
-            return {"error": f"no brief for {slug!r} — write it first"}, 400
+        if briefstore.latest(slug) is None:
+            return {"error": f"no brief for {slug!r} — save it first "
+                             "(scripts/spinoff_brief.py)"}, 400
     if lane is not None and lane not in _LANES:
         return {"error": f"unknown room {lane!r}"}, 400
     offer = {"slugs": slugs, "offered": _now()}
@@ -664,7 +688,56 @@ def spinoff_tree(index):
     return nodes
 
 
+# --- The brief page: what a session was asked, and what it was handed -----------
+# The session's own page in the Observatory has a "brief" button; this is what
+# it shows (frontend/src/features/observatory/SessionBriefPage.tsx).
+
+def session_brief(conv_id):
+    """Everything kept about one session's brief, or None when it has none:
+    the brief, the files pasted into its instructions, those instructions
+    whole, and the handoffs it wrote or was started from."""
+    index = store.read("bot_chats/index", {})
+    entry = index.get(conv_id)
+    if not isinstance(entry, dict):
+        return None
+    brief = briefstore.get(entry.get("spinoff_brief")) or briefstore.for_session(conv_id)
+    handoffs = briefstore.handoffs(conv_id)
+    if brief is None and not handoffs:
+        return None
+    context = briefstore.context(brief["id"]) if brief else None
+
+    def named(conv):
+        other = index.get(conv) if conv else None
+        return {"id": conv, "title": (other or {}).get("title") or conv} if conv else None
+
+    return {
+        "conv": conv_id,
+        "title": entry.get("title") or conv_id,
+        "brief": brief and {
+            "id": brief["id"], "slug": brief["slug"], "written_at": brief["written_at"],
+            "written_by": named(brief["written_by"]), "opened_at": brief["opened_at"],
+            "continues": named(brief["continues"]), "body": brief["body"],
+            "preloaded": brief["preloaded"], "too_big": brief["too_big"],
+        },
+        "context": context,
+        "handoffs": [{"id": h["id"], "at": h["at"], "body": h["body"],
+                      "from": named(h["conv"]), "to": named(h["to_conv"]),
+                      "written_here": h["conv"] == conv_id} for h in handoffs],
+        "continued_by": named(entry.get("continued_by")),
+    }
+
+
 def register(app):
+
+    # One session's brief, context and handoffs, for its brief page.
+    @app.route("/api/spinoff/brief/<conv_id>", methods=["GET"])
+    def spinoff_brief_read(conv_id):
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        found = session_brief(conv_id)
+        if found is None:
+            return jsonify({"error": "this session has no brief"}), 404
+        return jsonify(found)
 
     # The family tree, flat: the page builds the nesting.
     @app.route("/api/spinoff/tree", methods=["GET"])

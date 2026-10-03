@@ -14,7 +14,7 @@ links:
   - reads data.transcripts: The seed replays the owner's last exchanges with the helper.
   - writes data.transcripts: The seed, its parts and what the helper has seen are kept beside the transcripts.
   - calls engine.turns: A wake-up starts a helper turn when its sessions changed.
-fingerprint: 6004cd8c4ca1
+fingerprint: 5d1561d834d7
 written: 2026-10-02
 ---
 

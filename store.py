@@ -79,15 +79,14 @@ RECORDINGS_DIR = Path(os.environ.get("EXOCORTEX_RECORDINGS_DIR", DATA_DIR / "rec
 # this folder (its CLAUDE.md is the skill). Defaults to a `triage/` at the
 # deployment root (sibling of the data dir), next to recipes/; override via env.
 TRIAGE_DIR = Path(os.environ.get("EXOCORTEX_TRIAGE_DIR", DATA_DIR.parent / "triage"))
-# Spinoff: the shared spawn door for /spinoff — briefs live one per slug at
-# SPINOFF_DIR/<slug>/BRIEF.md. Under DATA_DIR (not a sibling like TRIAGE_DIR):
-# briefs are personal data and should ride the vault's hourly git backup.
+# Spinoff: the folder the spawn door (routes/spinoff.py) keeps its start-up
+# logs in (.kickoffs/). Briefs themselves are rows in the database now
+# (briefstore.py, docs/spinoff-briefs.md); the <slug>/ folders here are from
+# before that, one per job, each with its BRIEF.md.
 SPINOFF_DIR = Path(os.environ.get("EXOCORTEX_SPINOFF_DIR", DATA_DIR / "spinoffs"))
-# Where a brief goes when its session is closed. Briefs are KEPT, never deleted
-# — a brief is the only record of what a session was actually asked to do, and
-# git can show what changed but never what was wanted. They just stop cluttering
-# the live folder, so `ls spinoffs/` answers "what is in flight" instead of
-# "everything ever spun off". A SIBLING of SPINOFF_DIR rather than a folder
+# Where an old brief FOLDER goes when its session is closed (only sessions born
+# before briefs moved to the database have one). Moved, never deleted. A
+# SIBLING of SPINOFF_DIR rather than a folder
 # inside it, because everything inside is a slug and an archive is not one.
 # Env-overridable like the rest: point it at the vault's own `reference/` shelf
 # if that's where retired things live in a given install.

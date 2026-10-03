@@ -154,6 +154,9 @@ export interface SessionMeta {
   journal?: boolean;
   /** Pinned sessions sort first (the Keeper session lives at the top). */
   pinned?: boolean;
+  /** The row id of the brief this session was spun off on (briefstore.py).
+   * Present means the session has a brief page (SessionBriefPage.tsx). */
+  spinoff_brief?: number;
   /** It handed its work on to a continuation that took over from it —
    * marked server-side off the whole index (routes/observatory.py). Rooms and
    * swarm pages sink it to the bottom, out of the way (roomOrder.ts). */
@@ -941,6 +944,55 @@ export function goSpinoffOffer(convId: string): Promise<SpinoffGoResult> {
 
 export function dismissSpinoffOffer(convId: string): Promise<{ ok: true }> {
   return api.post(`/api/spinoff/offer/${encodeURIComponent(convId)}/dismiss`, {});
+}
+
+/** Another session, named: its id and its title. */
+export interface NamedSession {
+  id: string;
+  title: string;
+}
+
+/** What is kept about one spun-off session's brief (routes/spinoff.py
+ * `session_brief`): the brief itself, the files pasted into its hidden
+ * instructions, those instructions whole, and any handoffs. All of it is read
+ * from the database; none of it is a file. */
+export interface SessionBrief {
+  conv: string;
+  title: string;
+  brief: {
+    id: number;
+    slug: string;
+    written_at: string;
+    written_by: NamedSession | null;
+    opened_at: string | null;
+    continues: NamedSession | null;
+    body: string;
+    preloaded: string[];
+    too_big: string[];
+  } | null;
+  /** The hidden instructions every turn is handed; null when it has none. */
+  context: string | null;
+  handoffs: {
+    id: number;
+    at: string;
+    body: string;
+    from: NamedSession | null;
+    to: NamedSession | null;
+    /** true: this session wrote it. false: this session was started from it. */
+    written_here: boolean;
+  }[];
+  continued_by: NamedSession | null;
+}
+
+/** One session's brief. Not polled: a brief doesn't change once its session
+ * has started. */
+export function useSessionBrief(convId: string) {
+  return useQuery({
+    queryKey: ['session-brief', convId] as const,
+    queryFn: ({ signal }) => api.get<SessionBrief>(`/api/spinoff/brief/${encodeURIComponent(convId)}`, signal),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
 }
 
 // --- The mailbox (peermail.py) ------------------------------------------------

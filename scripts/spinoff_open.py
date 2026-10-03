@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """spinoff_open.py — the agents' door into the spinoff spawner.
 
-The /spinoff skill (claude-commands/spinoff.md) writes a brief to
-SPINOFF_DIR/<slug>/BRIEF.md and then shells out to this script; the app's own
-UI hits POST /api/spinoff/open instead. Both wrap routes.spinoff.open_spinoff.
+The /spinoff skill (claude-commands/spinoff.md) saves a brief under a slug with
+scripts/spinoff_brief.py (briefs are rows in the database — briefstore.py) and
+then shells out to this script; the app's own UI hits POST /api/spinoff/open
+instead. Both wrap routes.spinoff.open_spinoff.
 Same narrow-door doctrine as stage_change.py: agents never write session state
 directly — one validated entry point, loud precise failures.
 
@@ -23,7 +24,7 @@ Without --room the spinoff lands in the room the CALLING session is in, read
 off EXOCORTEX_CONV_ID; --room (or --lane, the code's word for the same thing)
 overrides that. Prints one JSON line to stdout — `lane` in the reply is the
 room it actually landed in, worth reading back to her. Exits non-zero on
-refusal (bad slug, unknown room, missing brief).
+refusal (bad slug, unknown room, no brief saved under the slug).
 """
 import json
 import sys

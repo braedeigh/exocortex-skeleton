@@ -415,8 +415,9 @@ def _session_settings(config, tools):
             "hooks": [{"type": "command", "command": _act_gate_hook_command()}],
         }]}
     # Keep a helper to lookups: every tool call it makes goes through
-    # tools/helper_gate.py, which lets through reading, git's reading verbs,
-    # the helper's own scripts and a spinoff brief, and denies the rest — so
+    # tools/helper_gate.py, which lets through reading, git's reading verbs
+    # and the helper's own scripts (one of which saves a spinoff brief), and
+    # denies the rest — so
     # when something needs building it starts a session instead. Its matcher
     # is every tool: `allowed_tools` only pre-approves, it forbids nothing.
     if config.get("helper_gate"):
@@ -424,7 +425,7 @@ def _session_settings(config, tools):
         settings.setdefault("hooks", {}).setdefault("PreToolUse", []).append({
             "matcher": "*",
             "hooks": [{"type": "command", "command":
-                       f"{sys.executable} {gate} --spinoff-dir {store.SPINOFF_DIR}"}],
+                       f"{sys.executable} {gate}"}],
         })
     # Turn background Bash into a detached job that wakes this conversation.
     # The harness's own background mode dies when the turn ends, and nothing is
@@ -2361,11 +2362,10 @@ def close_conversation(conv_id):
         reap = None
     if reap:
         worktrees.remove(reap)
-    # Closing is also when the brief stops being live work and becomes a
-    # record. It is MOVED, never deleted — the brief is the only thing that
-    # says what this session was asked to do, and git can show what changed
-    # but never what was wanted. Import here, not at module top: spinoff
-    # imports this module.
+    # File the brief folder of a session born before briefs moved to the
+    # database (briefstore.py): it is MOVED to the archive, never deleted. A
+    # session born since has no folder and this does nothing. Import here, not
+    # at module top: spinoff imports this module.
     if filed:
         from routes.spinoff import archive_spinoff
         archive_spinoff(filed)
@@ -4140,10 +4140,9 @@ def register(app):
         if not surface:
             return jsonify({"error": "this session isn't writing any files yet — nothing to fork"}), 400
         slug = _fork_slug(meta.get("title") or conv_id)
-        brief_path = store.SPINOFF_DIR / slug / "BRIEF.md"
-        brief_path.parent.mkdir(parents=True, exist_ok=True)
-        brief_path.write_text(_fork_brief_md(meta.get("title") or conv_id, surface),
-                              encoding="utf-8")
+        import briefstore
+        briefstore.save(slug, _fork_brief_md(meta.get("title") or conv_id, surface),
+                        written_by=conv_id)
         from routes.spinoff import open_spinoff
         # start=False: a fork is a TAKE-OVER, not a parallel run. Launching it
         # here would put two agents on the same session's files at once, which
@@ -4523,6 +4522,20 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         conv_journals = entry.get("journal") is True
         config = _conv_config(entry)
         config["conv_id"] = conv_id   # so the turn's env carries EXOCORTEX_CONV_ID (_spawn)
+        # Hand a spun-off session its hidden instructions from the database.
+        # The brief's context (the Protocol and its preloaded files) is a row
+        # in exo.db (briefstore.py); `claude` takes a prompt this size only by
+        # path, so it is written out to a cache file here, every turn. A
+        # session born before briefs moved to the database still has its
+        # CONTEXT.md on disk, and keeps using it for as long as it is there.
+        prompt_file = config.get("system_prompt_file")
+        if entry.get("spinoff_brief") and not (prompt_file and Path(prompt_file).is_file()):
+            import briefstore
+            try:
+                config["system_prompt_file"] = (
+                    briefstore.context_file(entry["spinoff_brief"]) or prompt_file)
+            except Exception as e:
+                print(f"brief context failed for {conv_id}: {e}", file=sys.stderr)
         # Keep the agent's input open for mid-turn messages (_TurnInput).
         config["stream_input"] = app_config.TURN_STREAM_INPUT
         bot_id = entry.get("bot")

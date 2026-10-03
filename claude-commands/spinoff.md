@@ -20,14 +20,32 @@ Multiple references ("1 and 3") default to **one session each**. If two items
 are so intertwined that separate sessions would collide in the same files,
 say so and propose combining — their call.
 
-## 2. Brief — write the handoff file
+## 2. Brief — write the handoff and save it
 
 For each task, pick a short readable slug (what the tab should be called —
-`keeper-chat`, not `item-1`; numbers mean nothing tomorrow) and write
-`<data dir>/spinoffs/<slug>/BRIEF.md`.
+`keeper-chat`, not `item-1`; numbers mean nothing tomorrow). Briefs are kept in
+the app's database, not in files, so **don't write a BRIEF.md**. Hand the text
+to the brief script on standard input, as a quoted here-document, from the
+skeleton checkout:
+
+```
+EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_brief.py <slug> <<'BRIEF'
+# Spinoff: <one-line title>
+...
+BRIEF
+```
+
+The quotes around the first `BRIEF` matter: they stop the shell from touching
+the backticks and `$` in your text. The closing `BRIEF` sits alone on the last
+line. The reply is one JSON line; `missing` lists any "Where to look" path
+that doesn't exist. To change a brief, send the whole text again under the
+same slug (it replaces the saved one until a session has started on it);
+`spinoff_brief.py <slug> --show` prints what is saved. If the session will
+land in a different room from yours, add `--room coding|personal` so relative
+paths are checked from the right folder.
 
 **The brief is a distilled summary, not a context dump — and it is the child's
-first message.** The whole file is posted into the new chat as-is, so the owner
+first message.** The whole text is posted into the new chat as-is, so the owner
 reads it there too; write it for both of them. What you hand the child is: what
 the task IS (your distillation of what the owner wants), WHERE to look (files),
 and your read of the ground — marked as unverified. Anything you assert about
@@ -107,8 +125,9 @@ checkout), with every slug in one call:
 EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_offer.py <slug> [<slug> ...]
 ```
 
-(The env var matters: without it the script resolves the repo's default
-`data/` instead of the instance's real data dir, and won't find your brief.)
+(The env var matters, here and on `spinoff_brief.py`: without it the script
+resolves the repo's default `data/` instead of the instance's real data dir,
+and won't find your brief.)
 
 That puts a **Go** card at the bottom of her chat, listing each brief's title.
 End your turn there: one short line saying the Go button is up. Don't ask
@@ -117,7 +136,7 @@ to the first one, and that session asks whether to close this chat. You don't
 spawn anything yourself, and you won't see the tap.
 
 She can also ignore the card and keep talking. If what she says changes the
-plan, edit the brief (same slug) or write a new one, and run
+plan, save the brief again (same slug) or save a new one, and run
 `spinoff_offer.py` again; a new offer replaces the old card. If she says "go"
 in words instead of tapping, spawn directly with `spinoff_open.py <slug>`, the
 same door the button uses.

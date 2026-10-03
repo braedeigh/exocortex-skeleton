@@ -202,6 +202,8 @@ export function ObservatoryPage({
   // landing in old sessions to READ far more often than to revive one.
   // Cleared on send, so the note never outlives the thing it warned about.
   const [sessionArchived, setSessionArchived] = useState(false);
+  // Whether this session was spun off on a brief: it then gets a "brief" button.
+  const [sessionHasBrief, setSessionHasBrief] = useState(false);
   // Explicit journal state of this session (null until meta loads). Nothing
   // announces it in the composer — she knows which sessions are journaled; it
   // only gates the off-the-record toggle, which exists in journaled sessions.
@@ -395,6 +397,7 @@ export function ObservatoryPage({
         setSessionJournal(data.meta?.journal === true ? true : data.meta?.journal === false ? false : null);
         setSessionPinned(data.meta?.pinned === true);
         setSessionArchived(Boolean(data.meta?.archived));
+        setSessionHasBrief(typeof data.meta?.spinoff_brief === 'number');
         setSessionSpend(data.meta?.tokens ? formatSessionTokens(data.meta.tokens) : null);
         setSessionSummary(data.meta?.summary ?? null);
         if (data.meta?.title) setRoomTitle(data.meta.title);
@@ -1186,6 +1189,20 @@ export function ObservatoryPage({
           {/* In a helper's own chat: open what it is working from — the
               document each turn starts with, and her standing rules for it
               (HelperContextPage.tsx). A full page, so it leaves the chat. */}
+          {/* In a spun-off session's chat: open what it was asked to do, the
+              files it was handed and any handoffs (SessionBriefPage.tsx). A
+              full page, so it leaves the chat. */}
+          {sessionHasBrief && convId ? (
+            <button
+              type="button"
+              className={styles.toolBtn}
+              title="What this session was asked to do, the files it was handed, and its handoffs"
+              aria-label="This session's brief"
+              onClick={() => void navigate({ to: '/observatory/brief/$convId', params: { convId } })}
+            >
+              brief
+            </button>
+          ) : null}
           {helperOf?.is_helper && convId ? (
             <button
               type="button"

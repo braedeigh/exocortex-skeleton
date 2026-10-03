@@ -10,7 +10,7 @@ links:
   - writes data.transcripts: An approval is kept in a sidecar file per session.
   - calls detached: Every session with Bash carries the hook that turns background commands into detached jobs.
   - calls helpers.file-alerts: The file alert hook is wired in here, and it is switched off by default.
-fingerprint: 6589f4a73153
+fingerprint: 0e3cbbedf4df
 written: 2026-10-02
 ---
 

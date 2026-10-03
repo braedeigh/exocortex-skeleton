@@ -13,7 +13,7 @@ links:
   - reads data.index: The history lists every helper session, archived ones too.
   - depends-on engine.turns: A row reads running and cost the same way a roster card does.
   - depends-on page.api: The history page reads the helper runs through the shared API file.
-fingerprint: c61af9fae130
+fingerprint: c2eaa5c819e9
 written: 2026-10-02
 ---
 

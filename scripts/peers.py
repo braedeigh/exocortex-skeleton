@@ -34,7 +34,7 @@ peermail.set_policy), never by writing session state directly.
         The swarm this session is in: its name, the helper's summary, each
         member with its state and summary, and who has messaged whom.
 
-    ./venv/bin/python3 scripts/peers.py handoff --file <path>   (or: handoff "<text>")
+    ./venv/bin/python3 scripts/peers.py handoff <<'HANDOFF' … HANDOFF   (or: --file <path>)
         Hand this session's work to a fresh one (continuation.py). Used when
         the app says the context cap is reached; the new session starts on its
         own with the handoff, the files this one touched, and its swarm.
@@ -282,13 +282,18 @@ def cmd_handoff(args, me):
     if not me:
         print("EXOCORTEX_CONV_ID isn't set", file=sys.stderr)
         return 1
+    # The handoff's text: on standard input (the usual way — it is kept in
+    # the database, so there is no file to write), or as an argument, or from
+    # a file with --file.
     text = args.text
-    if args.file:
+    if args.file and args.file != "-":
         try:
             text = Path(args.file).read_text(encoding="utf-8")
         except OSError as e:
             print(f"can't read {args.file}: {e}", file=sys.stderr)
             return 1
+    elif args.file == "-" or (not text and not sys.stdin.isatty()):
+        text = sys.stdin.read()
     import continuation
     try:
         reply = continuation.hand_off(me, text or "")

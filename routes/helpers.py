@@ -30,7 +30,7 @@ Reading Room, 2026-07-24), so they now come through here:
 
 Touches: routes/spinoff.py (open_spinoff), routes/observatory.py (the running
 /tokens readers, so a helper card reads the same way a roster card does),
-store.SPINOFF_DIR. Callers: routes/triage.py, routes/person.py,
+briefstore.py (where the brief is kept). Callers: routes/triage.py, routes/person.py,
 routes/kitchen/recipes.py, routes/kitchen/receipts.py. The roster hides
 helper sessions from the rooms (frontend sessionFilters.roomRoster).
 
@@ -64,17 +64,16 @@ KIND_LABELS = {
 def mint_helper(kind, slug, brief, title, model=None):
     """Open (or rejoin) the helper session for `slug` and tag it as a helper.
 
-    `brief` is the Markdown body written to SPINOFF_DIR/<slug>/BRIEF.md; it
+    `brief` is the Markdown body saved as the slug's brief (briefstore.py); it
     becomes the session's first message, word for word, so it should carry
     its own `## Protocol` section — a brief without one gets the general
     spinoff Protocol (claude-commands/spinoff/protocol.md), which is written
     for build work, not a helper's job. `title` is what the card says. Returns
     (payload, status) exactly like open_spinoff, with `kind` added."""
+    import briefstore
     from routes.spinoff import open_spinoff
 
-    brief_dir = store.SPINOFF_DIR / slug
-    brief_dir.mkdir(parents=True, exist_ok=True)
-    (brief_dir / "BRIEF.md").write_text(brief)
+    briefstore.save(slug, brief)
     # Personal room on purpose: these jobs write into the vault (todos.json,
     # parsed recipes, a person's file) and she is the one who pressed the
     # button, so nothing unwatched is being handed autonomy.

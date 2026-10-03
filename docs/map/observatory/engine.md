@@ -5,7 +5,7 @@ kind: module
 order: 2
 sources:
   - routes/observatory.py
-fingerprint: df749df3a011
+fingerprint: 62dd6a08495c
 written: 2026-10-02
 ---
 

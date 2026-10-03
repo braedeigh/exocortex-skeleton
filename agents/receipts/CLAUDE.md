@@ -9,7 +9,7 @@ receipts into structured line items**.
 <!-- PLUG-IN(OWNER_NAME): the person this workspace serves — appears in the
      "summarize for" lines below. Fill in, or just read "the owner." -->
 
-**Sent here by a BRIEF?** The Kitchen tab's scan button opens one helper session per photo, with a `BRIEF.md` naming that photo. Then that one photo is your whole job — skip the sweeps in "On Startup" and "When done"; other unparsed photos may belong to helper sessions running right now.
+**Sent here by a BRIEF?** The Kitchen tab's scan button opens one helper session per photo, with a brief naming that photo. Then that one photo is your whole job — skip the sweeps in "On Startup" and "When done"; other unparsed photos may belong to helper sessions running right now.
 
 ## Subfolder structure
 

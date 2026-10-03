@@ -13,7 +13,7 @@ links:
   - calls spinoffs.door: The tree page reads the family tree from the spinoff routes.
   - writes data.index: The backfill fills in the parent of sessions from before the fields existed.
   - depends-on page.api: The tree is fetched through the shared API file.
-fingerprint: bbadc87cc3a5
+fingerprint: 48580269a576
 written: 2026-10-02
 ---
 

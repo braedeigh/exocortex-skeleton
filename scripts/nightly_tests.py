@@ -18,7 +18,7 @@ rather than "fixing" a test to match it.
 
 Nothing fails → no session, just a line in the log and a job_runs row.
 
-Touches: routes/spinoff.py (open_spinoff), store.SPINOFF_DIR (the brief),
+Touches: routes/spinoff.py (open_spinoff), briefstore.py (the brief),
 jobstore.py (the run record), scheduled_runs.json (the Automations pause
 switch, id "nightly_tests"), tests/test_nightly_tests.py.
 
@@ -106,9 +106,8 @@ def split_flaky(failures, out_dir):
 
 
 def write_brief(slug, still, flaky, out_dir, duration_min):
-    """Write the fixer session's brief into SPINOFF_DIR/<slug>/BRIEF.md."""
-    brief_dir = store.SPINOFF_DIR / slug
-    brief_dir.mkdir(parents=True, exist_ok=True)
+    """Save the fixer session's brief under `slug` (briefstore.py). Returns its row id."""
+    import briefstore
     failing = "\n".join(f"- `{node}` — {reason}" for node, reason in still.items())
     flaky_lines = "\n".join(f"- `{node}` — {reason}" for node, reason in flaky.items()) or "- none"
     text = f"""# Nightly test run — {len(still)} failing
@@ -155,8 +154,7 @@ cluster with the same cause) at a time:
 End with a short report: what you fixed and committed, what you handed to which
 session, what you left for her and why, and the flaky list.
 """
-    (brief_dir / "BRIEF.md").write_text(text)
-    return brief_dir / "BRIEF.md"
+    return briefstore.save(slug, text)
 
 
 def open_fixer(slug):
@@ -206,9 +204,9 @@ def main(argv=None):
         # Hand the rest to a fixer session.
         record.failed(len(still), f"{len(still)} tests failing")
         slug = f"nightly-tests-{datetime.now():%Y%m%d}"
-        write_brief(slug, still, flaky, out_dir, duration_min)
+        brief_id = write_brief(slug, still, flaky, out_dir, duration_min)
         if args.no_agent:
-            print(f"  brief at {store.SPINOFF_DIR / slug / 'BRIEF.md'} (no agent)")
+            print(f"  brief saved as {slug} (row {brief_id}); no agent")
             return 0
         reply = open_fixer(slug)
         print(f"  fixer: {reply}")

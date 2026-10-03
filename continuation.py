@@ -12,18 +12,20 @@ itself (config.CONTINUE_LANES — Coding), this:
   1. asks the agent — a System message, `[System · context cap]` — to write a
      handoff: the goal, what's done, what's left, decisions and why, open
      questions, the files in play;
-  2. when the agent runs `peers.py handoff`, writes a brief from it — the
-     handoff, the files the old session read and wrote, and its swarm — and
-     opens a fresh session on it (routes/spinoff.open_spinoff, `via
-     "continue"`, same room, same model), which starts working at once;
+  2. when the agent runs `peers.py handoff`, keeps the handoff and writes a
+     brief from it — the handoff, the files the old session read and wrote,
+     and its swarm — both as rows in the database (briefstore.py), and opens
+     a fresh session on the brief (routes/spinoff.open_spinoff, `via
+     "continue"`, same room, same model, same job name), which starts working
+     at once;
   3. archives the old session once its last turn ends, and points it at its
      successor, so messages other agents send to the old one reach the new one
      (peermail.send follows `continued_by`).
 
 Touches: config.py (the caps and rooms), routes/observatory.py (reads the
 context size it keeps; queue_followup for the ask; `after_turn` calls check()),
-routes/spinoff.py (open_spinoff), scripts/extract_footprints.py (the files in
-play), swarms.py (who the session works with), scripts/peers.py (the agent's
+routes/spinoff.py (open_spinoff), briefstore.py (where the handoff and the
+brief are kept), scripts/extract_footprints.py (the files in play), swarms.py (who the session works with), scripts/peers.py (the agent's
 `handoff` door), tests/test_continuation.py. Design: docs/swarms.md, stage 2.
 A helper's chat (a swarm's or the room's) is never continued: it can't
 outgrow its context (helper_chat.py).
@@ -89,10 +91,13 @@ def ask_text(entry):
         f"{int(entry.get('context_tokens') or 0):,} tokens, past the "
         f"{cap_for(entry):,}-token cap for {fam}. Don't start anything new. "
         "Write your handoff now, so a fresh session can carry on from it: run\n"
-        "  ./venv/bin/python3 scripts/peers.py handoff --file <path>\n"
-        "with a markdown file covering: the goal; what's done (commit hashes); "
+        "  ./venv/bin/python3 scripts/peers.py handoff <<'HANDOFF'\n"
+        "  <the handoff, as markdown>\n"
+        "  HANDOFF\n"
+        "covering: the goal; what's done (commit hashes); "
         "what's left, in order; decisions made and why; open questions; and "
-        "anything a newcomer would get wrong. The files you read and wrote are "
+        "anything a newcomer would get wrong. Don't write it to a file: it is "
+        "kept in the database. The files you read and wrote are "
         "attached for it automatically. It starts on its own once you've run "
         "that, and this session is then archived. (Sent by the app, not the "
         "owner.)"
@@ -120,10 +125,11 @@ def check(conv_id):
     return True
 
 
-def _slug(conv_id):
-    """A spinoff slug for the continuation: `cont-` + the conversation's
-    digits, which are unique per session."""
-    return ("cont-" + re.sub(r"[^0-9]", "", conv_id))[:39]
+def _slug(conv_id, entry):
+    """The continuation's job name: the same slug as the session it continues,
+    so a job keeps one name however many sessions it runs through. A session
+    that wasn't spun off has none; it gets `cont-` + its own id's digits."""
+    return entry.get("spinoff_slug") or ("cont-" + re.sub(r"[^0-9]", "", conv_id))[:39]
 
 
 def _files_in_play(conv_id, entry, limit=40):
@@ -210,17 +216,24 @@ def hand_off(conv_id, handoff):
     already = (entry.get("continuation") or {}).get("to")
     if already:
         return {"ok": True, "conversation_id": already, "newly_spawned": False}
-    slug = _slug(conv_id)
-    folder = store.SPINOFF_DIR / slug
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "BRIEF.md").write_text(brief_text(conv_id, entry, handoff), encoding="utf-8")
+    # Keep the handoff, and save the new session's brief as a row of its own
+    # that names the session it continues. `fresh`: never onto someone's draft.
+    import briefstore
+    slug = _slug(conv_id, entry)
+    handoff_id = briefstore.save_handoff(conv_id, handoff, slug=slug)
+    brief_id = briefstore.save(slug, brief_text(conv_id, entry, handoff),
+                               written_by=conv_id, continues=conv_id, fresh=True)
     from routes.spinoff import open_spinoff
     model = entry.get("model") or family(entry.get("context_model"))
+    # The brief is named by its row: this session is still live under the same
+    # slug, and opening by slug alone would rejoin it instead of starting anew.
     payload, status = open_spinoff(slug, start=True, lane=lanes.derive_lane(entry),
-                                   model=model, parent=conv_id, via="continue")
+                                   model=model, parent=conv_id, via="continue",
+                                   brief_id=brief_id)
     if status != 200:
         raise ValueError(payload.get("error") or f"spinoff refused ({status})")
     new_id = payload["conversation_id"]
+    briefstore.handoff_taken(handoff_id, new_id)
     with store.mutate("bot_chats/index", {}) as index:
         live = index.get(conv_id)
         if isinstance(live, dict):

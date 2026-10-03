@@ -2,8 +2,7 @@
 you talk to about your day; it reorders todos.json as you chat.
 
 What this file does, in plain English: one endpoint, POST /api/triage/open.
-It writes a short brief into the spinoff folder (SPINOFF_DIR/triage/BRIEF.md)
-that points the session at the triage skill — the CLAUDE.md in TRIAGE_DIR,
+It saves a short brief under the slug `triage` (briefstore.py) that points the session at the triage skill — the CLAUDE.md in TRIAGE_DIR,
 which lives in the vault, not here — and then walks through the same door
 every agent session uses, routes/spinoff.py's open_spinoff(). That mints an
 Observatory conversation in the PERSONAL room (rooted at the parent of both

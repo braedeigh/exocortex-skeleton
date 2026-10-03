@@ -9,7 +9,7 @@ links:
   - calls worktrees.copies: Every number on a branch card is read from git through the worktree module.
   - calls spinoffs.door: A reply to a branch card wakes a steward session on that branch.
   - reads data.queue-files: The night crew's branches come from its run records.
-fingerprint: 03863cd11385
+fingerprint: 879f4ec1f9ae
 written: 2026-10-02
 ---
 

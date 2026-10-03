@@ -499,7 +499,7 @@
         "spinoff_runner.py",
         "backfill_spawned_from.py",
         "spark_morning.py",
-        "sort_bot_chats.py", "peers.py", "sudo_request.py", "room_moves.py", "helper_watch.py", "helper_rule.py", "linear_feed.py", "spinoff_brief.py"
+        "sort_bot_chats.py", "peers.py", "sudo_request.py", "room_moves.py", "helper_watch.py", "helper_rule.py", "linear_feed.py", "spinoff_brief.py", "import_spinoff_briefs.py"
       ],
       "tables": [
         "notes",

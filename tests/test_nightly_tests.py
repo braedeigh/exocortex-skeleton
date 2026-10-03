@@ -47,7 +47,9 @@ def test_summary_lines_become_failures_listed_once():
 
 def test_a_failure_that_passes_alone_is_flaky_not_broken(night):
     nightly_tests.main([])
-    brief = next((store.SPINOFF_DIR).glob("nightly-tests-*/BRIEF.md")).read_text()
+    import briefstore
+    [kept] = [row for row in briefstore.listing() if row["slug"].startswith("nightly-tests-")]
+    brief = briefstore.get(kept["id"])["body"]
     still, flaky = brief.split("## Failed in the full run")
     assert "test_broken" in still and "test_flaky" not in still
     assert "test_flaky" in flaky

@@ -129,6 +129,12 @@ def scan_log(path):
 
 
 def read_brief(slug):
+    # The database first (briefstore.py); the folders are where briefs were
+    # kept before, and an install that hasn't imported them still has them.
+    import briefstore
+    kept = briefstore.latest(slug)
+    if kept:
+        return kept["body"]
     for folder in (store.SPINOFF_DIR, store.SPINOFF_ARCHIVE_DIR):
         try:
             return (folder / slug / "BRIEF.md").read_text(errors="replace")

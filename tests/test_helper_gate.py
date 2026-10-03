@@ -1,7 +1,8 @@
 """The helpers' lookups-only gate (tools/helper_gate.py) and its wiring.
 
 What these pin: a swarm or room helper can still do every lookup its
-instructions point it at, and write a spinoff brief and start the session;
+instructions point it at, and save a spinoff brief (through its one script,
+fed on standard input) and start the session;
 everything that builds — editing, a sed -i or heredoc rewrite, npm run build,
 git commit, a reload, a sub-agent — is denied, including the exact commands a
 helper once used to build and commit on its own. And the gate is attached to
@@ -35,6 +36,7 @@ LOOKUPS = [
     "./venv/bin/python3 scripts/exo_query.py schema agent_messages",
     "./venv/bin/python3 scripts/request_input.py \"which colour?\"",
     "./venv/bin/python3 scripts/spinoff_open.py pond-colour",
+    "./venv/bin/python3 scripts/spinoff_brief.py pond-colour --show",
     "./venv/bin/python3 scripts/room_moves.py list",
     "./venv/bin/python3 scripts/helper_watch.py add 2026-09-30.113857 --on done,committed"
     " --note \"tell her when the Linear board ships\"",
@@ -72,6 +74,44 @@ BUILDS = [
     "", "   ",
 ]
 
+# A brief as a helper really writes one: backticks, quotes, `$`, shell-looking
+# lines. Inside a quoted here-document none of it is run.
+BRIEF = """# Spinoff: paint the pond
+
+## The task
+She said: "make it `blue`, don't ask" — costs $5; rm -rf / is just words here.
+$(rm x) and `rm y` too.
+
+## Where to look
+- routes/no_such_file.py
+"""
+SAVE = "./venv/bin/python3 scripts/spinoff_brief.py pond-colour"
+
+SAVES = [
+    f"{SAVE} <<'BRIEF'\n{BRIEF}BRIEF",
+    f"{SAVE} --room coding <<'EOF'\n{BRIEF}EOF\n",
+    f"cd /opt/exocortex/skeleton && EXOCORTEX_DATA_DIR=/x/data {SAVE} <<'BRIEF'\n{BRIEF}BRIEF",
+]
+
+NOT_SAVES = [
+    # The text would be expanded by the shell: the word isn't quoted.
+    f"{SAVE} <<BRIEF\n{BRIEF}BRIEF",
+    f'{SAVE} <<"BRIEF"\n{BRIEF}BRIEF',
+    # The closing word early: everything after it would run as commands.
+    f"{SAVE} <<'BRIEF'\nhello\nBRIEF\nrm -rf x\nBRIEF",
+    f"{SAVE} <<'BRIEF'\nhello\nBRIEF\nrm -rf x",
+    # More on the opening line, or a different command reading the text.
+    f"{SAVE} <<'BRIEF' && rm x\n{BRIEF}BRIEF",
+    f"{SAVE} <<'BRIEF' | sh\n{BRIEF}BRIEF",
+    f"{SAVE} && rm x <<'BRIEF'\n{BRIEF}BRIEF",
+    f"python3 - <<'BRIEF'\nopen('x','w')\nBRIEF",
+    f"sh <<'BRIEF'\nrm x\nBRIEF",
+    f"./venv/bin/python3 scripts/spinoff_open.py x <<'BRIEF'\n{BRIEF}BRIEF",
+    f"$(rm x){SAVE} <<'BRIEF'\n{BRIEF}BRIEF",
+    f"{SAVE} > out.txt <<'BRIEF'\n{BRIEF}BRIEF",
+    f"{SAVE} < /etc/passwd",
+]
+
 
 @pytest.mark.parametrize("command", LOOKUPS)
 def test_a_helper_can_still_look_things_up(command):
@@ -84,7 +124,35 @@ def test_a_helper_cannot_build_from_bash(command):
     assert decision == "deny" and "spinoff_open.py" in reason
 
 
-@pytest.mark.parametrize("tool", ["Edit", "NotebookEdit", "Task", "Agent", "Skill",
+@pytest.mark.parametrize("command", SAVES)
+def test_a_helper_can_save_a_brief_by_feeding_it_to_the_brief_script(command):
+    assert gate.classify_tool("Bash", {"command": command}) == ("allow", None)
+
+
+@pytest.mark.parametrize("command", NOT_SAVES)
+def test_no_other_fed_text_gets_through(command):
+    assert gate.classify_tool("Bash", {"command": command})[0] == "deny"
+
+
+def test_a_brief_a_helper_saves_through_the_gate_really_lands(data_dir, monkeypatch):
+    """The allowed command, run for real through a shell: the brief arrives in
+    the database word for word, with nothing in it run."""
+    import briefstore
+    assert gate.bash_is_lookup(SAVES[0])
+    repo = Path(gate.__file__).resolve().parents[1]
+    command = SAVES[0].replace("./venv/bin/python3", sys.executable)
+    done = subprocess.run(["bash", "-c", command], cwd=repo, capture_output=True, text=True,
+                          timeout=120, env={"PATH": "/usr/bin:/bin",
+                                            "EXOCORTEX_DATA_DIR": str(data_dir),
+                                            "EXOCORTEX_RUNTIME_SENSOR": "0",
+                                            "EXOCORTEX_STORE_STATS_OFF": "1"})
+    assert done.returncode == 0, done.stdout + done.stderr
+    reply = json.loads(done.stdout)
+    assert reply["ok"] and reply["missing"] == ["routes/no_such_file.py"]
+    assert briefstore.latest("pond-colour")["body"] == BRIEF
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit", "NotebookEdit", "Task", "Agent", "Skill",
                                   "mcp__claude_ai_Gmail__send_message",
                                   "mcp__linear__save_issue", "RemoteTrigger"])
 def test_a_helper_cannot_use_any_other_tool(tool):
@@ -96,22 +164,10 @@ def test_the_reading_tools_pass(tool):
     assert gate.classify_tool(tool, {"file_path": "/x/y.py"}) == ("allow", None)
 
 
-def test_write_reaches_only_a_spinoff_brief(tmp_path):
-    spinoffs = tmp_path / "spinoffs"
-    (spinoffs / "pond-colour").mkdir(parents=True)
-
-    def verdict(path):
-        return gate.classify_tool("Write", {"file_path": str(path)}, str(spinoffs))[0]
-
-    assert verdict(spinoffs / "pond-colour" / "BRIEF.md") == "allow"
-    assert verdict(spinoffs / "new-slug" / "BRIEF.md") == "allow"   # Write makes the folder
-    assert verdict(spinoffs / "pond-colour" / "CONTEXT.md") == "deny"
-    assert verdict(spinoffs / "BRIEF.md") == "deny"
-    assert verdict(spinoffs / "Bad_Slug" / "BRIEF.md") == "deny"
-    assert verdict(spinoffs / "pond-colour" / ".." / ".." / "BRIEF.md") == "deny"
-    assert verdict(tmp_path / "routes" / "x.py") == "deny"
-    assert gate.classify_tool("Write", {"file_path": str(spinoffs / "a" / "BRIEF.md")})[0] \
-        == "deny"                                                   # no spinoff dir: no write
+def test_a_helper_writes_no_files_not_even_an_old_style_brief(tmp_path):
+    brief = tmp_path / "spinoffs" / "pond-colour" / "BRIEF.md"
+    decision, reason = gate.classify_tool("Write", {"file_path": str(brief)})
+    assert decision == "deny" and "spinoff_brief.py" in reason
 
 
 def _run_hook(event, *args):
@@ -125,8 +181,10 @@ def test_the_hook_denies_through_claude_codes_contract(tmp_path):
     denied = _run_hook({"tool_name": "Edit", "tool_input": {"file_path": "/x.py"}})
     assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert _run_hook({"tool_name": "Bash", "tool_input": {"command": "git log -3"}}) is None
-    brief = tmp_path / "s" / "pond" / "BRIEF.md"
-    assert _run_hook({"tool_name": "Write", "tool_input": {"file_path": str(brief)}},
+    assert _run_hook({"tool_name": "Bash", "tool_input": {"command": SAVES[0]}}) is None
+    # A helper turn started before the gate lost its --spinoff-dir flag still
+    # passes it; the flag is ignored.
+    assert _run_hook({"tool_name": "Bash", "tool_input": {"command": "git log -3"}},
                      "--spinoff-dir", str(tmp_path / "s")) is None
     unreadable = subprocess.run([sys.executable, str(GATE)], input="not json",
                                 capture_output=True, text=True, timeout=30)
@@ -149,7 +207,7 @@ def test_every_helper_turn_carries_the_gate_in_any_room(data_dir, role):
         entry = {"role": role, "lane": lane, "act_gate": False,
                  "allowed_tools": ["Read", "Grep", "Glob", "Bash", "Write"]}
         [hook] = _gate_hooks(entry)
-        assert f"--spinoff-dir {store.SPINOFF_DIR}" in hook["command"]
+        assert hook["command"].endswith("helper_gate.py")
 
 
 def test_a_helper_made_before_the_web_tools_still_gets_them(data_dir):
@@ -171,6 +229,7 @@ def test_the_helpers_instructions_say_it_never_builds(data_dir):
     import helper_chat
     prompt = helper_chat.CHAT_PROMPT.format(
         lead="", wake="", world_line="", repo="/repo", chats="/c", conv="c", data="/d",
-        spinoffs="/d/spinoffs", exchanges=15)
-    assert "You never build" in prompt and "/d/spinoffs/<slug>/BRIEF.md" in prompt
+        exchanges=15)
+    assert "You never build" in prompt and "BRIEF.md" not in prompt
+    assert "scripts/spinoff_brief.py <slug> <<'BRIEF'" in prompt
     assert "scripts/spinoff_open.py <slug>" in prompt

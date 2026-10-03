@@ -31,7 +31,8 @@ def triage_client(data_dir, monkeypatch):
 def test_open_writes_brief_pointing_at_the_skill(triage_client, data_dir):
     r = triage_client.post("/api/triage/open", json={})
     assert r.status_code == 200
-    brief = (data_dir / "spinoffs" / "triage" / "BRIEF.md").read_text()
+    import briefstore
+    brief = briefstore.latest("triage")["body"]
     assert str(data_dir / "triage" / "CLAUDE.md") in brief
     assert "## Protocol" in brief
 

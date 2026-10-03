@@ -108,8 +108,9 @@ def test_fork_stages_a_spinoff_seeded_with_the_write_surface(fork_client):
     assert entry["title"].startswith("spin: fork-")
     assert entry["autostart"] is True and entry["draft"]
 
-    # the BRIEF was written with the write surface in it
-    brief = (store.SPINOFF_DIR / entry["spinoff_slug"] / "BRIEF.md").read_text()
+    # the brief was saved with the write surface in it
+    import briefstore
+    brief = briefstore.get(entry["spinoff_brief"])["body"]
     assert "routes/existing.py" in brief
     assert "clean-context take-over" in brief
 

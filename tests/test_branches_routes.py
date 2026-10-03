@@ -322,7 +322,8 @@ def test_a_fresh_wake_briefs_from_evidence_and_spawns_through_the_door(
     assert body["conversation_id"] == "2026-08-09.120000"
     assert spawn_spy == [{"slug": steward_slug(branch), "lane": "orchestra",
                           "branch": branch}]
-    brief = (store.SPINOFF_DIR / steward_slug(branch) / "BRIEF.md").read_text()
+    import briefstore
+    brief = briefstore.latest(steward_slug(branch))["body"]
     # Her words verbatim, the branch by name, the evidence from git, and the
     # honesty rail — the four things the brief exists to carry.
     assert "make the button teal" in brief

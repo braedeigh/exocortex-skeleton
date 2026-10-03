@@ -11,7 +11,7 @@ links:
   - calls spinoffs.door: The handoff opens a fresh session that starts on its own.
   - reads swarms.grouping: The fresh session is told its swarm and the swarm's summary.
   - depends-on engine.sessions: Only rooms on the continue list hand off, found by the lanes rule.
-fingerprint: 6a6c2142a7a4
+fingerprint: 0730f5a83d47
 written: 2026-10-02
 ---
 

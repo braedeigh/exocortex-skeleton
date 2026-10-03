@@ -12,7 +12,7 @@ links:
   - calls engine.delivery: The send command goes through the engine's peer_send door.
   - reads swarms.grouping: The swarm command shows this session's swarm and its summaries.
   - calls swarms.continuation: A message to a session that handed off goes to its successor, and the handoff command starts one.
-fingerprint: 9ebe2effe14a
+fingerprint: a4a4922ea5d5
 written: 2026-10-02
 ---
 

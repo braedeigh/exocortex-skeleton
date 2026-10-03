@@ -3,13 +3,15 @@
 What these pin: a Coding session past its model's cap is asked for a handoff
 only once its turn has ended, and only once; other rooms never are; the
 handoff opens a fresh Coding session on the same model, parented to the old
-one, whose brief carries the handoff and the files in play; the old one is
+one, whose brief carries the handoff and the files in play, both kept in the
+database; a continuation keeps its job's name; the old one is
 archived when its last turn ends; and messages to it reach its successor.
 """
 import json
 
 import pytest
 
+import briefstore
 import config
 import continuation
 import peermail
@@ -81,9 +83,16 @@ def test_a_handoff_opens_a_parented_session_that_starts_itself(data_dir, monkeyp
     assert (child["spawned_from"], child["spawned_via"]) == ("2026-09-27.100000", "continue")
     assert child["lane"] == "coding" and child["model"] == "opus"
     assert old["continued_by"] == new_id and old["archive_after_turn"] is True
-    brief = (store.SPINOFF_DIR / "cont-20260927100000" / "BRIEF.md").read_text()
+    # The brief and the handoff are rows in the database; no folder is made.
+    kept = briefstore.for_session(new_id)
+    brief = kept["body"]
     assert "## Protocol" in brief and "Left: step two." in brief
     assert "/repo/app.py" in brief
+    assert kept["continues"] == "2026-09-27.100000" and kept["written_by"] == "2026-09-27.100000"
+    [handoff] = briefstore.handoffs(new_id)
+    assert handoff["conv"] == "2026-09-27.100000" and handoff["to_conv"] == new_id
+    assert "Left: step two." in handoff["body"]
+    assert not (store.SPINOFF_DIR).exists()
     # its last turn ends → archived
     observatory.after_turn("2026-09-27.100000")
     assert store.read("bot_chats/index", {})["2026-09-27.100000"]["archived"] is True
@@ -133,3 +142,19 @@ def test_a_follow_up_queued_after_handoff_wakes_the_successor(data_dir, monkeypa
     _seed("new")
     observatory.queue_followup("old", "[Background job finished]", system="job")
     assert started == ["new"]
+
+
+def test_a_continuation_keeps_its_jobs_name_and_does_not_rejoin_the_old_session(
+        data_dir, monkeypatch, tmp_path):
+    """The old session is still live under the slug when it hands off. The new
+    one must be a NEW session under the same slug, not a rejoin of the old."""
+    monkeypatch.setattr(store, "SPINOFF_DIR", tmp_path / "spinoffs")
+    monkeypatch.setattr(spinoff, "_launch_runner", lambda cid, kickoff: True)
+    _seed("2026-09-27.110000", model="opus", spinoff_slug="pond-colour")
+    reply = continuation.hand_off("2026-09-27.110000",
+                                  "Goal: paint the pond. Done: the bank. Left: the water.")
+    new_id = reply["conversation_id"]
+    index = store.read("bot_chats/index", {})
+    assert new_id != "2026-09-27.110000" and reply["newly_spawned"] is True
+    assert index[new_id]["spinoff_slug"] == "pond-colour"
+    assert briefstore.for_session(new_id)["slug"] == "pond-colour"

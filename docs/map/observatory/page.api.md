@@ -14,7 +14,7 @@ links:
   - calls linear.room: Reads the Linear room, its board and its news.
   - calls worktrees.branches: Wakes a steward on a finished branch.
   - calls helpers.jobs: Lists the button-fired helper runs.
-fingerprint: 636178ffadf7
+fingerprint: 79c7eca40d38
 written: 2026-10-02
 ---
 
