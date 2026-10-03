@@ -424,8 +424,7 @@
         "housing",
         "travel",
         "media",
-        "ecosystem",
-        "activity"
+        "ecosystem"
       ],
       "tools": [],
       "scripts": [],
@@ -483,7 +482,6 @@
         "nightcrew",
         "runqueue",
         "automations",
-        "workshop",
         "notes",
         "scratchpad",
         "phone",
@@ -549,12 +547,7 @@
         "token_burn.py"
       ],
       "frontend": [
-        "terrain",
-        "creek",
-        "pond",
-        "wiring",
-        "flow",
-        "sqlab"
+        "terrain"
       ],
       "tools": [],
       "scripts": [

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { usePondShape } from '../pond/api';
-import { bucketShape } from '../pond/pondShape';
+import { usePondShape } from './pond/api';
+import { bucketShape } from './pond/pondShape';
 import {
   JUMP_DAYS,
   PANE_ZOOMS,
@@ -10,14 +10,14 @@ import {
   paneCaption,
   type PaneJump,
   type SizedDay,
-} from '../pond/pondPane';
+} from './pond/pondPane';
 import {
   describeSavedView,
   loadPondPane,
   loadPondView,
   savePondPane,
   POND_VIEW_KEY,
-} from '../pond/savedView';
+} from './pond/savedView';
 import { HEAT_RAMP_LIGHT, heatColor, heatRamps, readThemeInk } from './terrainCanvas';
 import type { PondAnchor, ThemeInk } from './terrainCanvas';
 import { hoverBridge, paneRoom, placeLabel, placePane, type PanePlacement } from './pondPlacement';

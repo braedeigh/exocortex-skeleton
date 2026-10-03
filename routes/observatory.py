@@ -3940,7 +3940,7 @@ def register(app):
     def bot_conv_activity(conv_id):
         """What the agent has been doing: every step, outputs included.
 
-        Serves the Activity pane (frontend/src/features/activity/). The
+        Serves the Activity pane (frontend/src/features/terrain/activity/). The
         parsing is in activityfeed.py; this route adds where to resume and
         whether the turn is still live.
 

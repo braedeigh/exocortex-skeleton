@@ -12,7 +12,7 @@
 import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../../api/client';
-import type { PondCard } from '../pond/pondMath';
+import type { PondCard } from '../terrain/pond/pondMath';
 
 export interface TranscriptTopic {
   id: number;

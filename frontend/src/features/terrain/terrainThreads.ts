@@ -44,7 +44,7 @@
  * that touch each other" / "I'm wanting the threads to light up on the same
  * schema as the dots."
  */
-import type { CreekData } from '../creek/api';
+import type { CreekData } from './creek/api';
 
 /** The repo the creek's static scan covers — its call sites are all in this
  * repo's own sources, so every thread endpoint is a node in this territory. */

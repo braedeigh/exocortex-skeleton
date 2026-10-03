@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import {
   formatDwell,
   rankPlaces,
@@ -7,6 +6,7 @@ import {
   type UsageRecord,
 } from './usageRanking';
 import styles from './TerrainUsageView.module.css';
+import { TerrainRoomHeader } from './TerrainRoomHeader';
 
 /**
  * TerrainUsageView — "where you actually go", one of the terrain's rooms.
@@ -20,7 +20,7 @@ import styles from './TerrainUsageView.module.css';
  * so the map unmounts and this room owns the screen). It used to render inset
  * over the live map as a glass panel; that read as a modal, which is exactly
  * what the owner asked these rooms to stop being. You reach it through the
- * rooms index on the map (TerrainRoomsIndex), and "← Terrain" walks back.
+ * rooms hallway (TerrainRoomsIndex), and "← Rooms" reopens the hallway.
  *
  * Reads GET /api/usage and nothing else. No new endpoint, no new collection —
  * the counters have run since July; there was simply never a surface comparing
@@ -89,17 +89,7 @@ export function TerrainUsageView() {
 
   return (
     <section className={styles.view} aria-label="Where you actually go">
-      <header className={styles.head}>
-        <div className={styles.heading}>
-          <h2 className={styles.title}>Where you actually go</h2>
-          <p className={styles.sub}>The same system, ranked by attention instead of heat.</p>
-        </div>
-        {/* Back to the map, not a close ×: a page returns you somewhere named,
-            and the terrain's map is where this room's door is. */}
-        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
-          ← Terrain
-        </Link>
-      </header>
+      <TerrainRoomHeader title="Where you actually go" sub="The same system, ranked by attention instead of heat." />
 
       <div className={styles.windows} role="group" aria-label="Time window">
         {WINDOWS.map((w) => (

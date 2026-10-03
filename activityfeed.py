@@ -6,7 +6,7 @@ label. When a turn stalls, drops, or fails, the reason is almost never in the
 reply. It's in the steps underneath: a command that errored, an API retry, a
 permission the classifier refused, a tool that's been running for four
 minutes. This module reads those steps back out of the transcript so the
-Activity pane (frontend/src/features/activity/) can show them live, outputs
+Activity pane (frontend/src/features/terrain/activity/) can show them live, outputs
 included.
 
 **Where it reads from.** `data/bot_chats/<conv>.jsonl`, the one raw event

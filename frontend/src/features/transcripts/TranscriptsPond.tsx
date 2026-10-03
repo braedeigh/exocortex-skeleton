@@ -16,7 +16,7 @@ import {
   threadLine,
   threadPoints,
   type PondMode,
-} from '../pond/pondMath';
+} from '../terrain/pond/pondMath';
 import {
   useConversation,
   useImportExport,
@@ -27,7 +27,7 @@ import {
   type TranscriptOverview,
 } from './api';
 import { railRows, sourceName, speaker, unsortedCount } from './transcriptRail';
-import styles from '../pond/PondView.module.css';
+import styles from '../terrain/pond/PondView.module.css';
 import own from './TranscriptsPond.module.css';
 
 /**

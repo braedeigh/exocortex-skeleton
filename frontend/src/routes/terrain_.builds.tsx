@@ -9,7 +9,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * opens that build's own map at /terrain/files?build=<id>.
  *
  * Un-nested (the `terrain_.` prefix) like its neighbours, so the map unmounts
- * and this room owns the screen; "← Terrain" walks back to /terrain/files.
+ * and this room owns the screen; "← Rooms" reopens the hallway.
  * Owner only: a build's file names and commit messages are hers, so a visitor
  * is redirected away here and the server refuses the data regardless.
  */

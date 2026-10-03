@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import { readThemeInk } from './terrainCanvas';
 import {
   compact,
@@ -27,6 +26,7 @@ import {
   type VelocityBar,
 } from './growthMath';
 import styles from './TerrainGrowthView.module.css';
+import { TerrainRoomHeader } from './TerrainRoomHeader';
 
 /**
  * TerrainGrowthView — "how it's grown", one of the terrain's rooms.
@@ -398,15 +398,7 @@ export function TerrainGrowthView() {
 
   return (
     <section className={styles.view} aria-label="How it's grown">
-      <header className={styles.head}>
-        <div className={styles.heading}>
-          <h2 className={styles.title}>How it&rsquo;s grown</h2>
-          <p className={styles.sub}>The same system along time — code and vault, accumulating.</p>
-        </div>
-        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
-          ← Terrain
-        </Link>
-      </header>
+      <TerrainRoomHeader title={<>How it&rsquo;s grown</>} sub="The same system along time — code and vault, accumulating." />
 
       <div className={styles.windows} role="group" aria-label="Time window">
         {WINDOWS.map((w) => (

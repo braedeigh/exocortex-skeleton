@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { handQueryToSqlRoom } from '../sqlab/handoff';
+import { handQueryToSqlRoom } from './sqlab/handoff';
 import type { TerrainTable } from './api';
 import { tablesPointingAt } from './tableNodes';
 import { TerrainColumnCard } from './TerrainColumnCard';

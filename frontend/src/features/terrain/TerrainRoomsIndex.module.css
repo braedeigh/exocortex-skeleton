@@ -21,8 +21,12 @@
      colour key z5) — the whole map, controls included, blurs as one. */
   z-index: 9;
   display: flex;
-  align-items: center;
+  /* Every room is a card here, which is more than one screen holds on a
+     laptop: the hallway scrolls, and "safe" keeps the first row reachable
+     instead of centring it off the top. */
+  align-items: safe center;
   justify-content: center;
+  overflow-y: auto;
   padding: var(--space-4);
   background: color-mix(in srgb, var(--bg) 45%, transparent);
   backdrop-filter: var(--frost-veil);
@@ -46,7 +50,8 @@
   align-items: stretch;
   justify-content: center;
   gap: var(--space-3);
-  max-width: 720px;
+  /* Three cards a row on a wide screen. */
+  max-width: 900px;
 }
 
 /* A door, drawn as a card: opaque, generous, one whole tap target. The motif
@@ -73,6 +78,19 @@
 .card:hover {
   transform: translateY(-2px);
   border-color: var(--accent);
+}
+
+/* The room the hallway was opened from: the same door, outlined, with a
+   small "you're here" beside its name. */
+.cardHere {
+  border-color: var(--accent);
+}
+
+.here {
+  margin-left: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--accent);
 }
 
 @keyframes cardIn {

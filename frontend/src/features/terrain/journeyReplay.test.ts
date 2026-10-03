@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TraceDetail } from '../wiring/api';
+import type { TraceDetail } from './wiring/api';
 import { beatNodeIds, buildJourneyBeats, scheduleFrames } from './journeyReplay';
 
 const span = (o: Partial<TraceDetail['spans'][number]>) => ({

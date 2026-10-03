@@ -5,6 +5,7 @@ import { ApiError } from '../../api/client';
 import { addBuild, BUILDS_KEY, refreshBuild, removeBuild, useBuilds } from './buildsApi';
 import { summaryLine, type BuildInfo } from './buildReport';
 import styles from './TerrainBuildsView.module.css';
+import { TerrainRoomHeader } from './TerrainRoomHeader';
 
 /**
  * TerrainBuildsView — the Builds room: every other git folder Terrain can
@@ -112,17 +113,7 @@ export function TerrainBuildsView() {
 
   return (
     <section className={styles.view} aria-label="Builds">
-      <header className={styles.head}>
-        <div className={styles.heading}>
-          <h2 className={styles.title}>Builds</h2>
-          <p className={styles.sub}>
-            Other folders, each read as its own map and a report of what happened in it.
-          </p>
-        </div>
-        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
-          ← Terrain
-        </Link>
-      </header>
+      <TerrainRoomHeader title="Builds" sub="Other folders, each read as its own map and a report of what happened in it." />
 
       <form className={styles.addRow} onSubmit={onAdd}>
         <input

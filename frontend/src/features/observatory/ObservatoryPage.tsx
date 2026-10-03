@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { openActivity } from '../activity/openActivity';
+import { openActivity } from '../terrain/activity/openActivity';
 import { sessionLocation } from './sessionLocation';
 import { useHelperOf } from './swarmApi';
 import { uploadedPathsMessage } from '../phone/phoneLogic';

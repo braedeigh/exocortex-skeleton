@@ -15,8 +15,8 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { currentJourney, isLive, setLive, subscribeJourney } from '../../api/journey';
-import { useArmJourney, useDisarmTrace, useTrace, useTraces } from '../wiring/api';
-import { formatDuration } from '../wiring/wiringMath';
+import { useArmJourney, useDisarmTrace, useTrace, useTraces } from './wiring/api';
+import { formatDuration } from './wiring/wiringMath';
 import { buildJourneyBeats, type Beat } from './journeyReplay';
 import styles from './JourneyPanel.module.css';
 

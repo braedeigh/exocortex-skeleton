@@ -29,7 +29,7 @@
  *
  * Dot ids are the terrain's own: `<repo>:file:<path>`.
  */
-import type { TraceDetail, TracePart, TraceSpan } from '../wiring/api';
+import type { TraceDetail, TracePart, TraceSpan } from './wiring/api';
 
 export type BeatKind = 'browser' | 'http' | 'turn' | 'agent';
 

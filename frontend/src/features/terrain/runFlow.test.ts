@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CreekCall, CreekCaller, CreekData, CreekFile } from '../creek/api';
+import type { CreekCall, CreekCaller, CreekData, CreekFile } from './creek/api';
 import type { ScheduledRun } from '../automations/api';
 import { buildRunners, downstreamFiles, sinceLabel } from './runFlow';
 

@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { useCreek } from '../creek/api';
+import { useCreek } from './creek/api';
 import { getAutomations } from '../automations/api';
 import { buildRunners, downstreamFiles, sinceLabel, type Runner } from './runFlow';
+import { TerrainRoomHeader } from './TerrainRoomHeader';
 import styles from './RunsView.module.css';
 
 /**
@@ -59,10 +59,7 @@ export function RunsView() {
 
   return (
     <div className={styles.page}>
-      <Link to="/terrain" className={styles.back}>
-        ← Terrain
-      </Link>
-      <h1 className={styles.title}>What runs</h1>
+      <TerrainRoomHeader title="What runs" sub="Which process fires, what it writes, and who picks that up later." />
       <p className={styles.blurb}>
         Code here doesn't move in a call chain. Something <strong>fires</strong> a
         runner, the runner <strong>writes</strong> to a collection and exits, and

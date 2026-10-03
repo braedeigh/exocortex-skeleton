@@ -10,8 +10,8 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * Un-nested (the `terrain_.` prefix): this used to be a child route rendered
  * inside TerrainPage's <Outlet/> as an inset glass panel, and it kept having
  * to fight the live map behind it for legibility. Now it's a whole page — the
- * map unmounts, this room owns the screen, and "← Terrain" walks back to
- * /terrain/files. The URL didn't move, so routes/spa.py and old links are
+ * map unmounts, this room owns the screen, and "← Rooms" reopens the
+ * hallway. The URL didn't move, so routes/spa.py and old links are
  * untouched. Same auth guard as the map, since it names repo-side surfaces.
  */
 export const Route = createFileRoute('/terrain_/usage')({

@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { ActivityPage } from '../features/activity/ActivityPage';
+import { ActivityPage } from '../features/terrain/activity/ActivityPage';
 import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**

@@ -42,7 +42,7 @@ import {
   parseMinutes,
   polylinePoints,
   type Excerpt,
-} from '../pond/pondMath';
+} from '../terrain/pond/pondMath';
 
 // Re-exported rather than re-implemented — WikiPond.tsx imports its clock
 // labels, day labels, hour ruler and excerpt windowing from HERE, and this is

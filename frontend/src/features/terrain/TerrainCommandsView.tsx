@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import {
   hourLabel,
   peakHour,
@@ -9,6 +8,7 @@ import {
   type RankedCommand,
 } from './commandRanking';
 import styles from './TerrainCommandsView.module.css';
+import { TerrainRoomHeader } from './TerrainRoomHeader';
 
 /**
  * TerrainCommandsView — "which skills you reach for", one of the terrain's rooms.
@@ -104,17 +104,7 @@ export function TerrainCommandsView() {
 
   return (
     <section className={styles.view} aria-label="Which skills you reach for">
-      <header className={styles.head}>
-        <div className={styles.heading}>
-          <h2 className={styles.title}>Which skills you reach for</h2>
-          <p className={styles.sub}>
-            Every <code>/</code> command you&rsquo;ve run — and the ones you haven&rsquo;t.
-          </p>
-        </div>
-        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
-          ← Terrain
-        </Link>
-      </header>
+      <TerrainRoomHeader title="Which skills you reach for" sub={<>Every <code>/</code> command you&rsquo;ve run — and the ones you haven&rsquo;t.</>} />
 
       <div className={styles.windows} role="group" aria-label="Time window">
         {WINDOWS.map((w) => (

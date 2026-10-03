@@ -41,7 +41,7 @@
  * code, this is where the data was stored" / "I just am confused about how code
  * runs through the app. And I want to visualize it."
  */
-import type { CreekData } from '../creek/api';
+import type { CreekData } from './creek/api';
 import type { ScheduledRun } from '../automations/api';
 
 /** What sets a runner going. Not a guess — each is read off a different record,

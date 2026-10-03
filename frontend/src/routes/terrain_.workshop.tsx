@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { WorkshopPage } from '../features/workshop/WorkshopPage';
+import { WorkshopPage } from '../features/terrain/workshop/WorkshopPage';
 import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
@@ -10,7 +10,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * Lives under /terrain with the other rooms — the terrain is where the
  * system looks at itself, and this is watching one agent's hands. The agent
  * travels in ?agent=, so a particular desk is a deep link. Un-nested
- * (`terrain_.` prefix), "← Terrain" walks back; same auth guard as the map —
+ * (`terrain_.` prefix), "← Rooms" reopens the hallway; same auth guard as the map —
  * it shows repo source, so public visitors bounce to '/'.
  */
 export interface WorkshopSearch {

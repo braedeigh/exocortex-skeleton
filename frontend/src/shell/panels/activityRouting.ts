@@ -5,7 +5,7 @@ import { convIdOf, pathOf } from './sections';
  * activityRouting.ts — where a session's Activity pane opens in a window.
  *
  * The session toolbar's "activity" button asks for one session's activity
- * (features/activity/ActivityPage.tsx). On a wide screen the answer is a
+ * (features/terrain/activity/ActivityPage.tsx). On a wide screen the answer is a
  * panel beside the session, and the rule, checked in order, is:
  *
  *   1. A panel already SHOWING this session's activity → open nothing, point
@@ -21,7 +21,7 @@ import { convIdOf, pathOf } from './sections';
  * conversationRouting.ts: no React, no DOM, tested in activityRouting.test.ts.
  *
  * Touches: Workspace.tsx (registers the catcher and applies the action),
- * sections.ts (reading a panel's url), features/activity/openActivity.ts
+ * sections.ts (reading a panel's url), features/terrain/activity/openActivity.ts
  * (the sender).
  */
 

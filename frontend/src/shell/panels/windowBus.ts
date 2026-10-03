@@ -51,7 +51,7 @@ export type Intent =
       mentionsOf?: string;
     }
   | { kind: 'session'; name: string }
-  /** A session's Activity pane (features/activity/), opened beside it. */
+  /** A session's Activity pane (features/terrain/activity/), opened beside it. */
   | { kind: 'activity'; convId: string };
 
 export type IntentKind = Intent['kind'];

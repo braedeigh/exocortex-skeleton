@@ -9,7 +9,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  *
  * Un-nested (the `terrain_.` prefix) like its siblings /terrain/usage and
  * /terrain/sql: a full page of the same rank, reached through the rooms index
- * on the map; "← Terrain" walks back to /terrain/files. Same auth guard — it
+ * on the map; "← Rooms" reopens the hallway. Same auth guard — it
  * names files, commit messages and session titles.
  */
 export const Route = createFileRoute('/terrain_/growth')({

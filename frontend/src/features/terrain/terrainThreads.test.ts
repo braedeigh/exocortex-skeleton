@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CreekCall, CreekData, CreekFile } from '../creek/api';
+import type { CreekCall, CreekData, CreekFile } from './creek/api';
 import {
   buildThreads,
   collectionLastWrite,

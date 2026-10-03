@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { WiringView } from '../features/wiring/WiringView';
+import { WiringView } from '../features/terrain/wiring/WiringView';
 import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
@@ -13,7 +13,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * graph belongs on only one bank).
  *
  * Un-nested (the `terrain_.` prefix) like the other rooms: the map unmounts
- * and this owns the screen, "← Terrain" walks back. Same auth guard — this
+ * and this owns the screen, "← Rooms" reopens the hallway. Same auth guard — this
  * names the codebase's internals and its live request paths, kept out of
  * public view like everything else under /terrain.
  */

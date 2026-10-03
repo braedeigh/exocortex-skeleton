@@ -1,0 +1,64 @@
+/* TerrainRoomHeader — the top bar every Terrain room shares
+   (TerrainRoomHeader.tsx). These are the header rules the rooms each used to
+   carry their own copy of, kept as they were, so a room's header looks the
+   same as before it switched to this one. */
+
+.head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.heading {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sub {
+  margin: 2px 0 0;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+/* The room's own controls, then the way out, in one wrapping row. */
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The way out: a named pill, the same in every room. It names where it goes
+   because it goes somewhere, it doesn't just close. */
+.rooms {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rooms:hover,
+.rooms[aria-expanded='true'] {
+  color: var(--text);
+  border-color: var(--accent);
+}

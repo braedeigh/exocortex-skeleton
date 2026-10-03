@@ -1,6 +1,6 @@
-import { Link } from '@tanstack/react-router';
-import { SqlLabPage } from '../sqlab/SqlLabPage';
+import { SqlLabPage } from './sqlab/SqlLabPage';
 import styles from './TerrainSqlView.module.css';
+import { TerrainRoomHeader } from './TerrainRoomHeader';
 
 /**
  * TerrainSqlView — the database, one of the terrain's rooms.
@@ -14,8 +14,8 @@ import styles from './TerrainSqlView.module.css';
  * map unmounts and this room owns the screen). It used to float over the live
  * map as an inset glass panel whose glass had to be pushed to 98% opaque
  * before the code editor was readable — the proof it wanted to be a page. You
- * reach it through the rooms index on the map (TerrainRoomsIndex), and
- * "← Terrain" walks back.
+ * reach it through the rooms hallway (TerrainRoomsIndex), and
+ * "← Rooms" reopens the hallway.
  *
  * The body is SqlLabPage unchanged, not a copy. It brings its own Map / Console
  * / Sandbox switch, and its own scrolling — this file is only the frame around
@@ -28,17 +28,7 @@ import styles from './TerrainSqlView.module.css';
 export function TerrainSqlView() {
   return (
     <section className={styles.view} aria-label="The database">
-      <header className={styles.head}>
-        <div className={styles.heading}>
-          <h2 className={styles.title}>What it's stored</h2>
-          <p className={styles.sub}>The same system, as data — its shape, and a way to ask it things.</p>
-        </div>
-        {/* Back to the map, not a close × — same as the usage room. A page
-            returns you somewhere named. */}
-        <Link to="/terrain/files" className={styles.back} aria-label="Back to the terrain map">
-          ← Terrain
-        </Link>
-      </header>
+      <TerrainRoomHeader title="What it's stored" sub="The same system, as data — its shape, and a way to ask it things." />
 
       <div className={styles.body}>
         <SqlLabPage />

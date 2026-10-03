@@ -1,0 +1,378 @@
+/* WorkshopPage — the agent's desk (WorkshopPage.tsx), one of the terrain's
+   rooms: full-bleed opaque page, the shared ~320ms eased slide-in.
+
+   The layout IS the hierarchy: one hero panel (~60%) you actually read, a
+   column of portholes you glance. Attention is steered by the heat language —
+   an edit landing flashes its panel's edge terminal-red and the edited lines
+   glow the same family — never by size changes or layout jumps: panels keep
+   their bones still so the room is calm enough to read in. Code sits at the
+   12px floor in the app's one monospace stack; hierarchy above it comes from
+   color and weight, per the house rules. */
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  overflow: hidden;
+  animation: pageIn 320ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.note {
+  margin: var(--space-2) 0;
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+/* --- whose desk: the agent chips ---------------------------------------- */
+
+.chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  max-width: 16rem;
+  padding: 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.chipOn {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+}
+
+/* A turn in flight — the same slow breath the orbs and the Flow lane use. */
+.chipDot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* --- the desk: hero + portholes ------------------------------------------ */
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--space-3);
+}
+
+.heroCol {
+  position: relative;
+  flex: 3;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sideCol {
+  flex: 2;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px;
+}
+
+/* The card bones both panel kinds share. */
+.hero,
+.porthole {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-card);
+}
+
+/* An edit just landed here — the terminal-red heat language at the panel's
+   edge, fading out. Color says "touched", the bones never move. */
+.flashing {
+  animation: touchFlash 1.4s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes touchFlash {
+  0% {
+    border-color: #f14c4c;
+    box-shadow: 0 0 0 2px color-mix(in srgb, #f14c4c 45%, transparent), var(--shadow-card);
+  }
+  100% {
+    border-color: var(--border-soft);
+    box-shadow: var(--shadow-card);
+  }
+}
+
+/* --- the hero ------------------------------------------------------------ */
+
+.hero {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.heroHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.heroFile {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.heroPath {
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.heroAge {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* The file introducing itself — the plain-English layer, a quiet card above
+   the code, capped so a long block can't push the code off the desk. */
+.summary {
+  flex: none;
+  max-height: 22vh;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.summaryPara {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.summaryPara:last-child {
+  margin-bottom: 0;
+}
+
+.heroCode {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-2) 0;
+}
+
+/* --- code lines (shared by hero and portholes) --------------------------- */
+
+.line {
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre;
+}
+
+.lineNo {
+  flex: none;
+  width: 3.2em;
+  text-align: right;
+  color: var(--text-muted);
+  opacity: 0.6;
+  user-select: none;
+}
+
+.lineText {
+  min-width: 0;
+}
+
+/* The newest edit's lines — lit in the heat family, held until the next
+   edit replaces them: the standing answer to "what just changed here". */
+.lineHot {
+  background: color-mix(in srgb, #f14c4c 14%, transparent);
+  color: var(--text);
+}
+
+/* --- the follow pill ----------------------------------------------------- */
+
+.followPill {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 5;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 88%, transparent);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.followOn {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* --- portholes ----------------------------------------------------------- */
+
+.porthole {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.porthole:hover {
+  border-color: var(--accent);
+}
+
+.portholeHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.portholeFile {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Freshly created — the map's git-add green, self-adapting to the sky. */
+.newChip {
+  flex: none;
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: color-mix(in srgb, #22c55e 55%, var(--text));
+  background: color-mix(in srgb, #22c55e 16%, transparent);
+}
+
+.portholeAge {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.portholeCode {
+  display: block;
+  padding: var(--space-1) 0;
+  overflow: hidden;
+}
+
+.portholeCode .line {
+  display: flex;
+  white-space: pre;
+  overflow: hidden;
+}
+
+.moreBtn {
+  min-height: 40px;
+  border: 1px dashed color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.moreBtn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view,
+  .flashing,
+  .chipDot {
+    animation: none;
+  }
+}
+
+/* Narrow: the desk stacks — hero above, portholes below. */
+@media (max-width: 760px) {
+  .body {
+    flex-direction: column;
+  }
+
+  .sideCol {
+    flex: none;
+    max-height: 38vh;
+  }
+}

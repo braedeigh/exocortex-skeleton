@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { CreekView } from '../features/creek/CreekView';
+import { CreekView } from '../features/terrain/creek/CreekView';
 import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
@@ -11,7 +11,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * full, reading GET /api/creek (routes/creek.py — built in parallel).
  *
  * Un-nested (the `terrain_.` prefix), same as the other rooms: the map
- * unmounts and this owns the screen, "← Terrain" walks back. Same auth guard
+ * unmounts and this owns the screen, "← Rooms" reopens the hallway. Same auth guard
  * as the map and the pond — this names the codebase's own internals, kept out
  * of public view like everything else under /terrain.
  */

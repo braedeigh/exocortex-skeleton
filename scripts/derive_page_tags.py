@@ -192,7 +192,7 @@ def page_slugs(stem):
 
     A sub-room belongs to TWO pages: its own (`terrain_.usage` -> 'terrain-usage')
     and its parent's (-> 'terrain'). Both, because /terrain itself is a door
-    that redirects to /terrain/map — without the parent tag the room that
+    that redirects to /terrain/files — without the parent tag the room that
     carries six dev notes would own no files at all, while 'terrain-map' and
     the life Map page would both try to be called 'map'. Tags are many-to-many
     already, so a file serving a sub-room costs nothing to file under the room
