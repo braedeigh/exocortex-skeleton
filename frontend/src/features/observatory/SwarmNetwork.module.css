@@ -1,6 +1,6 @@
 /* SwarmNetwork — a swarm as rings and lines. Rings are Terrain's --accent
    purple around a solid dot (glowing, with a spinning teal arc, while it
-   works; an extra orange ring when waiting on her); talk lines are --green,
+   works; an extra orange ring when waiting on her); talk lines are --message-green (theme.css),
    the helper's threads out to members are blue; an arrowhead on a line
    points at whoever received the messages. */
 
@@ -21,7 +21,7 @@
 }
 
 .talk {
-  stroke: var(--green);
+  stroke: var(--message-green);
   /* Square ends: a line stops flat against the base of its arrowhead, and
      an end with no head is hidden under its ring. */
   stroke-linecap: butt;
@@ -40,7 +40,7 @@
 /* The arrowheads: a head at each end of a line that received messages, in
    the line's own colour and strength. */
 .talkHead {
-  fill: var(--green);
+  fill: var(--message-green);
   opacity: 0.85;
 }
 
@@ -56,16 +56,21 @@
   opacity: 0.6;
 }
 
-/* The message count sits on the line's middle, on a chip so it reads. */
+.handoverHead {
+  fill: var(--accent);
+  opacity: 0.6;
+}
+
+/* A message count sits on its line, on a chip so it reads. */
 .count {
   position: absolute;
   transform: translate(-50%, -50%);
   min-width: 24px;
   padding: 1px 6px;
-  border: 1px solid var(--green);
+  border: 1px solid var(--message-green);
   border-radius: 999px;
   background: var(--card-bg, var(--surface));
-  color: var(--green);
+  color: var(--message-green);
   font-size: var(--font-size-sm);
   font-weight: 600;
   text-align: center;
@@ -268,7 +273,7 @@
   display: inline-block;
   width: 28px;
   height: 0;
-  border-top: 3px solid var(--green);
+  border-top: 3px solid var(--message-green);
 }
 
 .keyHandover {

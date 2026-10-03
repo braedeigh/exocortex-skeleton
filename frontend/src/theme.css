@@ -89,6 +89,11 @@
   --evening: #6a7acc;
   --ongoing: #3a9e8c;
   --green: #3a9e8c;
+  /* Agent-to-agent message lines. A leaf green, a clear step away from the
+     teal of the Terrain map's file threads, so the two never read as one
+     thing. One token, read by the Observatory's swarm drawing and by the
+     Terrain map's canvas. */
+  --message-green: #5c9a2b;
   /* The swarm helper's message lines. Blue, so they read apart from green
      talk; it holds up on both the light and the dark theme. One token, read
      by the Observatory's swarm drawing and by the Terrain map's canvas. */

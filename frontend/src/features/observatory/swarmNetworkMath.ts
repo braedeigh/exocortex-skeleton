@@ -539,13 +539,41 @@ export interface CountLine {
   text: string;
   /** Where along the line (0 = from, 1 = to) it would most like to sit. */
   prefer: number;
+  /** The stretch of the line it must stay on; the whole line when absent.
+   * A count that belongs to one end stays on that end's half. */
+  within?: readonly [number, number];
+}
+
+/** One number on a talk line: how many messages one end received. */
+export interface DirectionCount {
+  /** Who received them. */
+  receiver: 'a' | 'b';
+  count: number;
+  /** Where along the line from a (0) to b (1) it would most like to sit,
+   * and the half it must stay on. */
+  prefer: number;
+  within: readonly [number, number];
+}
+
+/** Split a talk line's total into one number per direction, each placed on
+ * the half of the line nearest whoever RECEIVED those messages — beside the
+ * arrowhead that points at them. A direction nothing went in gets no number,
+ * so a one-way line carries one and a conversation carries two.
+ * Prompt that produced it: "i want to know which direction the number of
+ * messages flowed." */
+export function directionCounts(line: Pick<NetworkLine, 'aToB' | 'bToA'>): DirectionCount[] {
+  const counts: DirectionCount[] = [];
+  if (line.aToB > 0) counts.push({ receiver: 'b', count: line.aToB, prefer: 0.68, within: [0.5, 0.9] });
+  if (line.bToA > 0) counts.push({ receiver: 'a', count: line.bToA, prefer: 0.32, within: [0.1, 0.5] });
+  return counts;
 }
 
 /** Place every count chip on its own line, covering as little as it can.
  * This is a greedy placement: lines are taken in order, and each slides
  * along its line — its preferred spot first, then stepping outward both
- * ways — and takes the first spot clear of every ring, name and chip
- * already placed (inside the drawing). If no spot on the line is clear, it
+ * ways, never past the stretch it is kept to (`within`) — and takes the
+ * first spot clear of every ring, name, arrowhead and chip already placed
+ * (inside the drawing). If no spot on the line is clear, it
  * takes the one covering least: a chip may overlap something, but it never
  * leaves its line, so every number visibly sits on the line it counts.
  * Each placed chip becomes something the next must avoid.
@@ -569,9 +597,10 @@ export function placeCounts(
     const dy = line.to.y - line.from.y;
     let best: { x: number; y: number } | null = null;
     let bestCover = Infinity;
+    const [nearest, farthest] = line.within ?? [0.1, 0.9];
     for (const step of steps) {
       const t = line.prefer + step;
-      if (t < 0.1 || t > 0.9) continue;
+      if (t < nearest || t > farthest) continue;
       const spot = { x: line.from.x + dx * t, y: line.from.y + dy * t };
       const box = { left: spot.x - halfWidth, top: spot.y - halfHeight,
         right: spot.x + halfWidth, bottom: spot.y + halfHeight };

@@ -14,11 +14,13 @@
  * lines:
  *
  *   - a GREEN line is talk: these two have sent each other messages. It
- *     thickens with how much, the number on it says how many, and an
- *     arrowhead points at whoever received them (one at each end when both
- *     did) — messageArrows.ts;
+ *     thickens with how much, and an arrowhead points at whoever received
+ *     them (one at each end when both did) — messageArrows.ts. The number
+ *     beside an arrowhead is how many that agent received, so a
+ *     conversation carries two numbers, one each way;
  *   - a dashed purple line is a handover: one session took over from the
- *     other when its context filled (continuation.py).
+ *     other when its context filled (continuation.py). Its arrowhead points
+ *     at the one that took over.
  *
  * The swarm's helper (swarm_helper.py) sits in the middle of them all as a
  * bigger, filled dot. A BLUE line runs from it to each member it has sent
@@ -56,7 +58,8 @@
  * wondering if retired agents should show in a ring outside the active
  * agents." Then: "I also want this to be centered with the helper in the
  * middle and not be scrolly around." Then: "I also want some arrow
- * directionality of the messages."
+ * directionality of the messages." Then: "i want to know which direction
+ * the number of messages flowed."
  */
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { agentPointerProps } from '../../shell/panels/agentHoverBus';
@@ -65,7 +68,8 @@ import { headSize, messageArrow, type MessageArrow, type Point } from './message
 import styles from './SwarmNetwork.module.css';
 import { setClosedSwarmsShown, useClosedSwarmsShown, type Swarm } from './swarmApi';
 import {
-  layoutSwarm, lineWidth, nodeBoxes, placeCounts, shortTitle, type CountLine, withoutRetired,
+  directionCounts, layoutSwarm, lineWidth, nodeBoxes, placeCounts, shortTitle, type Box, type CountLine,
+  withoutRetired,
 } from './swarmNetworkMath';
 
 /** How wide the drawing is shown, in pixels, kept up to date as the page
@@ -126,9 +130,6 @@ export function SwarmNetwork({
   const pressedWithMouse = useRef(false);
   const at = new Map(layout.nodes.map((n) => [n.conv, n] as const));
 
-  // Place every message count where it covers no ring, name or other
-  // count (placeCounts). Talk counts go first and prefer their line's
-  // middle; the helper's prefer a little past halfway toward the member.
   const pxPerUnit = shownWidth / layout.width;
   // Shape each message line's arrow. Sizes are worked out in screen pixels
   // and turned into drawing units, so a head stays the same size on screen
@@ -148,14 +149,43 @@ export function SwarmNetwork({
     );
   };
   const corners = (points: Point[]) => points.map((p) => `${p.x},${p.y}`).join(' ');
+  // Shape every line's arrow once, for the drawing and for the counts below.
+  // A talk line has a head at each end that received messages; the helper's
+  // line and a handover have one, at the member and at the successor.
+  const talkArrows = new Map(layout.talk.map((t) =>
+    [`t-${t.a}-${t.b}`, arrowBetween(at.get(t.a)!, t.bToA > 0, at.get(t.b)!, t.aToB > 0, lineWidth(t.messages))] as const));
+  const helperArrows = new Map(threads.map((t) =>
+    [`h-${t.conv}`, arrowBetween(layout.centre, false, at.get(t.conv) ?? t, true, lineWidth(t.messages) - 0.5)] as const));
+  const handoverArrows = new Map(layout.continues.map((c) =>
+    [`c-${c.from}-${c.to}`, arrowBetween(at.get(c.from)!, false, at.get(c.to)!, true, 2)] as const));
+
+  // Place every message count where it covers no ring, name, arrowhead or
+  // other count (placeCounts). A talk line carries one number per direction,
+  // each kept on the half of the line nearest whoever received those
+  // messages (directionCounts); the helper's sits a little past halfway
+  // toward the member. Talk counts go first.
+  const headBox = (head: Point[] | null | undefined): Box[] => (head ? [{
+    left: Math.min(...head.map((p) => p.x)), top: Math.min(...head.map((p) => p.y)),
+    right: Math.max(...head.map((p) => p.x)), bottom: Math.max(...head.map((p) => p.y)),
+  }] : []);
   const obstacles = [
     ...layout.nodes.flatMap((n) =>
       nodeBoxes(n, n.named ? shortTitle(n.title) : '', pxPerUnit, n.outer ? 12 : 18, layout.nameWidth - 8, n.nameAbove)),
     ...(swarm.helper_conv ? nodeBoxes(layout.centre, 'Helper', pxPerUnit) : []),
+    ...[...talkArrows.values(), ...helperArrows.values(), ...handoverArrows.values()]
+      .flatMap((arrow) => [...headBox(arrow?.headAtStart), ...headBox(arrow?.headAtEnd)]),
   ];
+  const talkCounts = layout.talk.flatMap((t) => directionCounts(t).map((direction) => ({
+    key: `t-${t.a}-${t.b}-${direction.receiver}`,
+    line: t,
+    direction,
+    sender: direction.receiver === 'b' ? t.a : t.b,
+    receiver: direction.receiver === 'b' ? t.b : t.a,
+  })));
   const countLines: CountLine[] = [
-    ...layout.talk.map((t) => ({
-      key: `t-${t.a}-${t.b}`, from: at.get(t.a)!, to: at.get(t.b)!, text: String(t.messages), prefer: 0.5,
+    ...talkCounts.map((c) => ({
+      key: c.key, from: at.get(c.line.a)!, to: at.get(c.line.b)!, text: String(c.direction.count),
+      prefer: c.direction.prefer, within: c.direction.within,
     })),
     ...threads.map((t) => ({
       key: `h-${t.conv}`, from: layout.centre, to: t, text: String(t.messages), prefer: 0.6,
@@ -193,7 +223,7 @@ export function SwarmNetwork({
         {threads.map((t) => {
           // The helper's line to one member, with a head at the member.
           const width = lineWidth(t.messages) - 0.5;
-          const arrow = arrowBetween(layout.centre, false, at.get(t.conv) ?? t, true, width);
+          const arrow = helperArrows.get(`h-${t.conv}`);
           const end = arrow?.end ?? t;
           return (
             <g key={`h-${t.conv}`}>
@@ -204,11 +234,16 @@ export function SwarmNetwork({
           );
         })}
         {layout.continues.map((c) => {
+          // The handover line, with a head at the session that took over.
           const from = at.get(c.from)!;
-          const to = at.get(c.to)!;
+          const arrow = handoverArrows.get(`c-${c.from}-${c.to}`);
+          const end = arrow?.end ?? at.get(c.to)!;
           return (
-            <line key={`c-${c.from}-${c.to}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-              className={styles.handover} vectorEffect="non-scaling-stroke" />
+            <g key={`c-${c.from}-${c.to}`}>
+              <line x1={from.x} y1={from.y} x2={end.x} y2={end.y}
+                className={styles.handover} vectorEffect="non-scaling-stroke" />
+              {arrow?.headAtEnd ? <polygon points={corners(arrow.headAtEnd)} className={styles.handoverHead} /> : null}
+            </g>
           );
         })}
         {layout.talk.map((t) => {
@@ -217,7 +252,7 @@ export function SwarmNetwork({
           // The talk line between two members, with a head at each end
           // that received messages. Too close for heads: the bare line.
           const width = lineWidth(t.messages);
-          const arrow = arrowBetween(a, t.bToA > 0, b, t.aToB > 0, width);
+          const arrow = talkArrows.get(`t-${t.a}-${t.b}`);
           const start = arrow?.start ?? a;
           const end = arrow?.end ?? b;
           return (
@@ -231,17 +266,18 @@ export function SwarmNetwork({
         })}
       </svg>
 
-      {/* How many messages each line carries, on its line, clear of the rest. */}
-      {layout.talk.map((t) => {
-        const spot = countAt.get(`t-${t.a}-${t.b}`)!;
+      {/* How many messages went each way, each number on its line beside
+          the arrowhead of whoever received them, clear of the rest. */}
+      {talkCounts.map((c) => {
+        const spot = countAt.get(c.key)!;
         return (
           <span
-            key={`n-${t.a}-${t.b}`}
+            key={`n-${c.key}`}
             className={styles.count}
             style={place(spot.x, spot.y)}
-            title={`${titleOf(t.a)} → ${titleOf(t.b)}: ${t.aToB} · ${titleOf(t.b)} → ${titleOf(t.a)}: ${t.bToA}`}
+            title={`${titleOf(c.sender)} → ${titleOf(c.receiver)}: ${c.direction.count}`}
           >
-            {t.messages}
+            {c.direction.count}
           </span>
         );
       })}
@@ -323,8 +359,8 @@ export function SwarmNetworkKey() {
   const hideRetired = retiredHiddenToggle.useOn();
   return (
     <div className={styles.key}>
-      <span><span className={styles.keyTalk} aria-hidden="true" /> messages between them: the arrow points at who received, the number is how many</span>
-      <span><span className={styles.keyHandover} aria-hidden="true" /> one took over from the other</span>
+      <span><span className={styles.keyTalk} aria-hidden="true" /> messages between them: the arrow points at who received them, the number beside it is how many they received</span>
+      <span><span className={styles.keyHandover} aria-hidden="true" /> one took over from the other: the arrow points at the one that took over</span>
       <span><span className={styles.keyHelper} aria-hidden="true" /> the helper's messages to them</span>
       {/* The retired switch lives with the key, so it shows once per page
           however many swarms are drawn below it. */}

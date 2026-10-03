@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SwarmMember } from './swarmApi';
-import { foldLinks, nodeBoxes, placeCounts, layoutSwarm, lineWidth, NETWORK_WIDTH, shortTitle, withoutRetired, type Box, type NetworkLayout } from './swarmNetworkMath';
+import { directionCounts, foldLinks, nodeBoxes, placeCounts, layoutSwarm, lineWidth, NETWORK_WIDTH, shortTitle, withoutRetired, type Box, type NetworkLayout } from './swarmNetworkMath';
 
 function member(conv: string): SwarmMember {
   return { conv, title: `title ${conv}`, lane: 'coding', state: 'silent', joined_at: '', summary: null, summary_at: null };
@@ -97,6 +97,40 @@ describe('placing the message counts', () => {
     ];
     const spots = placeCounts(lines, [], 1, bounds);
     expect(overlaps(spots.get('talk')!, spots.get('helper')!)).toBe(false);
+  });
+});
+
+describe('one count per direction on a talk line', () => {
+  const members = new Set(['a', 'b', 'c']);
+  const lines = foldLinks(
+    [{ from: 'a', to: 'b', messages: 3 }, { from: 'b', to: 'a', messages: 1 }, { from: 'c', to: 'a', messages: 2 }],
+    members,
+  );
+  const seats = { a: { x: 0, y: 50 }, b: { x: 400, y: 50 }, c: { x: 0, y: 450 } } as Record<string, { x: number; y: number }>;
+
+  it('keeps each number beside whoever received it, even when the line is crowded', () => {
+    // A wide obstacle over the middle of every line pushes chips around; none may cross to the sender's half.
+    const crowd: Box[] = [{ left: 120, top: 0, right: 280, bottom: 100 }, { left: -20, top: 180, right: 20, bottom: 320 }];
+    for (const line of lines) {
+      const counts = directionCounts(line);
+      // Every message is counted once, in the direction it went.
+      expect(counts.reduce((sum, c) => sum + c.count, 0)).toBe(line.messages);
+      const spots = placeCounts(
+        counts.map((c) => ({ key: c.receiver, from: seats[line.a], to: seats[line.b], text: String(c.count), prefer: c.prefer, within: c.within })),
+        crowd, 1, { width: 500, height: 500 },
+      );
+      for (const c of counts) {
+        const spot = spots.get(c.receiver)!;
+        const toReceiver = Math.hypot(spot.x - seats[line[c.receiver]].x, spot.y - seats[line[c.receiver]].y);
+        const toSender = Math.hypot(spot.x - seats[line[c.receiver === 'a' ? 'b' : 'a']].x, spot.y - seats[line[c.receiver === 'a' ? 'b' : 'a']].y);
+        expect(toReceiver).toBeLessThanOrEqual(toSender);
+        expect(c.count).toBe(c.receiver === 'b' ? line.aToB : line.bToA);
+      }
+    }
+  });
+
+  it('gives a one-way line a single number and a conversation two', () => {
+    expect(lines.map((line) => directionCounts(line).length).sort()).toEqual([1, 2]);
   });
 });
 
