@@ -84,6 +84,9 @@ CARD_LENGTHS = (1500, 800, 400, 240, 160)
 SYNTHETIC_PREFIXES = (
     "<task-notification>", "<system-reminder>", "<local-command-stdout>",
     "<command-message>", "<command-name>", "<command-args>",
+    # Messages the app itself sends to wake a session. They carry ordinary
+    # words ("Job:", "Result:") that can match a thread's name.
+    "[Background job finished", "[Sudo request answered", "[System reminder", "[Idle check",
 )
 # The header line of one message in a labelled batch (peermail.compose):
 # `[B · name]` is the owner, `[A · …]` another agent.

@@ -256,3 +256,9 @@ def test_two_people_sharing_a_first_name_each_load_only_their_own_tagged_cards(v
     assert "fence" in sections["Sam"] and "cavities" not in sections["Sam"]
     assert "cavities" in sections["Sam Okafor"] and "fence" not in sections["Sam Okafor"]
     assert "not sure which" not in pack
+
+
+def test_a_message_the_app_sent_to_wake_the_session_loads_nothing(vault):
+    assert send("[Background job finished — you started it in the background]\n"
+                "Job: pack for The Move\nResult: exit 0") is None
+    assert send("[Sudo request answered — you filed it]\nRobin approved") is None
