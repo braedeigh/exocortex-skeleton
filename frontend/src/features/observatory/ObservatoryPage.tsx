@@ -1102,7 +1102,9 @@ export function ObservatoryPage({
         {/* The old bottom bar's toolbar row, same colors and placement —
             directly above the input, twilight-indigo like the terminal
             chrome. Notes/timer/jumps moved in from the corner cluster; the
-            journal pause (●/◌) appears only where the journal is live. */}
+            journal pause (●/◌) appears only where the journal is live. The
+            row scrolls sideways when it holds more than fit; stop, last, is
+            pinned to its right end. */}
         <div className={styles.toolbar}>
           <button type="button" className={styles.toolBtn} onClick={photo.openPicker}>
             photo
@@ -1237,7 +1239,7 @@ export function ObservatoryPage({
           </button>
           <button
             type="button"
-            className={styles.toolBtn}
+            className={[styles.toolBtn, styles.toolBtnPinned].join(' ')}
             // Live through the post-turn drain too: while the word flow is
             // still printing, stop skips to the end of the reply.
             disabled={!writing && !wordFlow.pacing}

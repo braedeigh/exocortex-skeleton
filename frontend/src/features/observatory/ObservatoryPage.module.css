@@ -1239,11 +1239,19 @@
 /* --- The old toolbar, same colors and placement (PhoneTerminal.module.css:
    .toolbar/.toolBtn — hard twilight-indigo, never theme-swapped) ----------- */
 
+/* One row that scrolls sideways when it holds more buttons than fit. Few
+   buttons stretch to fill the row, as before; many keep a readable width and
+   the rest are a swipe to the right. Stop stays in view (.toolBtnPinned).
+   Prompt: "make it scrollable to the right if I want more buttons". */
 .toolbar {
   display: flex;
   gap: 5px;
   max-width: 68ch;
   margin: 0 auto;
+  overflow-x: auto;
+  /* A sideways swipe here scrolls the row and nothing behind it. */
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
   /* Nothing above — the composer's own padding is the gap to the border, and
      stacking a second one there just pushed the whole bar up the screen. The
      space below is on the scale (8, not 5) so the toolbar and the input read
@@ -1251,11 +1259,18 @@
   padding: 0 0 var(--space-2);
 }
 
+.toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Grows to share spare room, never shrinks below its own label: that is what
+   makes the row overflow, and scroll, instead of squeezing every button. */
 .toolBtn {
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
+  min-width: var(--tap-target);
   min-height: var(--tap-target);
-  padding: 0;
+  padding: 0 var(--space-2);
+  white-space: nowrap;
   background: #1a1a2e;
   border: 1px solid #2a2a4a;
   border-radius: var(--radius-md);
@@ -1295,6 +1310,22 @@
 .toolBtn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* Stop, held at the right end of the row however far it is scrolled — the
+   one button that must never be a swipe away. This is a sticky element: it
+   scrolls with the row until it would leave, then stays put, and the shadow
+   on its left says more buttons pass beneath it. Dimmed by colour rather
+   than by fading when it's off, so the buttons under it don't show through. */
+.toolBtnPinned {
+  position: sticky;
+  right: 0;
+  box-shadow: -6px 0 6px -2px var(--card-bg);
+}
+
+.toolBtnPinned:disabled {
+  opacity: 1;
+  color: #4a4a66;
 }
 
 /* Journal paused (off the record): the same drained language as composerOff —
