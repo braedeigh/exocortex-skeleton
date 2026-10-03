@@ -2,7 +2,9 @@
    its bubble, its question cards, then a little card per member. The state
    colours on the stack's edge follow the session cards (SessionLane.module.css):
    orange when anyone needs her, purple when anyone works, grey at rest. The
-   double left rule is what says "several sessions", as on the swarm card. */
+   double left rule is what says "several sessions", as on the swarm card.
+   A chevron at the head folds the stack down to its name and counts; the
+   edge colours stay on while it's shut. */
 
 .stack {
   display: flex;
@@ -34,7 +36,55 @@
   gap: var(--space-1);
 }
 
+/* The fold and the name, side by side on one line. */
+.nameLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* The fold: a 40px square holding the Observatory's chevron (the same one
+   as LaneHead.module.css). The triangle turns a quarter and takes the accent
+   colour when the stack is open. */
+.fold {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-target, 40px);
+  height: var(--tap-target, 40px);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.fold:hover,
+.fold:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.arrow {
+  display: inline-block;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  transition: transform 180ms ease, color 180ms ease;
+}
+
+.arrowOpen {
+  color: var(--accent);
+  transform: rotate(90deg);
+}
+
+.fold:hover .arrow {
+  color: var(--accent);
+}
+
 .name {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--space-2);

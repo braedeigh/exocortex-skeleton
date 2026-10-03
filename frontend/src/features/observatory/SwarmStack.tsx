@@ -16,6 +16,13 @@
  *   4. a LITTLE CARD for each of the other live members: its dot, its name,
  *      and the helper's line on what it's doing. Tap it to open that session.
  *
+ * The stack FOLDS from its top: a chevron at the head of the name line shuts
+ * it down to that line and the counts, and opens it again. Open/shut is
+ * remembered per swarm (LaneHead.useLaneOpen, the rooms' own memory). Shut
+ * works the way a shut room does (LaneHead.tsx): everything below the head
+ * hides, question cards included, but the head stays loud — the orange edge
+ * and "N need you" — so a question never goes silent behind the fold.
+ *
  * Members follow the room's order (roomOrder.orderMembers): asking first,
  * then the others waiting on her, then working, each longest wait first.
  * Finished members (done, archived, handed on) aren't in the view at all
@@ -26,15 +33,18 @@
  * Touches: RoomMap.tsx (draws one per swarm), roomOrder.ts (the view and the
  * member order), orchestra.ts (the rows the question cards read),
  * SessionCard.tsx (AwaitingCard, ApprovalCard), SwarmNetwork.tsx (the bubble),
- * SwarmStack.module.css, SessionLane.module.css (state colours and dots).
+ * SwarmStack.module.css, SessionLane.module.css (state colours and dots),
+ * LaneHead.tsx (the open/shut memory).
  *
  * Prompt that produced it: "currently, there is a card separate from each
  * little bubble where the swarm is. i want the summary of the swarm above the
  * little bubble and then i want the question cards to show below it in the
  * swarm and i want each one to have its little card below the swarm bubble"
+ * · "Want to be able to collapse a swarm from the top"
  */
 import { useNavigate } from '@tanstack/react-router';
 import type { SessionMeta } from './api';
+import { useLaneOpen } from './LaneHead';
 import { orchestraRows } from './orchestra';
 import { orderMembers, type SwarmView } from './roomOrder';
 import { ApprovalCard, AwaitingCard } from './SessionCard';
@@ -60,6 +70,8 @@ export function SwarmStack({
   const navigate = useNavigate();
   const { swarm, state, members } = view;
   const { working, silent, needs_input: needing } = view.counts;
+  // Open or shut, remembered per swarm across reloads; open the first time.
+  const [open, toggleOpen] = useLaneOpen(`swarm:${swarm.id}`);
 
   // Split the members into question cards and little cards, in the room's
   // order. A member only gets a question card when the roster carries its
@@ -80,79 +92,103 @@ export function SwarmStack({
 
   return (
     <div className={[styles.stack, STACK_CLASS[state] ? styles[STACK_CLASS[state]] : ''].filter(Boolean).join(' ')}>
-      {/* 1. What the swarm is: its name (the way to its page), counts, summary. */}
+      {/* 1. What the swarm is: the fold, its name (the way to its page), counts, summary. */}
       <div className={styles.head}>
-        <button
-          type="button"
-          className={styles.name}
-          onClick={() =>
-            void navigate({ to: '/observatory/swarm/$swarmId', params: { swarmId: String(swarm.id) } })
-          }
-          title="Open this swarm's page"
-        >
-          <span className={laneStyles[DOT_CLASS[state]]} aria-hidden="true" />
-          <span className={styles.nameText}>{swarm.name}</span>
-          <span aria-hidden="true">→</span>
-        </button>
+        {/* The fold and the page link: two separate buttons on one line.
+            The chevron on the left opens and shuts the stack. The name
+            beside it still goes to the swarm's page, so neither tap takes
+            the other's place. */}
+        <div className={styles.nameLine}>
+          <button
+            type="button"
+            className={styles.fold}
+            aria-expanded={open}
+            onClick={toggleOpen}
+            title={open ? `Collapse ${swarm.name}` : `Open ${swarm.name}`}
+            aria-label={open ? `Collapse ${swarm.name}` : `Open ${swarm.name}`}
+          >
+            <span className={[styles.arrow, open ? styles.arrowOpen : ''].filter(Boolean).join(' ')} aria-hidden="true">
+              &#9654;
+            </span>
+          </button>
+          <button
+            type="button"
+            className={styles.name}
+            onClick={() =>
+              void navigate({ to: '/observatory/swarm/$swarmId', params: { swarmId: String(swarm.id) } })
+            }
+            title="Open this swarm's page"
+          >
+            <span className={laneStyles[DOT_CLASS[state]]} aria-hidden="true" />
+            <span className={styles.nameText}>{swarm.name}</span>
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
         <div className={styles.counts}>
           {needing > 0 ? <span className={styles.needing}>{needing} need{needing === 1 ? 's' : ''} you</span> : null}
           <span className={styles.working}>{working} working</span>
           <span>{silent} silent</span>
           <span>{members.length} {members.length === 1 ? 'session' : 'sessions'}</span>
         </div>
-        {swarm.summary ? (
+        {/* The summary folds with the stack; the counts above it don't. */}
+        {!open ? null : swarm.summary ? (
           <p className={styles.summary}>{swarm.summary}</p>
         ) : (
           <p className={styles.summaryPending}>The helper hasn&rsquo;t summarised this swarm yet.</p>
         )}
       </div>
 
-      {/* 2. The bubble: the swarm as a network, in its circle. */}
-      <div className={styles.circle}>
-        <SwarmNetwork
-          swarm={swarm}
-          onOpen={onOpen}
-          helperWorking={!!(swarm.helper_conv && rosterById.get(swarm.helper_conv)?.running)}
-          round
-        />
-      </div>
-
-      {/* 3. The questions its members are asking her, answerable here. */}
-      {asking.length > 0 ? (
-        <div className={styles.questions}>
-          {asking.map((row) =>
-            row.pendingApproval ? (
-              <ApprovalCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />
-            ) : (
-              <AwaitingCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />
-            ),
-          )}
+      {/* Everything below the head shows only while the stack is open. */}
+      {open ? (
+        <>
+        {/* 2. The bubble: the swarm as a network, in its circle. */}
+        <div className={styles.circle}>
+          <SwarmNetwork
+            swarm={swarm}
+            onOpen={onOpen}
+            helperWorking={!!(swarm.helper_conv && rosterById.get(swarm.helper_conv)?.running)}
+            round
+          />
         </div>
-      ) : null}
 
-      {/* 4. A little card for each other live member; tap to open it. */}
-      {others.length > 0 ? (
-        <div className={styles.members}>
-          {others.map((m) => (
-            <button
-              key={m.conv}
-              type="button"
-              className={[styles.member, styles[`member_${m.state}`]].join(' ')}
-              onClick={() => onOpen(m.conv)}
-              title={`Open ${m.title}`}
-            >
-              <span className={styles.memberTop}>
-                {/* An unread reply or a failed turn: a grey card, orange dot. */}
-                <span
-                  className={laneStyles[m.unread && m.state === 'silent' ? 'readyDot' : DOT_CLASS[m.state]]}
-                  aria-hidden="true"
-                />
-                <span className={styles.memberTitle}>{m.title}</span>
-              </span>
-              {m.summary ? <span className={styles.memberSummary}>{m.summary}</span> : null}
-            </button>
-          ))}
-        </div>
+        {/* 3. The questions its members are asking her, answerable here. */}
+        {asking.length > 0 ? (
+          <div className={styles.questions}>
+            {asking.map((row) =>
+              row.pendingApproval ? (
+                <ApprovalCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />
+              ) : (
+                <AwaitingCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />
+              ),
+            )}
+          </div>
+        ) : null}
+
+        {/* 4. A little card for each other live member; tap to open it. */}
+        {others.length > 0 ? (
+          <div className={styles.members}>
+            {others.map((m) => (
+              <button
+                key={m.conv}
+                type="button"
+                className={[styles.member, styles[`member_${m.state}`]].join(' ')}
+                onClick={() => onOpen(m.conv)}
+                title={`Open ${m.title}`}
+              >
+                <span className={styles.memberTop}>
+                  {/* An unread reply or a failed turn: a grey card, orange dot. */}
+                  <span
+                    className={laneStyles[m.unread && m.state === 'silent' ? 'readyDot' : DOT_CLASS[m.state]]}
+                    aria-hidden="true"
+                  />
+                  <span className={styles.memberTitle}>{m.title}</span>
+                </span>
+                {m.summary ? <span className={styles.memberSummary}>{m.summary}</span> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        </>
       ) : null}
     </div>
   );

@@ -13,7 +13,9 @@
  *   - each SWARM as one stack (SwarmStack.tsx): its name and the helper's
  *     summary, then its circle drawn exactly as on its own page
  *     (SwarmNetwork.tsx), then the questions its members are asking her as
- *     answerable cards, then a little card per member. The swarms stand in
+ *     answerable cards, then a little card per member. Each stack folds
+ *     down to its name and counts from a chevron at its top, remembered
+ *     per swarm. The swarms stand in
  *     the room's order, so one with a question comes first
  *     (roomOrder.orderRoom). SessionLane doesn't also give them a swarm card;
  *     this is the one place a swarm shows in the room;
