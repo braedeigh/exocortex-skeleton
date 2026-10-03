@@ -64,10 +64,11 @@ lines say what exists *now*.
   turn was handed, part by part, as the model reads it — `write_seed` keeps
   the parts beside the seed (`<conv>.parts.json`) — and can build the seed as
   it would be this minute (seconds of work; nothing is written and it doesn't
-  count as the helper having seen anything). The rules file is edited whole
-  in a text box; a save is refused when the file changed since the page
-  loaded it (the helper added a rule meanwhile), so neither edit wipes the
-  other. The other parts are rebuilt every turn and are not editable.
+  count as the helper having seen anything). Each rule is a row with Edit and Delete
+  buttons, with "Add a rule" under the list ("I want edit buttons for the
+  rules"); the whole file in one text box is folded away beneath. A change
+  is refused when the rules changed since the page loaded them (the helper
+  added one meanwhile), so neither edit wipes the other. The other parts are rebuilt every turn and are not editable.
 - **A helper is woken when what it watches changes** (`helper_chat.wake_tick`,
   the minute tick). Every seed records what the helper was shown of each
   session (`bot_chats/helper_seed/<conv>.seen.json`); the tick compares the

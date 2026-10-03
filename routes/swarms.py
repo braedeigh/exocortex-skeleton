@@ -38,7 +38,10 @@ summaries (swarm_helper.py). These routes hand that to the page:
                                   seconds of work, so only when she asks.
     PUT  /api/swarms/helper-context/<conv>/rules
                                   save her standing rules file, as she edited
-                                  it on that page.
+                                  it whole on that page.
+    POST /api/swarms/helper-context/<conv>/rule
+                                  change one rule from that page: add one,
+                                  edit one, or drop one.
 
 Messages TO the helper don't need a route of their own: the helper is a
 session, so the chat's normal mailbox (POST
@@ -247,6 +250,40 @@ def register(app):
             helper_chat.save_rules(entry, body["text"], body["loaded"])
         except helper_chat.RulesChanged as e:
             return jsonify({"error": str(e), "rules": _rules_view(entry)}), 409
+        return jsonify({"ok": True, "rules": _rules_view(entry)})
+
+    @app.route("/api/swarms/helper-context/<conv_id>/rule", methods=["POST"])
+    def swarm_helper_rule(conv_id):
+        """Change one of her rules — the edit, delete and add buttons on the
+        context page. Body: {"action": "add" | "edit" | "drop", "words",
+        "number", "was"}. An added rule is written as the helper writes one:
+        today's date and her words in quotes. An edit or a drop names the
+        rule by its number AND by the text her page was showing (`was`): if
+        rule `number` no longer reads that way — the helper added or dropped
+        one meanwhile — nothing is changed and she gets 409 with the rules
+        as they are now.
+        Prompt: "I want edit buttons for the rules"."""
+        entry = _helper_entry(conv_id)
+        if entry is None:
+            return jsonify({"error": "not a helper session"}), 404
+        body = request.get_json(silent=True) or {}
+        action, number = body.get("action"), body.get("number")
+        try:
+            if action == "add":
+                helper_chat.add_rule(entry, body.get("words"))
+            elif action in ("edit", "drop") and isinstance(number, int):
+                now = helper_chat.rules(entry)
+                if not 1 <= number <= len(now) or now[number - 1] != body.get("was"):
+                    return jsonify({"error": "the rules changed while you were looking",
+                                    "rules": _rules_view(entry)}), 409
+                if action == "edit":
+                    helper_chat.edit_rule(entry, number, body.get("words"))
+                else:
+                    helper_chat.drop_rule(entry, number)
+            else:
+                return jsonify({"error": "action must be add, edit or drop"}), 400
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
         return jsonify({"ok": True, "rules": _rules_view(entry)})
 
     @app.route("/api/swarms/<int:swarm_id>/refresh", methods=["POST"])

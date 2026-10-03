@@ -230,6 +230,20 @@ export function saveHelperRules(convId: string, text: string, loaded: string): P
   return api.put(`/api/swarms/helper-context/${encodeURIComponent(convId)}/rules`, { text, loaded });
 }
 
+/** Change one of her rules (the edit, delete and add buttons). An edit or a
+ * drop names the rule by its number (1 = the first) and by the text the page
+ * was showing (`was`); the server refuses (409) if that rule reads otherwise
+ * by now. An added rule is stored with today's date, her words in quotes. */
+export function changeHelperRule(
+  convId: string,
+  change:
+    | { action: 'add'; words: string }
+    | { action: 'edit'; number: number; was: string; words: string }
+    | { action: 'drop'; number: number; was: string },
+): Promise<{ rules: HelperRules }> {
+  return api.post(`/api/swarms/helper-context/${encodeURIComponent(convId)}/rule`, change);
+}
+
 export function useSwarm(id: number) {
   return useQuery({
     queryKey: ['swarm', id] as const,

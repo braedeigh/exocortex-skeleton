@@ -17,20 +17,22 @@
  * that, which is why it isn't the first thing shown.
  *
  * One part is hers to edit: the standing rules, a small markdown file per
- * helper where every line starting "- " is a rule. The text box at the top
- * holds the whole file. Everything else is rebuilt each turn from the
+ * helper where every line starting "- " is a rule. Each rule is a row with an
+ * Edit and a Delete button, and "Add a rule" sits under the list; the whole
+ * file in one text box is folded away beneath, for her other lines. Everything else is rebuilt each turn from the
  * transcript, the summaries, the tool-call log and the code, so an edit to it
  * would be gone by the next turn — it is shown, not edited.
  *
- * Touches: swarmApi.ts (useHelperContext, saveHelperRules), routes/swarms.py
- * (the two endpoints), routes/observatory_.context.$convId.tsx (the route),
+ * Touches: swarmApi.ts (useHelperContext, changeHelperRule, saveHelperRules),
+ * routes/swarms.py (the three endpoints), routes/observatory_.context.$convId.tsx (the route),
  * sessionLocation.ts, HelperContextPage.module.css, SwarmPage.module.css (the
  * sections), NightCrewPage.module.css (the page chrome). Reached from the
  * "context" button in a helper's chat and from its swarm's page.
  *
  * Prompt that produced it: "i want maybe some kind of option to edit the
  * rolling context directly or at least see what is in the rolling context for
- * a room helper" · "the standing rules is the part that should be edited"
+ * a room helper" · "the standing rules is the part that should be edited" ·
+ * "I want edit buttons for the rules"
  */
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
@@ -40,7 +42,13 @@ import styles from './HelperContextPage.module.css';
 import pageStyles from './NightCrewPage.module.css';
 import { sessionLocation } from './sessionLocation';
 import swarmStyles from './SwarmPage.module.css';
-import { fetchHelperContext, saveHelperRules, useHelperContext, type HelperContext } from './swarmApi';
+import {
+  changeHelperRule,
+  fetchHelperContext,
+  saveHelperRules,
+  useHelperContext,
+  type HelperContext,
+} from './swarmApi';
 
 /** A size she can weigh: characters, and a token count that is only a rough
  * guess (characters ÷ 4 — the server doesn't count tokens for a seed). */
@@ -100,8 +108,45 @@ export function HelperContextPage({ convId }: { convId: string }) {
             setLoaded(fresh.rules.text);
           });
           setNote(
-            'Not saved: the helper changed this file while you were editing. Its rules as they are now are listed under the box. Add what you want to keep, then save again — that will replace the file with what is in the box.',
+            'Not saved: the helper changed this file while you were editing. Its rules as they are now are listed above. Add what you want to keep to the box, then save again — that will replace the file with what is in the box.',
           );
+        } else {
+          setNote('Couldn’t save that — try again.');
+        }
+      },
+    );
+  };
+
+  // One rule being changed with its buttons: which row is open for editing
+  // (0 = the "add a rule" box, null = none) and the words in its box.
+  const [editing, setEditing] = useState<number | null>(null);
+  const [words, setWords] = useState('');
+  const closeRow = () => {
+    setEditing(null);
+    setWords('');
+  };
+
+  // Change one rule. The server is told what the page was showing for that
+  // rule; a refusal because the rules changed meanwhile loads them as they
+  // are now and leaves her words in the box to try again.
+  const changeRule = (change: Parameters<typeof changeHelperRule>[1]) => {
+    setSaving(true);
+    changeHelperRule(convId, change).then(
+      ({ rules }) => {
+        rememberRules(rules);
+        // The whole-file box starts again from the file as it now is.
+        setDraft(null);
+        setLoaded(null);
+        setSaving(false);
+        closeRow();
+        setNote('Saved. The helper is handed these at the start of its next turn.');
+      },
+      (err: unknown) => {
+        setSaving(false);
+        if (err instanceof ApiError && err.status === 409) {
+          void fetchHelperContext(convId, false).then((fresh) => rememberRules(fresh.rules));
+          closeRow();
+          setNote('Not changed: the helper changed the rules while you were looking. Here they are now — try again.');
         } else {
           setNote('Couldn’t save that — try again.');
         }
@@ -131,65 +176,169 @@ export function HelperContextPage({ convId }: { convId: string }) {
               session summaries and the tool-call log, so it is shown here, not edited.
             </p>
 
-            {/* Her standing rules: the whole file, in a box she can edit. */}
+            {/* Her standing rules: one row per rule, each with its buttons. */}
             <section className={swarmStyles.section}>
               <h2 className={swarmStyles.h2}>Your standing rules</h2>
               <p className={swarmStyles.note}>
-                Each line starting with &ldquo;- &rdquo; is one rule, handed to the helper every turn. Other lines are
-                yours to write and are not handed over. The helper adds a line here when you tell it something meant
+                Handed to the helper at the start of every turn. The helper adds one when you tell it something meant
                 to last.
               </p>
-              <textarea
-                className={styles.rules}
-                value={boxText}
-                aria-label="Your standing rules for this helper"
-                spellCheck={false}
-                onChange={(e) => {
-                  if (loaded === null) setLoaded(fileText);
-                  setDraft(e.target.value);
-                  setNote('');
-                }}
-              />
-              <div className={styles.row}>
-                <button
-                  type="button"
-                  className={swarmStyles.button}
-                  onClick={save}
-                  disabled={saving || draft === null || draft === fileText}
-                >
-                  Save
-                </button>
-                {draft !== null && draft !== fileText ? (
+              {shown.rules.rules.length === 0 ? <p className={swarmStyles.muted}>No rules yet.</p> : null}
+              <ol className={styles.ruleList}>
+                {shown.rules.rules.map((rule, index) => {
+                  const number = index + 1;
+                  return (
+                    <li key={`${number}-${rule}`} className={styles.rule}>
+                      {editing === number ? (
+                        <>
+                          <textarea
+                            className={styles.ruleBox}
+                            value={words}
+                            aria-label={`Rule ${number}`}
+                            autoFocus
+                            onChange={(e) => setWords(e.target.value)}
+                          />
+                          <div className={styles.row}>
+                            <button
+                              type="button"
+                              className={swarmStyles.button}
+                              disabled={saving || !words.trim() || words.trim() === rule}
+                              onClick={() => changeRule({ action: 'edit', number, was: rule, words })}
+                            >
+                              Save
+                            </button>
+                            <button type="button" className={swarmStyles.button} onClick={closeRow}>
+                              Cancel
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span className={styles.ruleText}>{rule}</span>
+                          <div className={styles.row}>
+                            <button
+                              type="button"
+                              className={swarmStyles.button}
+                              onClick={() => {
+                                setEditing(number);
+                                setWords(rule);
+                                setNote('');
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className={`${swarmStyles.button} ${styles.danger}`}
+                              disabled={saving}
+                              onClick={() => {
+                                if (window.confirm(`Delete this rule?\n\n${rule}`)) {
+                                  changeRule({ action: 'drop', number, was: rule });
+                                }
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+
+              {/* Adding one: a box that opens under the list. */}
+              {editing === 0 ? (
+                <div className={styles.rule}>
+                  <textarea
+                    className={styles.ruleBox}
+                    value={words}
+                    aria-label="A new rule"
+                    placeholder="Your words — saved with today's date"
+                    autoFocus
+                    onChange={(e) => setWords(e.target.value)}
+                  />
+                  <div className={styles.row}>
+                    <button
+                      type="button"
+                      className={swarmStyles.button}
+                      disabled={saving || !words.trim()}
+                      onClick={() => changeRule({ action: 'add', words })}
+                    >
+                      Add
+                    </button>
+                    <button type="button" className={swarmStyles.button} onClick={closeRow}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.row}>
                   <button
                     type="button"
                     className={swarmStyles.button}
                     onClick={() => {
-                      setDraft(null);
-                      setLoaded(null);
+                      setEditing(0);
+                      setWords('');
                       setNote('');
                     }}
                   >
-                    Undo my edits
+                    + Add a rule
                   </button>
-                ) : null}
-              </div>
+                </div>
+              )}
               {note ? <p className={swarmStyles.note}>{note}</p> : null}
-              <p className={swarmStyles.note}>
-                {shown.rules.rules.length === 0
-                  ? 'The file holds no rules yet.'
-                  : `The file holds ${shown.rules.rules.length} rule${shown.rules.rules.length === 1 ? '' : 's'}:`}
-              </p>
-              {shown.rules.rules.length > 0 ? (
-                <ol className={swarmStyles.list}>
-                  {shown.rules.rules.map((rule, n) => (
-                    <li key={`${n}-${rule}`}>{rule}</li>
-                  ))}
-                </ol>
-              ) : null}
-              <p className={swarmStyles.note}>
-                {shown.rules.exists ? 'File: ' : 'Not written yet — saving creates it at '}
-                <span className={styles.path}>{shown.rules.path}</span>
-              </p>
+
+              {/* The whole file, folded away: for the lines that aren't rules. */}
+              <details className={swarmStyles.run}>
+                <summary className={swarmStyles.runHead}>
+                  <span className={styles.partTitle}>Edit the whole file</span>
+                </summary>
+                <div className={styles.wholeFile}>
+                  <p className={swarmStyles.note}>
+                    Each line starting with &ldquo;- &rdquo; is one rule. Other lines are yours to write and are not
+                    handed to the helper.
+                  </p>
+                  <textarea
+                    className={styles.rules}
+                    value={boxText}
+                    aria-label="The whole rules file"
+                    spellCheck={false}
+                    onChange={(e) => {
+                      if (loaded === null) setLoaded(fileText);
+                      setDraft(e.target.value);
+                      setNote('');
+                    }}
+                  />
+                  <div className={styles.row}>
+                    <button
+                      type="button"
+                      className={swarmStyles.button}
+                      onClick={save}
+                      disabled={saving || draft === null || draft === fileText}
+                    >
+                      Save the file
+                    </button>
+                    {draft !== null && draft !== fileText ? (
+                      <button
+                        type="button"
+                        className={swarmStyles.button}
+                        onClick={() => {
+                          setDraft(null);
+                          setLoaded(null);
+                          setNote('');
+                        }}
+                      >
+                        Undo my edits
+                      </button>
+                    ) : null}
+                  </div>
+                  <p className={swarmStyles.note}>
+                    {shown.rules.exists ? 'File: ' : 'Not written yet — saving creates it at '}
+                    <span className={styles.path}>{shown.rules.path}</span>
+                  </p>
+                </div>
+              </details>
             </section>
 
             {/* The document itself, part by part, as the model reads it. */}

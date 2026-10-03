@@ -418,21 +418,41 @@ def save_rules(entry, text, loaded):
     return text
 
 
-def drop_rule(entry, number):
-    """Remove the rule with this number (1 = the first). Returns the line removed."""
+def _change_rule(entry, number, words=None):
+    """Rewrite or remove one rule, found by its number (1 = the first rule).
+    Walks the file's lines counting only the rules, so her other lines stay
+    where they are. `words` replaces the rule; None removes it. Returns the
+    rule as it was."""
     path = rules_path(entry)
-    kept, removed, seen = [], None, 0
+    kept, was, seen = [], None, 0
     for line in path.read_text(encoding="utf-8").splitlines() if path.exists() else []:
         if line.startswith("- ") and line[2:].strip():
             seen += 1
             if seen == number:
-                removed = line[2:].strip()
+                was = line[2:].strip()
+                if words is not None:
+                    kept.append(f"- {words}")
                 continue
         kept.append(line)
-    if removed is None:
+    if was is None:
         raise ValueError(f"there is no rule {number}")
     path.write_text("\n".join(kept) + "\n", encoding="utf-8")
-    return removed
+    return was
+
+
+def drop_rule(entry, number):
+    """Remove the rule with this number (1 = the first). Returns the line removed."""
+    return _change_rule(entry, number)
+
+
+def edit_rule(entry, number, words):
+    """Replace the rule with this number by what she wrote on the helper's
+    context page — the whole line as she left it, date and quotes included
+    or not. Returns the rule as it was."""
+    words = " ".join(str(words or "").split())
+    if not words:
+        raise ValueError("a rule needs her words")
+    return _change_rule(entry, number, words)
 
 
 def _rules_section(entry):

@@ -198,3 +198,29 @@ def test_a_seed_written_before_parts_were_kept_still_opens_whole(client):
     (folder / "rh.md").write_text("# 1. This doc\n\nold seed\n", encoding="utf-8")
     [part] = _context(client, "rh").get_json()["seed"]["parts"]
     assert part["key"] == "whole" and "old seed" in part["text"]
+
+
+def test_her_rule_buttons_add_edit_and_drop_one_rule_and_leave_her_other_lines(client):
+    _with_helpers()
+    entry = store.read("bot_chats/index", {})["rh"]
+    change = lambda **body: client.post("/api/swarms/helper-context/rh/rule", json=body)
+    listed = lambda reply: reply.get_json()["rules"]["rules"]
+
+    first = listed(change(action="add", words="never move a saved session"))
+    assert len(first) == 1 and first[0].endswith('"never move a saved session"')
+    path = helper_chat.rules_path(entry)
+    path.write_text(path.read_text() + "\na note of mine, not a rule\n- keep replies short\n")
+
+    edited = listed(change(action="edit", number=2, was="keep replies short",
+                           words="keep replies to three lines"))
+    assert edited == [first[0], "keep replies to three lines"]
+    # The helper drops rule 1 meanwhile: her page still calls the other one rule 2.
+    helper_chat.drop_rule(entry, 1)
+    stale = change(action="drop", number=2, was="keep replies to three lines")
+    assert stale.status_code == 409 and listed(stale) == ["keep replies to three lines"]
+    assert listed(change(action="drop", number=1, was="keep replies to three lines")) == []
+    assert "a note of mine, not a rule" in path.read_text()
+    # An empty rule is refused, and what the helper is handed follows the file.
+    assert change(action="add", words="  ").status_code == 400
+    change(action="add", words="ask before you split a swarm")
+    assert '"ask before you split a swarm"' in helper_chat.seed_text("rh", entry)
