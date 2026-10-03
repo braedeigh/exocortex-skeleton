@@ -852,12 +852,14 @@ const ORB_PERSONAL_SPACE = 130;
  * sim's cooling (like collision), so the tethers can't win it back. */
 const ORB_SPREAD_STRENGTH = 0.6;
 /** How hard an agent's orb is pulled sideways toward its room's side of the
- * map (laneSideX, agentLayout.ts). Soft on purpose: an orb with no files
- * rests on its side, and one whose files are all on the FAR side still
- * settles most of the way over to them (about two thirds of the way with one
- * file, about three quarters with five or more — measured in a small
- * simulation of these forces, not on the live map). */
-const ORB_SIDE_PULL = 0.015;
+ * map (laneSideX, agentLayout.ts). Slightly firm: an orb with no files rests
+ * on its side, and one whose files are all on the FAR side settles between
+ * the two (about halfway over with one file, about two thirds of the way with
+ * five or more — measured in a small simulation of these forces, not on the
+ * live map).
+ *
+ * Prompt that produced it: asked soft or firm, "slightly firm". */
+const ORB_SIDE_PULL = 0.03;
 /** The shelves re-measure where the dots are once every this many physics
  * ticks — often enough to glide with the map as it settles, rare enough that
  * walking a few thousand positions costs nothing noticeable. */
