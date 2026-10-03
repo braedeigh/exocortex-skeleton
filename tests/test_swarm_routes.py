@@ -2,7 +2,8 @@
 
 What these pin: the list shows a live swarm with its counts; the detail
 carries the helper's runs verbatim and the messages between members;
-a closed swarm's page carries what it did, newest closing first;
+a closed swarm's page carries what it did, newest closing first, and the
+room chat's closed line opens into the same;
 unknown swarms 404; a card says whether it's closed; refresh starts a helper run; the room view lists the
 sessions working alone and the room helper's moves; helper-of links a session's
 chat to its swarm's helper, else its room's, and a helper one level up or nowhere;
@@ -73,10 +74,16 @@ def test_the_detail_shows_what_a_closed_swarm_did(client, monkeypatch):
     newest, older = client.get(f"/api/swarms/{swarm_id}").get_json()["closings"]
     assert (newest["summary"], older["summary"]) == ("second time", "first time")
     assert "What shipped" in newest["facts"] and newest["error"] is None
+    # The room chat's "swarm closed" line opens into the same summaries, with
+    # the helper to ask about them.
+    fold = client.get(f"/api/swarms/{swarm_id}/closings").get_json()
+    assert [c["summary"] for c in fold["closings"]] == ["second time", "first time"]
+    assert fold["helper_conv"] == helper and "runs" not in fold
 
 
 def test_unknown_swarm_is_404(client):
     assert client.get("/api/swarms/999").status_code == 404
+    assert client.get("/api/swarms/999/closings").status_code == 404
     assert client.post("/api/swarms/999/refresh").status_code == 404
 
 

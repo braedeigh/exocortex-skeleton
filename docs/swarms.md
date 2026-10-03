@@ -137,7 +137,10 @@ lines say what exists *now*.
     (`swarm_helper.rest_again`): her message took its done mark off, and a
     helper can't mark itself done.
   - *The room is told.* One line in the room helper's chat: the swarm closed,
-    the summary's one-sentence headline, and where the whole of it is.
+    and the summary's one-sentence headline. Tapping the button under the
+    line opens the whole summary and its closing check in place
+    (`SwarmClosingFold.tsx`, reading `GET /api/swarms/<id>/closings`), with
+    buttons to the swarm's helper and its page.
   - *When the summary can't be written* — the model call fails, or the
     closing process dies — the closing check is posted alone, saying why, and
     the row keeps the reason. It is never tried again by itself: one

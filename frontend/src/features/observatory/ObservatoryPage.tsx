@@ -925,6 +925,7 @@ export function ObservatoryPage({
                   tool={t.tool}
                   journaled={t.journaled}
                   highlights={t.highlights}
+                  closedSwarms={t.closedSwarms}
                   armed={journalArmed === i}
                   onBodyTap={tapReply}
                   onJournalTap={journalReply}

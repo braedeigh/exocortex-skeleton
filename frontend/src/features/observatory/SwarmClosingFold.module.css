@@ -1,0 +1,104 @@
+/* SwarmClosingFold.module.css — the fold under a "swarm closed" line in a
+   room helper's chat (SwarmClosingFold.tsx): one 40px row closed, the whole
+   closing summary in a bordered panel when open. */
+
+.fold {
+  margin-top: var(--space-2);
+}
+
+/* The row she taps: a full 40px target, reading as a quiet pill. */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chevron {
+  font-size: var(--font-size-md);
+}
+
+/* The opened summary: set apart from the reply above it. */
+.body {
+  margin-top: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.muted {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.error {
+  margin: 0;
+  color: var(--red);
+}
+
+/* The summary and the check are drawn from markdown: paragraphs and lists. */
+.text {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.text p {
+  margin: 0 0 var(--space-2);
+}
+
+.text ul {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-4);
+}
+
+.text > :last-child {
+  margin-bottom: 0;
+}
+
+.check {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-3);
+}
+
+.check[open] {
+  padding-bottom: var(--space-3);
+}
+
+.checkHead {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* Where to go from here: its helper's chat, its page. */
+.doors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.door {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}

@@ -515,7 +515,12 @@ def test_a_retired_swarm_gets_one_closing_summary_then_the_helper_is_done(helper
     assert entry["helper_closed_at"] and entry["done_at"] and not entry["running"]
     # The room's helper is told in one line, with what was done.
     room_log = (store.DATA_DIR / "bot_chats" / f"{room}.jsonl").read_text()
-    assert "closed" in room_log and "Closing 1 headline." in room_log and helper in room_log
+    [told] = [json.loads(line) for line in room_log.splitlines() if "swarm_closed" in line]
+    assert "Closing 1 headline." in told["message"]["content"][0]["text"]
+    # The mark and the time are what the chat page opens the line into: this
+    # swarm's closing, the one kept at the same moment.
+    [kept] = swarm_helper.closings(told["swarm_closed"])
+    assert told["timestamp"] == kept["at"]
 
     swarm_helper.tick()                                        # once, not every minute
     assert len(_closing_post(helper)) == 1 and len(swarm_helper.closing_calls) == 1

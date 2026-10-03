@@ -1,8 +1,9 @@
 import { memo, useLayoutEffect, useMemo, useRef, type CSSProperties, type RefObject } from 'react';
 import { mdToHtml } from '../journal/markdown';
-import { assistantText, type Highlight, type Turn } from './events';
+import { assistantText, type ClosedSwarm, type Highlight, type Turn } from './events';
 import { paintMarks, resolveAll } from './highlightMarks';
 import { EMBER_SPREAD_MS, emberDelay, quantizeHeat, tailWords, wordHeat } from './streamPacing';
+import { SwarmClosingFold } from './SwarmClosingFold';
 import styles from './ObservatoryPage.module.css';
 
 /** Re-light saved highlights inside a rendered block. Runs after layout so the
@@ -34,6 +35,7 @@ export const Reply = memo(function Reply({
   tool,
   journaled,
   highlights,
+  closedSwarms,
   armed,
   onBodyTap,
   onJournalTap,
@@ -45,6 +47,7 @@ export const Reply = memo(function Reply({
   tool: string | null;
   journaled: boolean;
   highlights?: Highlight[];
+  closedSwarms?: ClosedSwarm[];
   armed: boolean;
   onBodyTap: (i: number) => void;
   onJournalTap: (i: number) => void;
@@ -69,6 +72,13 @@ export const Reply = memo(function Reply({
         onClick={() => onBodyTap(index)}
         dangerouslySetInnerHTML={{ __html: html }}
       />
+      {/* Open a "swarm closed" line into its whole summary: one fold under
+          the reply for each swarm the reply says closed. Outside the body, so
+          a tap on it doesn't arm the journal pill and highlights still count
+          the body's own text. */}
+      {closedSwarms?.map((closed) => (
+        <SwarmClosingFold key={`${closed.swarmId}:${closed.at}`} swarmId={closed.swarmId} at={closed.at} />
+      ))}
       {open && tool ? <div className={styles.toolNote}>{tool}</div> : null}
       {journaled ? <div className={styles.journaledNote}>✦ in the journal</div> : null}
       {armed && !journaled && !open ? (

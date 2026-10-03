@@ -8,6 +8,7 @@
  * drifting.
  */
 import { describe, expect, it } from 'vitest';
+import { closingFor } from './swarmApi';
 import { HELPER_SILENT, applyEvent, assistantText, lastUserTurnIndex, openQuestionSet, questionsState, turnsFromHistory, userTurn, type Turn } from './events';
 
 const delta = (text: string) => ({
@@ -335,5 +336,49 @@ describe('questions', () => {
       questions: ['Filed before sets were logged?'],
       turnIndex: null,
     });
+  });
+});
+
+// A room helper's chat gets one line per swarm that closes. The page opens
+// that line into the whole summary, so the reducer has to carry which swarm
+// and when — without making a turn of its own, because journal highlights
+// address turns by index and every one after the line would shift.
+describe('a "swarm closed" line in a room helper\'s chat', () => {
+  const closedLine = (swarmId: number, at: string) => ({
+    ...assistant(`**Swarm ${swarmId} closed — Pond.** It built the pond page.`),
+    timestamp: at,
+    helper_update: true,
+    swarm_closed: swarmId,
+  });
+
+  it('is carried on the reply it lands in, and leaves the turn count as it was', () => {
+    const plain = [{ type: 'user', text: 'hi' }, assistant('Moved two sessions.'), assistant('Swarm closed.')];
+    const marked = [
+      { type: 'user', text: 'hi' },
+      assistant('Moved two sessions.'),
+      closedLine(7, '2026-10-02T19:47:21'),
+      closedLine(9, '2026-10-02T20:00:00'),
+    ];
+    const turns = turnsFromHistory(marked);
+    expect(turns).toHaveLength(turnsFromHistory(plain).length);
+    expect(turns[1].closedSwarms).toEqual([
+      { swarmId: 7, at: '2026-10-02T19:47:21' },
+      { swarmId: 9, at: '2026-10-02T20:00:00' },
+    ]);
+    expect(turns[1].text).toContain('It built the pond page.');
+    expect(turnsFromHistory(plain)[1].closedSwarms).toBeUndefined();
+  });
+
+  it('opens into the closing kept at that moment, for a swarm that closed twice', () => {
+    const row = (id: number, at: string) => ({
+      id, at, name: 'Pond', headline: null, summary: `closing ${id}`, facts: '', cost_usd: null, error: null,
+    });
+    const newestFirst = [row(2, '2026-10-03T09:00:00'), row(1, '2026-10-02T19:47:21')];
+    expect(closingFor(newestFirst, '2026-10-02T19:47:21')?.id).toBe(1);
+    expect(closingFor(newestFirst, '2026-10-03T09:00:00')?.id).toBe(2);
+    // A line a second off its row still finds the closing before it.
+    expect(closingFor(newestFirst, '2026-10-02T19:47:22')?.id).toBe(1);
+    expect(closingFor(newestFirst, '')?.id).toBe(2);
+    expect(closingFor([], '2026-10-02T19:47:21')).toBeNull();
   });
 });

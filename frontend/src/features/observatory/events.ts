@@ -51,7 +51,11 @@
  *                                              before her words started being
  *                                              kept — still rendered as a hole
  * - {type:'stream_event', event}               token deltas / tool activity
- * - {type:'assistant', message}                authoritative message text
+ * - {type:'assistant', message}                authoritative message text;
+ *                                              with `swarm_closed` (a swarm's
+ *                                              number) it is the line a room
+ *                                              helper's chat gets when a
+ *                                              swarm closes
  * - {type:'user', message}                     claude's tool-result echo — not
  *                                              her; ignored
  * - {type:'result'} / {type:'done'}            turn closes
@@ -109,6 +113,19 @@ export interface Turn {
    * DOM walk (highlightMarks.ts). `quote` is what recovers the span when the
    * offsets drift; `card` is the journal card it minted. */
   highlights?: Highlight[];
+  /** assistant only: the swarms this reply says closed (a room helper's chat
+   * gets one line per closing — swarm_helper.py `_tell_room`). The page puts
+   * a button under the reply for each, which opens that closing's whole
+   * summary (SwarmClosingFold.tsx). */
+  closedSwarms?: ClosedSwarm[];
+}
+
+/** One swarm closing a reply announces: which swarm, and when the line was
+ * written — the same moment its closing was kept, which is how the fold picks
+ * the right one for a swarm that closed more than once. */
+export interface ClosedSwarm {
+  swarmId: number;
+  at: string;
 }
 
 /** A message between two agents (peermail.py), as its card needs it. */
@@ -361,6 +378,16 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       const text = t.buffer || messageText(e.message);
       t.buffer = '';
       if (text) t.text = t.text ? `${t.text}\n\n${text}` : text;
+      // Note which swarm this line says closed. It stays part of the reply it
+      // lands in rather than becoming a turn of its own: journal highlights
+      // address turns by index, and a new turn here would shift every one
+      // after it. A fresh array each time, so the memoized Reply sees it.
+      if (typeof e.swarm_closed === 'number') {
+        t.closedSwarms = [
+          ...(t.closedSwarms ?? []),
+          { swarmId: e.swarm_closed, at: typeof e.timestamp === 'string' ? e.timestamp : '' },
+        ];
+      }
       revealIfSaid(turns);
       return turns;
     }

@@ -1011,8 +1011,11 @@ def _render_closing(name, summary, error, report):
 
 def _tell_room(swarm_id, name, lane, helper, headline, now):
     """Say in the room helper's chat that this swarm closed: one line with
-    what it did and where the whole summary is, so she sees a swarm closed
-    without opening each helper. A room with no helper is told nothing."""
+    what it did, so she sees a swarm closed without opening each helper. The
+    line is marked `swarm_closed`, and the chat page opens a line with that
+    mark into the whole summary (SwarmClosingFold.tsx). A room with no helper
+    is told nothing.
+    Prompt: "one line is fine as long as it is clickable to expand"."""
     import room_helper
     index = store.read("bot_chats/index", {})
     room = room_helper.find_helper(lane, index if isinstance(index, dict) else {})
@@ -1020,9 +1023,7 @@ def _tell_room(swarm_id, name, lane, helper, headline, now):
         return False
     did = headline or "No summary was written; its closing check says what git shows."
     room_helper._post(
-        room, f"**Swarm {swarm_id} closed — {name}.** {did} The whole closing summary is in"
-              f" its helper's chat (`{helper}`) and on [its page](/observatory/swarm/{swarm_id});"
-              " ask its helper there about what happened.", now, swarm_closed=swarm_id)
+        room, f"**Swarm {swarm_id} closed — {name}.** {did}", now, swarm_closed=swarm_id)
     with store.mutate("bot_chats/index", {}) as live:
         if isinstance(live.get(room), dict):
             live[room]["last_at"] = now

@@ -11,7 +11,8 @@
  * Closed swarms (fewer than two sessions still at work) come with the rest, marked `closed`;
  * pages draw them only when the shared "show closed swarms" switch is on.
  *
- * Touches: routes/swarms.py (the endpoints), terrain/codeHeatPref.ts (the sticky switch), SwarmCard.tsx and SessionLane.tsx
+ * Touches: routes/swarms.py (the endpoints), SwarmClosingFold.tsx (a closed swarm's summary, opened from a room
+ * helper's chat), terrain/codeHeatPref.ts (the sticky switch), SwarmCard.tsx and SessionLane.tsx
  * (the cards in each room), RoomMap.tsx (the room from above), SwarmPage.tsx (one swarm's page), ObservatoryPage.tsx
  * (the helper button above a chat's message box, and the "context" button in a
  * helper's own chat), HelperContextPage.tsx (what a helper is working from, and
@@ -250,6 +251,41 @@ export function useSwarm(id: number) {
     queryFn: async ({ signal }) => api.get<SwarmDetail>(`/api/swarms/${id}`, signal),
     refetchInterval: 5_000,
   });
+}
+
+/** What one swarm did, and who to ask about it (routes/swarms.py
+ * `swarm_closings`): the closings newest first, without the rest of the
+ * swarm's page. */
+export interface SwarmClosings {
+  id: number;
+  name: string;
+  helper_conv: string | null;
+  closings: SwarmClosing[];
+}
+
+/** One swarm's closing summaries, asked for only once `enabled` — the fold
+ * under a "swarm closed" line asks when she opens it. Kept rows never change,
+ * so there is no poll. */
+export function useSwarmClosings(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['swarm-closings', id] as const,
+    enabled,
+    queryFn: async ({ signal }) => api.get<SwarmClosings>(`/api/swarms/${id}/closings`, signal),
+    staleTime: 60_000,
+  });
+}
+
+/** Pick the closing a line announced. The line and the kept row are written
+ * with the same timestamp, so an exact match is the usual case. Failing that
+ * (a row written by hand), take the newest closing at or before the line, and
+ * failing that the newest there is. `closings` is newest first. */
+export function closingFor(closings: SwarmClosing[], at: string): SwarmClosing | null {
+  return (
+    closings.find((closing) => closing.at === at) ??
+    closings.find((closing) => at !== '' && closing.at <= at) ??
+    closings[0] ??
+    null
+  );
 }
 
 export function refreshSwarm(id: number): Promise<{ ok: boolean; started: boolean }> {

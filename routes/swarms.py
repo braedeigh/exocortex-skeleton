@@ -17,6 +17,11 @@ summaries (swarm_helper.py). These routes hand that to the page:
                                   it has closed — what it did: the closing
                                   summaries its helper wrote, newest first,
                                   each with its closing check.
+    GET  /api/swarms/<id>/closings
+                                  only what a swarm did: its name, its
+                                  helper's session and the closing summaries,
+                                  newest first. The line a room helper's chat
+                                  gets when a swarm closes opens into this.
     POST /api/swarms/<id>/refresh ask the helper to update now.
     GET  /api/swarms/room/<room>  the room seen from above, for the room map:
                                   the room helper's session, the sessions
@@ -218,6 +223,20 @@ def register(app):
         if found is None:
             return jsonify({"error": "not found"}), 404
         return jsonify(found)
+
+    # Hand over what one swarm did, and nothing else. The one-line "swarm
+    # closed" notice in a room helper's chat opens into the whole summary, and
+    # the full detail above (every helper run with its input) is far more
+    # than that fold needs.
+    # Prompt: "one line is fine as long as it is clickable to expand".
+    @app.route("/api/swarms/<int:swarm_id>/closings")
+    def swarm_closings(swarm_id):
+        card = next((c for c in swarms.overview() if c["id"] == swarm_id), None)
+        if card is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"id": swarm_id, "name": card["name"],
+                        "helper_conv": card.get("helper_conv"),
+                        "closings": list(reversed(swarm_helper.closings(swarm_id)))})
 
     @app.route("/api/swarms/room/<room_name>")
     def swarm_room(room_name):
