@@ -2,7 +2,7 @@
 machine, and one map's boxes and links.
 
 A map is a codebase drawn as boxes with named arrows, read from small markdown
-files that live in the repo they describe (codemap.py reads and checks them;
+files kept in the repo they describe or in the data folder (codemap.py reads and checks them;
 docs/codemap.md is the format). This module only serves them — it never writes
 a box.
 

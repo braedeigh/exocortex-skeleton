@@ -9,11 +9,15 @@ The Map room on Terrain (routes/terrain_map.py, frontend
 features/terrain/TerrainMapView.tsx) draws them; this module only reads,
 checks and stamps them. The file format and how to write one: docs/codemap.md.
 
-WHERE MAPS LIVE. Inside the repo they describe, at `docs/map/<name>/*.md` — so a
-map is committed beside its code and travels with it. Any repo this system
-knows can carry maps: the two the main Terrain map covers (codestore's
-default repos) and every build on the Builds list (buildlist.py). A map is
-known as `<repo id>/<name>`, e.g. `skeleton/observatory`.
+WHERE MAPS LIVE. Two places, both read the same way. Inside the repo they
+describe, at `docs/map/<name>/*.md` — so a map is committed beside its code and
+travels with it. Or, for a repo that should not carry its own map (someone
+else's conventions, a repo kept clean of this system's files), in the data
+folder at `codemaps/<repo id>/<name>/*.md` (`EXOCORTEX_DATA_DIR`). Either way a
+box's `sources` are paths inside the repo it describes. Any repo this system
+knows can have maps: the two the main Terrain map covers (codestore's default
+repos) and every build on the Builds list (buildlist.py). A map is known as
+`<repo id>/<name>`, e.g. `skeleton/observatory`.
 
 KEEPING IT TRUE. Each box records a FINGERPRINT of its source files, taken
 when its words were last written (`stamp`). A box whose files have changed
@@ -28,7 +32,8 @@ package names) and says which box's files import which other box's files, so
 a "depends-on" link is found rather than remembered.
 
 Touches: `codegraph.py` (walks a repo, resolves Python and TS imports),
-`codestore.py` + `buildlist.py` (which repos exist and where).
+`codestore.py` + `buildlist.py` (which repos exist and where), `store.py`
+(where the data folder is).
 
 Prompt that produced this file: "What would it take to make something like
 this?" — a zoomable architecture map where each box is a small markdown file,
@@ -45,6 +50,7 @@ import re
 import buildlist
 import codegraph
 import codestore
+import store
 
 # The kinds of link a box may draw, in the order the legend shows them.
 LINK_KINDS = ("depends-on", "calls", "reads", "writes", "hosts", "implements",
@@ -55,6 +61,10 @@ BOX_KINDS = ("project", "module", "feature", "data", "script")
 
 # Where a repo keeps its maps, one folder per map.
 MAP_DIR = Path("docs") / "map"
+
+# Where the data folder keeps maps of repos that don't carry their own: one
+# folder per repo id, then one per map.
+OUTSIDE_DIR = "codemaps"
 
 # What a box id or map name may look like: words, dots and dashes. Used in URLs
 # and as file names, so kept to what is safe in both.
@@ -85,17 +95,24 @@ def repos():
 
 def find_maps():
     """Every map on this machine: [{key, repo, slug, dir, root}], in repo order
-    then by name. A repo with no `docs/map/` folder simply has none."""
+    then by name. `dir` is where the box files are; `root` is the repo they
+    describe. A repo with no map folder in either place simply has none.
+
+    Both homes are read: the repo's own `docs/map/`, then the data folder's
+    `codemaps/<repo id>/`. A name found in both keeps the repo's own copy."""
     found = []
     for repo in repos():
-        base = repo["root"] / MAP_DIR
-        if not base.is_dir():
-            continue
-        for folder in sorted(base.iterdir()):
-            if folder.is_dir() and _ID_RE.match(folder.name) and any(folder.glob("*.md")):
-                found.append({"key": f"{repo['id']}/{folder.name}", "repo": repo["id"],
-                              "repo_name": repo["name"], "slug": folder.name,
-                              "dir": folder, "root": repo["root"]})
+        seen = set()
+        for base in (repo["root"] / MAP_DIR, store.DATA_DIR / OUTSIDE_DIR / repo["id"]):
+            if not base.is_dir():
+                continue
+            for folder in sorted(base.iterdir()):
+                if (folder.is_dir() and _ID_RE.match(folder.name) and folder.name not in seen
+                        and any(folder.glob("*.md"))):
+                    seen.add(folder.name)
+                    found.append({"key": f"{repo['id']}/{folder.name}", "repo": repo["id"],
+                                  "repo_name": repo["name"], "slug": folder.name,
+                                  "dir": folder, "root": repo["root"]})
     return found
 
 
@@ -242,7 +259,10 @@ def load(found):
         files_exist = []
         for source in box["sources"]:
             exists = _source_files(root_dir, source) is not None
-            files_exist.append({"path": source, "exists": exists})
+            # `folder` tells the page a source is a folder, which it lists but
+            # can't open as one file.
+            files_exist.append({"path": source, "exists": exists,
+                                "folder": exists and (root_dir / source).is_dir()})
         box["sources"] = files_exist
         box["broken"] = any(not s["exists"] for s in files_exist)
         current = fingerprint(root_dir, [s["path"] for s in files_exist])

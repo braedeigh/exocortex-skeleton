@@ -12,9 +12,18 @@ Code: `codemap.py` (read, check, stamp), `routes/terrain_map.py` (the API),
 
 ## Where the files live
 
-In the repo the map describes, at `docs/map/<name>/`. Every repo this system
-knows can carry maps: the main Terrain map's own folders, and every build on the
-Builds list. A map is called `<repo id>/<name>`, for example `skeleton/observatory`.
+Two places, read the same way:
+
+- **In the repo the map describes**, at `docs/map/<name>/`. The map is committed
+  beside its code and travels with it.
+- **In the data folder**, at `codemaps/<repo id>/<name>/` (under
+  `EXOCORTEX_DATA_DIR`), for a repo that should not carry its own map. The boxes
+  still describe that repo: every `sources` path is relative to the repo's root.
+
+Every repo this system knows can have maps: the main Terrain map's own folders,
+and every build on the Builds list. A map is called `<repo id>/<name>`, for
+example `skeleton/observatory`. If both places hold a map of the same name, the
+repo's own copy is used.
 
 ## One box, one file
 
@@ -72,4 +81,5 @@ each, present tense. A few sentences, no more than two paragraphs.
    covers yet.
 3. `venv/bin/python3 scripts/codemap.py stamp <map> <box id> …` records that the
    words match the files as of now. Stamp only boxes you actually re-read.
-4. Commit the map files in the repo they live in.
+4. Commit the map files where they live: the repo itself, or the vault that holds
+   the data folder.

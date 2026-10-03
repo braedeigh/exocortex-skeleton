@@ -5,6 +5,8 @@ What has to hold, and would break without anyone noticing:
 
   - A map in any build's `docs/map/<name>/` is found and served whole: its
     boxes, their parents, their links with kind and reason.
+  - A map kept outside its repo, in the data folder, works the same: served
+    whole, and its boxes still go stale against the repo's files.
   - Keeping it true: a stamped box reads as current; editing one of its files
     makes it stale (and only it); deleting one makes it broken, and the
     nightly check fails on broken.
@@ -83,6 +85,25 @@ def test_a_builds_map_is_listed_and_served_whole(client):
     assert client.get("/api/observatory/terrain/maps/shop/nope").status_code == 404
 
 
+def test_a_map_kept_in_the_data_folder_describes_the_repo_from_outside(client, project, data_dir):
+    """The repo carries no map files at all; the same boxes sit in the data
+    folder and are checked against the repo's files."""
+    home = data_dir / "codemaps" / "shop"
+    home.mkdir(parents=True)
+    (project / "docs/map/system").rename(home / "system")
+    assert not any((project / "docs/map").iterdir())
+
+    listed = client.get("/api/observatory/terrain/maps").get_json()
+    assert [(m["key"], m["boxes"]) for m in listed["maps"]] == [("shop/system", 3)]
+
+    codemap.stamp(codemap.find_map("shop/system"))
+    (project / "apps/api/src/main.ts").write_text("// changed\n")
+    boxes = {b["id"]: b for b in client.get("/api/observatory/terrain/maps/shop/system").get_json()["boxes"]}
+    assert (boxes["api"]["stale"], boxes["contracts"]["stale"]) == (True, False)
+    assert boxes["api"]["sources"] == [{"path": "apps/api/src/main.ts", "exists": True, "folder": False}]
+    assert boxes["contracts"]["sources"][0]["folder"] is True
+
+
 def test_editing_a_file_makes_only_its_box_stale_and_deleting_it_breaks_it(client, project, capsys):
     found = codemap.find_map("shop/system")
     codemap.stamp(found)
@@ -100,7 +121,7 @@ def test_editing_a_file_makes_only_its_box_stale_and_deleting_it_breaks_it(clien
     (project / "apps/api/src/main.ts").unlink()
     boxes = {b["id"]: b for b in codemap.load(found)["boxes"]}
     assert boxes["api"]["broken"] and boxes["api"]["sources"] == [
-        {"path": "apps/api/src/main.ts", "exists": False}]
+        {"path": "apps/api/src/main.ts", "exists": False, "folder": False}]
     assert codemap_script.main(["check"]) == 1
 
 
