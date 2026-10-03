@@ -371,7 +371,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   };
 
   const onCreate = (draft: SessionDraft) => {
-    createSession(draft.name, draft.journal, draft.model, draft.lane)
+    return createSession(draft.name, draft.journal, draft.model, draft.lane)
       .then(({ id }) => {
         setCreating(null);
         // An explicit asks-first choice is a second call: creation takes the

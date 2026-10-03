@@ -71,7 +71,7 @@ export function LinearPage() {
   // takes the lane's default and only a deliberate override gets written.
   const onCreate = (draft: SessionDraft) => {
     setCreateFailed(false);
-    createSession(draft.name, draft.journal, draft.model, 'linear')
+    return createSession(draft.name, draft.journal, draft.model, 'linear')
       .then(({ id }) => {
         setCreating(false);
         if (draft.actGate !== null) {

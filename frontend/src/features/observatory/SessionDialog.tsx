@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Sheet } from '../../ui';
 import { LANE_BLURB, LANE_LABEL, ROOMS, isRoom, type Lane } from './api';
 import styles from './RosterPage.module.css';
@@ -84,7 +84,9 @@ export function SessionDialog({
   initialActGate?: boolean | null;
   modelChoices?: string[];
   onClose: () => void;
-  onSave: (draft: SessionDraft) => void;
+  /** Return the request's promise and the sheet holds its button until that
+   * settles — see `saving` below. */
+  onSave: (draft: SessionDraft) => void | Promise<unknown>;
 }) {
   const [name, setName] = useState(initial);
   const [journal, setJournal] = useState(initialJournal);
@@ -112,9 +114,28 @@ export function SessionDialog({
 
   // `ready` carries the `pickedLane !== ''` narrowing with it, so bailing on it
   // is also what proves to the type checker there's a real lane to hand back.
+  //
+  // One save at a time. Starting a session takes a round trip of a few
+  // seconds, and the sheet stays up until it comes back — so a second tap (or
+  // Enter, then a tap) used to start a second, identical session, and she
+  // landed in one while its empty twin sat on the roster. While the caller's
+  // request is in flight, further saves are ignored and the button is dead.
+  // The ref is what guards (two taps can land before React re-renders); the
+  // state is only so the button can show it.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
   const save = () => {
-    if (!ready) return;
-    onSave({ name: name.trim(), journal, model, lane: pickedLane, actGate });
+    if (!ready || savingRef.current) return;
+    const pending = onSave({ name: name.trim(), journal, model, lane: pickedLane, actGate });
+    if (!(pending instanceof Promise)) return;
+    savingRef.current = true;
+    setSaving(true);
+    void pending
+      .catch(() => {})
+      .then(() => {
+        savingRef.current = false;
+        setSaving(false);
+      });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -153,7 +174,7 @@ export function SessionDialog({
           type="button"
           className={styles.dialogSave}
           onClick={save}
-          disabled={!ready}
+          disabled={!ready || saving}
           /* Says what it will DO. A dead button with no reason next to it is
              the sheet sulking at her, so the title tells her what's missing. */
           title={

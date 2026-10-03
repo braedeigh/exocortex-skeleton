@@ -100,7 +100,7 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
   // An explicit asks-first choice is a second call, as on the roster.
   const onCreate = (draft: SessionDraft) => {
     if (!swarm) return;
-    createSession(draft.name, draft.journal, draft.model, draft.lane, swarm.id).then(
+    return createSession(draft.name, draft.journal, draft.model, draft.lane, swarm.id).then(
       ({ id }) => {
         setCreating(false);
         if (draft.actGate !== null) void updateConversation(id, { act_gate: draft.actGate }).catch(() => {});
