@@ -49,6 +49,11 @@ told "go".** Your first message in the chat was the brief. In order:
    with `scripts/request_input.py`, each standing on its own with what you
    picked and your recommendation, and end your turn. Do NOT run
    `session_done.py`: a session with doubts stays open until they answer.
-   Only when you are unsure of nothing and nothing waits on the owner, end by
-   running `scripts/session_done.py "<what was finished>"` so the session
-   closes itself (see CLAUDE.md).
+   If what you delivered is something for the owner to react to — research,
+   a comparison, a plan, a review, anything that ends in options — do NOT
+   run it either: that reply is where the conversation starts. End your turn
+   and leave the session open; the one-day idle check closes it.
+   Only when you built or fixed something, are unsure of nothing, and nothing
+   waits on the owner, end by running
+   `scripts/session_done.py "<what was finished>"` so the session closes
+   itself (see CLAUDE.md).
