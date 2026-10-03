@@ -512,6 +512,26 @@ def _bury_deleted(conn, roots):
                     "UPDATE files SET deleted_at = ? WHERE id = ?", (when, fid))
 
 
+def _bury_vanished(conn, roots):
+    """Mark deleted any file git never saw that is not on disk. Such a row
+    exists only because a session touched the path (work written and then
+    moved or removed before any commit caught it), so no commit can say when
+    it went: the time used is the last session touch on record, or now. A
+    file that is on disk is left alone."""
+    for repo_id, root in roots:
+        rows = conn.execute(
+            "SELECT f.id, f.path, (SELECT MAX(sf.last) FROM session_files sf"
+            "                      WHERE sf.file_id = f.id) FROM files f"
+            " WHERE f.repo = ? AND f.deleted_at IS NULL AND NOT EXISTS"
+            "   (SELECT 1 FROM commit_files cf WHERE cf.file_id = f.id)",
+            (repo_id,)).fetchall()
+        now = datetime.now().isoformat(timespec="seconds")
+        for fid, path, last_touch in rows:
+            if not os.path.exists(os.path.join(root, path)):
+                conn.execute("UPDATE files SET deleted_at = ? WHERE id = ?",
+                             (last_touch or now, fid))
+
+
 def _sync_sessions(conn, repos):
     index = store.read("bot_chats/index", {})
     if not isinstance(index, dict):
@@ -597,6 +617,7 @@ def _sync_sessions(conn, repos):
                  counts.get("last")),
             )
             n += 1
+    _bury_vanished(conn, roots)
     return n, _sync_turns(conn)
 
 

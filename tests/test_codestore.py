@@ -261,6 +261,18 @@ def test_a_session_that_read_a_deleted_file_does_not_bring_it_back(data_dir, tmp
                     " WHERE f.path LIKE 'briefs/%' AND c.subject LIKE 'briefs live%'")
     assert len(deleted) == 2 and all(at == when for at, when in deleted)
 
+    # A file git never saw (written and removed between commits) that is not
+    # on disk is not alive either, and stays that way sync after sync.
+    store.write("bot_chats/footprints", {"conv-1": {"files": {
+        str(repo / "briefs/one/BRIEF.md"): {"writes": 1, "reads": 4, "creates": 1,
+                                            "last": "2026-06-01T09:30:00"},
+        str(repo / "briefs/never/BRIEF.md"): {"writes": 1, "reads": 0, "creates": 1,
+                                              "last": "2026-06-01T09:30:00"}}}})
+    for _ in range(2):
+        codestore.sync_sessions(_repos(repo))
+        assert _rows("SELECT deleted_at FROM files WHERE path = 'briefs/never/BRIEF.md'"
+                     ) == [("2026-06-01T09:30:00",)]
+
     # Written again but not yet committed: it is on disk, so it is alive.
     (repo / "briefs/one").mkdir(parents=True)
     (repo / "briefs/one/BRIEF.md").write_text("back\n")
