@@ -17,8 +17,8 @@ links:
   - writes data.index: It mints the new session with its parent and how it was born.
   - calls spinoffs.runner: It starts the runner that posts the kickoff.
   - calls worktrees.copies: The steward mode stands a session on an existing branch in its own worktree.
-fingerprint: 8182b8df0331
-written: 2026-10-02
+fingerprint: 9ab2474e9b05
+written: 2026-10-03
 ---
 
 A session saves a brief with spinoff_brief.py, which takes the text on standard input and keeps it as a row in the database. It then calls spinoff_open.py, or it offers the spinoff with spinoff_offer.py. An offer puts a Go button in the owner's chat. Go opens each spinoff and takes the owner to the new session.
