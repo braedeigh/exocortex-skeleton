@@ -5,7 +5,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
 /**
  * /terrain/flow — code as it's being written, live: every Edit/Write across
  * the working sessions as a stream of cards, newest first, each carrying the
- * lines it wrote (features/flow/FlowLane.tsx, fed by /api/observatory/flow).
+ * lines it wrote (features/terrain/flow/FlowLane.tsx, fed by /api/observatory/flow).
  *
  * It lives under /terrain because the terrain is where the system looks at
  * itself: the map is where work has happened, this is what's being written

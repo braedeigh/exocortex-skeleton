@@ -5,7 +5,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
 /**
  * /terrain/activity?agent=… — one session's work, step by step, live: every
  * tool call with its input and output, and whatever made a turn stall or
- * fail (features/activity/ActivityPage.tsx).
+ * fail (features/terrain/activity/ActivityPage.tsx).
  *
  * A room under /terrain beside the Workshop, and the same shape: the session
  * travels in ?agent=, so a particular session's activity is a deep link and

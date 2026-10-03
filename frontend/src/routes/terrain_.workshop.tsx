@@ -5,7 +5,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
 /**
  * /terrain/workshop?agent=… — an agent's desk: every file it's been writing
  * open at once, the newest as a big readable hero, the rest as portholes,
- * live-updating as edits land (features/workshop/WorkshopPage.tsx).
+ * live-updating as edits land (features/terrain/workshop/WorkshopPage.tsx).
  *
  * Lives under /terrain with the other rooms — the terrain is where the
  * system looks at itself, and this is watching one agent's hands. The agent

@@ -5,7 +5,7 @@
  * Plain English: one query for the picture (every tagged row in a window,
  * plus the rail of namespaces to light them by) and two mutations for the
  * one thing this page lets her change — a subject's tags. Modelled on
- * features/pond/api.ts's react-query style: typed responses, `staleTime` so
+ * features/terrain/pond/api.ts's react-query style: typed responses, `staleTime` so
  * panning around doesn't re-fetch on every render, and mutations that
  * invalidate exactly what they can affect so the drawing and the popover
  * never go stale relative to each other.

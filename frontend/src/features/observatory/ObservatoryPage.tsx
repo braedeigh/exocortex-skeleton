@@ -1150,7 +1150,7 @@ export function ObservatoryPage({
             {backdropOn ? '▦' : '▢'}
           </button>
           {/* This session's steps, live — every tool call with its output
-              (features/activity/). Beside the session on a wide screen,
+              (features/terrain/activity/). Beside the session on a wide screen,
               its own page on a phone. */}
           <button
             type="button"

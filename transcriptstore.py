@@ -339,7 +339,7 @@ def topics():
 def pond_cards(from_day=None, query=None, limit=8000, body_chars=600):
     """Every message as a pond card, oldest first: {id, day, ts, who, kind, tags, body, conv}.
 
-    The shape is the journal pond's PondCard (frontend/src/features/pond/
+    The shape is the journal pond's PondCard (frontend/src/features/terrain/pond/
     pondMath.ts), so the pond's own layout code places them: `who` is 'B' for
     the user and 'K' for the chatbot, `tags` are the conversation's topic tags
     ("t<id>"; empty = unsorted), `kind` is the source. A message with no time
