@@ -124,18 +124,46 @@
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
+  gap: 0 var(--space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.legendItem {
+/* One legend entry is a switch for its link kind: a 40px target that looks
+   like a label until it is off, when it fades and its name is struck through. */
+.legendItem,
+.legendAll {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.legendItem:hover,
+.legendAll:hover {
+  border-color: var(--border);
+}
+
+.legendOff {
+  opacity: 0.5;
+}
+
+.legendOff .legendName {
+  text-decoration: line-through;
+}
+
+.legendAll {
+  border-color: var(--border);
+  color: var(--text);
 }
 
 /* The drawing beside the panel. */
@@ -424,6 +452,23 @@
   color: var(--red, #e0625a);
 }
 
+/* A source file that opens in the code window: the whole row is the target. */
+.sourceOpen {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 3px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent, var(--text));
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
 .problem {
   font-family: inherit;
 }
@@ -555,4 +600,11 @@
   .panel {
     transition: none;
   }
+}
+
+/* The code window's layer: the whole room, above the bottom sheet. */
+.fileLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
 }

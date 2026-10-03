@@ -10,7 +10,8 @@
  * part is drawn from the part, and a link to a box deep inside a neighbour is
  * drawn to the neighbour. Links that start and end inside the same visible
  * box vanish at this level (they're drawn when you open that box), and so do
- * links with neither end inside the focus.
+ * links with neither end inside the focus. Link kinds switched off in the
+ * legend are left out too, and an outside box reached only by them with them.
  *
  * Pure functions, no React — TerrainMapView.tsx draws what these return,
  * codeMapLayout.ts places it, routes/terrain_map.py serves the data.
@@ -24,7 +25,8 @@ export interface MapBox {
   parent: string | null;
   order: number | null;
   description: string;
-  sources: { path: string; exists: boolean }[];
+  /** `folder`: the source is a folder, listed but not openable as one file. */
+  sources: { path: string; exists: boolean; folder?: boolean }[];
   links: MapLink[];
   written: string | null;
   stale: boolean;
@@ -151,9 +153,11 @@ export interface Level {
 
 /**
  * What one level shows: the focus's parts, the outside boxes they link to,
- * and every link lifted to those boxes.
+ * and every link lifted to those boxes. Links of a `hidden` kind are skipped,
+ * so an outside box that only they reach isn't drawn either; the focus's own
+ * parts always are.
  */
-export function levelView(index: MapIndex, focus: string): Level {
+export function levelView(index: MapIndex, focus: string, hidden?: ReadonlySet<string>): Level {
   const focusChain = new Set(ancestors(index, focus));
   const inside = new Set((index.children.get(focus) ?? []).map((box) => box.id));
 
@@ -175,6 +179,7 @@ export function levelView(index: MapIndex, focus: string): Level {
   const edges = new Map<string, LevelEdge>();
   const outside = new Set<string>();
   for (const link of index.links) {
+    if (hidden?.has(link.kind)) continue;
     const from = placed(link.from);
     const to = placed(link.to);
     if (!from || !to || from.at === to.at) continue;

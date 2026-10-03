@@ -18,6 +18,7 @@ import {
   type MapIndex,
   type MapSummary,
 } from './codeMap';
+import { FileCodeWindow } from './FileCodeWindow';
 import { BOX_HEIGHT, BOX_WIDTH, layoutLevel, midpoint, roundedPath, type Placed } from './codeMapLayout';
 import { TerrainRoomHeader } from './TerrainRoomHeader';
 import styles from './TerrainMapView.module.css';
@@ -31,8 +32,13 @@ import styles from './TerrainMapView.module.css';
  * its source files, its parts, and every link in and out with its reason. On
  * a phone the panel is a sheet that slides up from the bottom.
  *
- * The boxes are markdown files kept in the repo they describe
- * (docs/codemap.md); routes/terrain_map.py serves them, codeMap.ts works out
+ * The legend is also a set of switches: tapping a link kind hides its arrows
+ * on every level (and remembers it on this device), for a level too dense to
+ * read whole. A source file in the panel opens in the code window Files uses
+ * (FileCodeWindow), over this room only.
+ *
+ * The boxes are markdown files kept in the repo they describe, or in the data
+ * folder for a repo that doesn't carry its own (docs/codemap.md); routes/terrain_map.py serves them, codeMap.ts works out
  * what one level shows, codeMapLayout.ts places it. A box whose files changed
  * since its words were written wears "stale"; one whose files are gone wears
  * "broken".
@@ -61,6 +67,26 @@ const KIND_STYLE: Record<string, { color: string; dash?: string }> = {
 };
 const kindStyle = (kind: string) => KIND_STYLE[kind] ?? KIND_STYLE['depends-on'];
 
+// Remember which link kinds are switched off, on this device: read once when
+// the room opens, written on every change. A private-mode browser that
+// refuses storage just starts with every kind shown.
+const HIDDEN_KINDS_KEY = 'terrain-map-hidden-kinds';
+function readHiddenKinds(): ReadonlySet<string> {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(HIDDEN_KINDS_KEY) ?? '[]');
+    return new Set(Array.isArray(saved) ? saved.filter((kind): kind is string => typeof kind === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+function saveHiddenKinds(kinds: ReadonlySet<string>) {
+  try {
+    localStorage.setItem(HIDDEN_KINDS_KEY, JSON.stringify([...kinds]));
+  } catch {
+    /* not remembered, still applied */
+  }
+}
+
 export interface MapPlace {
   map?: string;
   at?: string;
@@ -86,7 +112,24 @@ export function TerrainMapView({ mapKey, at, onGo }: MapPlace & { mapKey?: strin
   // names a box with parts, else the top), and what it shows.
   const root = index?.root ?? null;
   const focus = index && at && index.children.has(at) ? at : root;
-  const level = useMemo(() => (index && focus ? levelView(index, focus) : null), [index, focus]);
+  // Two views of the level: `fullLevel` with every link, which the legend
+  // counts from so a hidden kind stays there to switch back on, and `level`,
+  // what is drawn, without the kinds switched off.
+  const [hiddenKinds, setHiddenKinds] = useState<ReadonlySet<string>>(readHiddenKinds);
+  const fullLevel = useMemo(() => (index && focus ? levelView(index, focus) : null), [index, focus]);
+  const level = useMemo(
+    () => (index && focus && hiddenKinds.size > 0 ? levelView(index, focus, hiddenKinds) : fullLevel),
+    [index, focus, hiddenKinds, fullLevel],
+  );
+  const setHidden = useCallback((next: ReadonlySet<string>) => {
+    saveHiddenKinds(next);
+    setHiddenKinds(next);
+  }, []);
+
+  // The source file open in the code window, if any. It belongs to the map
+  // it was opened from, so switching codebase closes it without an effect.
+  const [openFile, setOpenFile] = useState<{ map: string; path: string } | null>(null);
+  const openPath = openFile && openFile.map === key ? openFile.path : null;
 
   // Selection belongs to the level it was made on, so walking away clears it
   // without an effect, and a jump can land already selected.
@@ -116,16 +159,17 @@ export function TerrainMapView({ mapKey, at, onGo }: MapPlace & { mapKey?: strin
     [index, go],
   );
 
-  // Esc steps back: first out of a selection, then up a level.
+  // Esc steps back: first out of a selection, then up a level. While the
+  // code window is up Esc is its own (it closes the file), not a step here.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || !index || !focus) return;
+      if (event.key !== 'Escape' || !index || !focus || openPath) return;
       if (selected) setSelection(null);
       else if (focus !== root) go(index.byId.get(focus)?.parent ?? null);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [index, focus, root, selected, go]);
+  }, [index, focus, root, selected, go, openPath]);
 
   // The sheet (phone only) opens by itself when a box is chosen.
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -170,11 +214,11 @@ export function TerrainMapView({ mapKey, at, onGo }: MapPlace & { mapKey?: strin
       ) : !current ? (
         <p className={styles.note}>
           No maps yet. A map is a folder of markdown files at <code>docs/map/&lt;name&gt;/</code> inside a repo — the app’s
-          own, or a build’s. The format is in <code>docs/codemap.md</code>.
+          own, or a build’s — or in the data folder. The format is in <code>docs/codemap.md</code>.
         </p>
-      ) : index && focus && level ? (
+      ) : index && focus && level && fullLevel ? (
         <>
-          <Crumbs index={index} focus={focus} onGo={go} level={level} />
+          <Crumbs index={index} focus={focus} onGo={go} level={level} fullLevel={fullLevel} hidden={hiddenKinds} onHidden={setHidden} />
           <div className={styles.body}>
             <Canvas
               level={level}
@@ -211,6 +255,7 @@ export function TerrainMapView({ mapKey, at, onGo }: MapPlace & { mapKey?: strin
                   isFocus={panelBox.id === focus}
                   onJump={jumpTo}
                   onClose={selected ? () => setSelection(null) : undefined}
+                  onOpenFile={key ? (path) => setOpenFile({ map: key, path }) : undefined}
                   mapProblems={panelBox.id === root ? map.data?.problems ?? [] : []}
                 />
               </aside>
@@ -218,16 +263,52 @@ export function TerrainMapView({ mapKey, at, onGo }: MapPlace & { mapKey?: strin
           </div>
         </>
       ) : null}
+
+      {/* The file pane: read a box's source file without leaving the map
+          (FileCodeWindow). It covers this room's whole area and nothing
+          outside it; × or Esc comes back to the level as it was. Its layer
+          sits above the phone's bottom sheet, which would otherwise stay on
+          top of the code. */}
+      {openPath && (
+        <div className={styles.fileLayer}>
+          <FileCodeWindow repo={map.data?.repo ?? null} path={openPath} onClose={() => setOpenFile(null)} />
+        </div>
+      )}
     </div>
   );
 }
 
 /** Where you are: the boxes you're inside, each a step back up, then the
- *  counts and the legend of the link kinds drawn at this level. */
-function Crumbs({ index, focus, level, onGo }: { index: MapIndex; focus: string; level: Level; onGo: (at: string) => void }) {
+ *  counts and the legend of the link kinds at this level. Each legend entry
+ *  is a switch: tap a kind to hide its arrows, tap again to bring them back. */
+function Crumbs({
+  index,
+  focus,
+  level,
+  fullLevel,
+  hidden,
+  onHidden,
+  onGo,
+}: {
+  index: MapIndex;
+  focus: string;
+  /** What is drawn — the counts line describes this. */
+  level: Level;
+  /** The level with nothing hidden — the legend lists its kinds. */
+  fullLevel: Level;
+  hidden: ReadonlySet<string>;
+  onHidden: (next: ReadonlySet<string>) => void;
+  onGo: (at: string) => void;
+}) {
   const trail = ancestors(index, focus).reverse();
   const kinds = new Map<string, number>();
-  for (const edge of level.edges) kinds.set(edge.kind, (kinds.get(edge.kind) ?? 0) + edge.links.length);
+  for (const edge of fullLevel.edges) kinds.set(edge.kind, (kinds.get(edge.kind) ?? 0) + edge.links.length);
+  const hiddenHere = [...kinds.keys()].filter((kind) => hidden.has(kind));
+  const toggle = (kind: string) => {
+    const next = new Set(hidden);
+    if (!next.delete(kind)) next.add(kind);
+    onHidden(next);
+  };
   const insideCount = level.nodes.filter((n) => !n.outside).length;
   const outsideCount = level.nodes.length - insideCount;
   return (
@@ -251,25 +332,41 @@ function Crumbs({ index, focus, level, onGo }: { index: MapIndex; focus: string;
         {insideCount} {insideCount === 1 ? 'box' : 'boxes'}
         {outsideCount > 0 && ` · ${outsideCount} outside`} · {level.edges.length}{' '}
         {level.edges.length === 1 ? 'arrow' : 'arrows'}
+        {hiddenHere.length > 0 && ` · ${fullLevel.edges.length - level.edges.length} hidden`}
       </p>
       {kinds.size > 0 && (
-        <ul className={styles.legend} aria-label="Link kinds at this level">
+        <ul className={styles.legend} aria-label="Link kinds at this level — tap one to hide or show its arrows">
           {[...kinds].map(([kind, count]) => (
-            <li key={kind} className={styles.legendItem}>
-              <svg width="26" height="8" aria-hidden="true">
-                <line
-                  x1="1"
-                  y1="4"
-                  x2="25"
-                  y2="4"
-                  stroke={kindStyle(kind).color}
-                  strokeWidth="2.5"
-                  strokeDasharray={kindStyle(kind).dash}
-                />
-              </svg>
-              {kind} {count}
+            <li key={kind}>
+              <button
+                type="button"
+                className={`${styles.legendItem} ${hidden.has(kind) ? styles.legendOff : ''}`}
+                aria-pressed={!hidden.has(kind)}
+                title={hidden.has(kind) ? `Show ${kind} arrows` : `Hide ${kind} arrows`}
+                onClick={() => toggle(kind)}
+              >
+                <svg width="26" height="8" aria-hidden="true">
+                  <line
+                    x1="1"
+                    y1="4"
+                    x2="25"
+                    y2="4"
+                    stroke={kindStyle(kind).color}
+                    strokeWidth="2.5"
+                    strokeDasharray={kindStyle(kind).dash}
+                  />
+                </svg>
+                <span className={styles.legendName}>{kind}</span> {count}
+              </button>
             </li>
           ))}
+          {hiddenHere.length > 0 && (
+            <li>
+              <button type="button" className={styles.legendAll} onClick={() => onHidden(new Set())}>
+                Show all
+              </button>
+            </li>
+          )}
         </ul>
       )}
     </div>
@@ -496,6 +593,7 @@ function BoxPanel({
   isFocus,
   onJump,
   onClose,
+  onOpenFile,
   mapProblems,
 }: {
   box: MapBox;
@@ -503,6 +601,8 @@ function BoxPanel({
   isFocus: boolean;
   onJump: (id: string) => void;
   onClose?: () => void;
+  /** Open one source file in the code window. */
+  onOpenFile?: (path: string) => void;
   mapProblems: string[];
 }) {
   const parts = index.children.get(box.id) ?? [];
@@ -553,9 +653,19 @@ function BoxPanel({
         <Section title="Sources">
           <ul className={styles.plain}>
             {box.sources.map((source) => (
+              // A file that exists opens in the code window; a folder, or a
+              // source that's gone, is only named.
               <li key={source.path} className={source.exists ? styles.source : styles.sourceGone}>
-                {source.path}
-                {!source.exists && ' — gone'}
+                {source.exists && !source.folder && onOpenFile ? (
+                  <button type="button" className={styles.sourceOpen} onClick={() => onOpenFile(source.path)}>
+                    {source.path}
+                  </button>
+                ) : (
+                  <>
+                    {source.path}
+                    {!source.exists && ' — gone'}
+                  </>
+                )}
               </li>
             ))}
           </ul>

@@ -75,4 +75,20 @@ describe('levelView', () => {
       'web calls api.routes ×1',
     ]);
   });
+
+  it('hides a switched-off link kind, and an outside box only it reached', () => {
+    const index = indexMap(shop);
+    const top = levelView(index, 'shop', new Set(['calls']));
+    expect(top.nodes.map((n) => n.box.id)).toEqual(['api', 'db', 'web']);
+    expect(arrows(top.edges)).toEqual(['api reads db ×1']);
+
+    // Inside api, web was only there for its call: it goes with the arrow.
+    const inside = levelView(index, 'api', new Set(['calls']));
+    expect(inside.nodes.map((n) => [n.box.id, n.outside])).toEqual([
+      ['api.auth', false],
+      ['api.routes', false],
+      ['db', true],
+    ]);
+    expect(arrows(inside.edges)).toEqual(['api.auth reads db ×1', 'api.routes depends-on api.auth ×1']);
+  });
 });
