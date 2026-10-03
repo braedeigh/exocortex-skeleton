@@ -1094,7 +1094,7 @@
         "values": {
           "A": "another agent",
           "B": "the owner",
-          "S": "the app — a notice (a file alert, sent only while telling the sessions is switched on); read like any message, but never starts a turn by itself"
+          "S": "the app — a notice. Nothing sends one now; a few rows remain from when file alerts were told straight to the sessions"
         }
       },
       "from_conv": {
@@ -1434,8 +1434,8 @@
     }
   },
   "file_alerts": {
-    "holds": "Which pairs of agent sessions the app has noticed in the same file. One row per pair per file: either both changed it (same-file), or one changed it after the other read it (stale-copy). The room helper reads it and decides whether to say anything; the sessions themselves are told only when a row says so (told). The row is what stops the same overlap being counted twice.",
-    "source": "Written by file_alerts.py — by the minute check (file_alerts.tick), or, only while telling the sessions is switched on, by the pre-edit hook (tools/file_alert_hook.py). Never updated. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
+    "holds": "Which pairs of agent sessions the app has noticed in the same file. One row per pair per file: either both changed it (same-file), or one changed it after the other read it (stale-copy). The helpers read it and decide whether to say anything; the sessions themselves are not told. The row is what stops the same overlap being counted twice.",
+    "source": "Written by file_alerts.py, by the minute check (file_alerts.tick). Never updated.",
     "kind": "record",
     "time_column": "at",
     "columns": {
@@ -1471,13 +1471,13 @@
         "holds": "What caught it.",
         "values": {
           "tick": "the once-a-minute check",
-          "hook": "the pre-edit hook, as the edit began (only while telling the sessions is switched on)"
+          "hook": "a pre-edit hook that no longer exists"
         }
       },
       "told": {
-        "holds": "Whether the sessions themselves were told, as well as the room helper.",
+        "holds": "Whether the sessions themselves were told, as well as the helpers. Always 0 for a new row; only rows from the first build, which told the sessions, are 1.",
         "values": {
-          "0": "no — only written down for the room helper (the default)",
+          "0": "no — only written down for the helpers",
           "1": "yes — for same-file both sessions, for stale-copy the one that had read it"
         }
       }

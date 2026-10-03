@@ -2325,9 +2325,9 @@ def _run_ladder(conn):
                 raise
     if version < 29:
         # Rung 29: the agents' mailbox (peermail.py). One row per message sent
-        # INTO a session — by another agent (kind 'A'), by the owner while a
-        # turn was running (kind 'B'), or by the app as a notice (kind 'S',
-        # since rung 42). This is the record, not a mirror: the
+        # INTO a session — by another agent (kind 'A'), or by the owner while
+        # a turn was running (kind 'B'). The table also allows kind 'S' (see
+        # rung 42); nothing sends one. This is the record, not a mirror: the
         # transcripts only hold a message once it has been delivered, so a
         # message still waiting exists nowhere else.
         _create_agent_messages(conn, "agent_messages")
@@ -2963,18 +2963,19 @@ def _run_ladder(conn):
             # read it.
             "  conv_a TEXT NOT NULL,"
             "  conv_b TEXT NOT NULL,"
-            # 'tick' (the minute check) or 'hook' (caught as the edit began).
+            # What caught it: always 'tick', the minute check.
             "  source TEXT NOT NULL DEFAULT 'tick',"
             "  UNIQUE (path, line_a, line_b)"
             ")"
         )
-        # Let the mailbox carry a notice from the app (kind 'S'): handed to
-        # a working session between its steps like any message, but never
-        # starting a turn by itself (routes/observatory.py drain_inbox).
-        # SQLite can't alter a CHECK, so a mailbox made before this rung is
-        # rebuilt: make the new table, copy every row, drop the old, rename.
-        # A database made at this version already has the wide CHECK (rung
-        # 29 makes it so), and this is skipped.
+        # Widen the mailbox's CHECK to allow kind 'S', a notice from the app.
+        # Nothing sends one now: the code that did (file alerts told straight
+        # to the sessions) was removed, and the wide CHECK is kept only so
+        # every install's table has the same shape — a few old 'S' rows may
+        # exist. SQLite can't alter a CHECK, so a mailbox made before this
+        # rung is rebuilt: make the new table, copy every row, drop the old,
+        # rename. A database made at this version already has the wide CHECK
+        # (rung 29 makes it so), and this is skipped.
         made = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table'"
                             " AND name = 'agent_messages'").fetchone()
         if made and "'S'" not in made[0]:
@@ -2989,10 +2990,9 @@ def _run_ladder(conn):
             _index_agent_messages(conn)
     if version < 43:
         # Rung 43: say whether the two sessions were told (file_alerts.py).
-        # By default an overlap is only written down for the room helper;
-        # telling the sessions themselves is a switch that's off
-        # (config.FILE_ALERTS). Every row written before this rung was
-        # written while that switch was on, so those are marked told.
+        # An overlap is only written down for the helpers, so new rows are
+        # 0. An earlier build told the sessions too, and every row written
+        # before this rung comes from it, so those are marked told.
         columns = {row[1] for row in conn.execute("PRAGMA table_info(file_alerts)")}
         if "told" not in columns:
             conn.execute("ALTER TABLE file_alerts ADD COLUMN told INTEGER NOT NULL DEFAULT 0")

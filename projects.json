@@ -490,8 +490,7 @@
       ],
       "tools": [
         "nightcrew",
-        "act_ask_gate.py",
-        "file_alert_hook.py"
+        "act_ask_gate.py"
       ],
       "scripts": [
         "run_dispatcher.py",

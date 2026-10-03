@@ -864,16 +864,13 @@ export function ObservatoryPage({
               }
               if (t.role === 'reminder') {
                 // A System message the app sent — a Coming up reminder at its
-                // set time, a background job reporting back, or a notice (a
-                // file alert) — labelled with where it came from, so it never
-                // reads as her words.
+                // set time, or a background job reporting back — labelled with
+                // where it came from, so it never reads as her words.
                 return (
                   <div key={i} className={styles.reminder}>
                     <span className={styles.reminderLabel}>
                       {t.source === 'job'
                         ? '⚙ Background job finished'
-                        : t.source === 'notice'
-                        ? '⚠ Notice from the app'
                         : t.source === 'wake'
                         ? '◌ Room change · sent by the app'
                         : t.source === 'watch'

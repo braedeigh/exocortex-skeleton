@@ -458,10 +458,6 @@ def section(room, index=None, repo=None, now=None):
     # that changed one file, or one working from a copy another has changed
     # since. Nobody but the room helper is shown this, unless a line says so.
     import file_alerts
-    recorded = file_alerts.recorded_lines(lines, repo, today)
-    if recorded:
-        out += ["", "## Overlaps the app has noticed", "",
-                "Each pair and file is listed once, when first noticed. Unless a line says"
-                " a session was told, the sessions don't know: whether to message them,"
-                " make them a swarm or leave it is yours to decide.", ""] + recorded
+    recorded = file_alerts.recorded_section(lines, repo, today)
+    out += [""] + recorded if recorded else []
     return "\n".join(out) + "\n"

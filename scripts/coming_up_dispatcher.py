@@ -172,8 +172,8 @@ def main():
     except Exception as e:
         _log(f"room helper tick failed: {e}")
     # File overlaps: two open sessions are in the same file, so it is written
-    # down once for the room helper to read (file_alerts.py). The sessions
-    # themselves are told nothing unless config.FILE_ALERTS is on.
+    # down once for the helpers to read (file_alerts.py). The sessions
+    # themselves are told nothing, and no helper is woken for it.
     try:
         import file_alerts
         noticed = file_alerts.tick()

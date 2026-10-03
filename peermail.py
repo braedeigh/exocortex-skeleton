@@ -9,12 +9,6 @@ idle, the message starts a turn of its own. Messages the owner types while a
 turn is running go into the same mailbox, so everything that piles up for a
 session is delivered together, each labelled with who it's from.
 
-The app itself can leave a NOTICE in the same mailbox (kind `S` — a file
-alert from file_alerts.py, which sends one only while config.FILE_ALERTS is
-on; it is off by default). A notice is handed to a working session between
-its steps like any other message, but it never starts a turn: an idle
-session finds it waiting the next time anything else starts one.
-
 The sender chooses how hard to knock — `inject` (the default: hand it in and
 let the recipient decide), `queue` (wait until the current turn ends) or
 `interrupt` (stop the current turn and start over with this). The recipient
@@ -49,10 +43,6 @@ import sqlstore
 import store
 
 MODES = ("inject", "queue", "interrupt")
-# The kind of a notice the app sends (send_notice). Not an agent's message
-# and not hers: it links no swarm, clears none of her questions, and never
-# starts a turn by itself (routes/observatory.py drain_inbox).
-NOTICE = "S"
 POLICIES = ("open", "no-interrupt", "queue-only")
 
 # Longest message kept. A message is read by a model as tokens, so a peer
@@ -161,8 +151,8 @@ def send(to_conv, text, *, from_conv=None, kind="A", mode="inject", record=True)
                          " — put the long part in a file and send its path")
     if mode not in MODES:
         raise ValueError(f"mode must be one of {', '.join(MODES)}")
-    if kind not in ("A", "B", NOTICE):
-        raise ValueError("kind must be A, B or S")
+    if kind not in ("A", "B"):
+        raise ValueError("kind must be A or B")
     # Refuse the owner's kind from inside an agent's process. A B message is
     # her voice: it clears her open questions and resets the chain count, so
     # an agent sending one — even by accident, from a quick script — would
@@ -204,19 +194,6 @@ def send(to_conv, text, *, from_conv=None, kind="A", mode="inject", record=True)
         return get(cur.lastrowid, conn)
     finally:
         conn.close()
-
-
-def send_notice(to_conv, text):
-    """Leave a notice from the app in a session's mailbox. A working session
-    reads it between its steps; an idle one isn't woken — it reads it when
-    its next turn starts (the turn's companion hands in whatever waits)."""
-    return send(to_conv, text, kind=NOTICE, mode="inject", record=False)
-
-
-def only_notices(rows):
-    """Is there nothing here but the app's notices? Then nobody is waiting
-    on an answer, and no turn should start for it."""
-    return bool(rows) and all(r["kind"] == NOTICE for r in rows)
 
 
 def get(message_id, conn=None):
@@ -425,8 +402,6 @@ def label(row):
     it's reading."""
     if row["kind"] == "B":
         return owner_label()
-    if row["kind"] == NOTICE:
-        return "System notice · the app"
     entry = _entry(row["from_conv"]) or {}
     lane = entry.get("lane") or ""
     parts = ["A", f'"{title_of(row["from_conv"])}"']
@@ -440,10 +415,9 @@ def compose(rows):
     """The text a batch of messages is handed over as.
 
     A lone owner message goes in exactly as she typed it — the chat should
-    feel like the chat — and so does a lone notice, whose own first words say
-    the app sent it. Anything else is labelled, one block per message, and
+    feel like the chat. Anything else is labelled, one block per message, and
     an agent's message carries a reminder of what it is and how to answer."""
-    if len(rows) == 1 and rows[0]["kind"] in ("B", NOTICE):
+    if len(rows) == 1 and rows[0]["kind"] == "B":
         return rows[0]["text"]
     blocks = []
     for r in rows:

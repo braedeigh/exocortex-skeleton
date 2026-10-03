@@ -7,7 +7,7 @@ sources:
   - helper_chat.py
 links:
   - reads swarms.grouping: The seed lists the active sessions the helper watches.
-  - reads helpers.file-alerts: The seed lists every file each session edited and read.
+  - reads helpers.file-alerts: The seed lists every file each session edited and read, and the overlaps noticed between them.
   - reads helpers.watches: The helper's open watches are part of its seed.
   - reads linear.feed: The Linear helper's seed carries the recent Linear news.
   - reads swarms.helper: A swarm helper's seed carries the swarm's closing summaries.

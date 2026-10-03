@@ -32,7 +32,8 @@ things:
   3. THE ACTIVE SESSIONS — one entry per open line of work: its summary
      (written by a summarizer call of its own — swarm_helper.py,
      room_helper.py), every file it has edited and every file it has read,
-     for its whole life (edited_files.py). The room helper gets every open
+     for its whole life (edited_files.py), then the overlaps the app has
+     noticed between them (file_alerts.py). The room helper gets every open
      session in its room; a swarm helper gets its swarm's members. Helper
      sessions are never listed.
 
@@ -616,6 +617,13 @@ def _sessions_section(entry, found, finished, place, repo=None, now=None):
         out.append("")
     if not found:
         out += ["(no session is open here)", ""]
+    # Name the overlaps the app has written down between these sessions
+    # (file_alerts.py): two that changed one file, or one working from a copy
+    # another has changed since. The helper isn't woken for a new one.
+    import file_alerts
+    recorded = file_alerts.recorded_section(
+        {session["conv"]: set(session["line"]) for session in found}, repo, today)
+    out += recorded + [""] if recorded else []
     if finished:
         out += [f"({len(finished)} finished and not listed: "
                 + ", ".join(f"`{conv}`" for conv in finished)

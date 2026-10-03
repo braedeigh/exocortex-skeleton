@@ -301,21 +301,17 @@ read by the helper." So the app notices and writes it down
   row. A pair is two *lines of work*, so a continuation never overlaps with
   its parent and a pair stays written down after either hands off. Helpers
   and finished sessions are never part of one.
-- **Only the room helper is shown it.** Its files section
-  (`edited_files.section`, read by its fifteen-minute runs) ends with
-  "Overlaps the app has noticed", each line saying who was told — by default
-  nobody. The helper's chat can read the `file_alerts` table with its SQL
-  tool. Whether to message the two, make them a swarm or leave it is its call.
-- **Telling the sessions themselves is kept, switched off**
-  (`config.FILE_ALERTS`, `EXOCORTEX_FILE_ALERTS=1` to turn on). With it on, a
-  same-file overlap sends both sessions a notice and a stale copy sends one
-  to the reader, as mailbox kind `S` (`peermail.send_notice`): read between
-  steps by a session mid-turn, never waking an idle one (`drain_inbox`
-  starts no turn for notices alone), shown as a System bubble. A pre-edit
-  hook (`tools/file_alert_hook.py`, on Edit, Write and Bash) also warns a
-  session as it starts to change a file another changed — the edit is never
-  blocked. Rows written this way are marked `told`. An overlap written down
-  while the switch was off is not told later.
+- **Only the helpers are shown it.** The room helper's fifteen-minute runs
+  read it at the end of their files section (`edited_files.section`), and
+  every helper's chat at the end of the sessions part of its seed
+  (`helper_chat.py`) — "Overlaps the app has noticed", each line saying who
+  was told: nobody. Whether to message the two, make them a swarm or leave
+  it is the helper's call. A new overlap doesn't wake a helper — her words:
+  "list should go to helper chats seed but don't wake."
+- **The sessions are never told.** The first build's notices and its
+  pre-edit hook are deleted. What's left of it: the mailbox's CHECK still
+  allows kind `S` (nothing sends one), and the rows it wrote are marked
+  `told` in `file_alerts`.
 - `EXOCORTEX_FILE_OVERLAPS=0` stops the minute check altogether.
 
 ## Stages
@@ -352,7 +348,7 @@ read by the helper." So the app notices and writes it down
 | Room helper | `room_helper.py` (runs, moves, undo, the room overview); placements in `swarms.py` (`place`, `unplace`, `new_swarm`, `line_of_work`; `links` cuts pre-placement messages); `swarm_pins`, `room_moves`, `session_summaries`, `room_helper_runs` (sqlstore rung 37); `scripts/room_moves.py`; ticked by `scripts/coming_up_dispatcher.py` |
 | Watches | `watches.py` (add, the minute check, the wake-up, the seed section); `helper_watches` (sqlstore rung 40); `scripts/helper_watch.py`; allowed in `tools/helper_gate.py`; ticked by `scripts/coming_up_dispatcher.py`; `config.HELPER_WATCH_*` |
 | Linear feed | `linear_feed.py` (the look, what counts as news, the once-only record, the Linear helper and its wake-up, the phone push); `linear_api.py` (`team`, `changes`); `linear_events` (sqlstore rung 44) and the `linear_feed` state file; the helper's lead, sessions and news section in `helper_chat.py`; `scripts/linear_feed.py`, allowed in `tools/helper_gate.py`; `GET /api/linear-room/feed` in `routes/linear_room.py`; `LinearNews.tsx`, `linearNewsSeen.ts`, `LinearDoor.tsx`; ticked by `scripts/coming_up_dispatcher.py`; `config.LINEAR_FEED*`, `LINEAR_HELPER_DAYS` |
-| File alerts | `file_alerts.py` (finding overlaps, the once-only claim, the room helper's list); `edited_files.py` (`edits`, `reads`, the section that shows the list); `file_alerts` (sqlstore rungs 42–43); ticked by `scripts/coming_up_dispatcher.py`; `config.FILE_OVERLAPS`, `config.FILE_ALERT_ROOMS` / `_HOURS`. Switched off (`config.FILE_ALERTS`): the notice texts and pre-edit check in `file_alerts.py`, the mailbox's kind `S` and `peermail.send_notice`, `tools/file_alert_hook.py` wired in `_session_settings`, `drain_inbox` in `routes/observatory.py` |
+| File alerts | `file_alerts.py` (finding overlaps, the once-only claim, the helpers' list); `edited_files.py` (`edits`, `reads`, the section that shows the list to the room helper's runs); `helper_chat.py` (the list in every helper chat's seed); `file_alerts` (sqlstore rungs 42–43); ticked by `scripts/coming_up_dispatcher.py`; `config.FILE_OVERLAPS`, `config.FILE_ALERT_ROOMS` / `_HOURS` |
 | Closing summary and check | `swarms.retired`; `swarm_helper.watch_retirement` (run by `swarm_helper.tick` on the minute tick) starts `swarm_helper.py close <id>`; `close_out` (the model call, the record, the post, the room's line), `closing_input`, `closing_report` and `_commits_of` (the facts), `closings` / `closings_text` (the record and how the helper is handed it), `rest_again`; `swarm_closings` (sqlstore rung 45); the "closings" part in `helper_chat.seed_parts`; `closings` in `GET /api/swarms/<id>` and the "What this swarm did" section of `SwarmPage.tsx` |
 
 ## Status
@@ -363,8 +359,8 @@ read by the helper." So the app notices and writes it down
   yet).
 
 - File alerts: built and tested (`tests/test_file_alerts.py`). Overlaps are
-  written down for the room helper only — in its files section and the
-  `file_alerts` table; not on any page. Telling the sessions is switched off.
+  written down for the helpers only — in the room helper's files section,
+  every helper chat's seed and the `file_alerts` table; not on any page.
 - The Linear feed: built and tested (`tests/test_linear_feed.py`). Linear
   documents and their comments are not read. A look reads at most 100 changed
   issues and each one's 20 latest history rows; past that it keeps the newest
