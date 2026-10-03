@@ -9,11 +9,16 @@
  * are keyed by conversation id in the lane, so state sticks to its card
  * across polls exactly as the maps did.
  *
+ * Pointing the mouse at any of the three lights that session's orb on the
+ * Terrain map, when the map is open in another tile
+ * (shell/panels/agentHoverBus.ts).
+ *
  * Shares SessionLane.module.css — the cards and the lane are one visual
  * language, and the stylesheet is named for it.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import { dispatchIntent } from '../../shell/panels/windowBus';
 import {
   forkConversation,
@@ -150,7 +155,7 @@ export function ApprovalCard({
   onChanged?: () => void;
 }) {
   return (
-    <div className={styles.approval}>
+    <div className={styles.approval} {...agentPointerProps(row.id)}>
       <div className={styles.awaitTop}>
         <span className={styles.awaitDot} aria-hidden="true" />
         <span className={styles.title}>{row.title}</span>
@@ -307,7 +312,7 @@ export function AwaitingCard({
   };
 
   return (
-    <div className={styles.awaiting}>
+    <div className={styles.awaiting} {...agentPointerProps(row.id)}>
       <div className={styles.awaitTop}>
         <span className={styles.awaitDot} aria-hidden="true" />
         <span className={styles.title}>{row.title}</span>
@@ -526,6 +531,7 @@ export function SessionCard({
 
   return (
     <div
+      {...agentPointerProps(row.id)}
       className={[
         styles.card,
         CARD_CLASS[state] ? styles[CARD_CLASS[state]] : '',

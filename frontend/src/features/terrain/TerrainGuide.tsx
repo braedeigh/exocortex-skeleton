@@ -112,6 +112,13 @@ function Mark({ kind, color }: { kind: string; color?: string }): ReactElement {
           <path d="M4 14h32" stroke={color} strokeWidth="2" />
         </svg>
       );
+    case 'arrow':
+      return (
+        <svg {...box}>
+          <path d="M4 14h24" stroke={color} strokeWidth="2" />
+          <path d="M36 14l-9 -5v10z" fill={color} />
+        </svg>
+      );
     case 'dashed':
       return (
         <svg {...box}>
@@ -245,6 +252,11 @@ export function TerrainGuide({
             <b>Teal thread:</b> data flowing from the file that writes it to a file that
             reads it. Threads appear when you hover or select one of their ends.
           </Row>
+          <Row mark={<Mark kind="arrow" color="var(--green)" />}>
+            <b>Green arrow:</b> two agents that have messaged each other. The arrow points
+            at whoever received; a conversation has one at each end. A <b>blue</b> one is a
+            swarm&rsquo;s helper writing to an agent.
+          </Row>
           <Row mark={<Mark kind="ring" color="#ffffff" />}>
             <b>White ring:</b> an agent read this file.
           </Row>
@@ -258,6 +270,7 @@ export function TerrainGuide({
           <li>Drag empty space to pan. Scroll or pinch to zoom.</li>
           <li>Drag a dot and it stays where you put it. A <b>release</b> chip appears to let the physics have it back.</li>
           <li>Hover a dot to name it and light its folders, threads, tables and agents. Everything else dims.</li>
+          <li>With the Observatory open beside the map, pointing at an agent there lights it here.</li>
           <li>
             Press <kbd>/</kbd> or use <b>Find a file</b> to search by name. Matches light up and
             the list opens the file.

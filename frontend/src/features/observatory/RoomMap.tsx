@@ -26,7 +26,9 @@
  *
  * A ring's state follows the roster where the page has it (working glows,
  * an orange ring when it needs her), falling back to what the server said.
- * Tap any ring to open that session.
+ * Tap any ring to open that session. Pointing the mouse at one lights that
+ * agent's orb on the Terrain map, when the map is open in another tile
+ * (shell/panels/agentHoverBus.ts).
  *
  * When the card is shut, its title line still says how many swarm members
  * need her, so a question can't hide behind the collapse.
@@ -44,6 +46,7 @@
  * and then i want the question cards to show below it in the swarm and i want
  * each one to have its little card below the swarm bubble"
  */
+import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import { CollapsibleCard } from '../body/CollapsibleCard';
 import type { SessionMeta } from './api';
 import styles from './RoomMap.module.css';
@@ -131,6 +134,7 @@ export function RoomMap({
               type="button"
               className={[styles.agent, styles.roomHelper, ring[`state_${stateOf(helperMeta, 'silent')}`]].join(' ')}
               onClick={() => onOpen(view.helper_conv!)}
+              {...agentPointerProps(view.helper_conv)}
               title="The room helper — tap to open its chat"
             >
               <Ring state={stateOf(helperMeta, 'silent')} big />
@@ -179,6 +183,7 @@ export function RoomMap({
                   type="button"
                   className={[styles.agent, ring[`state_${state}`]].join(' ')}
                   onClick={() => onOpen(solo.conv)}
+                  {...agentPointerProps(solo.conv)}
                   title={solo.summary ? `${solo.title} — ${solo.summary}` : solo.title}
                 >
                   <Ring state={state} />

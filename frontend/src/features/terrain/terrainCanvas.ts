@@ -66,6 +66,16 @@
  * pins the lighting to one agent for as long as its card is up, so the
  * footprint stays lit under the card she's reading it from.
  *
+ * The same hover can also come IN from outside the map: pointing at an agent
+ * in the Observatory, in another tile, lights its orb here exactly as the
+ * cursor would (`setOutsideHover`; the wire is shell/panels/agentHoverBus.ts).
+ * It opens no card and never moves the camera.
+ *
+ * Agents that have MESSAGED each other are joined by straight arrows in the
+ * Observatory's own colours — green for talk, blue from a swarm's helper —
+ * with a head at each end that received (`drawMessageThreads`,
+ * terrainMessages.ts).
+ *
  * Prompt that produced the hover layer: "if you hover over an agent on
  * terrain, the other rings and lines become grayed out from the other agents
  * to focus on what is showing there" / "fade all the other dots that aren't
@@ -220,6 +230,9 @@ import type { TerrainThread } from './terrainThreads';
 import type { CallLink, TableCodeLink } from './tableMentions';
 import { lineageArrow, type LineageLink } from './terrainLineage';
 import { swarmHull, swarmNameAnchor, type SwarmGroup } from './terrainSwarms';
+import type { MessageThread } from './terrainMessages';
+import { headSize, messageArrow } from '../observatory/messageArrows';
+import { lineWidth } from '../observatory/swarmNetworkMath';
 import { homeChain, wiringTarget } from './hoverSelection';
 import { laneSideX, nearestExit, placeOrbNames, spreadOrbs, type Box, type NameAsk } from './agentLayout';
 import { spiralSpots, tipCurve, type SpiralArrangement } from './spiralLayout';
@@ -507,6 +520,12 @@ export interface ThemeInk {
    * since she last opened it wears it out here too, so the map and the session
    * list raise a hand in the same colour. */
   orange: string;
+  /** --green and --helper-blue — the two colours a message line wears, read
+   * from the same tokens the Observatory's swarm drawing uses
+   * (SwarmNetwork.module.css), so the map and the drawing can't drift apart:
+   * green where two agents have talked, blue from a swarm's helper. */
+  green: string;
+  helperBlue: string;
   /** The shared cold floor of both heat ramps on the dark surface — a neutral
    * grey as bright as bg lifted ASH_LIFT toward ink. Computed for light too,
    * but only dark paints it. */
@@ -1379,6 +1398,10 @@ export class TerrainCanvas {
    * Drawn as a soft outline around their orbs, never handed to the physics —
    * pulling a swarm together would drag each agent off the files it works on. */
   private swarms: readonly SwarmGroup[] = [];
+  /** Message lines: which agents have messaged which, and how many each way
+   * (terrainMessages.ts). Drawn as arrows between orbs, never handed to the
+   * physics, for the same reason as the two above. */
+  private messageThreads: readonly MessageThread[] = [];
   /** Either end of a rope → the node ids at its other ends. The hover reads
    * this; it is rebuilt only when the ropes or the graph change. */
   private codeLinkKin = new Map<string, Set<string>>();
@@ -1608,6 +1631,10 @@ export class TerrainCanvas {
   /** An agent whose lighting is pinned on regardless of where the cursor is —
    * set while its hovercard is up. See holdHover. */
   private heldHover: string | null = null;
+  /** An agent being pointed at somewhere OFF the map — a session card or a
+   * swarm ring in the Observatory, in another tile. Lights the map exactly as
+   * the map's own hover does. See setOutsideHover. */
+  private outsideHover: string | null = null;
   /** The FILE dot under the cursor, whatever it is — the one that names
    * itself. Deliberately not hoverFile: that one is the wiring highlight and
    * refuses a dot with nothing wired to it, which is exactly the dot whose
@@ -2332,6 +2359,17 @@ export class TerrainCanvas {
    */
   setSwarms(groups: readonly SwarmGroup[]): void {
     this.swarms = groups;
+    this.requestDraw();
+  }
+
+  /**
+   * Hand over the message lines: which agents have messaged which.
+   *
+   * Same contract as setLineage — stored and drawn, never given to the
+   * physics. A line with an end that isn't on the map is skipped at draw time.
+   */
+  setMessageThreads(threads: readonly MessageThread[]): void {
+    this.messageThreads = threads;
     this.requestDraw();
   }
 
@@ -4526,10 +4564,40 @@ export class TerrainCanvas {
     this.setHoverAgent(id);
   }
 
+  /**
+   * Light one agent because it is being pointed at somewhere else — a session
+   * card or a swarm ring in the Observatory, in another tile (or null to stop).
+   *
+   * It borrows the map's own agent hover, so one highlight means one thing:
+   * that agent's files and folders stay full and the rest recedes. It ranks
+   * last: the cursor on an orb here, or an open hovercard, both outrank it.
+   * No hovercard opens for it, and the camera stays where she left it.
+   *
+   * Prompt that produced it: "if I hover over an agent on the observatory, it
+   * highlights it on terrain."
+   */
+  setOutsideHover(id: string | null): void {
+    const before = this.outsideOrb();
+    this.outsideHover = id;
+    // Re-light only when the outside hover is what's showing (or nothing is).
+    // A cursor resting on a different orb keeps its own lighting.
+    if (this.hoverAgent === null || this.hoverAgent === before) this.setHoverAgent(null);
+  }
+
+  /** The outside hover, when that agent has an orb on the map. One without an
+   * orb (it touched no files, or agents are hidden) lights nothing — dimming
+   * the whole map for an agent that isn't on it would be a blackout. */
+  private outsideOrb(): string | null {
+    const id = this.outsideHover;
+    if (id === null) return null;
+    return this.simNodes.some((n) => n.node.kind === 'session' && n.node.session?.id === id) ? id : null;
+  }
+
   /** Null means "the cursor is on nothing" — which only actually clears the
-   * lighting when no card is holding it open (see holdHover). */
+   * lighting when no card is holding it open (see holdHover) and nothing is
+   * pointing at an agent from outside the map (see setOutsideHover). */
   private setHoverAgent(id: string | null): void {
-    const next = id ?? this.heldHover;
+    const next = id ?? this.heldHover ?? this.outsideOrb();
     if (this.hoverAgent === next) return;
     this.hoverAgent = next;
     this.recomputeHoverRings();
@@ -4621,6 +4689,77 @@ export class TerrainCanvas {
       );
       head(arrow.end, arrow.endDirection);
     }
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * Draw the message lines: who has messaged whom, with arrowheads.
+   *
+   * The same lines as the Observatory's swarm drawing, in the same colours:
+   * green between two agents that have talked, blue from a swarm's helper.
+   * A head sits at each end that RECEIVED messages, so a conversation has a
+   * head at both ends and a one-way line has one. The line thickens with how
+   * much was said, by the same rule as the Observatory (lineWidth), a little
+   * thinner here because the map is busier.
+   *
+   * Straight, where the spinoff arrows are bowed, so a pair that is both
+   * parent-and-child and talking shows two lines and not one laid on the
+   * other. Quiet at rest; under an agent hover that agent's own lines come up
+   * and the others drop back — the same split the spinoff arrows make. Sizes
+   * are divided by the zoom so a line keeps its on-screen size at any zoom.
+   *
+   * Prompt that produced it: "I want messages to also be shown on terrain
+   * with the same color threads."
+   */
+  private drawMessageThreads(
+    ctx: CanvasRenderingContext2D,
+    transform: ZoomTransform,
+    hover: string | null,
+    dimmed: boolean,
+  ): void {
+    if (this.messageThreads.length === 0) return;
+    const capBefore = ctx.lineCap;
+    const orbs = new Map<string, SimNode>();
+    for (const n of this.simNodes) {
+      if (n.node.kind === 'session' && n.node.session?.id) orbs.set(n.node.session.id, n);
+    }
+    const gap = 3 / transform.k;   // breathing room between the arrow and the ring
+    const minR = MIN_NODE_PX / transform.k;
+    for (const thread of this.messageThreads) {
+      const a = orbs.get(thread.a);
+      const b = orbs.get(thread.b);
+      if (!a || !b) continue; // one end isn't on the map
+      const widthPx = lineWidth(thread.messages) * 0.6;
+      const head = headSize(widthPx);
+      const arrow = messageArrow(
+        { at: { x: a.x ?? 0, y: a.y ?? 0 }, clear: Math.max(a.radius, minR) + gap, headed: thread.bToA > 0 },
+        { at: { x: b.x ?? 0, y: b.y ?? 0 }, clear: Math.max(b.radius, minR) + gap, headed: thread.aToB > 0 },
+        { length: head.length / transform.k, halfWidth: head.halfWidth / transform.k },
+        true,
+      );
+      if (!arrow) continue; // orbs too close: no room to point
+      const mine = hover !== null && (thread.a === hover || thread.b === hover);
+      const ink = thread.kind === 'helper' ? this.theme.helperBlue : this.theme.green;
+      ctx.globalAlpha = hover !== null ? (mine ? 0.95 : 0.08) : dimmed ? 0.25 : 0.7;
+      ctx.strokeStyle = ink;
+      ctx.fillStyle = ink;
+      ctx.lineWidth = widthPx / transform.k;
+      ctx.lineCap = 'butt';
+      ctx.beginPath();
+      ctx.moveTo(arrow.start.x, arrow.start.y);
+      ctx.lineTo(arrow.end.x, arrow.end.y);
+      ctx.stroke();
+      for (const corners of [arrow.headAtStart, arrow.headAtEnd]) {
+        if (!corners) continue;
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y);
+        ctx.lineTo(corners[1].x, corners[1].y);
+        ctx.lineTo(corners[2].x, corners[2].y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.lineCap = capBefore;
     ctx.globalAlpha = 1;
   }
 
@@ -5333,6 +5472,7 @@ export class TerrainCanvas {
     ctx.setLineDash([]);
 
     this.drawLineage(ctx, transform, hover, dimmed);
+    this.drawMessageThreads(ctx, transform, hover, dimmed);
 
     this.drawCoilStrands(ctx, transform, theme, dimmed);
     this.drawCoilTips(ctx, transform, theme, dimmed);
@@ -6098,6 +6238,8 @@ export function readThemeInk(): ThemeInk {
     accent: get('--accent', '#7c5cbf'),
     evening: get('--evening', '#6a7acc'),
     orange: get('--orange', '#d4700a'),
+    green: get('--green', '#3a9e8c'),
+    helperBlue: get('--helper-blue', '#4f8fe6'),
     ash,
     dark,
   };

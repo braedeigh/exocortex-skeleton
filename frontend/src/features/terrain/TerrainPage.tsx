@@ -70,6 +70,8 @@ import { addTableNodes } from './tableNodes';
 import { callLinks, tableCodeLinks } from './tableMentions';
 import { lineageLinks } from './terrainLineage';
 import { swarmGroups } from './terrainSwarms';
+import { messageThreads } from './terrainMessages';
+import { pointedAgent, subscribeAgentHover } from '../../shell/panels/agentHoverBus';
 import { shownSwarms, useClosedSwarmsShown, useSwarms } from '../observatory/swarmApi';
 import { tapStage } from './hoverSelection';
 import { TerrainTableWindow } from './TerrainTableWindow';
@@ -1025,6 +1027,32 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
     engineRef.current?.setSwarms(swarmList);
   }, [swarmList]);
 
+  // The message lines: who has messaged whom inside those same swarms, with
+  // how many each way (terrainMessages.ts). Same hand-over as the swarm
+  // outlines, ref included (terrainCanvas.ts setMessageThreads). The poll
+  // returns a fresh list every few seconds, so the lines are compared by
+  // content and only handed over when one actually changed.
+  const messageLines = useMemo(
+    () => messageThreads(shownSwarms(swarmsQuery.data ?? [], showClosedSwarms)),
+    [swarmsQuery.data, showClosedSwarms],
+  );
+  const messageLinesKey = JSON.stringify(messageLines);
+  const messageLinesRef = useRef(messageLines);
+  messageLinesRef.current = messageLines;
+  useEffect(() => {
+    engineRef.current?.setMessageThreads(messageLinesRef.current);
+  }, [messageLinesKey]);
+
+  // Light the agent being pointed at in another tile: a session card or a
+  // swarm ring in the Observatory (shell/panels/agentHoverBus.ts). The map
+  // shows it with its own agent hover (terrainCanvas.ts setOutsideHover).
+  // The canvas is built by a later effect, which asks the bus for the
+  // current agent itself; this listener covers every change after that.
+  useEffect(
+    () => subscribeAgentHover((convId) => engineRef.current?.setOutsideHover(convId)),
+    [],
+  );
+
   // The replay runner. Frames are pre-batched (beats within 40ms share one
   // flash); each frame flashes its dots and appends its threads to the lit
   // set, which stays up for a few seconds after the last beat so the whole
@@ -1306,6 +1334,8 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
     engineRef.current = engine;
     engine.setLineage(spinoffLinksRef.current);
     engine.setSwarms(swarmListRef.current);
+    engine.setMessageThreads(messageLinesRef.current);
+    engine.setOutsideHover(pointedAgent());
     engine.onPins = setPinnedCount;
     setInk(initialInk);
     engine.resize(wrap.clientWidth, wrap.clientHeight);

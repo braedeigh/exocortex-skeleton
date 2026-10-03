@@ -25,6 +25,8 @@ const ink = (dark: boolean): ThemeInk => ({
   accent: '#7c5cbf',
   evening: '#6a7acc',
   orange: '#d4700a',
+  green: '#3a9e8c',
+  helperBlue: '#4f8fe6',
   ash: dark ? '#313131' : '#cccccc',
   dark,
 });

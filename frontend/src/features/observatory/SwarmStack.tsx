@@ -30,6 +30,11 @@
  * when anyone needs her, a breathing purple one when anyone works, grey at
  * rest, from SessionLane.module.css.
  *
+ * Pointing the mouse at a member's little card lights that agent's orb on the
+ * Terrain map, when the map is open in another tile
+ * (shell/panels/agentHoverBus.ts). The question cards and the rings in the
+ * bubble do the same.
+ *
  * Touches: RoomMap.tsx (draws one per swarm), roomOrder.ts (the view and the
  * member order), orchestra.ts (the rows the question cards read),
  * SessionCard.tsx (AwaitingCard, ApprovalCard), SwarmNetwork.tsx (the bubble),
@@ -43,6 +48,7 @@
  * · "Want to be able to collapse a swarm from the top"
  */
 import { useNavigate } from '@tanstack/react-router';
+import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import type { SessionMeta } from './api';
 import { useLaneOpen } from './LaneHead';
 import { orchestraRows } from './orchestra';
@@ -174,6 +180,7 @@ export function SwarmStack({
                 className={[styles.member, styles[`member_${m.state}`]].join(' ')}
                 onClick={() => onOpen(m.conv)}
                 title={`Open ${m.title}`}
+                {...agentPointerProps(m.conv)}
               >
                 <span className={styles.memberTop}>
                   {/* An unread reply or a failed turn: a grey card, orange dot. */}

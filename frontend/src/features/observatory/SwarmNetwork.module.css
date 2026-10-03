@@ -1,7 +1,8 @@
 /* SwarmNetwork — a swarm as rings and lines. Rings are Terrain's --accent
    purple around a solid dot (glowing, with a spinning teal arc, while it
    works; an extra orange ring when waiting on her); talk lines are --green,
-   the helper's threads out to members are blue. */
+   the helper's threads out to members are blue; an arrowhead on a line
+   points at whoever received the messages. */
 
 /* The drawing fills the width it's given and never scrolls sideways: the
    layout is fitted to that width (swarmNetworkMath.ts layoutSwarm), and the
@@ -21,16 +22,30 @@
 
 .talk {
   stroke: var(--green);
-  stroke-linecap: round;
+  /* Square ends: a line stops flat against the base of its arrowhead, and
+     an end with no head is hidden under its ring. */
+  stroke-linecap: butt;
   opacity: 0.85;
 }
 
-/* The helper's threads: blue, so they read apart from green talk. Blue
-   isn't in the theme palette; this one holds up on both the light and the
-   dark theme. A touch fainter than talk. */
+/* The helper's threads: blue (--helper-blue, theme.css), so they read apart
+   from green talk. The Terrain map draws the same lines from the same two
+   tokens. A touch fainter than talk. */
 .helperThread {
-  stroke: #4f8fe6;
-  stroke-linecap: round;
+  stroke: var(--helper-blue);
+  stroke-linecap: butt;
+  opacity: 0.7;
+}
+
+/* The arrowheads: a head at each end of a line that received messages, in
+   the line's own colour and strength. */
+.talkHead {
+  fill: var(--green);
+  opacity: 0.85;
+}
+
+.helperHead {
+  fill: var(--helper-blue);
   opacity: 0.7;
 }
 
@@ -58,8 +73,8 @@
 
 /* The helper thread's count: the same chip, in blue. */
 .helperCount {
-  border-color: #4f8fe6;
-  color: #4f8fe6;
+  border-color: var(--helper-blue);
+  color: var(--helper-blue);
 }
 
 /* One agent. The ring's centre sits exactly on its seat; the name hangs
@@ -264,7 +279,7 @@
   display: inline-block;
   width: 28px;
   height: 0;
-  border-top: 3px solid #4f8fe6;
+  border-top: 3px solid var(--helper-blue);
   vertical-align: middle;
 }
 

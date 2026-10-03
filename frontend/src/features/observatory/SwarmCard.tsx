@@ -34,6 +34,7 @@
  * grey activity scheme."
  */
 import { useNavigate } from '@tanstack/react-router';
+import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import laneStyles from './SessionLane.module.css';
 import styles from './SwarmCard.module.css';
 import { orderMembers, type SwarmView } from './roomOrder';
@@ -85,6 +86,7 @@ export function SwarmCard({ view, onOpen }: { view: SwarmView; onOpen: (convId: 
             className={[styles.member, styles[MEMBER_CLASS[m.state]]].join(' ')}
             onClick={() => onOpen(m.conv)}
             title={`Open ${m.title}`}
+            {...agentPointerProps(m.conv)}
           >
             {m.unread && m.state !== 'needs_input' ? <span className={styles.unreadDot} aria-label="unread" /> : null}
             {m.title}
