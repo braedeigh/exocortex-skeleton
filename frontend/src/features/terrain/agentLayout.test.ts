@@ -1,41 +1,107 @@
 import { describe, expect, it } from 'vitest';
-import { laneSideX, nearestExit, placeOrbNames, spreadOrbs, type NameAsk } from './agentLayout';
+import {
+  boundsOf,
+  laneSide,
+  outsideSpot,
+  placeOrbNames,
+  spreadOrbs,
+  type NameAsk,
+  type OrbSide,
+} from './agentLayout';
 
 const zone = { left: 0, top: 0, right: 400, bottom: 200 };
 
-describe('laneSideX', () => {
-  it('puts Coding on the left and Personal on the right, whichever order the repos come in', () => {
-    for (const anchors of [[200, 900], [900, 200], [900, 550, 200]]) {
-      expect(laneSideX('coding', anchors)).toBe(200);
-      expect(laneSideX('personal', anchors)).toBe(900);
-    }
+describe('laneSide', () => {
+  it('puts Coding on the left and Personal on the right', () => {
+    expect(laneSide('coding', 2)).toBe('left');
+    expect(laneSide('personal', 3)).toBe('right');
   });
 
   it('gives every other room no side', () => {
     for (const lane of ['orchestra', 'research', 'linear', '']) {
-      expect(laneSideX(lane, [200, 900])).toBeNull();
+      expect(laneSide(lane, 2)).toBeNull();
     }
   });
 
   it('gives nobody a side on a map with one repo', () => {
-    expect(laneSideX('coding', [500])).toBeNull();
-    expect(laneSideX('personal', [])).toBeNull();
+    expect(laneSide('coding', 1)).toBeNull();
+    expect(laneSide('personal', 0)).toBeNull();
   });
 });
 
-describe('nearestExit', () => {
-  it('leaves an orb outside the fence alone', () => {
-    expect(nearestExit(-10, 50, zone)).toBeNull();
-    expect(nearestExit(200, 250, zone)).toBeNull();
+describe('orbs outside the cloud', () => {
+  // A cloud of file dots, measured the way the map measures it.
+  const dots = [
+    { x: 0, y: 0, radius: 10 },
+    { x: 400, y: 300, radius: 10 },
+    { x: 800, y: -100, radius: 20 },
+  ];
+  const cloud = boundsOf(dots)!;
+  const gap = 130;
+
+  it('measures the cloud round every dot and every box joined on', () => {
+    expect(cloud).toEqual({ left: -10, top: -120, right: 820, bottom: 310 });
+    expect(boundsOf([], [zone])).toEqual(zone);
+    expect(boundsOf([])).toBeNull();
   });
 
-  it('moves an orb in the middle of the shelves out through the nearest edge', () => {
-    // 40 from the top, 160 from the bottom, 200 from either side.
-    expect(nearestExit(200, 40, zone)).toEqual({ x: 200, y: 0 });
+  it('leaves an orb already outside the ring alone, whatever its side', () => {
+    expect(outsideSpot(400, 600, null, cloud, gap)).toBeNull();
+    // A Coding orb above the cloud is allowed to be there: the side is a preference.
+    expect(outsideSpot(400, -500, 'left', cloud, gap)).toBeNull();
   });
 
-  it('exits sideways when a side is nearer than top or bottom', () => {
-    expect(nearestExit(390, 100, zone)).toEqual({ x: 400, y: 100 });
+  it('sends an orb out through the nearest edge, gap included', () => {
+    expect(outsideSpot(400, 290, null, cloud, gap)).toEqual({ x: 400, y: 440 });
+    expect(outsideSpot(800, 100, null, cloud, gap)).toEqual({ x: 950, y: 100 });
+  });
+
+  it('prefers the room side from deep inside, but not for an orb that just crossed another edge', () => {
+    // Mid-cloud: the bottom edge is nearest (340 away against 545 to either
+    // side), but an orb's own side counts as half as far.
+    expect(outsideSpot(405, 100, null, cloud, gap)).toEqual({ x: 405, y: 440 });
+    expect(outsideSpot(405, 100, 'left', cloud, gap)).toEqual({ x: -140, y: 100 });
+    expect(outsideSpot(405, 100, 'right', cloud, gap)).toEqual({ x: 950, y: 100 });
+    // Just inside the top edge: back to the top edge, not flung to the side.
+    expect(outsideSpot(405, -240, 'left', cloud, gap)).toEqual({ x: 405, y: -250 });
+  });
+
+  it('settles a dozen agents working on the same files outside, leaning to their sides, without stacking', () => {
+    // The map's own loop in miniature: every orb is pulled toward the same
+    // spot in the middle of the cloud and, more softly, toward its room's
+    // side; pushed off its neighbours; then fenced.
+    const home = { x: 400, y: 100 };
+    const middle = (cloud.left + cloud.right) / 2;
+    const sides: OrbSide[] = ['left', 'left', 'left', 'left', 'left', 'left', 'right', 'right', 'right', null, null, null];
+    const orbs = sides.map((side, i) => ({ side, x: home.x + i, y: home.y - i, vx: 0, vy: 0 }));
+    for (let tick = 0; tick < 400; tick++) {
+      const alpha = Math.max(0.001, 0.98 ** tick);
+      for (const orb of orbs) {
+        orb.vx += (home.x - orb.x) * 0.05 * alpha;
+        orb.vy += (home.y - orb.y) * 0.05 * alpha;
+        if (orb.side === 'left') orb.vx += (cloud.left - gap - orb.x) * 0.03 * alpha;
+        if (orb.side === 'right') orb.vx += (cloud.right + gap - orb.x) * 0.03 * alpha;
+      }
+      spreadOrbs(orbs, gap, 0.6);
+      for (const orb of orbs) {
+        orb.vx *= 0.6;
+        orb.vy *= 0.6;
+        orb.x += orb.vx;
+        orb.y += orb.vy;
+        const spot = outsideSpot(orb.x, orb.y, orb.side, cloud, gap);
+        if (spot) Object.assign(orb, spot);
+      }
+    }
+    for (const orb of orbs) {
+      expect(outsideSpot(orb.x, orb.y, orb.side, cloud, gap)).toBeNull();
+      if (orb.side === 'left') expect(orb.x).toBeLessThan(middle);
+      if (orb.side === 'right') expect(orb.x).toBeGreaterThan(middle);
+    }
+    for (let i = 0; i < orbs.length; i++) {
+      for (let j = i + 1; j < orbs.length; j++) {
+        expect(Math.hypot(orbs[i].x - orbs[j].x, orbs[i].y - orbs[j].y)).toBeGreaterThan(gap * 0.8);
+      }
+    }
   });
 });
 

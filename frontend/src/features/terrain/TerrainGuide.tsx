@@ -170,7 +170,7 @@ export function TerrainGuide({
           This is a live map of one person&rsquo;s software and the AI agents working on
           it. Every dot is a file. The two territories are the app&rsquo;s code and a
           private vault of notes and data. The boxes in the corridor between them are the
-          database&rsquo;s tables. The rings that drift among the dots are agent sessions,
+          database&rsquo;s tables. The rings standing outside the dots are agent sessions,
           tethered to the files they touched. It redraws itself as the work happens.
         </p>
 
@@ -193,7 +193,9 @@ export function TerrainGuide({
             shelf, named after them. A dashed outline is an empty table.
           </Row>
           <Row mark={<Mark kind="orb" color={AGENT_PURPLE} />}>
-            <b>An agent session.</b> A running one ripples. One that has news since it
+            <b>An agent session.</b> It stands outside the files, on the
+            ring round them: coding sessions lean left, personal ones right. A
+            running one ripples. One that has news since it
             was last opened sends a slow orange ping. It is named only if it worked in
             the last hour.
           </Row>
@@ -252,7 +254,7 @@ export function TerrainGuide({
             <b>Teal thread:</b> data flowing from the file that writes it to a file that
             reads it. Threads appear when you hover or select one of their ends.
           </Row>
-          <Row mark={<Mark kind="arrow" color="var(--green)" />}>
+          <Row mark={<Mark kind="arrow" color="var(--message-green)" />}>
             <b>Green arrow:</b> two agents that have messaged each other. The arrow points
             at whoever received; a conversation has one at each end. A <b>blue</b> one is a
             swarm&rsquo;s helper writing to an agent.
@@ -270,7 +272,7 @@ export function TerrainGuide({
           <li>Drag empty space to pan. Scroll or pinch to zoom.</li>
           <li>Drag a dot and it stays where you put it. A <b>release</b> chip appears to let the physics have it back.</li>
           <li>Hover a dot to name it and light its folders, threads, tables and agents. Everything else dims.</li>
-          <li>With the Observatory open beside the map, pointing at an agent there lights it here.</li>
+          <li>With the Observatory open beside the map, pointing at an agent there lights it here. One with no ring on the map lights the files it touched.</li>
           <li>
             Press <kbd>/</kbd> or use <b>Find a file</b> to search by name. Matches light up and
             the list opens the file.

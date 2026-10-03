@@ -5,14 +5,12 @@
  * without a browser:
  *
  *   ROOM SIDE      an agent from the Coding room belongs on the left of the
- *                  map, one from the Personal room on the right. Where a new
- *                  orb first appears, and where a gentle sideways pull holds
- *                  it until its files pull harder.
- *   FENCE EXIT     an orb found inside the table section is moved to the
- *                  nearest edge of it. Orbs have no repo of their own, so they
- *                  can't leave "toward home" the way the file dots do — and an
- *                  agent that worked on both sides of the map is tethered to
- *                  the exact middle, which is where the shelves stand.
+ *                  map, one from the Personal room on the right.
+ *   OUTSIDE SPOT   orbs stand OUTSIDE the cloud of files, a set gap clear of
+ *                  it — anywhere on the ring round it. The cloud is measured
+ *                  as one rectangle round every file, folder and table. An
+ *                  orb found inside leaves by the nearest edge, counting its
+ *                  own room's side as nearer than it is.
  *   PERSONAL SPACE two orbs closer than a set gap are pushed apart, so agents
  *                  that worked on the same files don't pile onto one spot.
  *   NAME PLACEMENT each orb's name tries above, below, right, then left of its
@@ -21,8 +19,9 @@
  *                  way the table names already avoid each other. Screen space,
  *                  so it holds at every zoom without moving anything on the map.
  *
- * Used by terrainCanvas.ts (the orb seed and the 'x' force in setGraph, the
- * 'orbSpread' force, the tick handler, and the orb-name pass in draw()).
+ * Used by terrainCanvas.ts (the 'orbSpread' force in setGraph, fenceOrbsOut
+ * — run as each graph is built and after every physics step — and the
+ * orb-name pass in draw()).
  *
  * Prompt that produced it: "Agents in terrain spawned in the coding room
  * should spawn on the left side of terrain. Agents spawning in personal should
@@ -30,7 +29,11 @@
  * sql tables … i want the names of the agents to be fully displayed when i
  * hover over them, and … less overlap between them" / "i want [the names to
  * move instead of the map], but i want the agents to push each other apart
- * more than they do now".
+ * more than they do now" / "i want for the agents to be spawning more outside
+ * of the cloud of files than they are right now. right now they are all
+ * jumbled up in the middle. i'm wanting them to spawn outside and then not be
+ * so close to the rest of the files" / asked which side is outside: "ring all
+ * around but with preference to sides".
  */
 
 /** An axis-aligned rectangle — a keep-out zone in world units, or a name's
@@ -42,45 +45,94 @@ export interface Box {
   bottom: number;
 }
 
+/** Which side of the cloud an orb's room leans it toward; null is "no side". */
+export type OrbSide = 'left' | 'right' | null;
+
 /**
- * Which side of the map an agent's room puts it on: the x to appear at and be
- * pulled toward, or null for "no side — leave it where the map puts it".
+ * Which side of the map an agent's room puts it on.
  *
- * Coding goes to the LEFTMOST repo's anchor and Personal to the RIGHTMOST.
- * The sides are read off the screen, not off repo names, so the rule holds
- * whatever the repos are called. Every other room (Orchestra, Research,
- * Linear, or none) has no side. A map with only one repo on it — a build's
- * map, or the main map with a repo switched off — has no left and right
- * ground to stand on, so nobody gets a side there either.
+ * Coding goes LEFT and Personal goes RIGHT — read off the screen, not off
+ * repo names, so the rule holds whatever the repos are called. Every other
+ * room (Orchestra, Research, Linear, or none) has no side. A map with only one
+ * repo on it — a build's map, or the main map with a repo switched off — has
+ * no left and right ground to stand on, so nobody gets a side there either.
  */
-export function laneSideX(lane: string, repoAnchorXs: readonly number[]): number | null {
-  if (lane !== 'coding' && lane !== 'personal') return null;
-  if (repoAnchorXs.length < 2) return null;
-  const leftmost = Math.min(...repoAnchorXs);
-  const rightmost = Math.max(...repoAnchorXs);
-  if (leftmost === rightmost) return null;
-  return lane === 'coding' ? leftmost : rightmost;
+export function laneSide(lane: string, repoCount: number): OrbSide {
+  if (repoCount < 2) return null;
+  return lane === 'coding' ? 'left' : lane === 'personal' ? 'right' : null;
 }
 
 /**
- * Move a point inside the box to the nearest edge of it; null if it's already
- * outside (or exactly on the edge), meaning leave it be.
+ * Measure the cloud: the smallest rectangle holding every given body. Null
+ * when there are none.
  *
- * Nearest edge rather than a fixed side: the orb goes out whichever way costs
- * it the least travel, so it settles on the fence close to where its tethers
- * were holding it instead of being thrown to the far side of the shelves.
+ * A round body (a file dot, a folder) is given as a centre and a radius; a
+ * rectangle that's already measured (a table, the shelves' keep-out zone) is
+ * passed in `boxes` and simply joined on.
  */
-export function nearestExit(x: number, y: number, box: Box): { x: number; y: number } | null {
-  if (x <= box.left || x >= box.right || y <= box.top || y >= box.bottom) return null;
-  const toLeft = x - box.left;
-  const toRight = box.right - x;
-  const toTop = y - box.top;
-  const toBottom = box.bottom - y;
+export function boundsOf(
+  bodies: Iterable<{ x?: number; y?: number; radius: number }>,
+  boxes: readonly Box[] = [],
+): Box | null {
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const body of bodies) {
+    const x = body.x ?? 0;
+    const y = body.y ?? 0;
+    left = Math.min(left, x - body.radius);
+    right = Math.max(right, x + body.radius);
+    top = Math.min(top, y - body.radius);
+    bottom = Math.max(bottom, y + body.radius);
+  }
+  for (const box of boxes) {
+    left = Math.min(left, box.left);
+    right = Math.max(right, box.right);
+    top = Math.min(top, box.top);
+    bottom = Math.max(bottom, box.bottom);
+  }
+  return left === Infinity ? null : { left, top, right, bottom };
+}
+
+/** How much nearer an orb's own side counts than it really is, when choosing
+ * which edge to leave by: at 0.5, the side edge wins unless another edge is
+ * less than half as far. */
+const SIDE_EXIT_FAVOUR = 0.5;
+
+/**
+ * Where an orb has to stand to be outside the cloud, `gap` clear of it; null
+ * if it's already there (or exactly on the line), meaning leave it be.
+ *
+ * Outside means out of the cloud's rectangle grown by `gap` — anywhere on the
+ * ring round it. An orb found inside goes out through the nearest edge, so it
+ * lands close to where its files are instead of being thrown across the map.
+ * Its room's side is a preference, not a rule: the distance to that edge is
+ * counted as shorter than it is (SIDE_EXIT_FAVOUR), so an orb starting deep
+ * in the cloud comes out on its own side, while one that has only just
+ * crossed the top edge is put back on the top edge.
+ */
+export function outsideSpot(
+  x: number,
+  y: number,
+  side: OrbSide,
+  cloud: Box,
+  gap: number,
+): { x: number; y: number } | null {
+  const left = cloud.left - gap;
+  const right = cloud.right + gap;
+  const top = cloud.top - gap;
+  const bottom = cloud.bottom + gap;
+  if (x <= left || x >= right || y <= top || y >= bottom) return null;
+  const toLeft = (x - left) * (side === 'left' ? SIDE_EXIT_FAVOUR : 1);
+  const toRight = (right - x) * (side === 'right' ? SIDE_EXIT_FAVOUR : 1);
+  const toTop = y - top;
+  const toBottom = bottom - y;
   const least = Math.min(toLeft, toRight, toTop, toBottom);
-  if (least === toTop) return { x, y: box.top };
-  if (least === toBottom) return { x, y: box.bottom };
-  if (least === toLeft) return { x: box.left, y };
-  return { x: box.right, y };
+  if (least === toLeft) return { x: left, y };
+  if (least === toRight) return { x: right, y };
+  if (least === toTop) return { x, y: top };
+  return { x, y: bottom };
 }
 
 /** A body the personal-space rule can nudge — a d3 sim node's own fields. */

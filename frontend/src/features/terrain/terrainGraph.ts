@@ -578,9 +578,10 @@ export interface TerrainNode {
 export interface TerrainEdge {
   source: string;
   target: string;
-  /** 'tree' = parent→child structure (default); 'session' = a weak tether
-   * from a session orb to one of its footprint files, so the physics parks
-   * the orb amid its own territory without distorting the tree; 'fk' = a
+  /** 'tree' = parent→child structure (default); 'session' = a tether from a
+   * session orb to one of its footprint files — drawn, and what the map
+   * reads to stand the orb outside the cloud level with its files, but never
+   * a spring, so it can't distort the tree; 'fk' = a
    * foreign key, from the table that holds it to the table it points at
    * (tableNodes.ts). */
   kind?: 'tree' | 'session' | 'fk';
@@ -926,8 +927,8 @@ export const SESSION_NODE_PREFIX = 'session:';
  * hasn't touched a file yet — or whose files fell outside the current dials —
  * simply isn't on the map, however plainly open it is. /terrain passes the
  * conversations she has open here, so "open" is enough to earn a body. Such an
- * orb has no tethers and therefore no gravity: the sim parks it at the canvas
- * anchor rather than amid a territory it doesn't have yet.
+ * orb has no tethers and so nothing to stand level with: the map moves it
+ * out of the cloud from the canvas anchor and it rests there.
  */
 export function buildSessionOrbs(
   fileNodes: TerrainNode[],

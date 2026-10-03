@@ -48,9 +48,12 @@
  *
  * Orb names move out of each other's way (`drawOrbNames`, agentLayout.ts),
  * orbs keep a wide personal space from each other (the 'orbSpread' force),
- * and orbs are fenced out of the table section (`fenceOrbsOut`). An orb's
- * ROOM gives it a side: Coding agents appear on the left and are gently
- * pulled there, Personal agents on the right (`laneSideX`, used in setGraph).
+ * and orbs stand OUTSIDE the cloud of files and tables, a gap clear of it
+ * (`fenceOrbsOut`) — anywhere on the ring round it. An orb's ROOM leans it
+ * toward a side: Coding agents left, Personal agents right, the rest wherever
+ * is nearest their files (`laneSide` / `outsideSpot`, agentLayout.ts). Tethers
+ * are drawn but don't pull; the 'orbHome' force slides each orb round the
+ * ring toward its files and, more softly, toward its side.
  *
  * Hover also reports OUT, through `onHoverAgent`: the conversation id plus
  * where its orb is sitting on screen right now, which is what /terrain hangs
@@ -227,6 +230,7 @@ import {
   graphUnchanged,
   normalizeHeat,
   writeFreshness,
+  sessionFileTouch,
   sessionTouchRings,
   SESSION_NODE_PREFIX,
   type FileTouchKind,
@@ -241,7 +245,16 @@ import type { MessageThread } from './terrainMessages';
 import { headSize, messageArrow } from '../observatory/messageArrows';
 import { lineWidth } from '../observatory/swarmNetworkMath';
 import { homeChain, wiringTarget } from './hoverSelection';
-import { laneSideX, nearestExit, placeOrbNames, spreadOrbs, type Box, type NameAsk } from './agentLayout';
+import {
+  boundsOf,
+  laneSide,
+  outsideSpot,
+  placeOrbNames,
+  spreadOrbs,
+  type Box,
+  type NameAsk,
+  type OrbSide,
+} from './agentLayout';
 import { spiralSpots, tipCurve, type SpiralArrangement } from './spiralLayout';
 import {
   GRID_RING_GAP,
@@ -527,11 +540,11 @@ export interface ThemeInk {
    * since she last opened it wears it out here too, so the map and the session
    * list raise a hand in the same colour. */
   orange: string;
-  /** --green and --helper-blue — the two colours a message line wears, read
+  /** --message-green and --helper-blue — the two colours a message line wears, read
    * from the same tokens the Observatory's swarm drawing uses
    * (SwarmNetwork.module.css), so the map and the drawing can't drift apart:
    * green where two agents have talked, blue from a swarm's helper. */
-  green: string;
+  messageGreen: string;
   helperBlue: string;
   /** The shared cold floor of both heat ramps on the dark surface — a neutral
    * grey as bright as bg lifted ASH_LIFT toward ink. Computed for light too,
@@ -844,14 +857,23 @@ const ORB_PERSONAL_SPACE = 130;
 /** How much of an orb pair's overlap is corrected per tick. Not scaled by the
  * sim's cooling (like collision), so the tethers can't win it back. */
 const ORB_SPREAD_STRENGTH = 0.6;
+/** How far outside the cloud of files an agent's orb stands, in world units
+ * (outsideSpot, agentLayout.ts). The same distance orbs keep from each other,
+ * so there is one gap to read on the map, not two. */
+const ORB_CLOUD_GAP = ORB_PERSONAL_SPACE;
+/** How hard an agent's orb is pulled toward the middle of the files it
+ * touched (the 'orbHome' force). It can't get there — the fence holds it
+ * outside — so what this decides is how quickly it slides along its edge to
+ * sit level with its files. Eased by the sim's cooling. Judged by eye. */
+const ORB_HOME_PULL = 0.05;
 /** How hard an agent's orb is pulled sideways toward its room's side of the
- * map (laneSideX, agentLayout.ts). Slightly firm: an orb with no files rests
- * on its side, and one whose files are all on the FAR side settles between
- * the two (about halfway over with one file, about two thirds of the way with
- * five or more — measured in a small simulation of these forces, not on the
- * live map).
+ * cloud (laneSide, agentLayout.ts). Softer than the pull toward its files, so
+ * the side is a preference: an orb whose files are all on the FAR side rests
+ * on the top or bottom edge about five eighths of the way over to them (the
+ * two pulls balance there — arithmetic, not measured on the live map).
  *
- * Prompt that produced it: asked soft or firm, "slightly firm". */
+ * Prompt that produced it: asked soft or firm, "slightly firm"; asked which
+ * side is outside, "ring all around but with preference to sides". */
 const ORB_SIDE_PULL = 0.03;
 /** The shelves re-measure where the dots are once every this many physics
  * ticks — often enough to glide with the map as it settles, rare enough that
@@ -1437,6 +1459,12 @@ export class TerrainCanvas {
   /** The nodes SHE dragged into place, by id. Each is held at its spot (d3's
    * fx/fy) until she releases it or reloads the page. */
   private pinnedByHand = new Set<string>();
+  /** How many repos are on the map — what decides whether rooms have sides
+   * at all (laneSide, agentLayout.ts). Set by setGraph. */
+  private repoCount = 0;
+  /** The cloud of files and tables as fenceOrbsOut last measured it: one
+   * rectangle in world units, null before anything is on the map. */
+  private cloud: Box | null = null;
   /** The node currently being carried, and the pointer carrying it. */
   private dragNode: SimNode | null = null;
   private dragPointerId: number | null = null;
@@ -2684,7 +2712,7 @@ export class TerrainCanvas {
   /**
    * Swap in a (re)built graph. Positions carry over by node id so a lens
    * change or repo toggle re-warms a settled layout instead of exploding a
-   * fresh one; brand-new nodes seed near their parent (session orbs amid
+   * fresh one; brand-new nodes seed near their parent (session orbs outside the cloud, level with
    * their footprint). When the node/edge sets are UNCHANGED (a live-mode
    * refetch that only advanced heats/labels/running flags, or a lens change
    * on the same files), the sim nodes update in place and the layout never
@@ -2765,23 +2793,15 @@ export class TerrainCanvas {
       return { x: this.width / 2 + offset, y: this.height / 2 };
     };
 
-    // Give each agent's orb the side of the map its room belongs on. Coding
-    // is the leftmost repo's anchor, Personal the rightmost (laneSideX,
-    // agentLayout.ts); null for every other room and for a one-repo map,
-    // which leaves that orb exactly as it was before sides existed. Used
-    // twice below: where a new orb with no files yet first appears, and as
-    // the target of the gentle sideways pull in the 'x' force.
-    //
-    // Prompt that produced it: "Agents in terrain spawned in the coding room
-    // should spawn on the left side of terrain. Agents spawning in personal
-    // should be spawning over to the right".
-    const repoAnchorXs = repoIds.map((id) => anchorFor(id).x);
-    const orbSideX = (node: TerrainNode): number | null =>
-      node.kind === 'session' ? laneSideX(node.session?.lane ?? '', repoAnchorXs) : null;
+    // Remember how many repos there are: with two or more, an agent's room
+    // gives its orb a side of the map (orbSideOf); with one, nobody has one.
+    this.repoCount = repoIds.length;
 
-    // Session orbs seed at the centroid of their footprint files, so a new
-    // orb fades in amid its own territory instead of streaking across the map.
-    // One with no files placed yet seeds on its room's side instead.
+    // Start each new orb level with the files it touched: the middle of them
+    // is worked out here, and fenceOrbsOut (called below, once everything is
+    // placed) moves the orb out of the cloud from there, so it
+    // appears outside rather than in among its files. One with no files
+    // placed yet starts from its spinoff parent's spot, or the map's middle.
     const orbSeed = new Map<string, { x: number; y: number; n: number }>();
     for (const e of edges) {
       if (e.kind !== 'session') continue;
@@ -2804,7 +2824,7 @@ export class TerrainCanvas {
       const anchor = anchorFor(node.repoId);
       const parent = node.parentId ? byId.get(node.parentId) : undefined;
       const seed = orbSeed.get(node.id);
-      const seedX = seed && seed.n > 0 ? seed.x / seed.n : (parent?.x ?? orbSideX(node) ?? anchor.x);
+      const seedX = seed && seed.n > 0 ? seed.x / seed.n : (parent?.x ?? anchor.x);
       const seedY = seed && seed.n > 0 ? seed.y / seed.n : (parent?.y ?? anchor.y);
       const sn: SimNode = {
         id: node.id,
@@ -2838,6 +2858,25 @@ export class TerrainCanvas {
     this.placeShelves(byId, repoIds, anchorFor, shelves);
     this.placeCoils(byId);
     this.placeGrids(byId);
+    // Put every orb outside the cloud before anything is drawn, so a new one
+    // appears there and one remembered from before the fence moves out too.
+    this.fenceOrbsOut();
+
+    // Which files each agent touched, as a lookup from its orb — what the
+    // 'orbHome' force pulls an orb toward. Tables are left out: they stand in
+    // the corridor in the middle of the map, and would drag the orb of every
+    // agent that wrote a row toward the centre.
+    const orbFiles = new Map<SimNode, SimNode[]>();
+    for (const link of this.simLinks) {
+      if (link.kind !== 'session') continue;
+      const s = link.source as SimNode;
+      const t = link.target as SimNode;
+      const orb = s.node.kind === 'session' ? s : t.node.kind === 'session' ? t : null;
+      const file = orb === s ? t : s;
+      if (!orb || isTable(file)) continue;
+      if (!orbFiles.has(orb)) orbFiles.set(orb, []);
+      orbFiles.get(orb)!.push(file);
+    }
 
     // Which tables each table is joined to by a foreign key, either direction
     // — what a hover over a table keeps lit. Rebuilt only here, with the
@@ -2915,27 +2954,23 @@ export class TerrainCanvas {
             const rest = s.node.kind === 'repo' ? 70 : 34;
             return Math.max(rest, this.bodyRadiusOf(s) + this.bodyRadiusOf(t));
           })
-          // Session tethers are weak on purpose: the orb drifts to sit amid
-          // its territory without dragging the tree out of shape. The tile's
-          // mooring is nearly as slack — a body this size should be HELD near
-          // the cards hub, not sprung to it.
+          // A session tether is drawn and never pulls. The orbs stand outside
+          // the cloud (fenceOrbsOut), so a tether is long, and a spring that
+          // long hauls on the FILE end too — d3 gives most of a link's
+          // movement to the end with fewer links, which is the file — and
+          // would drag every touched file out of the tree toward the margin.
+          // The 'orbHome' force below moves the orb instead, and only the orb.
+          // The tile's mooring is slack — a body this size should be HELD
+          // near the cards hub, not sprung to it.
           .strength((l) =>
             l.kind === 'session'
-              ? // A tether to a TABLE is drawn and never pulls: the shelves
-                // stand in the corridor the orbs are fenced out of
-                // (fenceOrbsOut), so a pull would only park every agent that
-                // wrote a row against that fence.
-                isTable(l.source as SimNode) || isTable(l.target as SimNode)
-                ? 0
-                : 0.06
+              ? 0
               : // The coil's dots are pinned, so the folder rope may not pull
                 // on them — and it's the one thing that could tear the spiral
                 // apart, since every one of those hundred ropes hauls on the
                 // same hub. The strand drawn through the coil says where they
-                // live instead. Only the TREE rope is cut: a session tether
-                // still pulls, which parks an agent's orb beside the photos
-                // it opened, exactly as it does everywhere else. A grid's
-                // dots are pinned the same way, for the same reason.
+                // live instead. A grid's dots are pinned the same way, for
+                // the same reason.
                 (l.kind ?? 'tree') === 'tree' &&
                   (this.onArrangement(l.source as SimNode) || this.onArrangement(l.target as SimNode))
                 ? 0
@@ -3077,15 +3112,45 @@ export class TerrainCanvas {
           ORB_SPREAD_STRENGTH,
         );
       })
-      // Pull everything gently toward its home, left to right. A file or
-      // folder's home is its repo's anchor. An orb's home is its room's side
-      // (orbSideX above), pulled more softly than its tethers pull, so its
-      // files still win once it has a few; an orb with no side isn't pulled.
+      // Pull each orb toward the middle of the files it touched, and more
+      // softly toward its room's side. The fence (fenceOrbsOut, in the tick
+      // handler) stops it at the cloud's edge, so what this does is slide the
+      // orb round the ring until it's as near its files as the edge allows —
+      // the tethers then reach in from outside — leaning left for Coding and
+      // right for Personal. The side pull aims at the fence line on that side
+      // of the cloud as last measured. Eased by the sim's cooling `alpha`
+      // like every other force. An orb with no files only feels its side.
+      //
+      // Prompt that produced it: "i'm wanting them to spawn outside and then
+      // not be so close to the rest of the files" / "ring all around but with
+      // preference to sides".
+      .force('orbHome', (alpha: number) => {
+        const cloud = this.cloud;
+        if (cloud) {
+          for (const orb of this.simNodes) {
+            if (orb.node.kind !== 'session') continue;
+            const side = this.orbSideOf(orb);
+            if (side === null) continue;
+            const sideX = side === 'left' ? cloud.left - ORB_CLOUD_GAP : cloud.right + ORB_CLOUD_GAP;
+            orb.vx = (orb.vx ?? 0) + (sideX - (orb.x ?? 0)) * ORB_SIDE_PULL * alpha;
+          }
+        }
+        for (const [orb, files] of orbFiles) {
+          let sumX = 0;
+          let sumY = 0;
+          for (const file of files) {
+            sumX += file.x ?? 0;
+            sumY += file.y ?? 0;
+          }
+          orb.vx = (orb.vx ?? 0) + (sumX / files.length - (orb.x ?? 0)) * ORB_HOME_PULL * alpha;
+          orb.vy = (orb.vy ?? 0) + (sumY / files.length - (orb.y ?? 0)) * ORB_HOME_PULL * alpha;
+        }
+      })
+      // Pull every file and folder gently toward its repo's anchor, left to
+      // right. Orbs aren't pulled: where they stand is the fence's business.
       .force(
         'x',
-        forceX<SimNode>((n) => orbSideX(n.node) ?? anchorFor(n.node.repoId).x).strength((n) =>
-          n.node.kind !== 'session' ? 0.045 : orbSideX(n.node) === null ? 0 : ORB_SIDE_PULL,
-        ),
+        forceX<SimNode>((n) => anchorFor(n.node.repoId).x).strength((n) => (n.node.kind === 'session' ? 0 : 0.045)),
       )
       .force('y', forceY<SimNode>((n) => anchorFor(n.node.repoId).y).strength((n) => (n.node.kind === 'session' ? 0 : 0.055)))
       // A map restored from memory is already settled: it gets the faintest
@@ -3771,32 +3836,56 @@ export class TerrainCanvas {
     };
   }
 
+  /** Which side of the cloud this orb's room leans it toward: Coding left,
+   * Personal right, anything else no side (laneSide). */
+  private orbSideOf(n: SimNode): OrbSide {
+    return laneSide(n.node.session?.lane ?? '', this.repoCount);
+  }
+
   /**
-   * Keep the agent orbs out of the table section — a hard fence, not a push.
+   * Keep the agent orbs outside the cloud of files — a hard fence, not a push.
    *
-   * An agent is tied to every file it touched and settles amid them, so one
-   * that worked in both repos is held in the corridor between them, which is
-   * exactly where the shelves stand. A push that eases with the sim's cooling
-   * (the one the file dots get) loses to dozens of tethers pulling the same
-   * way, so an orb found inside is simply moved to the zone's nearest edge
-   * (nearestExit, agentLayout.ts) and its speed into the fence is dropped.
-   * Runs after each physics step, so the orb is never drawn inside. An orb
-   * she has pinned by hand stays where she put it.
+   * The cloud is measured where it actually is, as one rectangle round every
+   * file dot, folder and table plus the shelves' keep-out zone (boundsOf,
+   * agentLayout.ts). An orb found closer to it than ORB_CLOUD_GAP is simply
+   * moved to the spot outside (outsideSpot): out through the nearest edge,
+   * with its room's side counted as nearer than it is. Its speed into the
+   * fence is dropped. Outside, it may stand anywhere on the ring.
    *
-   * Prompt that produced it: "i need for the agent dots to be repulsed by the
-   * sql tables, but currently they are not".
+   * A fence and not a push because the 'orbHome' pull points into the cloud
+   * every tick, and a push that eases with the sim's cooling would lose to
+   * it. Runs once as each graph is built and after every physics step, so an
+   * orb is never drawn inside. An orb she has pinned by hand stays where she
+   * put it.
+   *
+   * Prompt that produced it: "i want for the agents to be spawning more
+   * outside of the cloud of files than they are right now. right now they are
+   * all jumbled up in the middle. i'm wanting them to spawn outside and then
+   * not be so close to the rest of the files" / "ring all around but with
+   * preference to sides".
    */
   private fenceOrbsOut(): void {
     const zone = this.shelfZone();
-    if (!zone) return;
+    const tableBoxes = this.simNodes.filter(isTable).map((n): Box => {
+      const size = tableSize(n.node.file!.table!);
+      const x = n.x ?? 0;
+      const y = n.y ?? 0;
+      return { left: x - size.width / 2, right: x + size.width / 2, top: y - size.height / 2, bottom: y + size.height / 2 };
+    });
+    const cloud = boundsOf(
+      this.simNodes.filter((n) => n.node.kind !== 'session' && !isTable(n)),
+      zone ? [...tableBoxes, zone] : tableBoxes,
+    );
+    this.cloud = cloud;
+    if (!cloud) return;
     for (const n of this.simNodes) {
       if (n.node.kind !== 'session' || n.fx != null) continue;
-      const exit = nearestExit(n.x ?? 0, n.y ?? 0, zone);
-      if (!exit) continue;
-      if (exit.x !== n.x) n.vx = 0;
-      if (exit.y !== n.y) n.vy = 0;
-      n.x = exit.x;
-      n.y = exit.y;
+      const spot = outsideSpot(n.x ?? 0, n.y ?? 0, this.orbSideOf(n), cloud, ORB_CLOUD_GAP);
+      if (!spot) continue;
+      if (spot.x !== n.x) n.vx = 0;
+      if (spot.y !== n.y) n.vy = 0;
+      n.x = spot.x;
+      n.y = spot.y;
     }
   }
 
@@ -4597,31 +4686,42 @@ export class TerrainCanvas {
    * last: the cursor on an orb here, or an open hovercard, both outrank it.
    * No hovercard opens for it, and the camera stays where she left it.
    *
+   * The agent doesn't need an orb. The map only draws orbs for the agents in
+   * its current pool, and the Observatory's swarm drawing shows quiet and
+   * retired ones too; pointing at one of those lights the files it touched,
+   * with no orb among them.
+   *
    * Prompt that produced it: "if I hover over an agent on the observatory, it
-   * highlights it on terrain."
+   * highlights it on terrain." Then: "i also want it working for the dot
+   * diagram and not just question messages."
    */
   setOutsideHover(id: string | null): void {
-    const before = this.outsideOrb();
+    const before = this.outsideAgent();
     this.outsideHover = id;
     // Re-light only when the outside hover is what's showing (or nothing is).
     // A cursor resting on a different orb keeps its own lighting.
     if (this.hoverAgent === null || this.hoverAgent === before) this.setHoverAgent(null);
   }
 
-  /** The outside hover, when that agent has an orb on the map. One without an
-   * orb (it touched no files, or agents are hidden) lights nothing — dimming
-   * the whole map for an agent that isn't on it would be a blackout. */
-  private outsideOrb(): string | null {
+  /** The outside hover, when that agent has something on the map to light:
+   * its orb, or at least one file it touched. One with neither lights
+   * nothing — dimming the whole map for an agent that isn't on it would be a
+   * blackout. */
+  private outsideAgent(): string | null {
     const id = this.outsideHover;
     if (id === null) return null;
-    return this.simNodes.some((n) => n.node.kind === 'session' && n.node.session?.id === id) ? id : null;
+    const onMap = this.simNodes.some((n) =>
+      n.node.kind === 'session'
+        ? n.node.session?.id === id
+        : n.node.kind === 'file' && n.node.file !== undefined && sessionFileTouch(n.node.file, id) !== null);
+    return onMap ? id : null;
   }
 
   /** Null means "the cursor is on nothing" — which only actually clears the
    * lighting when no card is holding it open (see holdHover) and nothing is
    * pointing at an agent from outside the map (see setOutsideHover). */
   private setHoverAgent(id: string | null): void {
-    const next = id ?? this.heldHover ?? this.outsideOrb();
+    const next = id ?? this.heldHover ?? this.outsideAgent();
     if (this.hoverAgent === next) return;
     this.hoverAgent = next;
     this.recomputeHoverRings();
@@ -4638,7 +4738,11 @@ export class TerrainCanvas {
     const orb = this.hoverAgent
       ? this.simNodes.find((sn) => sn.node.kind === 'session' && sn.node.session?.id === this.hoverAgent)
       : undefined;
-    this.hoverAgentKin = orb ? this.withHomes([orb.id, ...(this.sessionKin.get(orb.id) ?? [])]) : null;
+    // An agent with no orb (pointed at from outside the map) still lights the
+    // files it touched, found from the files' own record of who touched them.
+    this.hoverAgentKin = orb
+      ? this.withHomes([orb.id, ...(this.sessionKin.get(orb.id) ?? [])])
+      : this.hoverRings.size > 0 ? this.withHomes(this.hoverRings.keys()) : null;
   }
 
   /** The hover that's actually in effect. A committed tap-spotlight outranks
@@ -4763,7 +4867,7 @@ export class TerrainCanvas {
       );
       if (!arrow) continue; // orbs too close: no room to point
       const mine = hover !== null && (thread.a === hover || thread.b === hover);
-      const ink = thread.kind === 'helper' ? this.theme.helperBlue : this.theme.green;
+      const ink = thread.kind === 'helper' ? this.theme.helperBlue : this.theme.messageGreen;
       ctx.globalAlpha = hover !== null ? (mine ? 0.95 : 0.08) : dimmed ? 0.25 : 0.7;
       ctx.strokeStyle = ink;
       ctx.fillStyle = ink;
@@ -6262,7 +6366,7 @@ export function readThemeInk(): ThemeInk {
     accent: get('--accent', '#7c5cbf'),
     evening: get('--evening', '#6a7acc'),
     orange: get('--orange', '#d4700a'),
-    green: get('--green', '#3a9e8c'),
+    messageGreen: get('--message-green', '#5c9a2b'),
     helperBlue: get('--helper-blue', '#4f8fe6'),
     ash,
     dark,
