@@ -183,6 +183,27 @@ def test_overview_marks_handed_off_and_archived_members_retired(data_dir):
     assert retired == {"a", "c"}
 
 
+def test_a_handoff_does_not_close_a_swarm_before_the_continuation_joins(data_dir):
+    """A member that fills its context hands on to a fresh session, which is
+    made a member only at the next sync. In that gap the swarm still has both
+    its lines of work: it must not read as retired, or its helper writes a
+    closing summary for a swarm that is still working (it happened to a live
+    swarm, 14 seconds before the continuation joined)."""
+    _seed("a", "b", running=True)
+    peermail.send("b", "hi", from_conv="a")
+    [swarm_id] = swarms.sync()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["a"].update(running=False, continued_by="a2")
+        index["a2"] = {"title": "a2", "lane": "coding",
+                       "spawned_from": "a", "spawned_via": "continue"}
+    assert swarms.overview_members(swarm_id) == ["a", "b"]     # a2 not joined yet
+    assert swarms.retired(swarm_id) is False
+    # When the continuation finishes too, that line of work is over.
+    with store.mutate("bot_chats/index", {}) as index:
+        index["a2"]["done_at"] = "2026-09-27T12:00:00"
+    assert swarms.retired(swarm_id) is True
+
+
 def _backdate_pins(conv_ids, at="2000-01-01T00:00:00"):
     """Make placements older than every message, as if they were made long ago."""
     import sqlstore

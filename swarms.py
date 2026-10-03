@@ -409,10 +409,18 @@ def retired(swarm_id, index=None):
 def live_lines(members, index):
     """The lines of work among these members that are still going: each a
     frozenset of a session and its continuations (line_of_work), counted
-    once however many of them are members. Finished members (member_retired)
-    and old helper sessions (is_helper_session) don't make a line live."""
-    return {frozenset(line_of_work(m, index)) for m in members
-            if not member_retired(index.get(m)) and not is_helper_session(m, index)}
+    once however many of them are members. Old helper sessions
+    (is_helper_session) don't make a line live.
+
+    A line is going while ANY session in it is unfinished (member_retired),
+    member or not. A session that hands its work on is finished the moment it
+    does, and its continuation is made a member only at the next sync: judged
+    by members alone, a swarm read as closed in that gap and its helper wrote
+    a closing summary for work that was still going."""
+    lines = {frozenset(line_of_work(m, index)) for m in members
+             if not is_helper_session(m, index)}
+    return {line for line in lines
+            if any(not member_retired(index.get(conv)) for conv in line)}
 
 
 def is_closed(members, index):
