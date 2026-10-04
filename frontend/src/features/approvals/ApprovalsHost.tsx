@@ -36,6 +36,7 @@ import { itemsUnowned, subscribeOpenConvs } from './openConvs';
 import { getApprovalEditor } from './registry';
 import { useApprovalDecisions } from './useApprovalDecisions';
 import type { ApprovalsToast } from './useApprovalDecisions';
+import { agentLabel } from '../todos/provenance';
 import styles from './ApprovalsHost.module.css';
 import './builtinEditors';
 
@@ -82,6 +83,9 @@ export function ApprovalsHost({ onToast }: ApprovalsHostProps) {
 
       {active ? (
         <Sheet open title={title} onClose={d.dismiss}>
+          {/* Say who is asking: this sheet opens over whatever she's looking
+              at, which may be a different chat from the one that proposed. */}
+          {active.by ? <p className={styles.from}>✦ {agentLabel(active.by)} proposes</p> : null}
           <Editor
             key={active.id}
             change={active}
