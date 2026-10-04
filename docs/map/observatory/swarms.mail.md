@@ -12,8 +12,8 @@ links:
   - calls engine.delivery: The send command goes through the engine's peer_send door.
   - reads swarms.grouping: The swarm command shows this session's swarm and its summaries.
   - calls swarms.continuation: A message to a session that handed off goes to its successor, and the handoff command starts one.
-fingerprint: a4a4922ea5d5
-written: 2026-10-02
+fingerprint: 67c57b67a183
+written: 2026-10-04
 ---
 
 The mailbox stores every message sent into a session, from the owner or from another agent. The sender picks how hard to knock: inject, queue or interrupt. The receiver picks what it accepts during a turn.

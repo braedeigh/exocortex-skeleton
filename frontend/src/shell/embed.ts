@@ -7,6 +7,11 @@
  * features/terrain/TerrainPage.tsx). The shell's own chrome (TopTabs) reads
  * this too, so the public header stays out of the frame.
  *
+ * `/terrain/map?embed=map` is the second card on that page: the Map room cut
+ * down the same way (features/terrain/TerrainMapView.tsx). It has its own
+ * value because `/terrain/map?embed=1` is an old address of the first card
+ * and must keep forwarding to Files (routes/terrain_.map.tsx).
+ *
  * Read off the real URL rather than the router's search object because the
  * shell decides before any route has parsed anything, and because an embed
  * is one page — nothing navigates inside it.
@@ -21,5 +26,8 @@ export function isEmbed(): boolean {
  * component renders, that is what the address bar says. Both count. */
 export function isEmbedSearch(search: string): boolean {
   const v = new URLSearchParams(search).get('embed');
-  return v === '1' || v === 'true';
+  return v === '1' || v === 'true' || v === MAP_EMBED;
 }
+
+/** The `embed` value that means "the Map room as a card", not the heatmap. */
+export const MAP_EMBED = 'map';

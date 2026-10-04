@@ -55,6 +55,8 @@
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
+  /* A visitor's bar wears this on a link ("← Files"), not a button. */
+  text-decoration: none;
 }
 
 .rooms:hover,

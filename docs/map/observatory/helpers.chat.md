@@ -14,8 +14,8 @@ links:
   - reads data.transcripts: The seed replays the owner's last exchanges with the helper.
   - writes data.transcripts: The seed, its parts and what the helper has seen are kept beside the transcripts.
   - calls engine.turns: A wake-up starts a helper turn when its sessions changed.
-fingerprint: 5d1561d834d7
-written: 2026-10-02
+fingerprint: 2ffa134ec167
+written: 2026-10-04
 ---
 
 A helper's chat is one conversation for the helper's whole life. Each turn is a fresh model session, seeded with a document. The document has three parts: the helper's job and the owner's standing rules, the owner's last fifteen exchanges with it, and one entry per active session.

@@ -40,8 +40,8 @@ links:
   - calls engine.gates: The approval card approves or denies a held command.
   - calls spinoffs.door: The Go button on a spinoff offer starts the new sessions.
   - depends-on page.roster: The chat reads session state and read marks from the roster's helpers.
-fingerprint: 7d638c97729a
-written: 2026-10-02
+fingerprint: 887b42266c74
+written: 2026-10-04
 ---
 
 The chat is the view of one session. It reads the session's transcript and then follows the live turn as a stream of events. The reply appears word by word.

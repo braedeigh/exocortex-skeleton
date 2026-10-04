@@ -5,8 +5,8 @@ kind: module
 order: 2
 sources:
   - routes/observatory.py
-fingerprint: 62dd6a08495c
-written: 2026-10-02
+fingerprint: c0f5bbad9fea
+written: 2026-10-04
 ---
 
 The session engine is the server side of the Observatory. It is one large file of HTTP routes and the functions behind them. It makes sessions, starts turns, delivers messages, and closes sessions.

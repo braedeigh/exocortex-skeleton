@@ -207,6 +207,8 @@
   padding: 0 var(--space-3);
   font-weight: 600;
   white-space: nowrap;
+  /* A visitor's door to the Map is a link wearing this chip. */
+  text-decoration: none;
 }
 
 /* The Guide's door, "? Guide" — the same shape as the Rooms chip, and it

@@ -1,4 +1,5 @@
 import { useCallback, useState, type ReactNode } from 'react';
+import { Link } from '@tanstack/react-router';
 import { TerrainRoomsIndex } from './TerrainRoomsIndex';
 import styles from './TerrainRoomHeader.module.css';
 
@@ -24,6 +25,10 @@ import styles from './TerrainRoomHeader.module.css';
  * children; they sit just before the Rooms button and wrap under the title
  * on a narrow screen.
  *
+ * A visitor has two rooms, not a hallway: Files and the Map. Every other
+ * door would bounce them, so in a visitor's bar the Rooms button is one plain
+ * link back to Files.
+ *
  * Prompt that produced it: "I want all the doors in terrain to be like, all
  * one feature."
  */
@@ -38,6 +43,7 @@ export function TerrainRoomHeader({
 }) {
   const [roomsOpen, setRoomsOpen] = useState(false);
   const closeRooms = useCallback(() => setRoomsOpen(false), []);
+  const visitor = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
   return (
     <>
       <header className={styles.head}>
@@ -47,6 +53,11 @@ export function TerrainRoomHeader({
         </div>
         <div className={styles.actions}>
           {children}
+          {visitor ? (
+            <Link to="/terrain/files" className={styles.rooms}>
+              ← Files
+            </Link>
+          ) : (
           <button
             type="button"
             className={styles.rooms}
@@ -56,9 +67,10 @@ export function TerrainRoomHeader({
           >
             ← Rooms
           </button>
+          )}
         </div>
       </header>
-      <TerrainRoomsIndex open={roomsOpen} onClose={closeRooms} />
+      {visitor ? null : <TerrainRoomsIndex open={roomsOpen} onClose={closeRooms} />}
     </>
   );
 }

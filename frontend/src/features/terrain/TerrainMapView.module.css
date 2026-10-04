@@ -608,3 +608,38 @@
   inset: 0;
   z-index: 40;
 }
+
+/* The room as a card on the portfolio page (?embed=map): no room header, just
+   one line naming the map and the door out to the full room. */
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.cardTitle {
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.cardOpen {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.cardOpen:hover,
+.cardOpen:focus-visible {
+  border-color: var(--text);
+}

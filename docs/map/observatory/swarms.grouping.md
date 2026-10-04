@@ -10,8 +10,8 @@ links:
   - reads data.index: Session states decide which members still work.
   - writes data.swarm-tables: Swarms, members and placements are kept in their tables.
   - depends-on engine.sessions: A swarm's room is the most common room of its members, by the lanes rule.
-fingerprint: 3a84015539e3
-written: 2026-10-02
+fingerprint: 57684a83dd62
+written: 2026-10-04
 ---
 
 This module finds the swarms. Two sessions that exchanged a message are linked, and everything linked together is one swarm. A swarm keeps its number, name and helper as it grows.

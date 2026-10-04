@@ -299,6 +299,12 @@ PRESENTABLE_PATHS = (
     # visitor nothing of it.
     "/terrain/files",
     "/terrain/map",
+    # The Map room's two doors (routes/terrain_map.py), open to visitors since
+    # 2026-10-04 — but only for the maps named in PUBLIC_MAPS below; the
+    # handler 404s every other one. A prefix on purpose: each map is its own
+    # path (/maps/<repo>/<name>).
+    "/api/observatory/terrain/maps",
+    "/api/observatory/terrain/maps/",
     "/api/observatory/terrain",
     "/api/observatory/terrain/file",
     # When each line of a file was last edited (git blame), and when the
@@ -357,6 +363,16 @@ PRESENTABLE_PATHS = (
     # link 404s. Prefixes on purpose: every token is its own path.
     "/share/",
     "/api/share/",
+)
+
+# The code maps a visitor may read (routes/terrain_map.py), by key
+# `<repo id>/<name>`. A map is the owner's own description of how her code
+# works, so each one is opened on purpose: a map of a private build, or one
+# kept in the data folder, stays hers until its key is added here. Everything
+# `skeleton/observatory` names is git-tracked app code, which a visitor can
+# already read through Files.
+PUBLIC_MAPS = (
+    "skeleton/observatory",
 )
 
 _NOT_YET_PRESENTABLE = (

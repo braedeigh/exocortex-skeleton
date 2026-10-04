@@ -2044,8 +2044,16 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
           {/* Page tools, pushed to the right edge and away from the map's own
               controls: these act on the WORK, not on the map, so grouping them
               with the territory chips would say they filter something. The two
-              shared panels hang from here (they anchor top-right by design). */}
-          {visitor ? null : (
+              shared panels hang from here (they anchor top-right by design).
+              A visitor gets none of them — only the door to the one other
+              room open to them, the Map (routes/terrain_.map.tsx). */}
+          {visitor ? (
+          <div className={styles.pageTools}>
+            <Link to="/terrain/map" className={[styles.chip, styles.roomChip].join(' ')} title="Map — how the code is built, as boxes and arrows">
+              Map
+            </Link>
+          </div>
+          ) : (
           <div className={styles.pageTools}>
             <button
               ref={notesBtnRef}

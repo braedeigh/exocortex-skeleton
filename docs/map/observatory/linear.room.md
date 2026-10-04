@@ -19,8 +19,8 @@ links:
   - composes page.chat: The page opens a new session in the session dialog.
   - depends-on page.api: The page's Linear calls live in the shared API file.
   - depends-on engine.sessions: A new Linear session gets the room profile and model choices from the engine.
-fingerprint: 23a471f3e198
-written: 2026-10-02
+fingerprint: 60b082c09a8e
+written: 2026-10-04
 ---
 
 These routes list the Linear room's sessions and show Linear itself. The page shows the board, lets the owner move, assign and comment on issues, and save the key. A new-in-Linear list sits at the top, with a count on the door.

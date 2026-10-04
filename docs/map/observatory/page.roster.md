@@ -41,10 +41,10 @@ links:
   - composes linear.room: The Linear door sits on the roster.
   - composes spinoffs.tree: The spinoff tree door sits at the bottom of the roster.
   - composes worktrees.map: The worktree map door sits on the roster.
-fingerprint: 86ed870f6e27
-written: 2026-10-02
+fingerprint: 064fb2a7f970
+written: 2026-10-04
 ---
 
 The roster is the front of the page. It puts each session card in its room: Personal, Coding, and the rooms behind doors. A card shows the session's state with a color: working, needs input, or idle.
 
-The roster sorts cards so that sessions that wait for the owner come first. It shows open questions on the card, a drawer of finished sessions, and saved sessions. The archive page searches closed sessions.
+The roster sorts cards so that sessions that wait for the owner come first. It shows open questions on the card, a drawer of finished sessions, and saved sessions. The archive page searches closed sessions. Pointing at a card lights that session's orb on the Terrain map, when the map is open beside it.

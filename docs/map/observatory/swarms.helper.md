@@ -15,8 +15,8 @@ links:
   - calls engine.closing: A retired swarm's helper marks itself done.
   - calls helpers.room: The room helper's chat is told when a swarm closes.
   - depends-on swarms.mail: It reads questions sent to it and writes chat lines with the mailbox's helpers.
-fingerprint: fdbcb91adb37
-written: 2026-10-02
+fingerprint: 9e0cc344614b
+written: 2026-10-04
 ---
 
 Each swarm has one helper session. Its work is short, separate model calls, never one long conversation. One call per changed member writes that member's new summary. One call for the swarm writes its name, its summary, and where members' work collides.

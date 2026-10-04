@@ -14,7 +14,9 @@ What has to hold, and would break without anyone noticing:
     malformed line is reported on the box, and the box still arrives.
   - The import scan finds box-to-box imports through a workspace's own
     package names, which is how a Based Foods-style monorepo imports.
-  - A visitor gets none of it.
+  - A visitor gets only the maps the owner opened (public_config.PUBLIC_MAPS),
+    without their upkeep marks; every other map is a 404, on the private
+    site's logged-out view and on the public mirror alike.
 """
 import pytest
 from flask import Flask
@@ -138,10 +140,48 @@ def test_the_import_scan_follows_a_workspace_package_name(project):
     assert codemap.import_links(codemap.load(found), project) == [("api", "contracts", 1)]
 
 
-def test_a_visitor_gets_no_map(project, monkeypatch):
-    """Through the real app and its gate."""
+def test_a_visitor_gets_no_map_the_owner_has_not_opened(project, monkeypatch):
+    """Through the real app and its gate: the doors are open, the map is not."""
     monkeypatch.delenv("EXOCORTEX_PUBLIC_ONLY", raising=False)
     import server
     visitor = server.app.test_client()
-    assert visitor.get("/api/observatory/terrain/maps").status_code == 401
-    assert visitor.get("/api/observatory/terrain/maps/shop/system").status_code == 401
+    assert visitor.get("/api/observatory/terrain/maps").get_json()["maps"] == []
+    assert visitor.get("/api/observatory/terrain/maps/shop/system").status_code == 404
+
+
+@pytest.mark.parametrize("mirror", [False, True])
+def test_a_visitor_reads_an_opened_map_without_its_upkeep_marks(project, monkeypatch, mirror):
+    """One map is opened, a second is not, and a file of the opened one has
+    been edited since its words were stamped. The owner sees it stale; a
+    visitor gets the same boxes and links with no stale mark, and still
+    cannot list or read the other map. Same on the public mirror, where even
+    a real cookie is a visitor's."""
+    other = project / "docs/map/private"
+    other.mkdir()
+    _box(other, "secret", name="Secret", kind="project")
+    codemap.stamp(codemap.find_map("shop/system"))
+    (project / "apps/api/src/main.ts").write_text("import { Food } from '@shop/contracts';\n// edited\n")
+    monkeypatch.setattr(terrain_map.public_config, "PUBLIC_MAPS", ("shop/system",))
+    if mirror:
+        monkeypatch.setenv("EXOCORTEX_PUBLIC_ONLY", "1")
+    else:
+        monkeypatch.delenv("EXOCORTEX_PUBLIC_ONLY", raising=False)
+    import server
+    owner = server.app.test_client()
+    with owner.session_transaction() as sess:
+        sess["authed"] = True
+    visitor = owner if mirror else server.app.test_client()
+
+    listed = visitor.get("/api/observatory/terrain/maps").get_json()["maps"]
+    assert [(m["key"], m["boxes"], m["stale"]) for m in listed] == [("shop/system", 3, 0)]
+    body = visitor.get("/api/observatory/terrain/maps/shop/system").get_json()
+    boxes = {box["id"]: box for box in body["boxes"]}
+    assert boxes["api"]["stale"] is False
+    assert boxes["api"]["links"][0]["to"] == "contracts"
+    assert boxes["api"]["description"]
+    assert visitor.get("/api/observatory/terrain/maps/shop/private").status_code == 404
+
+    if not mirror:
+        mine = {m["key"]: m for m in owner.get("/api/observatory/terrain/maps").get_json()["maps"]}
+        assert set(mine) == {"shop/system", "shop/private"}
+        assert mine["shop/system"]["stale"] == 1

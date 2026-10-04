@@ -1,6 +1,7 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { useCallback } from 'react';
 import { TerrainMapView, type MapPlace } from '../features/terrain/TerrainMapView';
+import { MAP_EMBED } from '../shell/embed';
 import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
@@ -9,12 +10,17 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * file heatmap, which is now Files at /terrain/files
  * (routes/terrain_.files.tsx).
  *
- * Old links must keep working. Two kinds of arrival still mean Files and are
- * forwarded there with their search intact (a replace, so "back" never lands
- * on this hop): a visitor — the Map is owner-only, and Files is the page a
- * visitor can open — and any address carrying a search key only Files
+ * Old links must keep working. An address carrying a search key only Files
  * understands (embed, solo, journey, build, repo, file, mentions, of: a
- * bookmark, the portfolio page's iframe, a file link).
+ * bookmark, the portfolio page's first iframe, a file link) still means Files
+ * and is forwarded there with its search intact (a replace, so "back" never
+ * lands on this hop).
+ *
+ * Open to visitors since 2026-10-04: the server hands a visitor only the maps
+ * the owner opened (public_config.PUBLIC_MAPS), so the room no longer bounces
+ * them. `?embed=map` is the room as a card on the portfolio page — the one
+ * `embed` value that stays here instead of forwarding — and it rides along on
+ * every step so the card never grows the site's chrome.
  *
  * The Map's own place is in the address: `?map=<repo>/<name>` picks the
  * codebase, `?at=<box id>` the box you're inside. Each step in is a new
@@ -33,8 +39,7 @@ export const Route = createFileRoute('/terrain_/map')({
     };
   },
   beforeLoad: ({ search }) => {
-    const visitor = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
-    if (visitor || FILES_KEYS.some((key) => key in search)) {
+    if (FILES_KEYS.some((key) => key in search && !(key === 'embed' && search.embed === MAP_EMBED))) {
       throw redirect({ to: '/terrain/files', search: search as never, replace: true });
     }
   },
@@ -43,11 +48,20 @@ export const Route = createFileRoute('/terrain_/map')({
 
 function MapRoute() {
   useDeactivateFrames();
-  const { map, at } = Route.useSearch();
+  const { map, at, embed } = Route.useSearch();
+  const card = embed === MAP_EMBED;
   const navigate = useNavigate();
   const onGo = useCallback(
-    (next: MapPlace) => navigate({ to: '/terrain/map', search: { ...(next.map ? { map: next.map } : {}), ...(next.at ? { at: next.at } : {}) } }),
-    [navigate],
+    (next: MapPlace) =>
+      navigate({
+        to: '/terrain/map',
+        search: {
+          ...(next.map ? { map: next.map } : {}),
+          ...(next.at ? { at: next.at } : {}),
+          ...(card ? { embed: MAP_EMBED } : {}),
+        },
+      }),
+    [navigate, card],
   );
-  return <TerrainMapView mapKey={map} at={at} onGo={onGo} />;
+  return <TerrainMapView mapKey={map} at={at} onGo={onGo} card={card} />;
 }

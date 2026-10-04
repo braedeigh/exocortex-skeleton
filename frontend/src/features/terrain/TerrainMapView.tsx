@@ -47,6 +47,12 @@ import styles from './TerrainMapView.module.css';
  * the route owns it and hands it down — so a refresh keeps your place and
  * the back button walks up the levels. What's selected is local.
  *
+ * A visitor (the public mirror, or logged out) gets the maps the owner opened
+ * and a header that says what they are looking at; the hallway of other rooms
+ * is the owner's (TerrainRoomHeader). `card` is the room inside an <iframe> on
+ * the portfolio page: no header, one line naming the map and one door out to
+ * the full room.
+ *
  * Prompt that produced it: "I like calling the entire thing terrain. New thing
  * is just map. I want to see basedfoods and the observatory" — after
  * screenshots of a zoomable architecture map: click a box to open its parts,
@@ -92,7 +98,19 @@ export interface MapPlace {
   at?: string;
 }
 
-export function TerrainMapView({ mapKey, at, onGo }: MapPlace & { mapKey?: string; onGo: (next: MapPlace) => void }) {
+/** What the room says it is, to someone who has never seen the app. */
+const VISITOR_SUB =
+  'How the Observatory is built: the part of this app that runs AI agent sessions and lets them work together. ' +
+  'Each box is a part, written up in plain words. Each arrow says how one part uses another. ' +
+  'Tap a box with parts to open it; Esc goes up.';
+
+export function TerrainMapView({
+  mapKey,
+  at,
+  onGo,
+  card = false,
+}: MapPlace & { mapKey?: string; onGo: (next: MapPlace) => void; card?: boolean }) {
+  const visitor = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
   // The maps on this machine, then the chosen one whole.
   const list = useQuery({
     queryKey: ['terrain-maps'],
@@ -179,7 +197,18 @@ export function TerrainMapView({ mapKey, at, onGo }: MapPlace & { mapKey?: strin
 
   return (
     <div className={styles.view}>
-      <TerrainRoomHeader title="Map" sub="A codebase as boxes and named arrows. Tap a box with parts to open it; Esc goes up.">
+      {card ? (
+        <div className={styles.cardHead}>
+          <span className={styles.cardTitle}>{current?.name ?? 'Map'} · a map of the code</span>
+          <a className={styles.cardOpen} href="/terrain/map" target="_top" rel="noopener">
+            Open the Map <span aria-hidden="true">&#8599;</span>
+          </a>
+        </div>
+      ) : (
+      <TerrainRoomHeader
+        title="Map"
+        sub={visitor ? VISITOR_SUB : 'A codebase as boxes and named arrows. Tap a box with parts to open it; Esc goes up.'}
+      >
         {maps.length > 1 && (
           <div className={styles.switch} role="tablist" aria-label="Which codebase">
             {maps.map((m) => (
@@ -206,6 +235,7 @@ export function TerrainMapView({ mapKey, at, onGo }: MapPlace & { mapKey?: strin
           </div>
         )}
       </TerrainRoomHeader>
+      )}
 
       {list.isLoading || (key && map.isLoading) ? (
         <p className={styles.note}>Reading the maps…</p>
