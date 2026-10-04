@@ -26,6 +26,7 @@ front-health  sonnet   off     # PLUG-IN(FRONT): tends one life-front's threads;
 # Weekly crickets (state `off` = not run by the nightly swarm; each has its own cron
 # line that invokes cricket_swarm.sh in single-cricket mode, which ignores on/off):
 thread-scout  opus     off     # Sunday wide-angle: 7 days + 4 weeklies -> thread_open/thread_link nominations
+memory-scout  opus     off     # Sunday, after thread-scout: the week's context loads -> data/context_review/<date>.md (which loads were meant, which were used)
 # Thread tending is not a roster row. scripts/cricket_swarm.sh runs it after the last
 # cricket: scripts/thread_tending.py starts one main session, then one isolated session
 # per active thread and per ambiguous name (prompts: thread-main.md, thread-helper.md,

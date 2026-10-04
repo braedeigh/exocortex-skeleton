@@ -13,6 +13,7 @@ word that fired it mean the thread, did the reply use what it was given.
     scripts/context_loads.py                 # the last 7 days, as text
     scripts/context_loads.py --days 30 --slug the-move
     scripts/context_loads.py --conv 2026-10-04.030108 --json
+    scripts/context_loads.py --until 2026-10-03 --json   # the 7 days ending that day
 
 It only reads. A message sent off the record has no row in the table, and an
 off-the-record line in a chat log is never printed here. A terminal session
@@ -83,10 +84,16 @@ def said_and_answered(lines, at):
     return lines[position].get("text"), reply
 
 
-def loads(days=7, conv=None, slug=None, source=None):
+def loads(days=7, conv=None, slug=None, source=None, until=None):
     """The tracker's rows as dicts, oldest first, each with `said` and
-    `answered` filled in from the chat log."""
-    clauses, parameters = ["at >= ?"], [(datetime.now() - timedelta(days=days)).isoformat()]
+    `answered` filled in from the chat log. The window is the `days` up to
+    now, or, with `until` (YYYY-MM-DD), the `days` ending on that day."""
+    if until:
+        end = datetime.strptime(until, "%Y-%m-%d") + timedelta(days=1)
+        clauses, parameters = (["at >= ?", "at < ?"],
+                               [(end - timedelta(days=days)).isoformat(), end.isoformat()])
+    else:
+        clauses, parameters = ["at >= ?"], [(datetime.now() - timedelta(days=days)).isoformat()]
     for column, value in (("conv", conv), ("slug", slug), ("source", source)):
         if value:
             clauses.append(f"{column} = ?")
@@ -137,6 +144,7 @@ def as_text(rows, length):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Print the context tracker beside the replies.")
     parser.add_argument("--days", type=int, default=7, help="how far back to look (default 7)")
+    parser.add_argument("--until", help="end the window on this day (YYYY-MM-DD) instead of now")
     parser.add_argument("--conv", help="only this conversation")
     parser.add_argument("--slug", help="only this person or thread")
     parser.add_argument("--source", choices=("boot", "mention"), help="only this kind of load")
@@ -145,7 +153,7 @@ def main(argv=None):
     parser.add_argument("--json", action="store_true",
                         help="print everything, uncut, as JSON (for another program to read)")
     args = parser.parse_args(argv)
-    rows = loads(args.days, args.conv, args.slug, args.source)
+    rows = loads(args.days, args.conv, args.slug, args.source, args.until)
     print(json.dumps(rows, indent=1) if args.json else as_text(rows, args.length))
     return 0
 

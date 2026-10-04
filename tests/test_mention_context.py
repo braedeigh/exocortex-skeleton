@@ -367,3 +367,6 @@ def test_the_tracker_reads_back_each_load_beside_her_message_and_the_reply(vault
     assert (row["slug"], row["matched"], row["cards"]) == ("robin", "Robin", 4)
     assert row["said"] == "Robin wants the rent early"
     assert row["answered"] == "Early again, like in March?"
+    # A window that ended last week holds nothing from today.
+    last_week = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    assert context_loads.loads(days=7, until=last_week) == []
