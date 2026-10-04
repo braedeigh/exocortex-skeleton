@@ -72,7 +72,9 @@ def _spa_response():
     )
     profile = config.get_profile()
     meta_json = json.dumps(
-        {"name": profile["app_name"], "owner": profile["owner_name"], "version": config.APP_VERSION}
+        {"name": profile["app_name"], "owner": profile["owner_name"], "version": config.APP_VERSION,
+         # The owner's main site, on a public mirror: the header's way back.
+         "home_site": config.home_site()}
     ).replace("</", "<\\/")
     injected = (
         "<script>"

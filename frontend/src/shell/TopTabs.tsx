@@ -230,6 +230,14 @@ function PublicHeader() {
         )}
       </div>
       <div className={styles.publicLinks}>
+        {/* The way back to the owner's main site, on her public mirror: a
+            visitor arrives from that page's cards and needs a door home from
+            every page here. Named by its host, so it says where it goes. */}
+        {meta?.home_site ? (
+          <a href={meta.home_site} className={styles.publicLink}>
+            ← {meta.home_site.replace(/^https?:\/\//, '')}
+          </a>
+        ) : null}
         {/* /about is closed to visitors since 2026-09-17 (public_config
             _NOT_YET_PRESENTABLE); bring its link back with the page. */}
         <Link to="/terrain/files" className={styles.publicLink}>

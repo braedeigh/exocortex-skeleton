@@ -15,6 +15,6 @@ declare global {
     /** Rendered HTML (already sanitized server-side) for the public landing page, or null when authed. */
     PUBLIC_INTRO_HTML?: string | null;
     /** App identity for chrome that names the site (public header, fake terminal banner). */
-    APP_META?: { name: string; owner: string; version: string };
+    APP_META?: { name: string; owner: string; version: string; /** The owner's main site, on a public mirror ('' elsewhere). */ home_site?: string };
   }
 }

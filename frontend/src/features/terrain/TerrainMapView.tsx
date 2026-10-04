@@ -256,6 +256,7 @@ export function TerrainMapView({
               selected={selected}
               hovered={hovered}
               onHover={setHovered}
+              openWhole={card}
               onTap={(node) => {
                 if (node.outside) jumpTo(node.box.id);
                 else if (node.parts > 0) {
@@ -413,6 +414,7 @@ function Canvas({
   hovered,
   onHover,
   onTap,
+  openWhole = false,
 }: {
   level: Level;
   index: MapIndex;
@@ -420,6 +422,8 @@ function Canvas({
   hovered: string | null;
   onHover: (id: string | null) => void;
   onTap: (node: LevelNode) => void;
+  /** Open each level zoomed out to all of it (the card), not at reading size. */
+  openWhole?: boolean;
 }) {
   // Lay the level out whenever it changes. The last layout stays up until
   // the new one is ready, so opening a box never flashes an empty canvas.
@@ -442,26 +446,36 @@ function Canvas({
   useEffect(() => {
     if (!svgRef.current) return;
     const behaviour = zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.3, 2.5])
+      .scaleExtent([0.1, 2.5])
       .on('zoom', (event) => groupRef.current?.setAttribute('transform', event.transform.toString()));
     select(svgRef.current).call(behaviour).on('dblclick.zoom', null);
     zoomRef.current = behaviour;
   }, []);
 
-  // Fit each new level to the canvas, never so small that text falls under
-  // the 12px floor (scale 0.85 keeps 14px names at ~12px). A level bigger
-  // than that opens on its top middle — where the boxes that use the others
-  // sit — and is panned from there.
-  const fit = useCallback(() => {
-    const svg = svgRef.current;
-    if (!svg || !zoomRef.current || !placed) return;
-    const { width, height } = svg.getBoundingClientRect();
-    const scale = Math.max(0.85, Math.min(1.2, width / placed.placed.width, height / placed.placed.height));
-    const x = (width - placed.placed.width * scale) / 2;
-    const y = Math.max(0, (height - placed.placed.height * scale) / 2);
-    select(svg).call(zoomRef.current.transform, zoomIdentity.translate(x, y).scale(scale));
-  }, [placed]);
-  useEffect(fit, [fit]);
+  // Two ways to frame a level. A new level OPENS at reading size: never so
+  // small that text falls under the 12px floor (scale 0.85 keeps 14px names
+  // at ~12px), so a level bigger than the canvas opens on its top middle —
+  // where the boxes that use the others sit — and is panned from there. The
+  // Fit button shows the WHOLE level, however small that makes it: it is the
+  // overview she asked for by pressing it ("the fit function on the map
+  // doesn't zoom out to the entire map"). The card opens whole too, because
+  // its frame is far smaller than any level.
+  const frame = useCallback(
+    (whole: boolean) => {
+      const svg = svgRef.current;
+      if (!svg || !zoomRef.current || !placed) return;
+      const { width, height } = svg.getBoundingClientRect();
+      const pad = whole ? 12 : 0;
+      const all = Math.min(1.2, (width - pad * 2) / placed.placed.width, (height - pad * 2) / placed.placed.height);
+      const scale = whole ? Math.max(0.1, all) : Math.max(0.85, all);
+      const x = (width - placed.placed.width * scale) / 2;
+      const y = Math.max(pad, (height - placed.placed.height * scale) / 2);
+      select(svg).call(zoomRef.current.transform, zoomIdentity.translate(x, y).scale(scale));
+    },
+    [placed],
+  );
+  const fit = useCallback(() => frame(true), [frame]);
+  useEffect(() => frame(openWhole), [frame, openWhole]);
 
   // What lights up: the hovered box (or else the selected one) and every
   // arrow touching it, with the boxes at their other ends. A hover only

@@ -66,6 +66,16 @@ def test_shell_is_told_it_is_a_mirror(mirror):
     assert "window.PUBLIC_ONLY = true" in html
 
 
+def test_mirror_header_gets_the_way_back_to_the_main_site(mirror, private, monkeypatch):
+    """The page that may frame the mirror is the owner's main site, and a
+    visitor's header links back to it. The private site gets no such link."""
+    monkeypatch.setenv("EXOCORTEX_FRAME_ANCESTORS", "https://example.org https://www.example.org")
+    monkeypatch.setenv("EXOCORTEX_PUBLIC_ONLY", "1")
+    assert '"home_site": "https://example.org"' in mirror.get("/terrain/files").get_data(as_text=True)
+    monkeypatch.delenv("EXOCORTEX_PUBLIC_ONLY")
+    assert '"home_site": ""' in private.get("/terrain/files").get_data(as_text=True)
+
+
 def test_switch_off_leaves_the_cookie_working(private):
     html = private.get("/").get_data(as_text=True)
     assert 'window.VIEW_MODE = "authed"' in html

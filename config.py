@@ -55,6 +55,21 @@ def frame_ancestors():
     return os.environ.get("EXOCORTEX_FRAME_ANCESTORS", "").split()
 
 
+def home_site():
+    """The owner's main site, for the "back to my site" link in a visitor's
+    header: the first origin in EXOCORTEX_FRAME_ANCESTORS, on a public-only
+    mirror. The page allowed to frame the mirror is the portfolio page the
+    mirror belongs to, so the same setting names both. Empty anywhere else —
+    the private site has no such link.
+
+    Prompt that produced it: "i want a button up at the top of each that can
+    take you back to my main site too"."""
+    if not public_only():
+        return ""
+    origins = frame_ancestors()
+    return origins[0] if origins else ""
+
+
 def get_profile():
     """The owner profile, precedence stored value (non-empty) -> env var -> default.
 
