@@ -51,7 +51,7 @@ import styles from './TerrainMapView.module.css';
  * and a header that says what they are looking at; the hallway of other rooms
  * is the owner's (TerrainRoomHeader). `card` is the room inside an <iframe> on
  * the portfolio page: no header, one line naming the map and one door out to
- * the full room.
+ * the full room, no legend, and the side panel only once a box is tapped.
  *
  * Prompt that produced it: "I like calling the entire thing terrain. New thing
  * is just map. I want to see basedfoods and the observatory" — after
@@ -196,7 +196,7 @@ export function TerrainMapView({
   const panelBox = index ? index.byId.get(selected ?? focus ?? '') ?? null : null;
 
   return (
-    <div className={styles.view}>
+    <div className={`${styles.view} ${card ? styles.cardView : ''}`}>
       {card ? (
         <div className={styles.cardHead}>
           <span className={styles.cardTitle}>{current?.name ?? 'Map'} · a map of the code</span>
@@ -264,7 +264,9 @@ export function TerrainMapView({
                 } else setSelection(selected === node.box.id ? null : { focus, id: node.box.id });
               }}
             />
-            {panelBox && (
+            {/* In the card the panel waits for a tap: a small frame is all
+                canvas until a box is chosen, then its words slide up. */}
+            {panelBox && (!card || selected) && (
               <aside
                 className={`${styles.panel} ${sheetOpen ? styles.panelOpen : ''}`}
                 aria-label={`About ${panelBox.name}`}

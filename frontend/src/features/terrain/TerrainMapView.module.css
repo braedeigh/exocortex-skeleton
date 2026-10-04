@@ -643,3 +643,15 @@
 .cardOpen:focus-visible {
   border-color: var(--text);
 }
+
+/* The card is small, so the canvas gets the room: tighter edges, no counts
+   or legend (the full room has them), and the breadcrumb alone says where
+   you are. */
+.cardView {
+  padding: var(--space-2) var(--space-3) var(--space-2);
+}
+
+.cardView .counts,
+.cardView .legend {
+  display: none;
+}
