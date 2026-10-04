@@ -27,8 +27,18 @@
  * messages to, with how many on it and an arrowhead at the member. It glows
  * while it's running; tap it to open its chat.
  *
- * Pointing the mouse at a ring also lights that agent's orb on the Terrain
- * map, when the map is open in another tile (shell/panels/agentHoverBus.ts).
+ * Pointing the mouse at a ring (or the helper) spotlights it: that agent,
+ * every line that starts or ends at it, and the agents at the other ends
+ * stay full, and everything else in the drawing dims until the mouse leaves
+ * (swarmNetworkMath.spotlightOn). Keyboard focus does the same. It also
+ * lights that agent's orb on the Terrain map, when the map is open in
+ * another tile (shell/panels/agentHoverBus.ts).
+ *
+ * Click a line, or a number on it, to read the messages it stands for: a
+ * sheet opens listing them, newest first, each with who sent it to whom and
+ * when (GET /api/swarms/<id>/line). The line has a wide unseen band along it
+ * to click on; the numbers are buttons, so a finger or the keyboard can reach
+ * the same list.
  *
  * The lines are an SVG underneath; the rings, names and counts are ordinary
  * HTML placed on top by percentage, so they keep real, readable pixel sizes
@@ -59,17 +69,23 @@
  * agents." Then: "I also want this to be centered with the helper in the
  * middle and not be scrolly around." Then: "I also want some arrow
  * directionality of the messages." Then: "i want to know which direction
- * the number of messages flowed."
+ * the number of messages flowed." Then: "if you hover over an agent dot on
+ * the swarm view, it highlights that agent and the messages sent between
+ * that agent and to other agents and dims all of the others." Then: "click
+ * on a line or something and see the messages that were sent in that line."
  */
-import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import { makeStickyToggle } from '../terrain/codeHeatPref';
 import { headSize, messageArrow, type MessageArrow, type Point } from './messageArrows';
+import { Sheet } from '../../ui/Sheet';
 import styles from './SwarmNetwork.module.css';
-import { setClosedSwarmsShown, useClosedSwarmsShown, type Swarm } from './swarmApi';
+import { setClosedSwarmsShown, useClosedSwarmsShown, useLineMessages, type Swarm } from './swarmApi';
 import {
-  directionCounts, layoutSwarm, lineWidth, nodeBoxes, placeCounts, shortTitle, type Box, type CountLine,
-  withoutRetired,
+  directionCounts, layoutSwarm, lineWidth, nodeBoxes, placeCounts, shortTitle, spotlightOn, standIns, type Box,
+  type CountLine, withoutRetired,
 } from './swarmNetworkMath';
 
 /** How wide the drawing is shown, in pixels, kept up to date as the page
@@ -104,7 +120,7 @@ export function SwarmNetwork({
   helperWorking = false,
   round = false,
 }: {
-  swarm: Pick<Swarm, 'members' | 'links' | 'continues' | 'helper_conv' | 'helper_links'>;
+  swarm: Pick<Swarm, 'id' | 'members' | 'links' | 'continues' | 'helper_conv' | 'helper_links'>;
   onOpen: (conv: string) => void;
   /** Whether the helper is mid-run, from the roster. */
   helperWorking?: boolean;
@@ -129,6 +145,43 @@ export function SwarmNetwork({
   // Whether the last press was a mouse, whose hover already showed the name.
   const pressedWithMouse = useRef(false);
   const at = new Map(layout.nodes.map((n) => [n.conv, n] as const));
+  // Spotlight the agent the mouse (or keyboard focus) is on: it, its lines
+  // and the agents at their other ends stay full; the rest get the dim
+  // class. An agent that has left the drawing since spotlights nothing.
+  const [pointed, setPointed] = useState<string | null>(null);
+  const pointedHere = pointed !== null && (at.has(pointed) || pointed === swarm.helper_conv) ? pointed : null;
+  const spotlight = pointedHere === null ? null : spotlightOn(pointedHere, {
+    talk: layout.talk, helperThreads: threads, continues: layout.continues, helperConv: swarm.helper_conv,
+  });
+  const dimLine = (key: string) => (spotlight !== null && !spotlight.lines.has(key) ? styles.dimmed : undefined);
+  const dimAgent = (conv: string) => (spotlight !== null && !spotlight.agents.has(conv) ? styles.dimmed : '');
+  // Open a line into its messages. Each end is named by every session it
+  // stands for: with retired agents hidden, a ring also carries the lines of
+  // the sessions it took over from (standIns), and the list has to match the
+  // number drawn. The helper's end is the word 'helper'.
+  const [openLine, setOpenLine] = useState<OpenLine | null>(null);
+  const standsFor = hideRetired ? standIns(swarm) : null;
+  const sideOf = (conv: string) => standsFor?.get(conv) ?? [conv];
+  const openTalk = (a: string, b: string) => setOpenLine({
+    sideA: sideOf(a), sideB: sideOf(b), title: `${shortTitle(titleOf(a))} and ${shortTitle(titleOf(b))}`,
+  });
+  const openHelperThread = (conv: string) => setOpenLine({
+    sideA: ['helper'], sideB: sideOf(conv), title: `Helper to ${shortTitle(titleOf(conv))}`,
+  });
+  // The handlers that make a ring spotlight its agent. Mouse only for the
+  // pointer (a finger's tap opens the session); the bus props light the
+  // Terrain map as before.
+  const spotlightProps = (conv: string) => {
+    const bus = agentPointerProps(conv);
+    return {
+      onPointerEnter: (event: ReactPointerEvent<Element>) => {
+        bus.onPointerEnter(event);
+        if (event.pointerType === 'mouse') setPointed(conv);
+      },
+      onPointerLeave: () => setPointed((current) => (current === conv ? null : current)),
+      onFocus: () => setPointed(conv),
+    };
+  };
 
   const pxPerUnit = shownWidth / layout.width;
   // Shape each message line's arrow. Sizes are worked out in screen pixels
@@ -226,9 +279,11 @@ export function SwarmNetwork({
           const arrow = helperArrows.get(`h-${t.conv}`);
           const end = arrow?.end ?? t;
           return (
-            <g key={`h-${t.conv}`}>
+            <g key={`h-${t.conv}`} className={dimLine(`h-${t.conv}`)}>
               <line x1={layout.centre.x} y1={layout.centre.y} x2={end.x} y2={end.y}
                 className={styles.helperThread} strokeWidth={width} vectorEffect="non-scaling-stroke" />
+              <line x1={layout.centre.x} y1={layout.centre.y} x2={t.x} y2={t.y}
+                className={styles.hit} vectorEffect="non-scaling-stroke" onClick={() => openHelperThread(t.conv)} />
               {arrow?.headAtEnd ? <polygon points={corners(arrow.headAtEnd)} className={styles.helperHead} /> : null}
             </g>
           );
@@ -239,7 +294,7 @@ export function SwarmNetwork({
           const arrow = handoverArrows.get(`c-${c.from}-${c.to}`);
           const end = arrow?.end ?? at.get(c.to)!;
           return (
-            <g key={`c-${c.from}-${c.to}`}>
+            <g key={`c-${c.from}-${c.to}`} className={dimLine(`c-${c.from}-${c.to}`)}>
               <line x1={from.x} y1={from.y} x2={end.x} y2={end.y}
                 className={styles.handover} vectorEffect="non-scaling-stroke" />
               {arrow?.headAtEnd ? <polygon points={corners(arrow.headAtEnd)} className={styles.handoverHead} /> : null}
@@ -256,9 +311,11 @@ export function SwarmNetwork({
           const start = arrow?.start ?? a;
           const end = arrow?.end ?? b;
           return (
-            <g key={`t-${t.a}-${t.b}`}>
+            <g key={`t-${t.a}-${t.b}`} className={dimLine(`t-${t.a}-${t.b}`)}>
               <line x1={start.x} y1={start.y} x2={end.x} y2={end.y}
                 className={styles.talk} strokeWidth={width} vectorEffect="non-scaling-stroke" />
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                className={styles.hit} vectorEffect="non-scaling-stroke" onClick={() => openTalk(t.a, t.b)} />
               {arrow?.headAtStart ? <polygon points={corners(arrow.headAtStart)} className={styles.talkHead} /> : null}
               {arrow?.headAtEnd ? <polygon points={corners(arrow.headAtEnd)} className={styles.talkHead} /> : null}
             </g>
@@ -271,27 +328,31 @@ export function SwarmNetwork({
       {talkCounts.map((c) => {
         const spot = countAt.get(c.key)!;
         return (
-          <span
+          <button
+            type="button"
             key={`n-${c.key}`}
-            className={styles.count}
+            className={[styles.count, dimLine(`t-${c.line.a}-${c.line.b}`)].filter(Boolean).join(' ')}
             style={place(spot.x, spot.y)}
-            title={`${titleOf(c.sender)} → ${titleOf(c.receiver)}: ${c.direction.count}`}
+            title={`${titleOf(c.sender)} → ${titleOf(c.receiver)}: ${c.direction.count}. Tap to read them.`}
+            onClick={() => openTalk(c.line.a, c.line.b)}
           >
             {c.direction.count}
-          </span>
+          </button>
         );
       })}
 
       {/* How many messages the helper has sent along each thread. */}
       {threads.map((t) => (
-        <span
+        <button
+          type="button"
           key={`hn-${t.conv}`}
-          className={[styles.count, styles.helperCount].join(' ')}
+          className={[styles.count, styles.helperCount, dimLine(`h-${t.conv}`)].filter(Boolean).join(' ')}
           style={place(countAt.get(`h-${t.conv}`)!.x, countAt.get(`h-${t.conv}`)!.y)}
-          title={`Helper → ${titleOf(t.conv)}: ${t.messages}`}
+          title={`Helper → ${titleOf(t.conv)}: ${t.messages}. Tap to read them.`}
+          onClick={() => openHelperThread(t.conv)}
         >
           {t.messages}
-        </span>
+        </button>
       ))}
 
       {/* The agents: a ring and its name, tap to open. */}
@@ -302,7 +363,7 @@ export function SwarmNetwork({
           key={n.conv}
           type="button"
           className={[styles.node, styles[`state_${n.state}`], n.retired ? styles.retired : '',
-            n.outer ? styles.outer : '', n.named ? '' : styles.unnamed, n.nameAbove ? styles.above : '', peek === n.conv ? styles.peeked : '']
+            n.outer ? styles.outer : '', n.named ? '' : styles.unnamed, n.nameAbove ? styles.above : '', peek === n.conv ? styles.peeked : '', dimAgent(n.conv)]
             .filter(Boolean).join(' ')}
           style={n.named
             ? { ...place(n.x, n.y), width: layout.nameWidth }
@@ -312,8 +373,11 @@ export function SwarmNetwork({
             if (!n.named && !pressedWithMouse.current && peek !== n.conv) setPeek(n.conv);
             else onOpen(n.conv);
           }}
-          onBlur={() => setPeek((current) => (current === n.conv ? null : current))}
-          {...agentPointerProps(n.conv)}
+          onBlur={() => {
+            setPeek((current) => (current === n.conv ? null : current));
+            setPointed((current) => (current === n.conv ? null : current));
+          }}
+          {...spotlightProps(n.conv)}
           title={n.title}
           aria-label={n.named ? undefined : n.title}
         >
@@ -336,10 +400,12 @@ export function SwarmNetwork({
       {swarm.helper_conv ? (
         <button
           type="button"
-          className={[styles.node, styles.helper, helperWorking ? styles.state_working : ''].filter(Boolean).join(' ')}
+          className={[styles.node, styles.helper, helperWorking ? styles.state_working : '', dimAgent(swarm.helper_conv)]
+            .filter(Boolean).join(' ')}
           style={place(layout.centre.x, layout.centre.y)}
           onClick={() => onOpen(swarm.helper_conv!)}
-          {...agentPointerProps(swarm.helper_conv)}
+          onBlur={() => setPointed((current) => (current === swarm.helper_conv ? null : current))}
+          {...spotlightProps(swarm.helper_conv)}
           title="The swarm's helper — tap to open its chat"
         >
           <svg width="32" height="32" viewBox="0 0 32 32" className={styles.ringBox} aria-hidden="true">
@@ -350,7 +416,47 @@ export function SwarmNetwork({
           <span className={styles.name}>Helper</span>
         </button>
       ) : null}
+
+      <LineMessages swarmId={swarm.id} line={openLine} onClose={() => setOpenLine(null)} />
     </div>
+  );
+}
+
+/** A line that has been opened: the sessions each end stands for (or
+ * `['helper']`), and what to call it. */
+interface OpenLine {
+  sideA: string[];
+  sideB: string[];
+  title: string;
+}
+
+/** The sheet a line opens into: the messages it stands for, newest first.
+ * It asks the server only while open, and keeps showing the last line's
+ * title while it closes. */
+function LineMessages({ swarmId, line, onClose }: { swarmId: number; line: OpenLine | null; onClose: () => void }) {
+  const query = useLineMessages(swarmId, line?.sideA ?? [], line?.sideB ?? [], line !== null);
+  const messages = query.data?.messages ?? [];
+  const total = query.data?.total ?? 0;
+  return (
+    <Sheet open={line !== null} title={line ? `Messages: ${line.title}` : undefined} onClose={onClose}>
+      {query.isPending ? <p className={styles.lineNote}>Loading…</p> : null}
+      {query.isError ? <p className={styles.lineNote}>Couldn&rsquo;t load these messages.</p> : null}
+      {query.isSuccess && messages.length === 0 ? <p className={styles.lineNote}>No messages on this line.</p> : null}
+      {total > messages.length ? (
+        <p className={styles.lineNote}>Showing the newest {messages.length} of {total}.</p>
+      ) : null}
+      <ul className={styles.lineMessages}>
+        {messages.map((m) => (
+          <li key={m.id} className={styles.lineMessage}>
+            <span className={styles.lineMeta}>
+              {m.at.slice(5, 16).replace('T', ' ')} · {shortTitle(m.from_title)} &rarr; {shortTitle(m.to_title)}
+              {m.status === 'held' ? ' · held' : ''}
+            </span>
+            <span className={styles.lineText}>{m.text}</span>
+          </li>
+        ))}
+      </ul>
+    </Sheet>
   );
 }
 
@@ -359,7 +465,7 @@ export function SwarmNetworkKey() {
   const hideRetired = retiredHiddenToggle.useOn();
   return (
     <div className={styles.key}>
-      <span><span className={styles.keyTalk} aria-hidden="true" /> messages between them: the arrow points at who received them, the number beside it is how many they received</span>
+      <span><span className={styles.keyTalk} aria-hidden="true" /> messages between them: the arrow points at who received them, the number beside it is how many they received. Click a line or its number to read them</span>
       <span><span className={styles.keyHandover} aria-hidden="true" /> one took over from the other: the arrow points at the one that took over</span>
       <span><span className={styles.keyHelper} aria-hidden="true" /> the helper's messages to them</span>
       {/* The retired switch lives with the key, so it shows once per page

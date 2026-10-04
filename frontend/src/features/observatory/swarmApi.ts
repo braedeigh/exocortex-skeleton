@@ -245,6 +245,36 @@ export function changeHelperRule(
   return api.post(`/api/swarms/helper-context/${encodeURIComponent(convId)}/rule`, change);
 }
 
+/** One message behind a line of the swarm drawing (routes/swarms.py
+ * `line_messages`), with the names of who sent it and who it went to. */
+export interface LineMessage {
+  id: number;
+  at: string;
+  from: string;
+  to: string;
+  from_title: string;
+  to_title: string;
+  text: string;
+  mode: string;
+  status: string;
+}
+
+/** The messages one line of the swarm drawing stands for, newest first,
+ * asked for only once `enabled` (when she opens the line). Each side is the
+ * sessions one end of the line stands for, or `['helper']` for the swarm's
+ * helper. `total` can be more than the list holds: the newest 200 come back. */
+export function useLineMessages(swarmId: number, sideA: string[], sideB: string[], enabled: boolean) {
+  const a = sideA.join(',');
+  const b = sideB.join(',');
+  return useQuery({
+    queryKey: ['swarm-line', swarmId, a, b] as const,
+    queryFn: async ({ signal }) =>
+      api.get<{ messages: LineMessage[]; total: number }>(
+        `/api/swarms/${swarmId}/line?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`, signal),
+    enabled,
+  });
+}
+
 export function useSwarm(id: number) {
   return useQuery({
     queryKey: ['swarm', id] as const,

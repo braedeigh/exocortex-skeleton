@@ -22,6 +22,16 @@ summaries (swarm_helper.py). These routes hand that to the page:
                                   helper's session and the closing summaries,
                                   newest first. The line a room helper's chat
                                   gets when a swarm closes opens into this.
+    GET  /api/swarms/<id>/line?a=<conv,...>&b=<conv,...>
+                                  the messages one line of the swarm drawing
+                                  stands for, newest first: everything sent
+                                  between the sessions on side `a` and the
+                                  ones on side `b`. A side is a list because
+                                  one ring can stand in for retired sessions
+                                  it took over from; the word `helper` means
+                                  the swarm's helper, and then only what the
+                                  helper SENT is listed, which is what its
+                                  line counts.
     POST /api/swarms/<id>/refresh ask the helper to update now.
     GET  /api/swarms/room/<room>  the room seen from above, for the room map:
                                   the room helper's session, the sessions
@@ -105,6 +115,81 @@ def detail(swarm_id):
     return {**card, "runs": runs, "messages": messages,
             "differences": latest.get("differences") or [],
             "closings": list(reversed(swarm_helper.closings(swarm_id)))}
+
+
+def line_messages(swarm_id, side_a, side_b):
+    """The messages one line of the swarm drawing stands for, newest first.
+
+    Each side is a list of session ids, or the word "helper". The drawing
+    counts the same rows (swarms.overview): messages of kind 'A' that weren't
+    cancelled, between members; and for the helper's line, only what any of
+    the swarm's helper sessions sent to that member. So what this lists adds
+    up to the number on the line. Returns None for a swarm that isn't there,
+    and raises ValueError when a side names a session that is not one of the
+    swarm's members — a line can only be read by naming both of its ends.
+
+    Prompt that produced it: "click on a line or something and see the
+    messages that were sent in that line."
+    """
+    card = next((c for c in swarms.overview() if c["id"] == swarm_id), None)
+    if card is None:
+        return None
+    index = store.read("bot_chats/index", {})
+    index = index if isinstance(index, dict) else {}
+    members = {m["conv"]: m["title"] for m in card["members"]}
+    # Every helper session this swarm has had, as the drawing counts them.
+    helpers = {conv for conv, entry in index.items()
+               if isinstance(entry, dict) and entry.get("role") == "swarm_helper"
+               and entry.get("swarm_id") == swarm_id}
+    if card.get("helper_conv"):
+        helpers.add(card["helper_conv"])
+
+    def resolve(side):
+        if side == ["helper"]:
+            return set(helpers), True
+        if not side or any(conv not in members for conv in side):
+            raise ValueError("each side must name members of this swarm, or be 'helper'")
+        return set(side), False
+
+    a, a_is_helper = resolve(side_a)
+    b, b_is_helper = resolve(side_b)
+    if a_is_helper and b_is_helper:
+        raise ValueError("only one side can be the helper")
+    # Which directions count: both ways between members, helper-to-member only.
+    directions = []
+    if not b_is_helper:
+        directions.append((a, b))
+    if not a_is_helper:
+        directions.append((b, a))
+    clauses, params = [], []
+    for senders, receivers in directions:
+        if not senders or not receivers:
+            continue
+        clauses.append(f"(from_conv IN ({','.join('?' * len(senders))})"
+                       f" AND to_conv IN ({','.join('?' * len(receivers))}))")
+        params += [*sorted(senders), *sorted(receivers)]
+    if not clauses:
+        return {"messages": [], "total": 0}
+
+    def title(conv):
+        if conv in helpers:
+            return "Helper"
+        return members.get(conv) or conv
+
+    where = f"kind = 'A' AND status != 'cancelled' AND ({' OR '.join(clauses)})"
+    conn = sqlstore.open_db()
+    try:
+        total = conn.execute(f"SELECT COUNT(*) FROM agent_messages WHERE {where}", params).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT id, at, from_conv, to_conv, text, mode, status FROM agent_messages"
+            f" WHERE {where} ORDER BY id DESC LIMIT ?", (*params, _MESSAGES_SHOWN)).fetchall()
+    finally:
+        conn.close()
+    return {"total": total,
+            "messages": [{"id": mid, "at": at, "from": sender, "to": receiver,
+                          "from_title": title(sender), "to_title": title(receiver),
+                          "text": text, "mode": mode, "status": status}
+                         for mid, at, sender, receiver, text, mode, status in rows]}
 
 
 def room(room_name):
@@ -220,6 +305,19 @@ def register(app):
     @app.route("/api/swarms/<int:swarm_id>")
     def swarm_detail(swarm_id):
         found = detail(swarm_id)
+        if found is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(found)
+
+    # Hand over the messages behind one line of the swarm drawing.
+    @app.route("/api/swarms/<int:swarm_id>/line")
+    def swarm_line(swarm_id):
+        sides = [[conv for conv in (request.args.get(name) or "").split(",") if conv]
+                 for name in ("a", "b")]
+        try:
+            found = line_messages(swarm_id, *sides)
+        except ValueError as problem:
+            return jsonify({"error": str(problem)}), 400
         if found is None:
             return jsonify({"error": "not found"}), 404
         return jsonify(found)

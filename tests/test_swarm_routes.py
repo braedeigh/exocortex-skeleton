@@ -4,6 +4,8 @@ What these pin: the list shows a live swarm with its counts; the detail
 carries the helper's runs verbatim and the messages between members;
 a closed swarm's page carries what it did, newest closing first, and the
 room chat's closed line opens into the same;
+a line of the drawing opens into exactly the messages it counts, both ways,
+and refuses a session from outside the swarm;
 unknown swarms 404; a card says whether it's closed; refresh starts a helper run; the room view lists the
 sessions working alone and the room helper's moves; helper-of links a session's
 chat to its swarm's helper, else its room's, and a helper one level up or nowhere;
@@ -231,3 +233,41 @@ def test_her_rule_buttons_add_edit_and_drop_one_rule_and_leave_her_other_lines(c
     assert change(action="add", words="  ").status_code == 400
     change(action="add", words="ask before you split a swarm")
     assert '"ask before you split a swarm"' in helper_chat.seed_text("rh", entry)
+
+
+def test_a_line_opens_into_the_messages_it_counts(client):
+    """Clicking a line in the swarm drawing lists what that line counts: both
+    directions between two members, newest first, with who sent each; a ring
+    standing in for a retired session brings that session's messages too; the
+    helper's line lists only what the helper sent."""
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c"] = {"title": "C", "lane": "coding"}
+        index["h"] = {"title": "Swarm helper", "lane": "coding", "role": "swarm_helper"}
+    peermail.send("a", "hello back", from_conv="b")
+    peermail.send("c", "over to you", from_conv="b")
+    peermail.send("a", "c here", from_conv="c")
+    [card] = client.get("/api/swarms").get_json()["swarms"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index["h"]["swarm_id"] = card["id"]
+    peermail.send("a", "helper note", from_conv="h")
+    peermail.send("h", "to the helper", from_conv="a")
+    line = f"/api/swarms/{card['id']}/line"
+
+    got = client.get(f"{line}?a=a&b=b").get_json()
+    assert [(m["from_title"], m["to_title"], m["text"]) for m in got["messages"]] == [
+        ("B", "A", "hello back"), ("A", "B", "hello")]
+    # The list adds up to the numbers the drawing puts on that line.
+    counted = sum(l["messages"] for l in card["links"] if {l["from"], l["to"]} == {"a", "b"})
+    assert got["total"] == counted == 2
+
+    # One ring standing for two sessions (b, and c which it took over from).
+    both = client.get(f"{line}?a=a&b=b,c").get_json()
+    assert {m["text"] for m in both["messages"]} == {"hello", "hello back", "c here"}
+
+    # The helper's line: what the helper sent, not what was sent to it.
+    helper = client.get(f"{line}?a=helper&b=a").get_json()
+    assert [(m["from_title"], m["text"]) for m in helper["messages"]] == [("Helper", "helper note")]
+
+    assert client.get(f"{line}?a=a&b=stranger").status_code == 400
+    assert client.get(f"{line}?a=a").status_code == 400
+    assert client.get("/api/swarms/99999/line?a=a&b=b").status_code == 404

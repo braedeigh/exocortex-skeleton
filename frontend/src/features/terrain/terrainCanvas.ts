@@ -540,11 +540,11 @@ export interface ThemeInk {
    * since she last opened it wears it out here too, so the map and the session
    * list raise a hand in the same colour. */
   orange: string;
-  /** --message-green and --helper-blue — the two colours a message line wears, read
+  /** --green and --helper-blue — the two colours a message line wears, read
    * from the same tokens the Observatory's swarm drawing uses
    * (SwarmNetwork.module.css), so the map and the drawing can't drift apart:
    * green where two agents have talked, blue from a swarm's helper. */
-  messageGreen: string;
+  green: string;
   helperBlue: string;
   /** The shared cold floor of both heat ramps on the dark surface — a neutral
    * grey as bright as bg lifted ASH_LIFT toward ink. Computed for light too,
@@ -4867,7 +4867,7 @@ export class TerrainCanvas {
       );
       if (!arrow) continue; // orbs too close: no room to point
       const mine = hover !== null && (thread.a === hover || thread.b === hover);
-      const ink = thread.kind === 'helper' ? this.theme.helperBlue : this.theme.messageGreen;
+      const ink = thread.kind === 'helper' ? this.theme.helperBlue : this.theme.green;
       ctx.globalAlpha = hover !== null ? (mine ? 0.95 : 0.08) : dimmed ? 0.25 : 0.7;
       ctx.strokeStyle = ink;
       ctx.fillStyle = ink;
@@ -6366,7 +6366,7 @@ export function readThemeInk(): ThemeInk {
     accent: get('--accent', '#7c5cbf'),
     evening: get('--evening', '#6a7acc'),
     orange: get('--orange', '#d4700a'),
-    messageGreen: get('--message-green', '#5c9a2b'),
+    green: get('--green', '#3a9e8c'),
     helperBlue: get('--helper-blue', '#4f8fe6'),
     ash,
     dark,

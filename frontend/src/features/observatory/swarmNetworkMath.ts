@@ -544,6 +544,75 @@ export interface CountLine {
   within?: readonly [number, number];
 }
 
+/** Which sessions each shown ring stands for, once retired members are left
+ * out: itself, plus every hidden session whose lines withoutRetired moved
+ * onto it (the ones it took over from, down the handover chain). A line's
+ * messages are read back by these lists, so the list a line opens into adds
+ * up to the number drawn on it. */
+export function standIns(swarm: Pick<Swarm, 'members' | 'continues'>): Map<string, string[]> {
+  const shown = new Set(swarm.members.filter((m) => !m.retired).map((m) => m.conv));
+  const nextOf = new Map((swarm.continues ?? []).map((c) => [c.from, c.to] as const));
+  const standsFor = new Map<string, string[]>([...shown].map((conv) => [conv, [conv]] as const));
+  for (const member of swarm.members) {
+    if (shown.has(member.conv)) continue;
+    // Walk the handover chain to the first shown session; the seen-set stops a loop.
+    const seen = new Set<string>();
+    let at: string | undefined = member.conv;
+    while (at !== undefined && !seen.has(at) && !shown.has(at)) {
+      seen.add(at);
+      at = nextOf.get(at);
+    }
+    if (at !== undefined && shown.has(at)) standsFor.get(at)!.push(member.conv);
+  }
+  return standsFor;
+}
+
+/** What stays lit when one agent in the drawing is pointed at. */
+export interface Spotlight {
+  /** The agents that stay lit: the pointed-at one, and whoever is at the
+   * other end of one of its lines. */
+  agents: Set<string>;
+  /** The lines that stay lit, by the same keys the drawing gives them:
+   * `t-a-b` talk, `h-member` the helper's thread, `c-from-to` a handover. */
+  lines: Set<string>;
+}
+
+/** Work out what stays lit when the mouse is on one agent: that agent, every
+ * line that starts or ends at it, and the agents at the other ends.
+ * Everything else in the drawing dims. The helper counts as an agent: on it,
+ * all its threads and the members it wrote to stay lit.
+ * Prompt that produced it: "if you hover over an agent dot on the swarm
+ * view, it highlights that agent and the messages sent between that agent
+ * and to other agents and dims all of the others." */
+export function spotlightOn(
+  agent: string,
+  drawing: {
+    talk: readonly Pick<NetworkLine, 'a' | 'b'>[];
+    helperThreads: readonly { conv: string }[];
+    continues: readonly { from: string; to: string }[];
+    helperConv: string | null;
+  },
+): Spotlight {
+  const agents = new Set([agent]);
+  const lines = new Set<string>();
+  const light = (key: string, ...ends: string[]) => {
+    lines.add(key);
+    for (const end of ends) agents.add(end);
+  };
+  for (const t of drawing.talk) {
+    if (t.a === agent || t.b === agent) light(`t-${t.a}-${t.b}`, t.a, t.b);
+  }
+  for (const c of drawing.continues) {
+    if (c.from === agent || c.to === agent) light(`c-${c.from}-${c.to}`, c.from, c.to);
+  }
+  if (drawing.helperConv !== null) {
+    for (const t of drawing.helperThreads) {
+      if (t.conv === agent || drawing.helperConv === agent) light(`h-${t.conv}`, t.conv, drawing.helperConv);
+    }
+  }
+  return { agents, lines };
+}
+
 /** One number on a talk line: how many messages one end received. */
 export interface DirectionCount {
   /** Who received them. */

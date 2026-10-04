@@ -1,6 +1,6 @@
 /* SwarmNetwork — a swarm as rings and lines. Rings are Terrain's --accent
    purple around a solid dot (glowing, with a spinning teal arc, while it
-   works; an extra orange ring when waiting on her); talk lines are --message-green (theme.css),
+   works; an extra orange ring when waiting on her); talk lines are --green,
    the helper's threads out to members are blue; an arrowhead on a line
    points at whoever received the messages. */
 
@@ -21,7 +21,7 @@
 }
 
 .talk {
-  stroke: var(--message-green);
+  stroke: var(--green);
   /* Square ends: a line stops flat against the base of its arrowhead, and
      an end with no head is hidden under its ring. */
   stroke-linecap: butt;
@@ -40,7 +40,7 @@
 /* The arrowheads: a head at each end of a line that received messages, in
    the line's own colour and strength. */
 .talkHead {
-  fill: var(--message-green);
+  fill: var(--green);
   opacity: 0.85;
 }
 
@@ -61,19 +61,106 @@
   opacity: 0.6;
 }
 
+/* The spotlight: while one agent is pointed at, every line, count and ring
+   that isn't its own steps back (SwarmNetwork.tsx puts this class on them).
+   The fade is quick and eased, and only opacity moves. */
+.lines g,
+.count,
+.node {
+  transition: opacity 180ms ease-out;
+}
+
+.lines g.dimmed,
+.count.dimmed,
+.node.dimmed {
+  opacity: 0.18;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lines g,
+  .count,
+  .node {
+    transition: none;
+  }
+}
+
 /* A message count sits on its line, on a chip so it reads. */
 .count {
   position: absolute;
   transform: translate(-50%, -50%);
   min-width: 24px;
   padding: 1px 6px;
-  border: 1px solid var(--message-green);
+  border: 1px solid var(--green);
   border-radius: 999px;
   background: var(--card-bg, var(--surface));
-  color: var(--message-green);
+  color: var(--green);
   font-size: var(--font-size-sm);
   font-weight: 600;
   text-align: center;
+}
+
+/* A count is a button: tap it to read that line's messages. The chip stays
+   small; the unseen ring round it brings the tap target up to ~40px. */
+button.count {
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+button.count::before {
+  content: '';
+  position: absolute;
+  inset: -9px;
+}
+
+button.count:hover,
+button.count:focus-visible {
+  background: color-mix(in srgb, currentColor 14%, var(--card-bg, var(--surface)));
+}
+
+/* The band along a message line that takes the click: unseen, far wider
+   than the line it lies on, so a thin line is easy to hit. */
+.hit {
+  stroke: transparent;
+  stroke-width: 18;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* The sheet a line opens into: its messages, newest first. */
+.lineNote {
+  margin: 0 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.lineMessages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.lineMessage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--green);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--green) 6%, transparent);
+}
+
+.lineMeta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.lineText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* The helper thread's count: the same chip, in blue. */
@@ -273,7 +360,7 @@
   display: inline-block;
   width: 28px;
   height: 0;
-  border-top: 3px solid var(--message-green);
+  border-top: 3px solid var(--green);
 }
 
 .keyHandover {

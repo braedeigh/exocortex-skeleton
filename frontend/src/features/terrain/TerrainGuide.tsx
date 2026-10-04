@@ -254,7 +254,7 @@ export function TerrainGuide({
             <b>Teal thread:</b> data flowing from the file that writes it to a file that
             reads it. Threads appear when you hover or select one of their ends.
           </Row>
-          <Row mark={<Mark kind="arrow" color="var(--message-green)" />}>
+          <Row mark={<Mark kind="arrow" color="var(--green)" />}>
             <b>Green arrow:</b> two agents that have messaged each other. The arrow points
             at whoever received; a conversation has one at each end. A <b>blue</b> one is a
             swarm&rsquo;s helper writing to an agent.

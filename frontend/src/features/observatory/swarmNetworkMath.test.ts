@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SwarmMember } from './swarmApi';
-import { directionCounts, foldLinks, nodeBoxes, placeCounts, layoutSwarm, lineWidth, NETWORK_WIDTH, shortTitle, withoutRetired, type Box, type NetworkLayout } from './swarmNetworkMath';
+import { directionCounts, foldLinks, nodeBoxes, placeCounts, layoutSwarm, spotlightOn, standIns, lineWidth, NETWORK_WIDTH, shortTitle, withoutRetired, type Box, type NetworkLayout } from './swarmNetworkMath';
 
 function member(conv: string): SwarmMember {
   return { conv, title: `title ${conv}`, lane: 'coding', state: 'silent', joined_at: '', summary: null, summary_at: null };
@@ -131,6 +131,58 @@ describe('one count per direction on a talk line', () => {
 
   it('gives a one-way line a single number and a conversation two', () => {
     expect(lines.map((line) => directionCounts(line).length).sort()).toEqual([1, 2]);
+  });
+});
+
+describe('spotlighting one agent in the drawing', () => {
+  const drawing = {
+    talk: [{ a: 'a', b: 'b' }, { a: 'b', b: 'c' }, { a: 'c', b: 'd' }],
+    helperThreads: [{ conv: 'a' }, { conv: 'd' }],
+    continues: [{ from: 'd', to: 'e' }],
+    helperConv: 'h',
+  };
+
+  it('keeps the agent, its own lines and the agents at their other ends, and nothing else', () => {
+    const lit = spotlightOn('a', drawing);
+    expect([...lit.lines].sort()).toEqual(['h-a', 't-a-b']);
+    expect([...lit.agents].sort()).toEqual(['a', 'b', 'h']);
+    // A handover is one of an agent's own lines too.
+    expect([...spotlightOn('e', drawing).lines]).toEqual(['c-d-e']);
+  });
+
+  it('on the helper, keeps every thread it sent and the members it wrote to', () => {
+    const lit = spotlightOn('h', drawing);
+    expect([...lit.lines].sort()).toEqual(['h-a', 'h-d']);
+    expect([...lit.agents].sort()).toEqual(['a', 'd', 'h']);
+  });
+
+  it('lights no helper thread in a swarm with no helper seat', () => {
+    expect([...spotlightOn('a', { ...drawing, helperConv: null }).lines]).toEqual(['t-a-b']);
+  });
+});
+
+describe('which sessions a shown ring stands for', () => {
+  it('gives a ring the retired sessions it took over from, so a line reads back every message it counts', () => {
+    const swarm = {
+      members: [
+        { conv: 'old', retired: true }, { conv: 'older', retired: true },
+        { conv: 'new', retired: false }, { conv: 'peer', retired: false }, { conv: 'gone', retired: true },
+      ],
+      links: [{ from: 'older', to: 'peer', messages: 2 }, { from: 'peer', to: 'old', messages: 1 }, { from: 'new', to: 'peer', messages: 4 }],
+      continues: [{ from: 'older', to: 'old' }, { from: 'old', to: 'new' }],
+      helper_links: [],
+    } as unknown as Parameters<typeof withoutRetired>[0];
+    const stands = standIns(swarm);
+    expect([...stands.get('new')!].sort()).toEqual(['new', 'old', 'older']);
+    expect(stands.get('peer')).toEqual(['peer']);
+    // A retired session nobody took over from stands behind no ring.
+    expect([...stands.values()].flat()).not.toContain('gone');
+    // The sides agree with the folded count on the drawn line: 2 + 1 + 4.
+    const [line] = foldLinks(withoutRetired(swarm).links, new Set(['new', 'peer']));
+    const counted = swarm.links
+      .filter((l) => [l.from, l.to].some((c) => stands.get('new')!.includes(c)) && [l.from, l.to].includes('peer'))
+      .reduce((sum, l) => sum + l.messages, 0);
+    expect(line.messages).toBe(counted);
   });
 });
 
