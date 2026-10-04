@@ -385,6 +385,8 @@ export function SwarmNetwork({
               works, the dot's glow and the teal arc spinning round it. */}
           <svg width={n.outer ? 24 : 32} height={n.outer ? 24 : 32} viewBox="0 0 32 32"
             className={styles.ringBox} aria-hidden="true">
+            {/* The ring's tap target: an unseen 40px disc (the small outer rings are drawn at 3/4 size). */}
+            <circle cx="16" cy="16" r={n.outer ? 27 : 20} className={styles.ringHit} />
             <circle cx="16" cy="16" r="10" className={styles.ring} />
             {n.state === 'needs_input'
               ? <circle cx="16" cy="16" r="14.5" className={styles.waitRing} />
@@ -409,6 +411,7 @@ export function SwarmNetwork({
           title="The swarm's helper — tap to open its chat"
         >
           <svg width="32" height="32" viewBox="0 0 32 32" className={styles.ringBox} aria-hidden="true">
+            <circle cx="16" cy="16" r="20" className={styles.ringHit} />
             <circle cx="16" cy="16" r="14" className={styles.halo} />
             {helperWorking ? <circle cx="16" cy="16" r="12" className={styles.spinner} /> : null}
             <circle cx="16" cy="16" r="9" className={styles.dot} />

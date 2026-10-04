@@ -188,6 +188,14 @@ button.count:focus-visible {
   color: var(--text);
   font: inherit;
   cursor: pointer;
+  /* Let clicks through the button's empty space: the box is far wider than
+     its ring, and a message line running under it has to stay clickable.
+     Only the ring and the name take the pointer (the rule below). */
+  pointer-events: none;
+}
+
+.node > * {
+  pointer-events: auto;
 }
 
 .node:hover,
@@ -207,6 +215,12 @@ button.count:focus-visible {
 .ringBox {
   overflow: visible;
   flex: none;
+}
+
+/* The ring's tap target: an unseen disc, 40px across, under the ring. */
+.ringHit {
+  fill: transparent;
+  pointer-events: all;
 }
 
 .ring {
