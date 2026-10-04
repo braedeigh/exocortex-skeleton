@@ -532,6 +532,89 @@
       }
     }
   },
+  "journal_pages": {
+    "holds": "One row per prose page of the journal: a weekly summary or a Keeper diary entry. Its path, the folder and file name, the full text, when the file last changed, and when this copy was taken.",
+    "source": "Built by pagestore.py from the markdown files in the vault, which stay the truth. The Keeper's boot package (scripts/boot_context.py) refreshes a folder's rows and then loads them from here.",
+    "kind": "mirror",
+    "time_column": "modified",
+    "columns": {
+      "path": {
+        "holds": "Where the file is, relative to the content folder. It identifies the row."
+      },
+      "folder": {
+        "holds": "The folder the file sits in, like Journal/Weekly."
+      },
+      "name": {
+        "holds": "The file's name."
+      },
+      "body": {
+        "holds": "The text of the page."
+      },
+      "modified": {
+        "holds": "When the file was last changed, in local time."
+      },
+      "synced": {
+        "holds": "When this copy of the text was taken. A sync-clock time."
+      },
+      "gone_at": {
+        "holds": "Set when the file is no longer in its folder. Empty for a page that is still there."
+      }
+    }
+  },
+  "context_loads": {
+    "holds": "The tracker of what each session was handed: one row per load. A Keeper's boot package is one row; each person or thread whose cards loaded when the owner named them is one row, with the word that set it off, how many cards were handed over, which ones, and how many were left out because the session already had them.",
+    "source": "Written by loadrecord.py, called from the wake (routes/observatory.py) and the context-on-mention hook (tools/mention_context.py). A record: nothing else holds it. A message sent off the record leaves no row. scripts/context_loads.py prints each load beside the reply that followed.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "A running number that identifies the row."
+      },
+      "at": {
+        "holds": "When the load happened, in local time."
+      },
+      "conv": {
+        "holds": "The conversation it was loaded into (or the terminal session's id)."
+      },
+      "source": {
+        "holds": "Where the load came from.",
+        "values": {
+          "boot": "the package a Keeper wakes with",
+          "mention": "a pack loaded because the owner named a person or thread"
+        }
+      },
+      "kind": {
+        "holds": "For a mention: whether it was a person or a thread. Empty for a boot."
+      },
+      "slug": {
+        "holds": "For a mention: the person's or thread's file name without its ending."
+      },
+      "name": {
+        "holds": "For a mention: the display name."
+      },
+      "matched": {
+        "holds": "For a mention: the word in the owner's message that set it off."
+      },
+      "outcome": {
+        "holds": "What happened.",
+        "values": {
+          "loaded": "cards were handed over",
+          "nothing new": "every card about them was already on the session's record",
+          "no cards": "the journal has no cards about them",
+          "no room": "the pack was full; it loads on the next mention"
+        }
+      },
+      "cards": {
+        "holds": "How many cards were handed over."
+      },
+      "card_ids": {
+        "holds": "Their ids, as a JSON list."
+      },
+      "skipped": {
+        "holds": "How many cards were left out because the session already had them."
+      }
+    }
+  },
   "card_tags": {
     "holds": "Which tags are on which journal card — one row per card-and-tag pair, nothing else. A plain pair table, so 'every card tagged x' is one quick lookup.",
     "source": "Built by cardstore.py from the tags written in each card file.",

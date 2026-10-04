@@ -11,9 +11,16 @@ out of the database (`exo.db`: `cards`, `card_tags`, `tags`, `cards_fts`) and
 prints them. Whatever a hook of this kind prints lands in the agent's context,
 so the agent starts its reply already holding the history, without searching.
 
-**How much.** The last `MENTION_CONTEXT_DAYS` days (30), capped at the newest
-`MENTION_CONTEXT_CARDS` cards (20). If that window is empty: the newest 20
-cards ever, however old. Only her own cards (`who = 'B'`).
+**How much.** The newest `MENTION_CONTEXT_CARDS` cards (20) about them that
+the session does not already have, however far back that reaches. Only her own
+cards (`who = 'B'`).
+
+**Nothing twice.** Every session has a record of the cards it has been handed
+(`loadrecord.py`): the Keeper's boot package puts its cards there at the wake,
+and every pack adds its own. A card on the record is skipped, by its id or by
+its words (two cards can say the same thing; and a card made from a message
+she typed in this very chat is already in front of the agent). So a pack holds
+only what is new to the session, and two names in one day don't share cards.
 
 **"About them"** means a card tagged with their slug, or a card whose text
 names them. Both, because tagging happens overnight: today's cards about
@@ -26,8 +33,14 @@ those names the text match is dropped and only tagged cards count, so their
 cards from today load a day late. A common-word name also has to be written
 capitalised in the middle of a sentence before it counts as a mention at all.
 
-**Once per session.** What was loaded is remembered in a small file per
-session (`bot_chats/mention_context/<session>.json` in the data folder).
+**Once per session.** Which names have loaded is on the same record
+(`bot_chats/mention_context/<session>.json` in the data folder).
+
+**The tracker.** Each load is also written to the `context_loads` table: the
+name, the word in her message that set it off, the cards handed over, how many
+were left out. `scripts/context_loads.py` reads it back beside the replies. A
+message she sent off the record leaves no row there and no trace on the
+session's record.
 
 **Where the names come from.** The database has no table of people or aliases,
 so the names to listen for are read from the vault files, through the same
@@ -53,7 +66,8 @@ uses), so a build session at the same folder is left alone.
 Prompt: "The first time someone is mentioned in a session, the hook runs and
 pulls up the last month of data or the last 20 messages about them. This comes
 from the database and is injected and the keeper will know this can happen.
-Same for threads that are auto tagging."
+Same for threads that are auto tagging." / "load more context that doesn't
+overlap" / "a tracker to measure when a thread is loaded and to what response"
 """
 import json
 import os
@@ -61,7 +75,7 @@ import re
 import sqlite3
 import sys
 from contextlib import closing
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 SKELETON = Path(__file__).resolve().parents[1]
@@ -69,6 +83,7 @@ if str(SKELETON) not in sys.path:
     sys.path.insert(0, str(SKELETON))
 
 import config as app_config  # noqa: E402
+import loadrecord  # noqa: E402
 import store  # noqa: E402
 
 # Everything one run prints stays under this many characters — see "The size
@@ -97,7 +112,7 @@ _APP_NOTE = "\n\n[System:"
 
 
 def _state_dir():
-    return store.DATA_DIR / "bot_chats" / "mention_context"
+    return loadrecord.folder()
 
 
 # --- The names to listen for -------------------------------------------------
@@ -201,26 +216,31 @@ def _term_pattern(terms):
 
 # --- What the owner said -----------------------------------------------------
 
-def owner_words(prompt):
-    """The part of a prompt that is the owner talking. Drops the app's own
-    appended note, and in a labelled batch keeps only her blocks — so a name
-    in another agent's message loads nothing. Empty for a slash command or
-    harness-made text."""
+def owner_messages(prompt):
+    """The parts of a prompt that are the owner talking, one per message.
+    Drops the app's own appended note, and in a labelled batch keeps only her
+    blocks — so a name in another agent's message loads nothing. Empty for a
+    slash command or harness-made text."""
     text = (prompt or "").strip()
     if not text or text.startswith("/") or text.startswith(SYNTHETIC_PREFIXES):
-        return ""
+        return []
     cut = text.find(_APP_NOTE)
     if cut != -1:
         text = text[:cut]
     headers = list(_BATCH_HEADER.finditer(text))
     if not headers:
-        return text
+        return [text]
     kept = []
     for position, header in enumerate(headers):
         end = headers[position + 1].start() if position + 1 < len(headers) else len(text)
         if header.group(1) == "B":
             kept.append(text[header.end():end])
-    return "\n".join(kept)
+    return kept
+
+
+def owner_words(prompt):
+    """The part of a prompt that is the owner talking, as one text."""
+    return "\n".join(owner_messages(prompt))
 
 
 def _untrusted(entry):
@@ -230,7 +250,8 @@ def _untrusted(entry):
 
 
 def find_mentions(text, names):
-    """The people and threads named in `text`, in the order they first appear.
+    """The people and threads named in `text`, in the order they first appear,
+    each with the word that named them: [(entry, matched_word)].
 
     A weak term (a name that is also an ordinary word) only counts when it is
     written capitalised in the middle of a sentence. Every other term counts as
@@ -243,14 +264,15 @@ def find_mentions(text, names):
         plain = [term for term in entry["terms"] if term.lower() not in weak]
         match = _term_pattern(plain).search(text) if plain else None
         if match:
-            found.append((match.start(), entry))
+            found.append((match.start(), entry, match.group(0)))
             continue
         for term in entry.get("weak") or []:
             if namerisk.named_midsentence(text, term):
-                found.append((text.find(term[:1].upper() + term[1:]), entry))
+                capitalised = term[:1].upper() + term[1:]
+                found.append((text.find(capitalised), entry, capitalised))
                 break
-    found.sort(key=lambda pair: pair[0])
-    return [entry for _, entry in found]
+    found.sort(key=lambda item: item[0])
+    return [(entry, matched) for _, entry, matched in found]
 
 
 # --- The history, from the database ------------------------------------------
@@ -270,9 +292,9 @@ def _fts_query(terms):
     return " OR ".join('"' + term.replace('"', '""') + '"' for term in terms)
 
 
-def cards_about(conn, entry, today=None):
-    """Her cards about one person or thread, oldest first, plus a word on
-    which window they came from.
+def cards_about(conn, entry, record=None):
+    """Her newest cards about one person or thread that the session does not
+    already have, oldest first, plus how many were left out as already had.
 
     A card counts when it is tagged with the slug (`card_tags`, or the
     universal `tags` table under this kind's namespace) or when its text names
@@ -281,11 +303,13 @@ def cards_about(conn, entry, today=None):
     Only trusted terms are matched in text: a weak or shared name counts by
     tag alone.
 
-    The window: the last MENTION_CONTEXT_DAYS days, newest MENTION_CONTEXT_CARDS;
-    if that is empty, the newest MENTION_CONTEXT_CARDS of any age."""
-    today = today or date.today()
+    `record` is the session's record (loadrecord.py). A card on it is left
+    out, by id or by its words, and each card kept is put on it, so the next
+    name in the same message can't take the same card. The walk goes from the
+    newest card back and stops at MENTION_CONTEXT_CARDS kept, so the pack
+    reaches as far into the past as it needs to fill up."""
     limit = app_config.MENTION_CONTEXT_CARDS
-    since = (today - timedelta(days=app_config.MENTION_CONTEXT_DAYS)).isoformat()
+    record = record if record is not None else {"names": set(), "cards": set(), "texts": set()}
     untrusted = _untrusted(entry)
     text_terms = [term for term in entry["terms"] if term.lower() not in untrusted]
     pattern = _term_pattern(text_terms) if text_terms else None
@@ -296,43 +320,56 @@ def cards_about(conn, entry, today=None):
         "  WHERE ns = ? AND tag = ? AND subject LIKE 'card:%'",
         (entry["slug"], entry["kind"], entry["slug"]))}
 
-    def newest(day_clause, parameters):
-        sql = ("SELECT c.id, c.ts, c.body FROM cards c"
-               " WHERE c.who = 'B' AND c.deleted_at IS NULL" + day_clause +
-               " AND (c.id IN (SELECT card_id FROM card_tags WHERE tag = ?)"
-               "   OR c.id IN (SELECT substr(subject, 6) FROM tags"
-               "               WHERE ns = ? AND tag = ? AND subject LIKE 'card:%')"
-               + ("   OR c.id IN (SELECT card_id FROM cards_fts WHERE cards_fts MATCH ?)"
-                  if text_terms else "") +
-               ") ORDER BY c.ts DESC, c.id DESC")
-        rows = conn.execute(sql, parameters + [entry["slug"], entry["kind"], entry["slug"]]
-                            + ([_fts_query(text_terms)] if text_terms else []))
-        kept = []
-        for row in rows:
-            if row["id"] in tagged or (pattern and pattern.search(row["body"] or "")):
-                kept.append(row)
-                if len(kept) >= limit:
-                    break
-        return kept
-
-    cards = newest(" AND c.day >= ?", [since])
-    window = f"the last {app_config.MENTION_CONTEXT_DAYS} days"
-    if not cards:
-        cards = newest("", [])
-        window = "nothing in the last {} days, so her newest cards of any age".format(
-            app_config.MENTION_CONTEXT_DAYS)
-    cards.reverse()
-    return cards, window
+    sql = ("SELECT c.id, c.ts, c.body FROM cards c"
+           " WHERE c.who = 'B' AND c.deleted_at IS NULL"
+           " AND (c.id IN (SELECT card_id FROM card_tags WHERE tag = ?)"
+           "   OR c.id IN (SELECT substr(subject, 6) FROM tags"
+           "               WHERE ns = ? AND tag = ? AND subject LIKE 'card:%')"
+           + ("   OR c.id IN (SELECT card_id FROM cards_fts WHERE cards_fts MATCH ?)"
+              if text_terms else "") +
+           ") ORDER BY c.ts DESC, c.id DESC")
+    rows = conn.execute(sql, [entry["slug"], entry["kind"], entry["slug"]]
+                        + ([_fts_query(text_terms)] if text_terms else []))
+    kept, skipped = [], 0
+    for row in rows:
+        if not (row["id"] in tagged or (pattern and pattern.search(row["body"] or ""))):
+            continue
+        if loadrecord.has(record, row["id"], row["body"]):
+            skipped += 1
+            continue
+        kept.append(row)
+        record["cards"].add(row["id"])
+        mark = loadrecord.fingerprint(row["body"])
+        if mark:
+            record["texts"].add(mark)
+        if len(kept) >= limit:
+            break
+    kept.reverse()
+    return kept, skipped
 
 
 # --- Writing the pack --------------------------------------------------------
 
+def _attached_name(match):
+    """`[uploaded: /long/path/IMG_1.png]` as `[file IMG_1.png]`."""
+    return "[file " + match.group(0)[len("[uploaded: "):-1].rsplit("/", 1)[-1] + "]"
+
+
 def _one_line(body, length):
-    flat = " ".join((body or "").split())
+    """A card's text on one line, cut at `length`. Attached files are shown by
+    name alone: a card that opens with ten full upload paths would otherwise
+    be cut before its words begin."""
+    flat = " ".join(loadrecord.UPLOAD_MARKER.sub(_attached_name, body or "").split())
     return flat if len(flat) <= length else flat[:length].rstrip() + "…"
 
 
-def render_section(entry, cards, window, room):
+def _span(cards):
+    """The days a run of cards covers: `2026-09-03 to 2026-10-02`."""
+    first, last = cards[0]["id"][:10], cards[-1]["id"][:10]
+    return first if first == last else f"{first} to {last}"
+
+
+def render_section(entry, cards, room):
     """One person's or thread's cards as text that fits in `room` characters,
     or None when even the shortest form won't fit. Tries shorter and shorter
     cards first, then drops the oldest."""
@@ -343,7 +380,7 @@ def render_section(entry, cards, window, room):
             lines = [f"- {(card['ts'] or card['id'])[:16]} [{card['id']}] "
                      f"{_one_line(card['body'], length)}" for card in cards]
             head = (f"## {kind}: {entry['name']} — file `{entry['file']}`\n"
-                    f"{len(cards)} of her cards ({window}), oldest first:")
+                    f"{len(cards)} of her cards, {_span(cards)}, oldest first:")
             text = head + "\n" + "\n".join(lines)
             if len(text) <= room:
                 return text, cards
@@ -354,66 +391,68 @@ def render_section(entry, cards, window, room):
 PACK_HEADER = (
     "[Context on mention — loaded by the app, not typed by the owner.]\n"
     "Her message names the people or threads below for the first time in this"
-    " session, so the app pulled her own recent journal cards about them from"
-    " the database. Each loads once per session. A card ending in … was cut"
+    " session, so the app pulled her own journal cards about them from the"
+    " database: the newest ones you have not already been given. Cards in your"
+    " boot package, in an earlier pack, or made from what she typed in this chat"
+    " are left out, so a pack can reach well into the past. Each name loads once"
+    " per session. A card ending in … was cut"
     " short: its full text is in the card pool under the id in brackets. This is"
     " a starting point, not a boundary — read further when the moment calls for it."
 )
 
 
-def build_pack(mentions, conn, today=None):
+def build_pack(mentions, conn, record=None):
     """The text to inject for these mentions, and what happened to each.
 
-    Returns (text, loaded, empty, waiting): `loaded` is one summary dict per
-    section written, `empty` the entries with no cards at all, `waiting` the
-    ones that did not fit this time."""
-    sections, loaded, empty, waiting = [], [], [], []
+    `mentions` is [(entry, matched_word)]; `record` is the session's record,
+    which the cards handed over are added to as the pack is built.
+
+    Returns (text, loaded, results). `loaded` is one summary dict per section
+    written. `results` is one dict per mention for the tracker and the record:
+    {entry, matched, outcome, card_ids, bodies, skipped}, where outcome is
+    'loaded', 'nothing new', 'no cards' or 'no room'."""
+    record = record if record is not None else {"names": set(), "cards": set(), "texts": set()}
+    sections, loaded, results = [], [], []
     room = OUTPUT_BUDGET - len(PACK_HEADER) - 200
-    for position, entry in enumerate(mentions):
-        cards, window = cards_about(conn, entry, today)
+    for position, (entry, matched) in enumerate(mentions):
+        result = {"entry": entry, "matched": matched, "card_ids": [], "bodies": []}
+        results.append(result)
+        # Work on a copy of the record: only cards that are really printed
+        # may stay on it.
+        trial = {part: set(record[part]) for part in record}
+        cards, result["skipped"] = cards_about(conn, entry, trial)
         if not cards:
-            empty.append(entry)
+            result["outcome"] = "nothing new" if result["skipped"] else "no cards"
             continue
         # Share what's left evenly among the names still to come.
         share = room // max(1, len(mentions) - position)
-        rendered = (render_section(entry, cards, window, max(share, SMALLEST_SHARE))
+        rendered = (render_section(entry, cards, max(share, SMALLEST_SHARE))
                     if room >= SMALLEST_SHARE else None)
         if rendered is None:
-            waiting.append(entry)
+            result["outcome"] = "no room"
             continue
         text, shown = rendered
         sections.append(text)
         room -= len(text) + 2
+        result.update(outcome="loaded", card_ids=[card["id"] for card in shown],
+                      bodies=[card["body"] for card in shown])
+        record["cards"].update(result["card_ids"])
+        record["texts"].update(mark for mark in map(loadrecord.fingerprint, result["bodies"])
+                               if mark)
         loaded.append({"key": entry["key"], "kind": entry["kind"], "name": entry["name"],
                        "cards": len(shown),
                        "first": shown[0]["id"][:10], "last": shown[-1]["id"][:10]})
     if not sections:
-        return "", loaded, empty, waiting
+        return "", loaded, results
     text = PACK_HEADER + "\n\n" + "\n\n".join(sections)
+    waiting = [result["entry"]["name"] for result in results if result["outcome"] == "no room"]
     if waiting:
         text += ("\n\nAlso named, not loaded for lack of room (they load on their"
-                 " next mention): " + ", ".join(e["name"] for e in waiting) + ".")
-    return text, loaded, empty, waiting
+                 " next mention): " + ", ".join(waiting) + ".")
+    return text, loaded, results
 
 
 # --- Remembering what a session already has ----------------------------------
-
-def _state_path(session_key):
-    safe = re.sub(r"[^A-Za-z0-9._-]", "_", session_key)[:120]
-    return _state_dir() / f"{safe}.json"
-
-
-def already_loaded(session_key):
-    try:
-        return set(json.loads(_state_path(session_key).read_text(encoding="utf-8")))
-    except (OSError, ValueError):
-        return set()
-
-
-def remember(session_key, keys):
-    _state_dir().mkdir(parents=True, exist_ok=True)
-    _state_path(session_key).write_text(json.dumps(sorted(keys)), encoding="utf-8")
-
 
 def summary_line(loaded):
     """What the owner is shown: `loaded: Name — 14 cards, 2026-09-03 to 2026-10-02`."""
@@ -441,6 +480,18 @@ def _note_in_chat(conversation_id, loaded):
 
 # --- The hook itself ---------------------------------------------------------
 
+def _off_the_record(prompt):
+    """True when she sent this message off the record — by the capture hook's
+    own test (tools/stream/keeper_capture.py). When that can't be asked, the
+    answer is no: with no journal state there are no off-the-record turns."""
+    try:
+        sys.path.insert(0, str(SKELETON / "tools" / "stream"))
+        import keeper_capture
+        return keeper_capture._off_record_suppressed((prompt or "").strip())
+    except Exception:
+        return False
+
+
 def _terminal_arming(session_id, transcript_path):
     """A terminal session's arming mode, by the capture hook's own test:
     None until `/journalstart` or `/thread` has run in it."""
@@ -449,7 +500,7 @@ def _terminal_arming(session_id, transcript_path):
     return keeper_capture._session_mode(session_id, transcript_path)
 
 
-def run(hook_input, terminal=False, today=None):
+def run(hook_input, terminal=False):
     """One prompt in, the hook's JSON reply out (or None to stay silent)."""
     if not app_config.MENTION_CONTEXT:
         return None
@@ -471,21 +522,37 @@ def run(hook_input, terminal=False, today=None):
     if not session_key:
         return None
 
-    text = owner_words(hook_input.get("prompt"))
+    messages = owner_messages(hook_input.get("prompt"))
+    text = "\n".join(messages)
     if not text:
         return None
-    have = already_loaded(session_key) | preloaded
-    mentions = [entry for entry in find_mentions(text, load_names())
+    # An off-the-record message leaves nothing behind: no fingerprint on the
+    # record and no row in the tracker. Its pack still loads.
+    private = _off_the_record(hook_input.get("prompt"))
+    # Put what she just typed on the record first, so the card made from this
+    # very message is not handed back to the agent as history.
+    record = (loadrecord.read(session_key) if private
+              else loadrecord.add(session_key, texts=messages))
+    have = record["names"] | preloaded
+    mentions = [(entry, matched) for entry, matched in find_mentions(text, load_names())
                 if entry["key"] not in have]
     if not mentions:
         return None
 
     with closing(_read_only_connection()) as conn:
-        pack, loaded, empty, _waiting = build_pack(mentions, conn, today)
-    # Names with nothing in the journal are remembered too, so they aren't
+        pack, loaded, results = build_pack(mentions, conn, record)
+    # Names with nothing to hand over are remembered too, so they aren't
     # looked up again on every later mention. Names that didn't fit are not.
-    remember(session_key, have | {item["key"] for item in loaded}
-             | {entry["key"] for entry in empty})
+    settled = [result for result in results if result["outcome"] != "no room"]
+    loadrecord.add(session_key,
+                   names=[result["entry"]["key"] for result in settled],
+                   cards=[card_id for result in settled for card_id in result["card_ids"]],
+                   texts=[body for result in settled for body in result["bodies"]])
+    if not private:
+        for result in results:
+            loadrecord.log(session_key, "mention", result["outcome"], entry=result["entry"],
+                           matched=result["matched"], card_ids=result["card_ids"],
+                           skipped=result["skipped"])
     if not pack:
         return None
 

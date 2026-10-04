@@ -30,6 +30,9 @@ remain queryable and a rebuild doesn't forget legitimate deletions.
   - `sync()`    — upsert the whole pool + run the presence check. The pool is
                   ~1k tiny files; a full walk is well under a second, so no
                   incremental variant is needed (sync_sessions' reasoning).
+  - `sync_fresh()` — copy in only the cards that are new or changed, and run
+                  no presence check. For a reader that needs the table current
+                  this minute (the Keeper's boot package).
   - `rebuild()` — wipe both tables and sync fresh. Schema-repair button only:
                   it forgets `missing_since` incidents (they exist nowhere
                   but these rows), which sync() never does.
@@ -278,6 +281,45 @@ def sync_one(cid: str):
         raise
     finally:
         conn.close()
+
+
+def sync_fresh(pool=None):
+    """Copy in the cards that are new or changed since their last sync, and
+    nothing else. Returns how many were copied.
+
+    For a reader that needs the table current right now (the Keeper's boot
+    package, built at the wake) without waiting for the hourly sync. It never
+    marks a card deleted or missing: the presence check stays with `sync()`,
+    whose caller is the one that shouts, so an alarm can't be raised here
+    where nobody would hear it.
+
+    `pool` is the cards folder to read; the vault's own by default."""
+    pool = Path(pool) if pool else pool_dir()
+    conn = sqlstore.open_db()
+    now = _now()
+    copied = 0
+    try:
+        sqlstore.begin_immediate(conn)
+        last_seen = dict(conn.execute("SELECT id, last_seen FROM cards"))
+        for path in sorted(pool.glob("*.md")):
+            seen = last_seen.get(path.stem)
+            try:
+                changed = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            except OSError:
+                continue
+            if seen is not None and changed <= seen:
+                continue
+            card = _parse_card(path)
+            if card is not None:
+                _upsert(conn, card, now)
+                copied += 1
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+    return copied
 
 
 def rebuild():

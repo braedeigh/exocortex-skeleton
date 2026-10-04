@@ -699,15 +699,25 @@ def _italicize(body: str) -> str:
     return "\n".join(lines)
 
 
-def _render_card_block(card: Card) -> str:
+def _short_id(card: Card) -> str:
+    """The part of a card id after the day: `1010b` for `2026-10-04.1010b`.
+    Under a day's heading the day is already known, so this is enough to name
+    the card."""
+    return card.id.split(".", 1)[-1]
+
+
+def _render_card_block(card: Card, with_id: bool = False) -> str:
     """`\\nB: <body>\\n`, `\\nS: <body>\\n`, or `\\nK: *<body>*\\n` — multi-line
     bodies get the prefix (and, for K, the asterisks) only at the outer edges.
-    S (the system) is plain like B, set apart by its own letter."""
+    S (the system) is plain like B, set apart by its own letter. With
+    `with_id` the speaker letter is followed by the card's short id in
+    brackets: `B [1010b]: <body>`."""
     lines = card.body.split("\n")
+    label = f"{card.who} [{_short_id(card)}]" if with_id else card.who
     if card.who in ("B", "S"):
-        lines[0] = f"{card.who}: " + lines[0]
+        lines[0] = f"{label}: " + lines[0]
     else:
-        lines[0] = "K: *" + lines[0]
+        lines[0] = f"{label}: *" + lines[0]
         lines[-1] = lines[-1] + "*"
     return "\n" + "\n".join(lines) + "\n"
 
@@ -991,7 +1001,8 @@ def _render_edit_marker_block(marker: EditMarker, ts_dt: datetime) -> str:
 # Day view
 # --------------------------------------------------------------------------------
 
-def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[str]:
+def render_day_text(day: str, cards: Optional[List[Card]] = None,
+                    with_ids: bool = False) -> Optional[str]:
     """The rendered `Journal/Daily/<day>.md` body, or None if no card exists for
     that day (a day with zero cards is never touched — see `render_day`). This
     holds even when to-do completion markers land on that day: markers alone
@@ -1006,6 +1017,10 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
     day-only finished_on claim, or a legacy date-only done_at) can't be placed
     on the timeline at all, so it renders in a tail block after the timeline,
     one line per marker, under a single blank line.
+
+    `with_ids` puts each card's short id beside its speaker letter
+    (`B [1010b]: …`). The day files never use it; the Keeper's boot package
+    does (scripts/boot_context.py), so every line it loads can be named.
     """
     all_cards = load_all_cards() if cards is None else cards
     day_cards = [c for c in all_cards if c.ts.startswith(day)]
@@ -1061,7 +1076,8 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
         if prev_ts is None or (ts_dt - prev_ts).total_seconds() > GAP_SECONDS:
             text += f"\n*[{_clock(ts_dt)}]*\n"
         if isinstance(payload, Card):
-            text += _render_ref_block(payload) if payload.kind == "ref" else _render_card_block(payload)
+            text += (_render_ref_block(payload) if payload.kind == "ref"
+                     else _render_card_block(payload, with_ids))
         elif isinstance(payload, StreakMarker):
             text += _render_streak_marker_block(payload, ts_dt)
         elif isinstance(payload, EditMarker):

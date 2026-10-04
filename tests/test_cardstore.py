@@ -186,3 +186,23 @@ def test_sync_one_marks_a_cast_deletion_deleted(pool):
 
     assert _rows("SELECT deleted_at, missing_since FROM cards WHERE id = ?",
                  "2026-08-02.0808b") == [("2026-08-02 21:00:00", None)]
+
+
+def test_sync_fresh_copies_new_and_changed_cards_and_raises_no_alarm(pool):
+    _write_card(pool, "2026-08-02.0808b", body="morning")
+    _write_card(pool, "2026-08-02.0900b", body="later")
+    cardstore.sync()
+    # One card is edited, one is new, one vanishes with no deletion cast.
+    _write_card(pool, "2026-08-02.0808b", body="morning, edited")
+    import os, time
+    os.utime(pool / "2026-08-02.0808b.md", (time.time() + 5, time.time() + 5))
+    _write_card(pool, "2026-08-02.1000b", body="brand new")
+    (pool / "2026-08-02.0900b.md").unlink()
+
+    assert cardstore.sync_fresh() == 2
+
+    rows = dict(_rows("SELECT id, body FROM cards WHERE missing_since IS NULL"))
+    assert rows["2026-08-02.0808b"] == "morning, edited" and rows["2026-08-02.1000b"] == "brand new"
+    # The vanished card is left for the hourly sync to find and shout about.
+    assert "2026-08-02.0900b" in rows
+    assert cardstore.sync()["missing"] == ["2026-08-02.0900b"]

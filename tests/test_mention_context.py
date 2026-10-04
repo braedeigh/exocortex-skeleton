@@ -7,12 +7,12 @@ JSON prompt in, one JSON reply (or silence) out.
 """
 import importlib.util
 import json
-from datetime import date
 from pathlib import Path
 
 import pytest
 
 import config
+import loadrecord
 import sqlstore
 import store
 from routes import observatory
@@ -21,8 +21,6 @@ _spec = importlib.util.spec_from_file_location(
     "mention_context", Path(__file__).resolve().parents[1] / "tools" / "mention_context.py")
 mention_context = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(mention_context)
-
-TODAY = date(2026, 3, 30)
 
 ROBIN = """---
 aliases: [my landlord]
@@ -83,21 +81,30 @@ def vault(data_dir, tmp_path, monkeypatch):
 
 
 def send(prompt, **extra):
-    return mention_context.run({"prompt": prompt, "session_id": "s1", **extra}, today=TODAY)
+    return mention_context.run({"prompt": prompt, "session_id": "s1", **extra})
+
+
+def loads():
+    """The tracker's rows, oldest first."""
+    conn = sqlstore.open_db()
+    try:
+        return conn.execute("SELECT slug, matched, outcome, cards, skipped, card_ids"
+                            " FROM context_loads ORDER BY id").fetchall()
+    finally:
+        conn.close()
 
 
 def pack_of(reply):
     return reply["hookSpecificOutput"]["additionalContext"]
 
 
-def test_first_mention_loads_her_cards_about_a_person_from_the_last_month(vault):
+def test_first_mention_loads_her_cards_about_a_person(vault):
     pack = pack_of(send("robin wants the rent early"))
-    # Named, tagged-only and alias cards are in; oldest first.
-    assert pack.index("texted about the deposit") < pack.index("fixed the sink") \
-        < pack.index("my landlord came by")
-    # The old card is outside the month, the Keeper's card isn't hers, and a
-    # word that merely starts with the name isn't a mention.
-    assert "kind in January" not in pack
+    # Named, tagged-only and alias cards are in, however old; oldest first.
+    assert pack.index("kind in January") < pack.index("texted about the deposit") \
+        < pack.index("fixed the sink") < pack.index("my landlord came by")
+    # The Keeper's card isn't hers, and a word that merely starts with the
+    # name isn't a mention.
     assert "sounds stressed" not in pack
     assert "crusoe" not in pack
     assert "Person: Robin Vale" in pack and "people/robin.md" in pack
@@ -110,10 +117,83 @@ def test_a_name_loads_once_per_session_and_again_in_a_new_one(vault, monkeypatch
     assert "Robin Vale" in pack_of(send("Robin again"))
 
 
-def test_an_empty_month_falls_back_to_her_newest_cards_of_any_age(vault):
-    pack = pack_of(send("Juniper is visiting"))
-    assert "coffee with Juniper" in pack and "Juniper called" in pack
-    assert "nothing in the last 30 days" in pack
+def test_cards_the_session_already_has_are_left_out_and_older_ones_take_their_place(
+        vault, monkeypatch):
+    # The boot package handed this session two of Robin's three recent cards.
+    monkeypatch.setattr(config, "MENTION_CONTEXT_CARDS", 2)
+    loadrecord.add("conv-1", cards=["2026-03-21.0900b", "2026-03-22.0900b"])
+    pack = pack_of(send("Robin called"))
+    assert "fixed the sink" not in pack and "my landlord came by" not in pack
+    # Its two slots are filled from further back instead.
+    assert "kind in January" in pack and "texted about the deposit" in pack
+
+
+def test_the_same_words_under_two_ids_load_once(vault):
+    conn = sqlstore.open_db()
+    add_card(conn, "2026-03-26.0900b", "Robin said the heating is fixed for good")
+    add_card(conn, "2026-03-26.0902b", "Robin said the heating is fixed for good")
+    conn.commit()
+    conn.close()
+    assert pack_of(send("Robin called")).count("heating is fixed") == 1
+
+
+def test_the_message_she_just_typed_is_not_handed_back_as_history(vault):
+    # The app mints her message as a card before the agent answers it.
+    message = "Robin came by about the boiler this morning"
+    conn = sqlstore.open_db()
+    add_card(conn, "2026-03-29.0900b", message)
+    conn.commit()
+    conn.close()
+    pack = pack_of(send(message))
+    assert "about the boiler" not in pack and "texted about the deposit" in pack
+
+
+def test_two_names_in_one_session_never_share_a_card(vault):
+    conn = sqlstore.open_db()
+    add_card(conn, "2026-03-27.0900b", "Robin and Juniper argued on the stairs")
+    conn.commit()
+    conn.close()
+    first = pack_of(send("Robin called"))
+    second = pack_of(send("so did Juniper"))
+    assert "argued on the stairs" in first and "argued on the stairs" not in second
+    assert "coffee with Juniper" in second
+
+
+def test_a_name_with_nothing_new_loads_nothing_and_is_not_asked_again(vault):
+    loadrecord.add("conv-1", cards=["2025-11-02.0900b", "2025-12-02.0900b"])
+    assert send("Juniper is visiting") is None
+    assert [(row[0], row[2], row[4]) for row in loads()] == [("juniper", "nothing new", 2)]
+    assert send("Juniper again") is None and len(loads()) == 1
+
+
+def test_a_screenshot_card_shows_its_words_not_its_upload_paths(vault):
+    paths = " ".join(f"[uploaded: /srv/vault/data/uploads/2026030{n}_120000_IMG_{n}.png]"
+                     for n in range(1, 9))
+    conn = sqlstore.open_db()
+    add_card(conn, "2026-03-28.0900b", paths + " Robin's text says the rent goes up in May",
+             tags=["robin"])
+    conn.commit()
+    conn.close()
+    pack = pack_of(send("Robin"))
+    assert "rent goes up in May" in pack
+    assert "/srv/vault" not in pack and "[file 20260301_120000_IMG_1.png]" in pack
+
+
+def test_every_load_is_tracked_with_the_word_that_set_it_off(vault):
+    send("my landlord wants the rent early")
+    (row,) = loads()
+    assert row[:4] == ("robin", "my landlord", "loaded", 4)
+    assert json.loads(row[5])[-1] == "2026-03-22.0900b"
+
+
+def test_an_off_the_record_message_leaves_no_trace_but_still_loads(vault, monkeypatch):
+    monkeypatch.setattr(mention_context, "_off_the_record", lambda prompt: True)
+    assert "Robin Vale" in pack_of(send("Robin wants the rent early, strictly between us"))
+    assert loads() == []
+    assert loadrecord.read("conv-1")["texts"] == {
+        loadrecord.fingerprint(body) for body in (
+            "Robin texted about the deposit", "he still hasn't fixed the sink",
+            "my landlord came by again", "Robin was kind in January")}
 
 
 def test_a_busy_month_is_capped_at_the_newest_cards(vault, monkeypatch):
@@ -157,6 +237,7 @@ def test_the_pack_stays_under_the_harness_limit_and_says_what_waited(vault, monk
     # The one that waited loads on its next mention; the loaded one doesn't repeat.
     again = pack_of(send("Robin and Juniper again"))
     assert "Person: Juniper" in again and "Person: Robin Vale" not in again
+    assert [row[2] for row in loads()] == ["loaded", "no room", "loaded"]
 
 
 def test_the_chat_gets_a_grey_line_saying_what_was_loaded(vault, data_dir):
@@ -164,7 +245,7 @@ def test_the_chat_gets_a_grey_line_saying_what_was_loaded(vault, data_dir):
     lines = [json.loads(line) for line in
              (data_dir / "bot_chats" / "conv-1.jsonl").read_text().splitlines()]
     assert lines == [{"type": "context-loaded", "ts": lines[0]["ts"], "items": lines[0]["items"],
-                      "text": "loaded: Robin Vale — 3 cards, 2026-03-20 to 2026-03-22"}]
+                      "text": "loaded: Robin Vale — 4 cards, 2026-01-05 to 2026-03-22"}]
 
 
 def test_a_new_people_file_is_heard_without_a_restart(vault):
@@ -185,11 +266,11 @@ def test_a_terminal_session_waits_until_it_is_armed(vault, tmp_path, monkeypatch
         {"type": "user", "message": {"content": "fix the build"}}) + "\n")
     hook_input = {"prompt": "Robin called", "session_id": "term-1",
                   "transcript_path": str(transcript)}
-    assert mention_context.run(hook_input, terminal=True, today=TODAY) is None
+    assert mention_context.run(hook_input, terminal=True) is None
     with transcript.open("a") as handle:
         handle.write(json.dumps({"type": "user", "message": {
             "content": "<!-- KEEPER_SESSION_ACTIVE -->"}}) + "\n")
-    reply = mention_context.run(hook_input, terminal=True, today=TODAY)
+    reply = mention_context.run(hook_input, terminal=True)
     assert "Robin Vale" in pack_of(reply)
     assert reply["systemMessage"].startswith("loaded: Robin Vale")
 
@@ -262,3 +343,27 @@ def test_a_message_the_app_sent_to_wake_the_session_loads_nothing(vault):
     assert send("[Background job finished — you started it in the background]\n"
                 "Job: pack for The Move\nResult: exit 0") is None
     assert send("[Sudo request answered — you filed it]\nRobin approved") is None
+
+
+def test_the_tracker_reads_back_each_load_beside_her_message_and_the_reply(vault, data_dir):
+    from datetime import datetime, timedelta
+
+    from scripts import context_loads
+
+    def line(seconds_ago, **fields):
+        moment = (datetime.now() - timedelta(seconds=seconds_ago)).isoformat(timespec="seconds")
+        return json.dumps({"ts": moment, **fields}) + "\n"
+
+    # The chat as the app logs it: an earlier turn, then the one that names Robin.
+    log = data_dir / "bot_chats" / "conv-1.jsonl"
+    log.write_text(line(600, type="user", text="good morning")
+                   + json.dumps({"type": "result", "result": "Morning."}) + "\n"
+                   + line(1, type="user", text="Robin wants the rent early"))
+    send("Robin wants the rent early")
+    with log.open("a") as handle:
+        handle.write(json.dumps({"type": "result", "result": "Early again, like in March?"}) + "\n")
+
+    (row,) = context_loads.loads(days=1)
+    assert (row["slug"], row["matched"], row["cards"]) == ("robin", "Robin", 4)
+    assert row["said"] == "Robin wants the rent early"
+    assert row["answered"] == "Early again, like in March?"

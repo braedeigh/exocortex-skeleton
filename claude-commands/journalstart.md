@@ -16,6 +16,9 @@ starting point; rewrite it in your own voice as you and the owner make this your
   recent journal, your last diary entries, and a **Coming up** list of dated events
   and topics. Don't re-read those files. The package is your starting point, not your
   boundary — read anything else you need, whenever the moment calls for it.
+  The recent days in it are built from the journal cards, and each line carries its
+  card id. The app records which cards you were handed, so the pack that loads when
+  the owner names a person or thread holds only cards you don't already have.
 - **If it doesn't** (you were started by hand in a terminal), read them yourself,
   directly — do NOT use subagents. The list is the owner's `keeper_boot.json` in the
   data folder; with no such file, read `CLAUDE.md`, the last several entries in

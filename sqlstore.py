@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 46
+_SCHEMA_VERSION = 47
 
 
 def _db_path():
@@ -221,6 +221,10 @@ _EXPECTED_TABLES = (
     # What each swarm did, written when it closed (rung 45).
     "swarm_closings",
     "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs",
+    # The journal's prose pages: weekly summaries, diary entries (rung 47).
+    "journal_pages",
+    # What each session was handed, load by load (rung 47).
+    "context_loads",
 )
 
 
@@ -3121,6 +3125,59 @@ def _run_ladder(conn):
         )
         conn.execute("CREATE INDEX IF NOT EXISTS spinoff_handoffs_by_conv"
                      " ON spinoff_handoffs (conv)")
+    if version < 47:
+        # The journal's prose pages as rows (pagestore.py): the weekly
+        # summaries and diary entries a Keeper wakes with. The markdown files
+        # stay the truth and whatever writes them keeps writing them; this is
+        # a one-way copy so the boot package can load them with a query.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS journal_pages ("
+            # Where the file is, relative to the content folder.
+            "  path TEXT PRIMARY KEY,"
+            # The folder it sits in and its file name, split out of the path.
+            "  folder TEXT NOT NULL,"
+            "  name TEXT NOT NULL,"
+            "  body TEXT NOT NULL DEFAULT '',"
+            # When the file was last changed, and when the copy was last taken.
+            "  modified TEXT,"
+            "  synced TEXT NOT NULL,"
+            # Set when the file is no longer there. The row is kept.
+            "  gone_at TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS journal_pages_by_folder"
+                     " ON journal_pages (folder)")
+        # The tracker of what a session was handed and when (loadrecord.py):
+        # one row per load. A record, not a copy of anything: it exists so the
+        # loads can be read back beside the replies that followed them.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS context_loads ("
+            "  id INTEGER PRIMARY KEY,"
+            # When, in local time, and in which conversation or session.
+            "  at TEXT NOT NULL,"
+            "  conv TEXT NOT NULL,"
+            # 'boot' for the package a Keeper wakes with, 'mention' for a pack.
+            "  source TEXT NOT NULL,"
+            # For a mention: 'person' or 'thread', its slug and display name,
+            # and the word in the owner's message that set it off.
+            "  kind TEXT,"
+            "  slug TEXT,"
+            "  name TEXT,"
+            "  matched TEXT,"
+            # 'loaded', 'nothing new' (every card was already on the record),
+            # 'no cards' (none exist) or 'no room' (it waits for its next mention).
+            "  outcome TEXT NOT NULL,"
+            # How many cards were handed over, their ids as a JSON list, and
+            # how many were left out because the session already had them.
+            "  cards INTEGER NOT NULL DEFAULT 0,"
+            "  card_ids TEXT NOT NULL DEFAULT '[]',"
+            "  skipped INTEGER NOT NULL DEFAULT 0"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS context_loads_by_conv"
+                     " ON context_loads (conv, at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS context_loads_by_slug"
+                     " ON context_loads (kind, slug)")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

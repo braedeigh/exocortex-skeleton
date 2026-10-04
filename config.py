@@ -283,14 +283,13 @@ except (ValueError, TypeError, AttributeError, KeyError):
 # cards about them. MENTION_CONTEXT=0 turns it off. MENTION_CONTEXT_ROOMS are
 # the Observatory rooms whose sessions get it (a journaling session always
 # does); the default leaves build rooms out, so journal text never lands in a
-# build chat. The amount: the last MENTION_CONTEXT_DAYS days, capped at the
-# newest MENTION_CONTEXT_CARDS cards — and when that window is empty, the
-# newest MENTION_CONTEXT_CARDS of any age.
+# build chat. The amount: the newest MENTION_CONTEXT_CARDS cards about them
+# that the session has not already been handed, however far back that reaches.
 # Prompt: "The first time someone is mentioned in a session, the hook runs and
-# pulls up the last month of data or the last 20 messages about them."
+# pulls up the last month of data or the last 20 messages about them." / "load
+# more context that doesn't overlap"
 MENTION_CONTEXT = os.environ.get("EXOCORTEX_MENTION_CONTEXT", "1") != "0"
 MENTION_CONTEXT_ROOMS = tuple(
     room.strip() for room in os.environ.get("EXOCORTEX_MENTION_CONTEXT_ROOMS", "personal").split(",")
     if room.strip())
-MENTION_CONTEXT_DAYS = int(os.environ.get("EXOCORTEX_MENTION_CONTEXT_DAYS", "30"))
 MENTION_CONTEXT_CARDS = int(os.environ.get("EXOCORTEX_MENTION_CONTEXT_CARDS", "20"))

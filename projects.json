@@ -69,7 +69,9 @@
         "cardsearch.py",
         "recap_summary.py",
         "comingup.py",
-        "namerisk.py"
+        "namerisk.py",
+        "pagestore.py",
+        "loadrecord.py"
       ],
       "routes": [
         "cards.py",
@@ -101,6 +103,7 @@
       ],
       "scripts": [
         "update_cards.py",
+        "context_loads.py",
         "keeper_rollover.py",
         "cricket_swarm.sh",
         "thread_tending.py",
@@ -110,6 +113,8 @@
       "tables": [
         "cards",
         "card_tags",
+        "journal_pages",
+        "context_loads",
         "cards_fts",
         "cards_fts_data",
         "cards_fts_idx",

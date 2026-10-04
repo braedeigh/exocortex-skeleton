@@ -555,11 +555,24 @@ def attach_boot_package(conv_id):
     carry it. See scripts/boot_context.py for what goes in."""
     try:
         from scripts import boot_context
-        text = boot_context.build()
+        text, cards = boot_context.build_package()
         folder = _chats_dir() / "boot"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{conv_id}.md"
         path.write_text(text, encoding="utf-8")
+        # Put the package's journal cards on this conversation's record, so
+        # the context-on-mention hook (tools/mention_context.py) skips them
+        # and a pack holds only what the Keeper doesn't already have. Her own
+        # cards are also recorded by their words: two cards can say the same
+        # thing under different ids. A failure here costs only the skipping.
+        try:
+            import loadrecord
+            loadrecord.add(conv_id, cards=[card["id"] for card in cards],
+                           texts=[card["body"] for card in cards if card["who"] == "B"])
+            loadrecord.log(conv_id, "boot", "loaded",
+                           card_ids=[card["id"] for card in cards])
+        except Exception:
+            pass
         return str(path)
     except Exception:
         # A failed build must not cost the wake: /journalstart's own text
