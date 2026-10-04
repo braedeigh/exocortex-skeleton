@@ -100,7 +100,7 @@ export interface MapPlace {
 
 /** What the room says it is, to someone who has never seen the app. */
 const VISITOR_SUB =
-  'How the Observatory is built: the part of this app that runs AI agent sessions and lets them work together. ' +
+  'How one part of this app is built, drawn as boxes and arrows: the agent orchestration, or the journal memory. ' +
   'Each box is a part, written up in plain words. Each arrow says how one part uses another. ' +
   'Tap a box with parts to open it; Esc goes up.';
 
