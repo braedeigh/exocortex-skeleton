@@ -373,6 +373,10 @@ PRESENTABLE_PATHS = (
 # already read through Files.
 PUBLIC_MAPS = (
     "skeleton/observatory",
+    # The journal memory system (opened 2026-10-04). It describes how the
+    # journal is built, never what is in it: no box names a person, a thread
+    # or a card, and the vault files it points at stay closed to visitors.
+    "skeleton/memory",
 )
 
 _NOT_YET_PRESENTABLE = (
