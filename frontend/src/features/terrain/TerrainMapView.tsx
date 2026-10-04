@@ -200,7 +200,12 @@ export function TerrainMapView({
       {card ? (
         <div className={styles.cardHead}>
           <span className={styles.cardTitle}>{current?.name ?? 'Map'} · a map of the code</span>
-          <a className={styles.cardOpen} href="/terrain/map" target="_top" rel="noopener">
+          <a
+            className={styles.cardOpen}
+            href={key ? `/terrain/map?map=${encodeURIComponent(key)}` : '/terrain/map'}
+            target="_top"
+            rel="noopener"
+          >
             Open the Map <span aria-hidden="true">&#8599;</span>
           </a>
         </div>
