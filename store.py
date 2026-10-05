@@ -144,6 +144,10 @@ RESEARCH_ROOM_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_ROOM_DIR", DATA_DIR.
 # and may not go into an outside service — is hers, so the folder lives in
 # the vault, same idea as RESEARCH_ROOM_DIR.
 LINEAR_ROOM_DIR = Path(os.environ.get("EXOCORTEX_LINEAR_ROOM_DIR", DATA_DIR.parent / "linear-room"))
+# Fairy room: the one folder a walled session may write in (lane `fairy`,
+# fairywall.py). It sits beside the vault, not in it, so nothing the fairy
+# writes rides the vault's backup and deleting the folder deletes it all.
+FAIRY_ROOM_DIR = Path(os.environ.get("EXOCORTEX_FAIRY_ROOM_DIR", DATA_DIR.parent.parent / "fairy"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

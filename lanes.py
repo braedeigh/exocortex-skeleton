@@ -1,7 +1,7 @@
 """Which room (lane) an Observatory session lives in — one rule, one place.
 
-**What this is, in plain English.** Every session sits in one of five rooms:
-Personal, Coding, Orchestra, Research, Linear. New sessions have the room written on
+**What this is, in plain English.** Every session sits in one of six rooms:
+Personal, Coding, Orchestra, Research, Linear, Fairy. New sessions have the room written on
 them; older ones (about 40% of them on this install) never did, and the app
 works it out from the folder the session was started in. That rule used to
 live only inside routes/observatory.py, so the SQL copy of the sessions table
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import store
 
-LANES = ("orchestra", "personal", "coding", "research", "linear")
+LANES = ("orchestra", "personal", "coding", "research", "linear", "fairy")
 
 
 def derive_lane(entry):
@@ -38,10 +38,24 @@ def derive_lane(entry):
     to ORCHESTRA, the gated lane: an unknown-derives-to-personal would quietly
     *widen* a session's autonomy, and the whole gate exists on the principle
     that a wrong guess should cost a tap, not a mistake. Fail toward ask."""
+    cwd = entry.get("cwd")
+    # A session standing in the Fairy room is in the Fairy room, whatever its
+    # record says: that room is walled (fairywall.py), and renaming a
+    # session's room must not take the wall down.
+    if cwd:
+        try:
+            if Path(cwd).resolve() == Path(store.FAIRY_ROOM_DIR).resolve():
+                return "fairy"
+        except (OSError, ValueError, RuntimeError):
+            pass
     lane = entry.get("lane")
+    # And the other way round: a record that says "fairy" on a session
+    # standing somewhere else is not walled, so it is not in the Fairy room.
+    # It derives to the gated room below.
+    if lane == "fairy":
+        return "orchestra"
     if lane in LANES:
         return lane
-    cwd = entry.get("cwd")
     if not cwd:
         return "orchestra"
     # Place the session by the ground it stands on. The research and Linear

@@ -52,6 +52,7 @@ import time
 
 import activityfeed
 import config as app_config
+import fairywall
 import lanes
 import peermail
 import recap_summary
@@ -251,8 +252,15 @@ def _cli_default_model():
 # session would ask before every read. Another door like Research's
 # (routes/linear_room.py, frontend LinearDoor / sessionFilters.roomRoster).
 #
+# FAIRY is the sixth: the one room whose sessions can't write outside their
+# own folder. Rooted in store.FAIRY_ROOM_DIR, and decided by that folder alone
+# (lanes.derive_lane), never by a field on the session. Its limit is not a
+# gate that reads tool calls: every turn is started behind the operating
+# system's wall (fairywall.py), with its own login, no hooks, no web tools
+# and no door to the other agents. No gates, because the wall does their job.
+#
 # Per-session overrides (`act_gate` / `guard_docs` written explicitly) still
-# win over the lane default — see _conv_config.
+# win over the lane default — see _conv_config. The Fairy room takes none.
 _LANES = lanes.LANES
 _DEFAULT_LANE = "orchestra"
 
@@ -300,6 +308,13 @@ def _lane_profile(lane):
         cwd = str(store.RESEARCH_ROOM_DIR)
     elif lane == "linear":
         cwd = str(store.LINEAR_ROOM_DIR)
+    elif lane == "fairy":
+        # The Fairy room: its own folder, its own short tool list, and
+        # neither gate. The gates refuse a tool call by reading it; this
+        # room's turns run behind the operating system's wall instead
+        # (fairywall.py), which refuses the write itself.
+        return {"cwd": str(store.FAIRY_ROOM_DIR), "allowed_tools": list(fairywall.TOOLS),
+                "act_gate": False, "guard_docs": False}
     else:
         cwd = str(store.BUILD_DIR)
     return {"cwd": cwd,
@@ -406,6 +421,11 @@ def _session_settings(config, tools):
     One payload, since Claude Code takes a single --settings. Each half binds to
     the session type (a write tool / Bash present) and defaults on with its own
     opt-out. A read-only legacy session triggers neither → {} → no --settings."""
+    # A walled session gets the wall's own settings and none of the hooks
+    # below: each of them writes to the data folder, which the wall makes
+    # read-only.
+    if config.get("wall"):
+        return fairywall.settings()
     settings = {}
     if config.get("guard_docs", True) and any(t in _GUARD_WRITE_TOOLS for t in tools):
         settings.update(json.loads(_guard_settings_json(config.get("cwd"))))
@@ -506,6 +526,15 @@ def _conv_config(entry):
     defaults = _lane_profile(lane)
     guard_docs = entry.get("guard_docs")
     act_gate = entry.get("act_gate")
+    # A session standing in the Fairy room is walled, with the room's own
+    # tool list and nothing a stored field can widen: no journaling, no
+    # gates to switch, no per-session tools.
+    if lane == "fairy":
+        return {"lane": lane, "wall": True, "journal": False,
+                "allowed_tools": list(fairywall.TOOLS), "cwd": entry["cwd"],
+                "system_prompt_file": entry.get("system_prompt_file"),
+                "model": model if model in _MODEL_CHOICES else None,
+                "guard_docs": False, "act_gate": False, "helper_gate": False}
     return {
         "lane": lane,
         # A journaling session (the Keeper). Read by _session_settings.
@@ -643,7 +672,14 @@ def _build_cmd(config, resume_sid):
     # conversation id gets it: that id is its return address. The same turns
     # are told when to stop for her (_QUESTIONS_PROMPT) — they're the ones
     # whose conversation a question can be filed against.
-    if config.get("conv_id"):
+    # A walled session is told about the wall instead (fairywall.prompt): it
+    # can't reach the other agents or file a question, since both write
+    # outside its folder. It also starts with no outside services attached,
+    # whatever the account or the machine has set up.
+    if config.get("wall"):
+        cmd += ["--append-system-prompt", fairywall.prompt(),
+                "--strict-mcp-config", "--mcp-config", '{"mcpServers": {}}']
+    elif config.get("conv_id"):
         cmd += ["--append-system-prompt",
                 peermail.prompt(config["conv_id"]) + "\n" + _QUESTIONS_PROMPT]
     # Keep the input open for the life of the turn, so messages can be handed
@@ -674,9 +710,17 @@ def _spawn(config, text, resume_sid, cwd_override=None):
     # stderr goes to a spooled temp file, NOT a pipe: nobody reads stderr
     # until the process ends, and an unread pipe blocks claude cold once it
     # writes ~64KB of warnings (verbose mode makes that a real number).
+    command = _build_cmd(config, resume_sid)
+    # Start a walled session behind the wall: the command is wrapped so the
+    # operating system makes everything but its room read-only, and it gets
+    # the room's own login and a bare environment (fairywall.py). With no
+    # wall or no login this raises, and the turn is refused, not run open.
+    if config.get("wall"):
+        command, env = fairywall.spawn_parts(command, config["cwd"], CLAUDE_BIN)
+        cwd = config["cwd"]
     stderr_f = tempfile.TemporaryFile()
     proc = subprocess.Popen(
-        _build_cmd(config, resume_sid),
+        command,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_f,
         cwd=cwd, text=True, bufsize=1, env=env,
     )

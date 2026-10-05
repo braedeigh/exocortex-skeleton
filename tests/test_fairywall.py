@@ -105,3 +105,63 @@ def test_the_room_keeps_its_own_conversations(place):
     transcripts = fairywall.transcripts_dir(place["room"].resolve(), place["home"].resolve())
     code, _ = inside(place, f"echo turn > {transcripts}/session.jsonl")
     assert code == 0 and (transcripts / "session.jsonl").read_text() == "turn\n"
+
+
+# --- The room: every turn there starts behind the wall ------------------------
+
+@pytest.fixture
+def room(place, monkeypatch):
+    """The stand-in machine with its room named as the Fairy room, and a
+    session standing in it."""
+    from routes import observatory
+    monkeypatch.setattr(store, "FAIRY_ROOM_DIR", place["room"])
+    monkeypatch.setenv("HOME", str(place["home"]))
+    entry = {"lane": "fairy", "cwd": str(place["room"]), "journal": True,
+             "allowed_tools": ["Read", "Bash", "WebFetch", "Task"], "act_gate": True}
+    return observatory, place, entry
+
+
+def test_a_session_in_the_room_is_walled_whatever_its_record_says(room):
+    observatory, place, entry = room
+    for stored_lane in ("fairy", "coding", "personal", None):
+        config = observatory._conv_config({**entry, "lane": stored_lane})
+        assert config["wall"] is True and config["lane"] == "fairy"
+        assert config["allowed_tools"] == fairywall.TOOLS and config["journal"] is False
+    # A record that says "fairy" on a session standing elsewhere is not in
+    # the room: it gets the gated room, and no claim to a wall it lacks.
+    elsewhere = observatory._conv_config({**entry, "cwd": str(place["vault"])})
+    assert elsewhere["lane"] == "orchestra" and not elsewhere.get("wall")
+
+
+def test_a_turn_in_the_room_is_refused_without_a_login(room):
+    observatory, place, entry = room
+    with pytest.raises(fairywall.NoWall, match="no login token"):
+        observatory._spawn(observatory._conv_config(entry), "hello", None)
+
+
+def test_a_turn_in_the_room_starts_behind_the_wall(room, monkeypatch):
+    """Stand a small script in for the agent program and run a real turn's
+    start: it reports what it was started with and tries to write outside."""
+    observatory, place, entry = room
+    (place["data"] / "fairy_token").write_text("the-room-token\n")
+    monkeypatch.setenv("EXOCORTEX_SUDO_PASSWORD", "must not reach the room")
+    agent = place["vault"] / "agent.sh"
+    agent.write_text("#!/bin/sh\n"
+                     "echo token=$CLAUDE_CODE_OAUTH_TOKEN leaked=$EXOCORTEX_SUDO_PASSWORD\n"
+                     "echo args=$*\n"
+                     f"echo mine > note.txt && echo wrote-room\n"
+                     f"echo x > {place['vault']}/tulku/journal.md || echo refused-vault\n"
+                     f"cat {place['data']}/fairy_token || echo token-file-hidden\n")
+    agent.chmod(0o755)
+    monkeypatch.setattr(observatory, "CLAUDE_BIN", str(agent))
+    proc, _ = observatory._spawn({**observatory._conv_config(entry), "conv_id": "2026-01-01.000000"},
+                                 "hello", None)
+    output = proc.stdout.read()
+    proc.wait(timeout=30)
+    assert "token=the-room-token leaked=\n" in output
+    assert "wrote-room" in output and "refused-vault" in output and "token-file-hidden" in output
+    assert (place["room"] / "note.txt").exists()
+    assert (place["vault"] / "tulku" / "journal.md").read_text() == "a day she wrote down"
+    # No hooks, no web tools, no outside services, and no door to the other agents.
+    assert "--strict-mcp-config" in output and "peers.py" not in output
+    assert "hooks" not in output and "WebFetch" in output.split("--settings")[1].split("--")[0]
