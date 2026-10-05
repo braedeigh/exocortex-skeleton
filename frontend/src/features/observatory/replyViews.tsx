@@ -110,11 +110,15 @@ export function UserMessage({
   text,
   offRecord,
   highlights,
+  onTap,
 }: {
   index: number;
   text: string;
   offRecord: boolean;
   highlights?: Highlight[];
+  /** Given for an off-the-record message: a tap on it arms the pill that puts
+   * it back in the journal (ObservatoryPage's tapOffRecord). */
+  onTap?: (i: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = useMemo(() => escapeHtml(text), [text]);
@@ -124,7 +128,10 @@ export function UserMessage({
       ref={ref}
       data-turn={index}
       data-who="B"
-      className={[styles.userMsg, offRecord ? styles.userOffRecord : ''].filter(Boolean).join(' ')}
+      className={[styles.userMsg, offRecord ? styles.userOffRecord : '', onTap ? styles.userTappable : '']
+        .filter(Boolean)
+        .join(' ')}
+      onClick={onTap ? () => onTap(index) : undefined}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

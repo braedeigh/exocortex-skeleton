@@ -39,6 +39,10 @@ from routes import observatory, terminal
 from routes import terrain
 
 
+# The real journal mint, kept before the bot_client fixture swaps in its recorder.
+_REAL_CAPTURE = terminal._capture_journal
+
+
 STUB = """#!/usr/bin/env python3
 import sys, json
 text = sys.stdin.read()
@@ -90,10 +94,11 @@ def bot_client(data_dir, tmp_path, monkeypatch):
     mints = []
     mint_calls = []
 
-    def _fake_mint(body, typed, tags=None, who="B", session=None, reply_to=None):
+    def _fake_mint(body, typed, tags=None, who="B", session=None, reply_to=None,
+                   ts=None):
         mints.append((who, body))
         mint_calls.append({"who": who, "body": body, "tags": tags,
-                           "session": session, "reply_to": reply_to})
+                           "session": session, "reply_to": reply_to, "ts": ts})
         return f"2026-08-01.120{len(mint_calls)}{who.lower()}"
 
     monkeypatch.setattr(terminal, "_capture_journal", _fake_mint)
@@ -273,6 +278,97 @@ def test_off_record_in_a_workshop_session_writes_no_breadcrumb(bot_client):
     _sse_events(_send(bot_client, text="workshop aside", record=False,
                       conversation_id=conv_id))
     assert not (store.CONTENT_DIR / ".keeper" / "off_record.jsonl").exists()
+
+
+def _restore(client, conv_id, **body):
+    return client.post(f"/api/observatory/conversation/{conv_id}/journal-restore",
+                       json=body)
+
+
+def test_restoring_an_off_record_message_mints_it_once_at_its_send_time(bot_client):
+    # She sends two messages off the record with the same words, then taps the
+    # SECOND one back into the journal — twice. One B card, her words, stamped
+    # with the time the log says she sent it; the first message stays out.
+    conv_id = _journal_conv(bot_client)
+    for _ in range(2):
+        _sse_events(_send(bot_client, text="a private line", record=False,
+                          conversation_id=conv_id))
+    assert bot_client._mints == []
+    sent_at = [e for e in _conv_log(conv_id) if e["type"] == "user"][1]["ts"]
+
+    first = _restore(bot_client, conv_id, user=1, text="a private line")
+    again = _restore(bot_client, conv_id, user=1, text="a private line")
+
+    assert first.status_code == 200 and again.status_code == 200
+    assert again.get_json()["card"] == first.get_json()["card"]
+    assert bot_client._mints == [("B", "a private line")]
+    call = bot_client._mint_calls[0]
+    assert call["ts"] == sent_at.replace("T", " ")
+    # an ordinary card: no session stamp, no parent, nothing saying "restored"
+    assert call["session"] is None and call["reply_to"] is None
+    marks = [e for e in _conv_log(conv_id) if e["type"] == "journal-restore"]
+    assert [m["user"] for m in marks] == [1]
+    # the other message can still be put back, as its own card
+    _restore(bot_client, conv_id, user=0, text="a private line")
+    assert len(bot_client._mints) == 2
+
+
+def test_restore_refuses_a_message_that_was_never_off_the_record(bot_client):
+    # An on-record message already has its card; restoring it would make a twin.
+    conv_id = _journal_conv(bot_client)
+    _sse_events(_send(bot_client, text="a journal line", conversation_id=conv_id))
+    resp = _restore(bot_client, conv_id, user=0, text="a journal line")
+    assert resp.status_code == 409
+    assert bot_client._mints == [("B", "a journal line")]   # only the send's own
+
+
+def test_a_failed_restore_leaves_the_message_off_the_record(bot_client, monkeypatch):
+    # No card, so no mark in the log: the message still shows dashed and she
+    # can tap it again.
+    conv_id = _journal_conv(bot_client)
+    _sse_events(_send(bot_client, text="a private line", record=False,
+                      conversation_id=conv_id))
+    monkeypatch.setattr(terminal, "_capture_journal", lambda *a, **k: None)
+    assert _restore(bot_client, conv_id, user=0, text="a private line").status_code == 502
+    assert not [e for e in _conv_log(conv_id) if e["type"] == "journal-restore"]
+
+
+def test_a_restored_card_lands_in_the_pool_backdated_and_the_fallback_door_stands_down(
+        bot_client, monkeypatch):
+    # The real thing end to end: the real mint (stream.py, in a temp vault),
+    # then the reconciler meeting the same words in claude's transcript. The
+    # card sits at the send time, the day view shows it, and no twin appears.
+    from routes import cards
+    monkeypatch.syspath_prepend(str(pathlib.Path(observatory.__file__).parent.parent / "tools" / "stream"))
+    import stream
+    import reconcile_transcripts
+    vault = store.CONTENT_DIR
+    vault.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("TULKU_STREAM_ROOT", str(vault))
+    monkeypatch.setattr(cards, "_stream_py",
+                        lambda: pathlib.Path(stream.__file__))
+    conv_id = _journal_conv(bot_client)
+    _sse_events(_send(bot_client, text="a private line", record=False,
+                      conversation_id=conv_id))
+    # Age the send, so "at its send time" is told apart from "now".
+    path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    lines = path.read_text().splitlines()
+    first = json.loads(lines[0])
+    first["ts"] = "2026-08-01T09:31:07"
+    path.write_text("\n".join([json.dumps(first)] + lines[1:]) + "\n")
+    monkeypatch.setattr(terminal, "_capture_journal", _REAL_CAPTURE)
+
+    resp = _restore(bot_client, conv_id, user=0, text="a private line")
+
+    assert resp.status_code == 200
+    card = stream.read_card(resp.get_json()["card"])
+    assert (card.who, card.body.strip(), card.ts) == ("B", "a private line", "2026-08-01 09:31:07")
+    assert card.id.startswith("2026-08-01.0931b")
+    assert "a private line" in (stream.daily_dir() / "2026-08-01.md").read_text()
+    assert reconcile_transcripts._already_captured(
+        "a private line", datetime(2026, 8, 1, 9, 31, 7).astimezone())
+    # a backdated mint is not a fresh prompt: no hook-dedup hash left behind
+    assert not (vault / ".keeper" / "ui_captured.jsonl").exists()
 
 
 def test_approval_resume_logs_the_command_not_a_blank_gap(bot_client):

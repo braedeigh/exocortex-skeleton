@@ -69,6 +69,9 @@
  *                                              the journal — matched by text
  * - {type:'journal-highlight', turn,start,end} a span she highlighted into the
  *                                              journal — matched by turn index
+ * - {type:'journal-restore', user}             an off-the-record message she
+ *                                              put back in the journal — matched
+ *                                              by its place among her messages
  */
 
 import type { Arrival } from './queuedMessages';
@@ -482,9 +485,42 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       ];
       return turns;
     }
+    case 'journal-restore': {
+      // An off-the-record message she put back in the journal. It stops
+      // showing as off the record. Addressed by its place among HER messages
+      // (the server counts the same lines), so it survives turns of other
+      // kinds being added around it.
+      if (typeof e.user !== 'number') return turns;
+      const i = userTurnIndex(turns, e.user);
+      if (i !== -1) turns[i].offRecord = false;
+      return turns;
+    }
     default:
       return turns;
   }
+}
+
+/** Where the nth message of hers sits among the turns (n counts from 0), or
+ * -1. The inverse of userOrdinal. */
+export function userTurnIndex(turns: Turn[], ordinal: number): number {
+  let seen = 0;
+  for (let i = 0; i < turns.length; i++) {
+    if (turns[i].role !== 'user') continue;
+    if (seen === ordinal) return i;
+    seen++;
+  }
+  return -1;
+}
+
+/** A message's place among her messages: how many of hers come before the
+ * turn at `index`. This is how the server is told which message she means —
+ * its log has no turn indices, but it has the same messages in the same order. */
+export function userOrdinal(turns: Turn[], index: number): number {
+  let before = 0;
+  for (let i = 0; i < index && i < turns.length; i++) {
+    if (turns[i].role === 'user') before++;
+  }
+  return before;
 }
 
 /** Index of the last user turn, or -1 if she's never sent one. The open-at-

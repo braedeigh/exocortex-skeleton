@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { closingFor } from './swarmApi';
-import { HELPER_SILENT, applyEvent, assistantText, lastUserTurnIndex, openQuestionSet, questionsState, turnsFromHistory, userTurn, type Turn } from './events';
+import { HELPER_SILENT, applyEvent, assistantText, lastUserTurnIndex, openQuestionSet, questionsState, turnsFromHistory, userOrdinal, userTurn, userTurnIndex, type Turn } from './events';
 
 const delta = (text: string) => ({
   type: 'stream_event',
@@ -230,6 +230,25 @@ describe('journal-mark', () => {
     applyEvent(turns, assistant('a reply'));
     applyEvent(turns, { type: 'journal-mark', text: 'different words' });
     expect(turns[0].journaled).toBe(false);
+  });
+});
+
+describe('journal-restore', () => {
+  it('takes the off-the-record look off the message it names, and no other', () => {
+    // Two off-the-record messages with the same words, a reminder between
+    // them: the event names the second by its place among HER messages.
+    const turns = turnsFromHistory([
+      { type: 'user', text: 'aside', off_record: true },
+      assistant('a1'),
+      { type: 'result' },
+      { type: 'reminder', text: 'tea', source: 'manual' },
+      { type: 'user', text: 'aside', off_record: true },
+      { type: 'journal-restore', user: 1, card: '2026-10-05.0931b' },
+    ]);
+    const hers = turns.filter((t) => t.role === 'user');
+    expect(hers.map((t) => t.offRecord)).toEqual([true, false]);
+    // The page asks for a message by the same count the server answers in.
+    expect(userTurnIndex(turns, userOrdinal(turns, turns.indexOf(hers[1])))).toBe(turns.indexOf(hers[1]));
   });
 });
 

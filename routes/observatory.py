@@ -32,7 +32,8 @@ Guarantees carried over from the terminal send door (routes/terminal.py):
   are the app's own operator cues (`operator: true` — the red card's "Resume
   session?"), which she never typed. The surface must never promise more
   privacy than the machinery gives (Terra, 07-23), so the composer's own note
-  says the same thing.
+  says the same thing. One message can be put back afterwards, by her own tap
+  only: the journal-restore route mints its B card at the original send time.
 
 Headless mode authenticates exactly like interactive Claude Code (the owner's
 subscription login, or an API key on a fresh install) — no separate billing.
@@ -3931,6 +3932,100 @@ def register(app):
                 "card": quote_card, "ts": _now(),
             }) + "\n")
         return jsonify({"ok": True, "card": quote_card, "note_card": note_card})
+
+    @app.route("/api/observatory/conversation/<conv_id>/journal-restore", methods=["POST"])
+    def bot_journal_restore(conv_id):
+        """Put one OFF-THE-RECORD message of hers back into the journal, on a tap.
+
+        She sent it with the journal paused and changed her mind. This mints
+        the ordinary B card that send would have minted — her words, at the
+        time she sent them — so it sorts into its own place in the day and
+        reads like any other card. Nothing marks it as restored.
+
+        ONLY HER TAP DOES THIS, one message at a time. Nothing here lists her
+        off-the-record messages, and nothing restores in bulk: a message she
+        hasn't tapped still leaves no trace in the journal at all.
+
+        The text and the time come from the session log, never from the
+        request: the client says WHICH message (`user`: its place among her
+        messages in this chat, and `text` to check it against), and the server
+        reads the line itself. A line that isn't flagged off_record is refused,
+        so this can't mint a second card for a message already journaled.
+
+        A `journal-restore` event goes into the log, naming the message by its
+        place among her messages. That is what makes a second tap a no-op (the
+        event is found and its card returned) and what un-dashes the message
+        on reload (events.ts). The whole check-mint-append runs under a file
+        lock, so two taps racing each other still make one card.
+
+        The off_record.jsonl breadcrumb is left alone on purpose. The fallback
+        capture doors don't need it lifted — the reconciler matches bodies
+        against the pool, finds the restored card, and stands down — and
+        removing it early would only open a window for them to mint a twin.
+
+        Prompt: "where I can click an entry that I sent that I had off the
+        record and add it back to the journal."
+        """
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        data = request.json or {}
+        text = data.get("text")
+        wanted = data.get("user")
+        if not isinstance(text, str) or not text.strip():
+            return jsonify({"error": "empty text"}), 400
+        path = _chats_dir() / f"{conv_id}.jsonl"
+        if not isinstance(store.read("bot_chats/index", {}).get(conv_id), dict) \
+                or not path.exists():
+            return jsonify({"error": "not found"}), 404
+
+        with open(path, "a+", encoding="utf-8") as log:
+            fcntl.flock(log, fcntl.LOCK_EX)
+            # Read her messages in order, and which of them are already back.
+            # Her messages are the `user` lines carrying a `text` string — the
+            # same lines the chat draws as hers, so the count matches the page.
+            log.seek(0)
+            hers, restored = [], {}
+            for raw in log.read().splitlines():
+                try:
+                    event = json.loads(raw)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                if event.get("type") == "user" and isinstance(event.get("text"), str):
+                    hers.append(event)
+                elif event.get("type") == "journal-restore":
+                    restored[event.get("user")] = event.get("card")
+
+            # Find the message she tapped. The place the client gave is trusted
+            # only if the words there match; otherwise fall back to the first
+            # off-the-record message with those words that isn't back yet.
+            matches = [n for n, e in enumerate(hers)
+                       if e.get("off_record") is True and e["text"] == text]
+            if wanted in matches:
+                place = wanted
+            else:
+                place = next((n for n in matches if n not in restored),
+                             matches[0] if matches else None)
+            if place is None:
+                return jsonify({"error": "no off-the-record message with that text"}), 409
+            if place in restored:
+                return jsonify({"ok": True, "card": restored[place], "user": place,
+                                "already": True})
+
+            # Mint at the time she sent it. The log stamps ISO local time;
+            # stream.py wants the same moment with a space.
+            try:
+                sent = datetime.fromisoformat(hers[place].get("ts") or "")
+            except ValueError:
+                return jsonify({"error": "that message has no send time"}), 409
+            card = terminal._capture_journal(
+                text, text, ts=sent.strftime("%Y-%m-%d %H:%M:%S"))
+            if not card:
+                return jsonify({"error": "journal mint failed"}), 502
+            log.write(json.dumps({"type": "journal-restore", "user": place,
+                                  "card": card, "ts": _now()}) + "\n")
+        return jsonify({"ok": True, "card": card, "user": place})
 
     @app.route("/api/observatory/conversation/<conv_id>")
     @app.route("/api/bots/conversation/<conv_id>")

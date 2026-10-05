@@ -12,12 +12,12 @@ import { ChatApprovalCard } from './ChatApprovalCard';
 import { QuestionsBlock, QuestionsCard, QuestionsChip, QuestionsFloating, type QuestionsFloat } from './QuestionsCard';
 import { CloseSourcePrompt, SpinoffOffer } from './SpinoffOffer';
 import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
-import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, openQuestions, stopConversation, streamSend, useSessionRoster } from './api';
+import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, journalRestore, openQuestions, stopConversation, streamSend, useSessionRoster } from './api';
 import { MemoryPrompt } from '../runqueue/MemoryPrompt';
 import { enqueueConversation, fetchHeadroom } from '../runqueue/api';
 import { shouldPrompt } from '../runqueue/memoryPrompt';
 import type { Headroom } from '../runqueue/memoryPrompt';
-import { applyEvent, assistantText, lastUserTurnIndex, openQuestionSet, questionsState, turnsFromHistory, userTurn, type Turn } from './events';
+import { applyEvent, assistantText, lastUserTurnIndex, openQuestionSet, questionsState, turnsFromHistory, userOrdinal, userTurn, type Turn } from './events';
 import { HighlightPill, HighlightSheet } from './JournalHighlight';
 import { useJournalHighlight } from './useJournalHighlight';
 import { useComposerBox } from './useComposerBox';
@@ -790,6 +790,34 @@ export function ObservatoryPage({
     }
   }, []);
 
+  // Put an off-the-record message of hers back into the journal. Same two
+  // steps as a reply: a tap on the message arms the pill under it, a tap on
+  // the pill sends it. The server mints the card at the time she sent the
+  // message, and the message stops showing as off the record.
+  const tapOffRecord = useCallback((i: number) => {
+    const t = turnsRef.current[i];
+    if (!t || !t.offRecord || !convRef.current) return;
+    // Finishing a text selection also fires this click — the highlight pill wins.
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.toString().trim()) return;
+    setJournalArmed((a) => (a === i ? null : i));
+  }, []);
+
+  const restoreMessage = useCallback(async (i: number) => {
+    const conv = convRef.current;
+    const t = turnsRef.current[i];
+    if (!conv || !t || !t.offRecord) return;
+    try {
+      await journalRestore(conv, { user: userOrdinal(turnsRef.current, i), text: t.text });
+      t.offRecord = false;
+      setTurns([...turnsRef.current]);
+    } catch {
+      setSendError('Could not put that message in the journal.');
+    } finally {
+      setJournalArmed(null);
+    }
+  }, []);
+
   return (
     <div
       ref={pageRef}
@@ -833,8 +861,22 @@ export function ObservatoryPage({
                 // highlight offsets into her words stay exact.
                 return (
                   <Fragment key={i}>
-                    <UserMessage index={i} text={t.text} offRecord={t.offRecord} highlights={t.highlights} />
+                    <UserMessage
+                      index={i}
+                      text={t.text}
+                      offRecord={t.offRecord}
+                      highlights={t.highlights}
+                      onTap={t.offRecord ? tapOffRecord : undefined}
+                    />
                     {t.arrived ? <div className={styles.arrivedNote}>{arrivedNote(t.arrived)}</div> : null}
+                    {/* The pill that puts an off-the-record message back in the
+                        journal. Outside the message element, like the note
+                        above, so highlight offsets into her words stay exact. */}
+                    {t.offRecord && journalArmed === i ? (
+                      <button type="button" className={styles.restoreBtn} onClick={() => void restoreMessage(i)}>
+                        ✦ put this in the journal
+                      </button>
+                    ) : null}
                   </Fragment>
                 );
               }

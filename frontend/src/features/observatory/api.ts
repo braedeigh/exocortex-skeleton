@@ -444,6 +444,17 @@ export function journalHighlight(
   return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/journal-highlight`, h);
 }
 
+/** Put one of her off-the-record messages back into the journal, as the B card
+ * it would have been, at the time she sent it. `user` is the message's place
+ * among her messages in this chat (events.ts userOrdinal); `text` lets the
+ * server check it has the right one. Asking twice still makes one card. */
+export function journalRestore(
+  convId: string,
+  m: { user: number; text: string },
+): Promise<{ ok: true; card: string; user: number; already?: boolean }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/journal-restore`, m);
+}
+
 /** Close (archive) a session — it leaves the roster; its log stays. The
  * pinned Keeper session refuses (400). */
 export function closeConversation(id: string): Promise<{ ok: true }> {

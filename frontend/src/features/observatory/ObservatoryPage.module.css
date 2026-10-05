@@ -221,6 +221,12 @@
   border-left-width: 2px;
 }
 
+/* An off-the-record message can be tapped to offer putting it back in the
+   journal, so it shows a pointer. */
+.userTappable {
+  cursor: pointer;
+}
+
 /* --- The reply: body text ------------------------------------------------ */
 
 .reply {
@@ -408,6 +414,14 @@
   font-weight: 600;
   cursor: pointer;
   animation: pillIn 150ms ease-out;
+}
+
+/* The pill under an off-the-record message she tapped. Same shape and words
+   as .journalBtn under a reply — one gesture, whoever said the words. Pulled
+   up under the message it belongs to, away from the reply below. */
+.restoreBtn {
+  composes: journalBtn;
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4) var(--space-3);
 }
 
 /* --- Highlight-to-journal ------------------------------------------------- */
