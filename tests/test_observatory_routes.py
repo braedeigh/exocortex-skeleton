@@ -824,7 +824,7 @@ def test_highlight_mints_the_quote_in_the_voice_that_said_it(bot_client):
     # One card, the keeper's voice, stamped with the room it came out of.
     assert bot_client._mint_calls == [
         {"who": "K", "body": "echo: hello", "tags": None,
-         "session": conv_id, "reply_to": None},
+         "session": conv_id, "reply_to": None, "ts": None},
     ]
 
 
