@@ -209,6 +209,13 @@ def data_dir(tmp_path, monkeypatch, request):
     where one test's uploaded file is still sitting when the next one runs.
     """
     if request.node.get_closest_marker("fresh_db") is None:
+        # Build the template here, before the test starts any thread. Building
+        # it swings store.DATA_DIR over to the template folder for a few
+        # seconds; left to first use, a test whose first database open happens
+        # on a background thread (a streamed turn) has its own thread read and
+        # write files in the template folder meanwhile, and fails only when it
+        # is the first store test in the run.
+        _template_db()
         monkeypatch.setattr(sqlstore, "_connect", _connect_from_template)
     monkeypatch.setattr(store, "DATA_DIR", tmp_path)
     monkeypatch.setattr(store, "UPLOAD_DIR", tmp_path / "uploads")
