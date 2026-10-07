@@ -152,6 +152,16 @@ export function groupCommitsByDay(commits: readonly BuildCommit[]): CommitDay[] 
   return [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
 }
 
+/**
+ * Whether a commit is the hourly backup's own (scripts/git_backup.sh), not
+ * something anyone built. The backup script names every commit it makes
+ * "Auto-backup <date>_<time>", so the name is the tell. The report leaves
+ * these out until asked: there is one an hour, and they bury the real work.
+ */
+export function isBackupCommit(commit: BuildCommit): boolean {
+  return commit.subject.startsWith('Auto-backup ');
+}
+
 /** "2026-10-01" → "Thu 1 Oct 2026". */
 export function dayLabel(day: string): string {
   const [year, month, date] = day.split('-').map(Number);

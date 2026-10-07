@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   dayLabel,
   groupCommitsByDay,
+  isBackupCommit,
   spanLabel,
   summaryLine,
   type BuildCommit,
@@ -74,5 +75,19 @@ describe('the labels', () => {
       summaryLine({ commits: 1, files: 1, first: at(2026, 10, 1), last: at(2026, 10, 1), added: 1, removed: 0, days: 1 }),
     ).toBe('1 commit · 1 file · 1 Oct 2026');
     expect(summaryLine(null)).toBe('No commits indexed yet');
+  });
+});
+
+describe('isBackupCommit', () => {
+  it('picks out the hourly backup and nothing a person wrote', () => {
+    const subjects = [
+      'Auto-backup 2026-10-06_2100',
+      'Terrain: the main map gets the Report too',
+      'Fix the Auto-backup script',
+      '',
+    ];
+    expect(subjects.filter((subject) => isBackupCommit(commit(0, subject)))).toEqual([
+      'Auto-backup 2026-10-06_2100',
+    ]);
   });
 });

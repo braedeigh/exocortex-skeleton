@@ -260,6 +260,11 @@
 }
 
 /* --- commits, by day --- */
+/* The button that brings the hourly backups back into the list. */
+.backups {
+  margin-bottom: var(--space-3);
+}
+
 .day {
   margin-bottom: var(--space-3);
 }

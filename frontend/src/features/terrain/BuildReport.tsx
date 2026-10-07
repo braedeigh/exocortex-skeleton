@@ -4,6 +4,7 @@ import {
   clockLabel,
   dayLabel,
   groupCommitsByDay,
+  isBackupCommit,
   linesLabel,
   spanLabel,
   stampLabel,
@@ -27,7 +28,8 @@ import styles from './BuildReport.module.css';
  *      Tapping again folds it and clears the rings. "Open" goes to its
  *      conversation. A long list (the main map's runs to hundreds) shows its
  *      most recent sessions first, with a button for the rest.
- *   3. Every commit, grouped by day, newest first. A day's heading is a
+ *   3. Every commit, grouped by day, newest first — except the hourly
+ *      backup's own, which wait behind a "Show hourly backups" button. A day's heading is a
  *      button: it narrows the map's date range to that day, so the dots left
  *      standing are the files that day touched. Tapping it again clears it.
  *
@@ -84,7 +86,14 @@ export function BuildReport({
   onOpenFile: (file: SessionFootprintFile) => void;
 }) {
   const { data, isLoading, isError } = useBuildReport(buildId, open);
-  const days = useMemo(() => groupCommitsByDay(data?.commits ?? []), [data]);
+  // The commits she reads: the hourly backup's own are left out until she
+  // asks for them, so the days list is the work and not the clock.
+  const [showBackups, setShowBackups] = useState(false);
+  const backupCount = useMemo(() => (data?.commits ?? []).filter(isBackupCommit).length, [data]);
+  const days = useMemo(
+    () => groupCommitsByDay((data?.commits ?? []).filter((commit) => showBackups || !isBackupCommit(commit))),
+    [data, showBackups],
+  );
   // The session list, cut to the most recent few until she asks for all of
   // them. The ringed session is always kept in, so a session she spotlit
   // from the map itself still unfolds here.
@@ -257,6 +266,18 @@ export function BuildReport({
                 Showing the newest {data.commits.length.toLocaleString('en-US')} of{' '}
                 {data.commits_total.toLocaleString('en-US')}.
               </p>
+            ) : null}
+            {backupCount > 0 ? (
+              <button
+                type="button"
+                className={[styles.action, styles.backups].join(' ')}
+                aria-pressed={showBackups}
+                onClick={() => setShowBackups(!showBackups)}
+              >
+                {showBackups
+                  ? 'Hide the hourly backups'
+                  : `Show ${backupCount.toLocaleString('en-US')} hourly ${backupCount === 1 ? 'backup' : 'backups'}`}
+              </button>
             ) : null}
             {days.map((day) => {
               const on = range !== null && range.from === day.from && range.to === day.to;
