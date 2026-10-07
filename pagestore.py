@@ -63,17 +63,19 @@ def sync_folder(root, folder, glob="*.md"):
     conn = sqlstore.open_db()
     try:
         sqlstore.begin_immediate(conn)
-        # Leave out the pages whose row is already current.
-        current = {row[0]: row[1] for row in conn.execute(
-            "SELECT path, modified FROM journal_pages WHERE folder = ? AND gone_at IS NULL",
-            (folder,))}
-        changed = [page for page in pages if current.get(page[0]) != page[4]]
+        # Leave alone the pages whose row is already current. The words
+        # themselves are compared, not only the file's time: the time is kept
+        # to the second, and a page rewritten in the same second as its last
+        # copy would otherwise keep its old words in the table for good.
         conn.executemany(
             "INSERT INTO journal_pages (path, folder, name, body, modified, synced)"
             " VALUES (?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(path) DO UPDATE SET body = excluded.body,"
-            "  modified = excluded.modified, synced = excluded.synced, gone_at = NULL",
-            changed)
+            "  modified = excluded.modified, synced = excluded.synced, gone_at = NULL"
+            " WHERE journal_pages.body != excluded.body"
+            "  OR journal_pages.modified != excluded.modified"
+            "  OR journal_pages.gone_at IS NOT NULL",
+            pages)
         seen = {page[2] for page in pages}
         for (name,) in conn.execute(
                 "SELECT name FROM journal_pages WHERE folder = ? AND gone_at IS NULL",
