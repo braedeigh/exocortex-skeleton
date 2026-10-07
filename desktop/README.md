@@ -13,7 +13,7 @@ and the first-run pages (`frontend/src/features/setup/`) are the other two.
 
 | Piece | What it does | State |
 |---|---|---|
-| `launcher/` | Starts the Python server on a free port with its own data folder, waits for it to say it is ready, asks how many agents are working, stops it. | Compiles. Three tests pass against a stand-in server. Not yet run against the real `scripts/standalone.py`. |
+| `launcher/` | Starts the Python server on a free port with its own data folder, waits for it to say it is ready, asks how many agents are working, stops it. | Compiles. Three tests pass against a stand-in server. `cargo run --example smoke` started and stopped the real `scripts/standalone.py` on 2026-10-06, once with the checkout's venv and once with the packed Python, while that script was still uncommitted work in progress. |
 | `src-tauri/` | The window. Shows `splash/`, starts the server through the launcher, opens the Observatory, asks before quitting while agents work, offers the page a folder chooser. | **Written, never compiled.** This machine lacks the system packages (below). |
 | `splash/` | The "Starting…" page, and the error page if the server never comes up. | Written, not seen in a window. |
 | `pack_python.sh` | Makes the Python that travels inside the download, with the app's libraries in it. | Runs on Linux x86_64. The result was moved to another folder and loaded every library. |
