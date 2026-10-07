@@ -14,9 +14,11 @@ and the first-run pages (`frontend/src/features/setup/`) are the other two.
 | Piece | What it does | State |
 |---|---|---|
 | `launcher/` | Starts the Python server on a free port with its own data folder, waits for it to say it is ready, asks how many agents are working, stops it. | Compiles. Three tests pass against a stand-in server. `cargo run --example smoke` started and stopped the real `scripts/standalone.py` on 2026-10-06, once with the checkout's venv and once with the packed Python, while that script was still uncommitted work in progress. |
-| `src-tauri/` | The window. Shows `splash/`, starts the server through the launcher, opens the Observatory, asks before quitting while agents work, offers the page a folder chooser. | **Written, never compiled.** This machine lacks the system packages (below). |
+| `src-tauri/` | The window. Shows `splash/`, starts the server through the launcher, opens the Observatory, asks before quitting while agents work, offers the page a folder chooser. | **Written, never compiled.** This machine lacks the system packages (below). Every Tauri call in it was read against the source of the exact versions in `Cargo.lock`; that reading found one fault, now fixed (the served page would have been refused the folder chooser: `build.rs` and `capabilities/main.json`). Reading is weaker than compiling. |
 | `splash/` | The "Starting…" page, and the error page if the server never comes up. | Written, not seen in a window. |
 | `pack_python.sh` | Makes the Python that travels inside the download, with the app's libraries in it. | Runs on Linux x86_64. The result was moved to another folder and loaded every library. |
+| `stage_app.sh` | Makes the copy of the app's code and a freshly built page that travels inside the download. | Runs. The real server was started from the staged copy on the packed Python (2026-10-06): the Observatory, Terrain and the page's JavaScript all answered, no missing library, and nothing was written beside the staged code. No agent turn was run. |
+| `src-tauri/tauri.bundle.conf.json` | Tells the installer build to pack the Python and the staged code. Kept apart from `tauri.conf.json` so `cargo run` works from a checkout with neither. | Written, never used: making an installer needs the window to compile first. |
 
 ## The choices, and why
 
@@ -51,7 +53,8 @@ adding other models later does not touch it.
 - With every library in `requirements.txt` instead: 329 MB unpacked, 101 MB
   compressed. The difference is pandas, scipy and numpy, which the standalone
   server does not load.
-- The app's own code is 24 MB and the built page 13 MB, before compression.
+- The app's own code as staged for the download is 7.7 MB and the built page
+  13 MB, before compression.
 - The window itself: about 10 MB, by Tauri's usual figures. Not measured.
 
 ## To compile the window on Linux
@@ -67,25 +70,30 @@ sudo apt install --no-install-recommends libwebkit2gtk-4.1-dev libsoup-3.0-dev \
 
 Then, from `desktop/src-tauri/`: `cargo run` opens the window using the
 checkout's own `venv` and code. Making installers additionally needs Tauri's
-command-line tool (`cargo install tauri-cli`, then `cargo tauri build`).
+command-line tool (`cargo install tauri-cli`), then `desktop/pack_python.sh`,
+`desktop/stage_app.sh` and `cargo tauri build --config tauri.bundle.conf.json`.
 
 `EXO_DESKTOP_PYTHON`, `EXO_DESKTOP_APP_DIR` and `EXO_DESKTOP_DATA_DIR` override
 where the window looks, for testing.
 
 ## What a real download still needs
 
-**The app's code copied into the download.** `pack_python.sh` packs Python;
-nothing yet copies the tracked code and the built page into
-`src-tauri/resources/app/` or lists `resources/` in `tauri.conf.json`.
-`scripts/make-release.sh` already stages exactly that file set for the tarball
-and is the thing to reuse.
+**The installer build, run once.** The two halves of the download's contents
+exist: `pack_python.sh` (the Python) and `stage_app.sh` (the code and the
+page, 20 MB before compression). What has never been run is the step that
+packs them with the window: `cargo tauri build --config tauri.bundle.conf.json`
+from `src-tauri/`. Unknown until it runs: whether Tauri's packing keeps the
+links inside the packed Python (`bin/python3` is a link to `bin/python3.12`).
 
-**The page built without the owner's settings.** `frontend/.env.local` holds
-install-specific values (the home coordinates the theme's sunrise and sunset
-use), and the build writes them into the JavaScript as plain numbers. The
-download's page must be built in a checkout that has no `frontend/.env.local`.
-`scripts/make-release.sh` builds in the checkout's own `frontend/` folder, so
-on an install that has that file its tarball carries those values too.
+**The page is built without the owner's settings.** `frontend/.env.local`
+holds install-specific values (the home coordinates the theme's sunrise and
+sunset use), and a build writes them into the JavaScript as plain numbers.
+`stage_app.sh` builds in a scratch copy that does not contain that file, then
+stops if any of its values is found in the result. Checked on this machine:
+three of them are in the live site's own build, none in the staged one.
+`scripts/make-release.sh` (the tarball, not the desktop app) still builds in
+the checkout's own `frontend/` folder, so on an install that has that file its
+tarball carries those values.
 
 **An installer per system.**
 - Linux: Tauri makes a `.deb` and an AppImage (one file that runs on most

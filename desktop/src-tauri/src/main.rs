@@ -12,16 +12,19 @@
 //! Touches:
 //!   - `../launcher/src/lib.rs` — starts, questions and stops the server.
 //!   - `../splash/index.html` — the starting page, and its `showError()`.
-//!   - `capabilities/main.json` — allows the served page to call
-//!     `choose_folder`.
+//!   - `capabilities/main.json` and `build.rs` — together allow the served
+//!     page to call `choose_folder`.
 //!   - the page (frontend), which calls `window.exoDesktop.chooseFolder()`
 //!     when it exists.
 //!
 //! NOT YET COMPILED. Written 2026-10-06 on a machine without the WebKitGTK
 //! development packages Tauri needs on Linux, so nothing in this file has been
 //! through the compiler or run. The launcher it calls has been (see
-//! ../launcher/tests). Treat every Tauri call below as unverified until
-//! `cargo build` passes; then delete this paragraph.
+//! ../launcher/tests). The Tauri calls below were read against the source of
+//! the versions in Cargo.lock (names, arguments, return types, and the rule
+//! that lets the served page call `choose_folder`), which is weaker than
+//! compiling. Treat them as unverified until `cargo build` passes; then
+//! delete this paragraph.
 //!
 //! Prompt that produced it: "one thing to launch, it starts the server itself
 //! on a free local port with its own data folder, opens a window on
