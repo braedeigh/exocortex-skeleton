@@ -231,8 +231,9 @@ TURN_STREAM_INPUT = os.environ.get("EXOCORTEX_TURN_STREAM_INPUT", "1") != "0"
 # overshoot was 6k at the median and 330k at the most, so a cap wants that
 # much room under the model's 1M window.
 # Prompt for the Opus and Fable numbers: "extend the windows for opus to 500k
-# and fable to 800k".
-CONTEXT_CAPS = {"opus": 500000, "fable": 800000, "sonnet": 150000, "haiku": 100000}
+# and fable to 800k" — then, for room under the window: "700k is fine for
+# fable".
+CONTEXT_CAPS = {"opus": 500000, "fable": 700000, "sonnet": 150000, "haiku": 100000}
 try:
     import json as _json
     CONTEXT_CAPS.update({str(k): int(v) for k, v in _json.loads(
