@@ -22,7 +22,8 @@
         "commons.py",
         "llm.py",
         "standalone_app.py",
-        "standalone_jobs.py"
+        "standalone_jobs.py",
+        "standalone_journal.py"
       ],
       "routes": [
         "spa.py",
@@ -82,6 +83,7 @@
       "routes": [
         "cards.py",
         "journal_search.py",
+        "journal_days.py",
         "keeper.py",
         "threads.py",
         "entities.py",

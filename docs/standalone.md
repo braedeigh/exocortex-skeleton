@@ -26,6 +26,7 @@ stderr. It stops on Ctrl-C / SIGTERM, or when stdin closes with
 | `scripts/standalone.py` | the start command: picks the data folder, points every writable folder inside it, serves on 127.0.0.1 |
 | `standalone_app.py` | the small app: which route modules it serves, the no-other-site guard, the projects, `/api/standalone` |
 | `standalone_jobs.py` | the timed jobs cron would have run |
+| `standalone_journal.py` | the journal's folder and waking the Keeper |
 | `scripts/standalone_seed.py` | run when packaging: makes the seed, a ready-made first project |
 | `tests/test_standalone.py` | the proof |
 
@@ -70,6 +71,41 @@ the seed in and `standalone_app.adopt_seed` makes it the current project: the
 map draws at once, with no network. The seed lives in `standalone-seed/`
 beside the code, or wherever `EXOCORTEX_STANDALONE_SEED` points. It is as old
 as the release it shipped in. With no seed the app starts empty, as before.
+
+## The journal and the Keeper
+
+The journal is in the desktop app whole: the Journal page, the card engine
+under it, and the Keeper — the agent that keeps it.
+
+- **Its folder** is the content folder inside the data folder.
+  `standalone_journal.prepare` runs at every start: it makes the folders, puts
+  the seed Keeper manifest (`content-scaffold/CLAUDE.md`) there if there is
+  none, and writes small launchers at `_system/*.py` that run the app's own
+  card engine (`tools/stream/`). It never overwrites what the person or their
+  Keeper wrote.
+- **Waking it:** `POST /api/standalone/keeper` opens the one pinned journaling
+  session, in the Personal room, standing in that folder, and sends
+  `/journalstart` (the command file is written into the folder's
+  `.claude/commands/`). `GET` says whether one is open and whether setup is done.
+- **The first prompt:** until the manifest's "Who you're keeping for" section
+  is filled in, the wake command carries a setup section — the Keeper explains
+  itself, asks who it is keeping for, and writes the answers into `CLAUDE.md`
+  and `context/about.md`. After that the section is gone.
+- **Capture** needs no hook: the server records every message sent in a
+  journaling session before the model sees it.
+- **Doors:** `routes/journal_days.py`, `cards`, `journal_search`, `entities`,
+  `threads`, `keeper`, plus `todos`, `devnotes` and `photos` for the page's
+  side panels, and a one-line `/api/data` (today's date).
+- **Timed:** `scripts/update_cards.py` hourly (no Claude calls).
+
+Checked for real once (2026-10-06): on an empty folder the Keeper woke, asked
+its first question, a typed reply was saved as a card, and it filled in the
+manifest and `context/about.md`.
+
+Not in: the nightly rollover that closes the day and opens a fresh Keeper
+(two agent turns on a timer), thread tending, timed reminders, and "Talk
+about this" on a thread (it needs tmux). The transcript reconciler isn't run
+either; it only matters for someone typing into a terminal `claude`.
 
 ## Rooms
 
@@ -119,8 +155,9 @@ could post to these doors — and these doors start agents that run commands.
 
 **Dropped**
 
-- Everything that isn't the Observatory or Terrain: its routes answer 404.
-- The night crew, the research and Linear rooms, the Keeper and its rollover,
+- Everything that isn't the Observatory, Terrain or the journal: its routes
+  answer 404.
+- The night crew, the research and Linear rooms, the Keeper's nightly rollover,
   the Coming up reminders, phone push, the sudo password card (the door
   answers an empty list), the public mirror, the type-into-a-shell terminal.
 - The helpers (room, swarm, wake-ups) and the auto-titler are **off unless
@@ -147,7 +184,7 @@ could post to these doors — and these doors start agents that run commands.
   first hundred repos, and GitHub allows about 60 lookups an hour per network.
 - **Claude Code's login on a Mac** lives in the keychain, so `signed_in` is
   `null` (can't tell) there.
-- **The journal** is not in the desktop app.
+- **The Keeper's day never rolls over by itself** — see the journal section.
 
 ## Where the agent layer is tied to the `claude` program
 

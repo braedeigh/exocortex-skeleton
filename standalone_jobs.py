@@ -60,6 +60,8 @@ JOBS = (
     ("tool calls", HOUR, ["scripts/usage_events.py"], False),
     # Slash commands the person ran — Terrain's Commands room.
     ("commands", HOUR, ["scripts/command_rollup.py"], False),
+    # The journal's cards, copied into the database for search.
+    ("journal cards", HOUR, ["scripts/update_cards.py"], False),
     # What the runs cost, folded into per-day totals.
     ("usage ledger", HOUR, ["scripts/usage_ledger.py"], False),
     # Names and files each new session with a small Claude call of its own.

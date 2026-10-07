@@ -86,9 +86,10 @@ def _spa_response():
         # The desktop app (config.standalone): the shell shows only the
         # Observatory and Terrain, and a first-run screen.
         f"window.STANDALONE = {'true' if config.standalone() else 'false'};"
-        # Extra pages the desktop app's server also serves, by name. None yet:
-        # the page shows only the Observatory and Terrain.
-        "window.STANDALONE_EXTRAS = [];"
+        # Extra pages the desktop app's server also serves, by name: the
+        # Journal (standalone_journal.py). Empty on the live site, which
+        # serves everything and never reads it.
+        f"window.STANDALONE_EXTRAS = {'[\"journal\"]' if config.standalone() else '[]'};"
         f"window.PUBLIC_INTRO_HTML = {intro_json};"
         f"window.APP_META = {meta_json};"
         "</script></head>"

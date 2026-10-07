@@ -14,6 +14,8 @@ route modules — just the agent chat (the Observatory) and the code map
     this app's own code (downloaded, a copy of its own) is offered as the
     first, the person's own folder is another. One is CURRENT: the main map draws it and new sessions stand in
     it. The rest are a tap away in Terrain's Builds room;
+  - the journal and its Keeper (`standalone_journal.py`): the Journal page's
+    doors, and one that wakes the Keeper, whose first turn sets it up;
   - a few doors of its own under /api/standalone, which the first-run screen
     reads to learn whether Claude Code and git are there and to pick or
     download that folder.
@@ -55,23 +57,30 @@ import features
 import lanes
 import schemas
 import store
+import standalone_journal
 from routes import (
-    branches, chat_search, creek, helpers, observatory, pond, run_queue,
-    sandbox, spa, spinoff, sqlab, sudo, swarms, tabsets, terminal, terrain,
-    terrain_builds, terrain_map, terrain_mirror, terrain_tables, token_burn,
-    usage, worktree_map,
+    branches, cards, chat_search, creek, devnotes, entities, helpers,
+    journal_days, journal_search, keeper, observatory, photos, pond,
+    run_queue, sandbox, spa, spinoff, sqlab, sudo, swarms, tabsets, terminal,
+    terrain, terrain_builds, terrain_map, terrain_mirror, terrain_tables,
+    threads, todos, token_burn, usage, worktree_map,
 )
 
 # Every route module the desktop app serves, in the order they are registered.
 # The Observatory and Terrain themselves, then the smaller doors their pages
 # read (the swarm view, the run queue's memory meter, the SQL room, usage).
 # `terminal` is here for one door only, /api/sessions, which the roster polls.
+# Then the journal: its day pages, the cards they are rendered from, search,
+# people and threads, the Keeper's file browser, and three smaller doors the
+# Journal page's side panels read (cleared to-dos, dev notes, photos).
 # Anything not on this list answers 404.
 ROUTE_MODULES = (
     spa, observatory, terrain, terrain_tables, terrain_builds, terrain_map,
     terrain_mirror, swarms, spinoff, run_queue, sudo, usage, token_burn,
     chat_search, sqlab, sandbox, creek, pond, tabsets, branches, worktree_map,
     helpers, terminal,
+    journal_days, cards, journal_search, entities, threads, keeper,
+    todos, devnotes, photos,
 )
 
 # The names this computer answers to. A request naming any other host, or sent
@@ -525,6 +534,7 @@ def status():
         "projects": projects(),
         "settings": {"ask_first": ask_first(), "idle_check": idle_check()},
         "rooms": rooms(),
+        "journal": standalone_journal.status(),
         "own": {key: own_code()[key] for key in ("available", "name")},
         "live_turns": len(live_turns()),
         "helpers": config.standalone_helpers(),
@@ -572,6 +582,7 @@ def create_app():
     if not config.standalone():
         raise RuntimeError("standalone_app is only for EXOCORTEX_STANDALONE=1")
     adopt_seed()
+    standalone_journal.prepare()
     app = Flask(__name__)
     app.before_request(_guard)
     for module in ROUTE_MODULES:
@@ -677,6 +688,26 @@ def create_app():
                         "parent": str(folder.parent) if folder.parent != folder else None,
                         "folders": names,
                         "git": buildlist.is_git_repo(folder)})
+
+    @app.route("/api/standalone/keeper", methods=["GET", "POST"])
+    def standalone_keeper():
+        """The journal's Keeper. GET → {folder, setup_done, keeper} (keeper is
+        the open Keeper session's id, or null). POST opens it — the session
+        the page should then show — and answers the same plus {created}; on a
+        new install its first turn is the setup conversation."""
+        woken = {}
+        if request.method == "POST":
+            try:
+                woken = {"created": standalone_journal.wake()["created"]}
+            except RuntimeError as problem:
+                return jsonify({"error": str(problem)}), 500
+        return jsonify({**standalone_journal.status(), **woken})
+
+    @app.route("/api/data")
+    def journal_clock():
+        # The Journal page asks the live site's big /api/data only for
+        # today's date as the server sees it. This is that one answer.
+        return jsonify({"server_date": time.strftime("%Y-%m-%d")})
 
     @app.route("/api/standalone/github-repos")
     def standalone_github_repos():

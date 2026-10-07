@@ -27,7 +27,7 @@ from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
     devnotes, ideas, buildtodo, ecosystem, keeper, pending, housing, triage, helpers, decisions,
-    entities, threads, person, shell, cards, journal_search, chat_search, photos, archivals, research,
+    entities, threads, person, shell, cards, journal_search, journal_days, chat_search, photos, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
     observatory, swarms, terrain, terrain_builds, terrain_map, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
@@ -444,43 +444,8 @@ _load_idea_notes = devnotes.load_idea_notes
 
 # --- Journal ---
 
-@app.route("/api/journal/dates")
-def journal_dates():
-    daily_dir = CONTENT_DIR / "Journal" / "Daily"
-    dates = sorted(f.stem for f in daily_dir.glob("*.md"))
-    return jsonify({"dates": dates})
-
-
-@app.route("/api/journal/<date>")
-def journal_get(date):
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except ValueError:
-        return jsonify({"error": "invalid date"}), 400
-    path = CONTENT_DIR / "Journal" / "Daily" / f"{date}.md"
-    content = path.read_text() if path.exists() else ""
-    daily_dir = CONTENT_DIR / "Journal" / "Daily"
-    dates = sorted(f.stem for f in daily_dir.glob("*.md"))
-    # prev = newest date strictly before `date`; next = oldest date strictly after `date`.
-    # Works whether or not `date` itself has an entry — so an empty today still navigates back.
-    earlier = [d for d in dates if d < date]
-    later = [d for d in dates if d > date]
-    prev_date = earlier[-1] if earlier else None
-    next_date = later[0] if later else None
-    return jsonify({"date": date, "content": content, "prev": prev_date, "next": next_date})
-
-
-@app.route("/api/journal/<date>", methods=["POST"])
-def journal_save(date):
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except ValueError:
-        return jsonify({"error": "invalid date"}), 400
-    data = request.json or {}
-    content = data.get("content", "")
-    path = CONTENT_DIR / "Journal" / "Daily" / f"{date}.md"
-    store.write_text_file(path, content)
-    return jsonify({"ok": True})
+# The day pages (which days exist, read one, save one) live in
+# routes/journal_days.py, registered with the other journal routes below.
 
 
 # --- Personality (goal-personality.md) ---
@@ -1306,6 +1271,7 @@ threads.register(app)
 person.register(app)
 cards.register(app)
 journal_search.register(app)
+journal_days.register(app)
 chat_search.register(app)
 photos.register(app)
 wiki.register(app)

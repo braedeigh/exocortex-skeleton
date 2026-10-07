@@ -17,6 +17,7 @@ import pytest
 import buildlist
 import standalone_app
 import standalone_jobs
+import standalone_journal
 import store
 from routes import observatory
 from scripts import run_detached
@@ -89,7 +90,7 @@ def test_pages_and_data_answer_on_an_empty_folder_with_no_login(client):
     # worker, and a door from the rest of the app answers a JSON 404.
     assert client.get("/login", headers=LOCAL).status_code == 404
     assert client.get("/sw.js", headers=LOCAL).status_code == 404
-    missing = client.get("/api/journal/dates", headers=LOCAL)
+    missing = client.get("/api/habits", headers=LOCAL)
     assert missing.status_code == 404 and "error" in missing.get_json()
     # An empty map and an empty roster, not this app's own code.
     assert client.get("/api/observatory/terrain", headers=LOCAL).get_json()["repos"] == []
@@ -286,6 +287,72 @@ def test_with_the_setting_off_the_live_site_is_unchanged(data_dir, monkeypatch):
     assert "window.STANDALONE = false" in app.test_client().get("/").get_data(as_text=True)
     assert [s["id"] for s in app.test_client().get("/api/tabsets").get_json()["sets"]] == [
         "work", "life", "spare"]
+
+
+# --- the journal and its Keeper --------------------------------------------------
+
+def test_the_journal_works_from_an_empty_folder(client, standalone):
+    today = time.strftime("%Y-%m-%d")
+    assert 'window.STANDALONE_EXTRAS = ["journal"]' in client.get(
+        "/", headers=LOCAL).get_data(as_text=True)
+    # A card written from the page goes through the real card engine, which
+    # the app finds at the journal folder's own path.
+    added = client.post("/api/cards/add", headers=LOCAL,
+                        json={"date": today, "position": "bottom", "body": "first words"})
+    assert added.status_code == 200, added.get_json()
+    cards = client.get(f"/api/cards/{today}", headers=LOCAL).get_json()["cards"]
+    assert [card["body"].strip() for card in cards] == ["first words"]
+    # Editing it works too (the engine is the app's current one, not a copy).
+    edited = client.post("/api/cards/update", headers=LOCAL,
+                         json={"id": cards[0]["id"], "body": "first words, corrected"})
+    assert edited.status_code == 200, edited.get_json()
+    # The day page is the rendered view of that card, and the day is listed.
+    assert client.get("/api/journal/dates", headers=LOCAL).get_json()["dates"] == [today]
+    page = client.get(f"/api/journal/{today}", headers=LOCAL).get_json()
+    assert "first words, corrected" in page["content"] and page["next"] is None
+    # The rest of what the Journal page reads answers on a new folder.
+    doors = ["/journal", "/api/journal/search?q=words", "/api/people", "/api/threads",
+             "/api/threads/tree", "/api/keeper/tree", f"/api/todos/cleared?date={today}",
+             "/api/devnotes/journal", "/api/data"]
+    assert {door: client.get(door, headers=LOCAL).status_code for door in doors} == {
+        door: 200 for door in doors}
+    # And the hourly job that copies cards into the database runs clean.
+    assert standalone_jobs.run_job(["scripts/update_cards.py"]) == 0
+
+
+def test_waking_the_keeper_opens_one_journaling_session_that_starts_with_setup(
+        client, standalone, monkeypatch):
+    sent = []
+    monkeypatch.setattr(observatory, "begin_turn",
+                        lambda conv_id, text, **_: sent.append((conv_id, text)) or {"ok": True})
+    content = Path(store.CONTENT_DIR)
+    wake_command = content / ".claude" / "commands" / "journalstart.md"
+    before = client.get("/api/standalone/keeper", headers=LOCAL).get_json()
+    assert before == {"folder": str(content), "setup_done": False, "keeper": None}
+
+    woken = client.post("/api/standalone/keeper", headers=LOCAL).get_json()
+    assert woken["created"] is True and sent == [(woken["keeper"], "/journalstart")]
+    entry = store.read("bot_chats/index", {})[woken["keeper"]]
+    # It journals, it is pinned in the Personal room, and it stands in the
+    # journal's folder — where its manifest and its commands are.
+    assert (entry["journal"], entry["pinned"], entry["lane"], entry["cwd"]) == (
+        True, True, "personal", str(content))
+    assert (content / "CLAUDE.md").is_file() and (content / "_system" / "stream.py").is_file()
+    # On a new install the wake command carries the setup conversation.
+    assert "First session: setup" in wake_command.read_text()
+    # Waking again gives the same Keeper and sends nothing.
+    again = client.post("/api/standalone/keeper", headers=LOCAL).get_json()
+    assert (again["keeper"], again["created"]) == (woken["keeper"], False) and len(sent) == 1
+
+    # Once the Keeper has written down who it is keeping for, setup is over:
+    # the next start takes the section off, and never touches the manifest.
+    manifest = (content / "CLAUDE.md").read_text().replace(
+        standalone_journal.UNFILLED_HEADING, "## Who you're keeping for\n\nSomeone real.")
+    (content / "CLAUDE.md").write_text(manifest)
+    standalone_app.create_app()
+    assert client.get("/api/standalone/keeper", headers=LOCAL).get_json()["setup_done"] is True
+    assert "First session: setup" not in wake_command.read_text()
+    assert (content / "CLAUDE.md").read_text() == manifest
 
 
 # --- the timed jobs ------------------------------------------------------------
