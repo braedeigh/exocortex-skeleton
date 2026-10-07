@@ -59,6 +59,11 @@ APP_FOLDER = "exocortex-desktop"
 # The seed: a ready-made first project (scripts/standalone_seed.py makes it).
 SEED_FOLDER = "standalone-seed"
 SEED_FILE = "seed.json"
+# Settings of a full install that a desktop run must not pick up from the
+# shell that started it (see prepare_environment), besides every
+# EXOCORTEX_*_DIR: who the owner is, and where the journal engine looks.
+INHERITED_SETTINGS = ("EXOCORTEX_OWNER_NAME", "EXOCORTEX_OWNER_EMAIL",
+                      "TULKU_STREAM_ROOT", "TULKU_RECONCILER_PROJECT_DIRS")
 
 
 def default_data_dir():
@@ -74,9 +79,15 @@ def prepare_environment(data_dir, environ=os.environ):
     """Switch standalone mode on and point every writable folder inside the
     data folder. Returns the data folder, created.
 
-    Anything the person already set is left alone (`setdefault`), except the
-    two that define the mode itself."""
+    Folder settings and the owner's name that this process merely INHERITED
+    are thrown away first, and the folders are then set outright. A desktop
+    run started from a shell on a machine that also runs the full site would
+    otherwise inherit that site's content folder and write its journal files
+    into it — which happened once, on the machine this was written on."""
     data_dir = Path(data_dir).expanduser().resolve()
+    for name in list(environ):
+        if name in INHERITED_SETTINGS or (name.startswith("EXOCORTEX_") and name.endswith("_DIR")):
+            del environ[name]
     for folder in (data_dir, data_dir / "content", data_dir / "jobs", data_dir / "kickoffs"):
         folder.mkdir(parents=True, exist_ok=True)
     environ["EXOCORTEX_STANDALONE"] = "1"
@@ -84,9 +95,9 @@ def prepare_environment(data_dir, environ=os.environ):
     # Folders that default to somewhere outside the data folder on the live
     # site: the content store (its parent is what the app calls the vault
     # root), detached jobs' logs, and spawn logs.
-    environ.setdefault("EXOCORTEX_CONTENT_DIR", str(data_dir / "content"))
-    environ.setdefault("EXOCORTEX_JOBS_DIR", str(data_dir / "jobs"))
-    environ.setdefault("EXOCORTEX_SPINOFF_KICKOFF_DIR", str(data_dir / "kickoffs"))
+    environ["EXOCORTEX_CONTENT_DIR"] = str(data_dir / "content")
+    environ["EXOCORTEX_JOBS_DIR"] = str(data_dir / "jobs")
+    environ["EXOCORTEX_SPINOFF_KICKOFF_DIR"] = str(data_dir / "kickoffs")
     # Don't write compiled .pyc files beside the code, here or in any process
     # started from here.
     environ["PYTHONDONTWRITEBYTECODE"] = "1"

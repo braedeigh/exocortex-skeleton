@@ -483,3 +483,28 @@ def test_a_seeded_install_has_its_first_project_ready_with_no_download(tmp_path,
     database = (data / "exo.db").stat().st_ino
     again = first_status()
     assert len(again["projects"]) == 1 and (data / "exo.db").stat().st_ino == database
+
+
+def test_a_run_never_writes_into_a_journal_folder_it_did_not_make(
+        standalone, tmp_path_factory, monkeypatch):
+    # A full install's journal folder, with its own engine file, reached by
+    # mistake: through the store, or through settings inherited from a shell.
+    vault = tmp_path_factory.mktemp("elsewhere") / "someone-elses-vault"
+    (vault / "_system").mkdir(parents=True)
+    (vault / "_system" / "stream.py").write_text("theirs")
+    monkeypatch.setattr(store, "CONTENT_DIR", vault)
+    monkeypatch.setattr(observatory, "begin_turn", lambda *a, **k: {"ok": True})
+    client = standalone_app.create_app().test_client()
+    assert client.post("/api/standalone/keeper", headers=LOCAL).status_code == 500
+    assert (vault / "_system" / "stream.py").read_text() == "theirs"
+    assert sorted(path.name for path in vault.iterdir()) == ["_system"]
+    # And the start command throws inherited folder settings away.
+    from scripts import standalone as start_command
+    inherited = {"EXOCORTEX_CONTENT_DIR": str(vault), "EXOCORTEX_RESEARCH_ROOM_DIR": str(vault),
+                 "EXOCORTEX_OWNER_NAME": "Someone", "TULKU_STREAM_ROOT": str(vault),
+                 "EXOCORTEX_CLAUDE_BIN": "claude", "PATH": os.environ["PATH"]}
+    data = start_command.prepare_environment(
+        tmp_path_factory.mktemp("fresh") / "data", inherited)
+    assert inherited["EXOCORTEX_CONTENT_DIR"] == str(data / "content")
+    assert not {"EXOCORTEX_RESEARCH_ROOM_DIR", "EXOCORTEX_OWNER_NAME",
+                "TULKU_STREAM_ROOT"} & set(inherited)

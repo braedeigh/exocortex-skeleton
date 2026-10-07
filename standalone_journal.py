@@ -100,11 +100,27 @@ def content_dir():
     return Path(store.CONTENT_DIR)
 
 
+def owns_folder():
+    """Is the journal's folder one this app made — inside its own data
+    folder? Everything below that writes checks this first. A content folder
+    anywhere else belongs to something else (a full install's vault, reached
+    through an inherited setting), and this file's launchers and commands
+    must never be written over that one's."""
+    try:
+        return content_dir().resolve().is_relative_to(Path(store.DATA_DIR).resolve())
+    except OSError:
+        return False
+
+
 def prepare():
-    """Make the journal's folder ready. Safe on every start: folders are made
-    if missing, the manifest is only ever put there when there is none, and
-    the launchers — which belong to the app, not the person — are rewritten
-    so they follow the app when it moves or updates."""
+    """Make the journal's folder ready. True when it did; False, touching
+    nothing, when the folder isn't this app's own (owns_folder). Safe on
+    every start: folders are made if missing, the manifest is only ever put
+    there when there is none, and the launchers — which belong to the app,
+    not the person — are rewritten so they follow the app when it moves or
+    updates."""
+    if not owns_folder():
+        return False
     content = content_dir()
     for folder in ("Journal/Daily", "Journal/Weekly", "keeper-diary", "context",
                    "_system/data/cards", ".claude/commands"):
@@ -121,6 +137,7 @@ def prepare():
             python=sys.executable, real=str(ENGINE / program), content=str(content)))
         launcher.chmod(0o755)
     _write_commands()
+    return True
 
 
 def setup_done():
@@ -169,7 +186,9 @@ def wake():
     existing = keeper()
     if existing:
         return {"id": existing, "created": False}
-    prepare()
+    if not prepare():
+        raise RuntimeError("the journal's folder is outside this app's data folder, "
+                           "so the Keeper wasn't started")
     profile = observatory._lane_profile("personal")
     observatory._chats_dir()
     with store.mutate("bot_chats/index", {}) as index:
