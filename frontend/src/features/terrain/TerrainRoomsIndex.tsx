@@ -3,6 +3,7 @@ import { Link, useRouterState } from '@tanstack/react-router';
 import { getCollections } from './sqlab/api';
 import { compact, monthLabel, type GrowthData } from './growthMath';
 import { formatDwell, rankPlaces, type UsageRecord } from './usageRanking';
+import { pageIsOffered } from '../../shell/standalone';
 import styles from './TerrainRoomsIndex.module.css';
 
 /**
@@ -21,6 +22,10 @@ import styles from './TerrainRoomsIndex.module.css';
  * wade through it. The blur is doing honest work — the page saying "I'm
  * still here, you're choosing where to go" — and the cards are fully opaque
  * against it because they're the subject now.
+ *
+ * The desktop app leaves two rooms out, Pond and Creek, because they draw the
+ * owner's journal: each card asks pageIsOffered() (shell/standalone.ts) for
+ * its own address before it's drawn. On the normal site every card shows.
  *
  * Adding a room = one entry in ROOMS (name, line, address, motif). A room
  * that isn't in ROOMS can only be reached by a link from somewhere else,
@@ -581,7 +586,7 @@ export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: (
     // Tapping the blur — anywhere that isn't a card — steps back to the map.
     <div className={styles.backdrop} onClick={onClose} role="presentation">
       <nav className={styles.cards} aria-label="Rooms" onClick={(e) => e.stopPropagation()}>
-        {ROOMS.map((room, i) => {
+        {ROOMS.filter((room) => pageIsOffered(room.to)).map((room, i) => {
           const Motif = room.motif;
           const here = pathname === room.to;
           return (

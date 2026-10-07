@@ -1,0 +1,269 @@
+/* FirstRunPage — the desktop app's first-run screen. Touch-first and legible:
+ * every control is at least the tap target tall, and no text is under 14px.
+ * Colours are the theme's own variables, so it follows light and dark. */
+
+.page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.inner {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-4) calc(var(--space-8) * 2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  margin: 0;
+}
+
+.lede {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.cardTitle {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  margin: 0;
+}
+
+.standing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.headlineRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+/* The state mark: a round badge with a glyph, so the state never rests on
+ * colour alone. */
+.mark {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  border: 2px solid currentColor;
+  color: var(--text-muted);
+}
+
+.mark_done {
+  color: var(--green);
+}
+
+.mark_problem {
+  color: var(--red);
+}
+
+.mark_working {
+  color: var(--accent);
+}
+
+.mark_unknown {
+  color: var(--orange);
+}
+
+.headline {
+  font-size: var(--font-size-base);
+  line-height: 1.45;
+  padding-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.advice {
+  margin: 0;
+  padding-left: calc(28px + var(--space-3) + 1.2em);
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.input {
+  flex: 1 1 240px;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.primaryBtn,
+.secondaryBtn,
+.quietBtn,
+.openBtn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.primaryBtn {
+  border: none;
+  background: var(--text);
+  color: var(--bg);
+}
+
+.secondaryBtn,
+.quietBtn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}
+
+.quietBtn {
+  margin-left: var(--space-3);
+}
+
+.openBtn {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--font-size-base);
+  padding: 0 var(--space-6);
+  min-height: 48px;
+}
+
+.primaryBtn:disabled,
+.secondaryBtn:disabled,
+.openBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-md);
+  color: var(--accent);
+}
+
+.plain {
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+}
+
+/* The whole row is the tap target, not just the box. */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--tap-target);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.checkbox {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.notice,
+.refusal {
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--red);
+  color: var(--text);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.notice {
+  border-color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 10%, transparent);
+}
+
+.finish {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* Read aloud, not drawn: the state's name for a screen reader. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

@@ -16,5 +16,14 @@ declare global {
     PUBLIC_INTRO_HTML?: string | null;
     /** App identity for chrome that names the site (public header, fake terminal banner). */
     APP_META?: { name: string; owner: string; version: string; /** The owner's main site, on a public mirror ('' elsewhere). */ home_site?: string };
+    /** True in the desktop app (EXOCORTEX_STANDALONE): only the Observatory and Terrain exist. See shell/standalone.ts. */
+    STANDALONE?: boolean;
+    /** Extra parts the desktop server offers beyond the Observatory and Terrain, e.g. ['journal']. See shell/standalone.ts. */
+    STANDALONE_EXTRAS?: string[];
+    /** The desktop window's own bridge, when the page runs inside it. Missing in a plain browser, so feature-detect. */
+    exoDesktop?: {
+      /** The system's choose-a-folder dialog: one absolute path, or null if cancelled. */
+      chooseFolder?: (options?: { title?: string; startIn?: string }) => Promise<string | null>;
+    };
   }
 }

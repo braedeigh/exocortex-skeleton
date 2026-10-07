@@ -4,6 +4,7 @@ import { Sheet, TapRow } from '../ui';
 import { TAB_META, TAB_ROUTES, VIEW_META, isValidTab, tabForPath, type LegacyTab } from './tabs';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import { isEmbed } from './embed';
+import { SETUP_PATH, isStandalone, standaloneAllows } from './standalone';
 import { useSessionsContext } from './SessionsContext';
 import { useChatSurfaceObservatory } from './chatSurface';
 import { useMenuFit } from './menuFit';
@@ -31,6 +32,11 @@ import styles from './TopTabs.module.css';
  * frosted.css's .public-header: site name · About · Sign in) plus row 2
  * restricted to the public tabs, so the pages public_config.py exposes are
  * actually reachable without typing URLs.
+ *
+ * The desktop app (shell/standalone.ts) gets neither of those either: one
+ * short strip, Observatory / Terrain / Setup (and Journal, when its server
+ * has one), and only in a narrow window —
+ * a wide one has the workspace's own tab bars.
  */
 
 const PRIMARY_TABS: ReadonlyArray<{ key: 'today' | LegacyTab; label: string }> = [
@@ -520,6 +526,52 @@ export function TopTabs({ subRowOnly = false }: { subRowOnly?: boolean } = {}) {
         <PublicHeader />
         {dashboardActive ? <DashboardTabRow pathname={location.pathname} isPublic /> : null}
       </>
+    );
+  }
+
+  if (isStandalone()) {
+    // The desktop app's strip: the two places it holds, and the way back to
+    // setup. A workspace panel (subRowOnly) gets nothing, because the row it
+    // would ask for is the dashboard's and the desktop app has no dashboard.
+    if (subRowOnly) return null;
+    const onSetup = location.pathname === SETUP_PATH;
+    return (
+      <div className={styles.dashBar}>
+        <button
+          type="button"
+          className={joinClass(
+            styles.dashBtn,
+            location.pathname.startsWith('/observatory') && !onSetup && styles.dashBtnActive,
+          )}
+          onClick={() => void navigate({ to: '/observatory' })}
+        >
+          Observatory
+        </button>
+        <button
+          type="button"
+          className={joinClass(styles.dashBtn, location.pathname.startsWith('/terrain') && styles.dashBtnActive)}
+          onClick={() => void navigate({ to: '/terrain' })}
+        >
+          Terrain
+        </button>
+        {/* Only when the desktop server has a journal to show. */}
+        {standaloneAllows('/journal') ? (
+          <button
+            type="button"
+            className={joinClass(styles.dashBtn, location.pathname === '/journal' && styles.dashBtnActive)}
+            onClick={() => void navigate({ to: '/journal' })}
+          >
+            Journal
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={joinClass(styles.dashBtn, onSetup && styles.dashBtnActive)}
+          onClick={() => void navigate({ to: SETUP_PATH })}
+        >
+          Setup
+        </button>
+      </div>
     );
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { localTimeInputs, sunTimesFromDay } from './solar';
+import { localTimeInputs, skyPlace, sunTimesFromDay } from './solar';
 
 // Reference values computed by executing the original static/js/sky-theme.js
 // sunTimesFromDay() — the port must reproduce them bit-for-bit.
@@ -60,5 +60,27 @@ describe('localTimeInputs', () => {
   it('matches the legacy Jan-0 day-of-year arithmetic at year end', () => {
     const { dayOfYear } = localTimeInputs(new Date(2026, 11, 31, 12, 0));
     expect(dayOfYear).toBe(365);
+  });
+});
+
+describe('the place the sky theme keeps time for', () => {
+  const home = { lat: 51.5, lng: -0.1, tzOffset: 1 };
+
+  it('uses the install’s own coordinates on the normal site, and the equator when unset', () => {
+    expect(skyPlace({ standalone: false, home, clockOffsetHours: 9 })).toEqual({ lat: 51.5, lng: -0.1, tzOffset: 1 });
+    expect(skyPlace({ standalone: false, home: {}, clockOffsetHours: 9 })).toEqual({ lat: 0, lng: 0, tzOffset: 0 });
+  });
+
+  it('ignores them in the desktop app and gives a 6-to-18 day by the machine’s own clock, in any timezone', () => {
+    for (const clockOffsetHours of [-8, -5, 0, 5.5, 9, 13]) {
+      const place = skyPlace({ standalone: true, home, clockOffsetHours });
+      expect(place.lat).toBe(0);
+      for (const day of [1, 91, 172, 266, 355]) {
+        const { sunrise, sunset } = sunTimesFromDay(day, place.lat, place.lng, place.tzOffset);
+        // Within half an hour of 6 and 18: the equation of time moves it a little.
+        expect(Math.abs(sunrise - 6)).toBeLessThan(0.5);
+        expect(Math.abs(sunset - 18)).toBeLessThan(0.5);
+      }
+    }
   });
 });

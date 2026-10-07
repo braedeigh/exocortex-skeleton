@@ -1,4 +1,5 @@
 import { TAB_ROUTES, VALID_TABS } from '../tabs';
+import { SETUP_PATH, isStandalone, standaloneSectionIds } from '../standalone';
 
 /**
  * sections.ts — what a tab stands for.
@@ -26,9 +27,14 @@ import { TAB_ROUTES, VALID_TABS } from '../tabs';
  * reading it the tab that's active is Observatory, wearing that conversation's
  * name.
  *
+ * THE DESKTOP APP HOLDS FEWER. There, only the Observatory and Terrain exist
+ * (shell/standalone.ts), so SECTIONS is cut down to the ids that file names,
+ * plus Setup, which exists nowhere else. See sectionsFor below.
+ *
  * Touches: tabSets.ts (which sections a bar holds), TabBar.tsx (draws them),
  * routes/tabsets.py (stores the ids, and never interprets them — adding a
- * section is a change to this file alone).
+ * section is a change to this file alone), standalone.ts (the desktop app's
+ * list).
  */
 
 export interface Section {
@@ -41,7 +47,8 @@ export interface Section {
   claims: string[];
 }
 
-export const SECTIONS: Section[] = [
+/** Every section there is, on either kind of install. */
+export const ALL_SECTIONS: Section[] = [
   { id: 'observatory', label: 'Observatory', icon: '🔭', home: '/observatory', claims: ['/observatory'] },
   // A conversation, not a place — see the header note on shortcuts.
   // `?conv=latest` resolves to the pinned Keeper session server-side.
@@ -89,7 +96,29 @@ export const SECTIONS: Section[] = [
   { id: 'recordings', label: 'Recordings', icon: '🎙️', home: '/recordings', claims: ['/recordings'] },
   { id: 'build', label: 'Build', icon: '🔨', home: '/build', claims: ['/build'] },
   { id: 'settings', label: 'Settings', icon: '⚙️', home: '/settings', claims: ['/settings'] },
+  // The desktop app's first-run screen, opened again. Desktop app only.
+  { id: 'setup', label: 'Setup', icon: '🧰', home: SETUP_PATH, claims: [SETUP_PATH] },
 ];
+
+/**
+ * The sections one kind of install offers.
+ *
+ * The normal site gets everything except Setup. The desktop app gets only
+ * the ids standalone.ts lists (`sectionIds`, passed in by tests), in that
+ * file's order. Everything else in this
+ * file reads SECTIONS, so a section that isn't offered can't be pinned, can't
+ * light up, and is skipped if a saved tab set still names it.
+ */
+export function sectionsFor(standalone: boolean, sectionIds: readonly string[] = standaloneSectionIds()): Section[] {
+  if (!standalone) return ALL_SECTIONS.filter((section) => section.id !== 'setup');
+  return sectionIds
+    .map((id) => ALL_SECTIONS.find((section) => section.id === id))
+    .filter((section): section is Section => Boolean(section));
+}
+
+/** The sections THIS install offers. Decided once, when the page loads: the
+ * server's flag is already in the page by then and never changes. */
+export const SECTIONS: Section[] = sectionsFor(isStandalone());
 
 export function sectionById(id: string): Section | undefined {
   return SECTIONS.find((s) => s.id === id);

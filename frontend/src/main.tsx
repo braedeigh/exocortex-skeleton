@@ -11,6 +11,7 @@ import { installUsageHeat } from './ui/usageHeat';
 import { installEffects } from './ui/effects';
 import { installPresence } from './push/presence';
 import { initTheme } from './theme';
+import { isStandalone } from './shell/standalone';
 
 // Boot the theming engine (src/theme — the port of static/js/sky-theme.js)
 // before first paint of the app: reads window.THEME_OVERRIDES (injected by
@@ -36,6 +37,16 @@ if ('serviceWorker' in navigator) {
         reg.unregister();
       }
     }
+  });
+}
+
+// Take the phone-app parts off in the desktop app. A service worker there
+// only keeps old copies of the page: the server is on this same machine, so
+// there is no offline to plan for, and it answers 404 for the worker file
+// anyway. Any worker left over from an earlier launch is removed here.
+if (isStandalone() && 'serviceWorker' in navigator) {
+  void navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) void registration.unregister();
   });
 }
 
@@ -68,7 +79,8 @@ installUsageHeat(router);
 // Web push visibility heartbeat — tells the server whether this device has
 // the app open and visible, so it can skip a redundant push. No-ops unless
 // push is already enabled on this device (src/push/presence.ts).
-installPresence();
+// (Not in the desktop app: it has no push server to tell.)
+if (!isStandalone()) installPresence();
 
 declare module '@tanstack/react-router' {
   interface Register {

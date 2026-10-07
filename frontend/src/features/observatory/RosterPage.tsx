@@ -44,6 +44,7 @@ import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
 import { useToasts } from '../journal/useJournalData';
 import { ToastStack } from '../../ui';
+import { isStandalone, pageIsOffered } from '../../shell/standalone';
 import { ChatFinder } from './ChatFinder';
 import styles from './RosterPage.module.css';
 
@@ -212,6 +213,11 @@ const LANE_INTRO: Record<Room, string> = {
  * as the 07-27 ordering call applied to a wider set. The ordering survived
  * night crew becoming a page: the door kept the spot the section held.
  *
+ * IN THE DESKTOP APP (shell/standalone.ts) some doors aren't drawn: each door
+ * asks pageIsOffered() for its own address, and the ones that lead to rooms
+ * only the owner's install has — Worktrees, Night crew, Helpers, Research,
+ * Linear — answer no there. The notes pill goes the same way.
+ *
  * DOCKED MODE (07-25): also the Sessions view of the desktop split's left
  * pane (shell/KeeperPane.tsx). `onOpenConversation` is the seam — opening a
  * card hands the id to the pane instead of routing the whole app.
@@ -263,6 +269,9 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   const [researchState, setResearchState] = useState<ResearchRoomState | null>(null);
   const [linearState, setLinearState] = useState<LinearRoomState | null>(null);
   useEffect(() => {
+    // The desktop app has none of these three rooms (shell/standalone.ts),
+    // so it doesn't ask for their counts.
+    if (isStandalone()) return;
     void getHelpers().then(setHelpersState).catch(() => setHelpersState(null));
     void getResearchRoom().then(setResearchState).catch(() => setResearchState(null));
     void getLinearRoom().then(setLinearState).catch(() => setLinearState(null));
@@ -459,7 +468,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
 
           {/* Which agents are working in which copy of the code — at the top,
               just under the Keeper, so it's the first thing seen above the rooms. */}
-          <WorktreeMapDoor />
+          {pageIsOffered('/observatory/worktrees') ? <WorktreeMapDoor /> : null}
 
           {ROOMS.map((lane) => (
             <SessionLane
@@ -489,29 +498,29 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               where its section used to sit, because that's where she already
               scrolls to look for it. It carries no census: that call is slow, so
               the crew loads only once she clicks through. */}
-          <NightCrewDoor />
+          {pageIsOffered('/observatory/nightcrew') ? <NightCrewDoor /> : null}
 
           {/* The button-fired jobs (triage, recipe/receipt parses, person
               impressions) — a door like the night crew's, but carrying a census,
               where the "System agents — coming later" note used to sit. */}
-          <HelpersDoor state={helpersState} />
+          {pageIsOffered('/observatory/helpers') ? <HelpersDoor state={helpersState} /> : null}
 
           {/* The research room — her desk sessions and the dispatched research
               workers, which left tmux for this lane. A door like the two
               above; the sessions themselves stay out of the rooms
               (sessionFilters.roomRoster). */}
-          <ResearchDoor state={researchState} />
+          {pageIsOffered('/observatory/research') ? <ResearchDoor state={researchState} /> : null}
 
           {/* The Linear room — sessions that work in Linear with her. A door
               like Research's, and its sessions stay out of the rooms too. */}
-          <LinearDoor state={linearState} />
+          {pageIsOffered('/observatory/linear') ? <LinearDoor state={linearState} /> : null}
 
           {/* The spinoff family tree — which session came from which. */}
           <SpinoffTreeDoor />
 
           {/* What the agents spend — tokens by model, session, room and kind,
               and when. A plain door: the numbers load once she walks in. */}
-          <TokenBurnDoor />
+          {pageIsOffered('/observatory/burn') ? <TokenBurnDoor /> : null}
 
           {/* Seeded from the '+' she actually pressed, and NOT seeded at all
               from the rail's — that one gets a null lane, which makes the sheet
@@ -656,11 +665,14 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
           "make the notes button on both every session and the roster page
           contain the same notes"] */}
       <ToastStack toasts={toasts} onDismiss={dismiss} />
-      <NotesPill
-        tab="terminal"
-        onError={push}
-        anchor={onOpenConversation ? 'splitPane' : 'viewport'}
-      />
+      {/* Not in the desktop app: the notes are the owner's own build notes. */}
+      {isStandalone() ? null : (
+        <NotesPill
+          tab="terminal"
+          onError={push}
+          anchor={onOpenConversation ? 'splitPane' : 'viewport'}
+        />
+      )}
     </div>
   );
 }
