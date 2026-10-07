@@ -192,3 +192,10 @@
   margin: 0 0 var(--space-2);
   padding-left: var(--space-4);
 }
+
+/* One member's summary: its labelled lines, under the member's title. */
+.memberSummary {
+  display: block;
+  margin: var(--space-1) 0 var(--space-2);
+  color: var(--text-secondary);
+}

@@ -67,6 +67,8 @@
 .summary,
 .summaryPending {
   line-height: 1.45;
+  /* The summary's labelled lines stay on lines of their own. */
+  white-space: pre-line;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;

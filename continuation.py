@@ -198,7 +198,7 @@ def brief_text(conv_id, entry, handoff):
                 for m in card["members"]:
                     if m["conv"] != conv_id:
                         lines.append(f"- `{m['conv']}` {m['title']} ({m['state']})"
-                                     + (f" — {m['summary']}" if m.get("summary") else ""))
+                                     + (f" — {' '.join(m['summary'].split())}" if m.get("summary") else ""))
     except Exception:
         pass
     return "\n".join(lines) + "\n"

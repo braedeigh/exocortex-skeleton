@@ -666,6 +666,6 @@ def seed_text(swarm_id):
     if card.get("summary"):
         lines += [card["summary"], ""]
     lines += [f"- `{m['conv']}` {m['title']} ({m['state']})"
-              + (f" — {m['summary']}" if m.get("summary") else "")
+              + (f" — {' '.join(m['summary'].split())}" if m.get("summary") else "")
               for m in card["members"] if not m["retired"]]
     return "\n".join(lines) + "\n"

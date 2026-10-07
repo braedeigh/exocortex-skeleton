@@ -1,0 +1,16 @@
+/* SummaryLines — a helper's summary as labelled lines, one under the other. */
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.line {
+  display: block;
+  line-height: 1.45;
+}
+
+.label {
+  font-weight: 600;
+}

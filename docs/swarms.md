@@ -30,6 +30,13 @@ lines say what exists *now*.
   notices where members' work differs or collides, and coordinates. Its
   summaries are **replaced, not accumulated**: each update is a fresh call that
   sees only the latest summaries plus what's new, so its context never grows.
+  Every summary is a few short **labelled lines**, not a paragraph — a
+  session's is "Now / Done / Waiting on", the swarm's "Goal / Where it stands /
+  Next / Waiting on" — and the code cuts anything longer before storing it
+  (`swarm_helper.tidy_summary`), so they can't grow run after run. Her ask:
+  "Make the helper summaries more separated and succinct ... They're too long.
+  Labeled lines." `swarm_helper.py reshape <id>` rewrites a swarm's stored
+  summaries into that shape without waiting for new activity.
 - **One helper chat for the swarm's whole life.** The owner's chat with the
   helper is never handed off or archived while the swarm is active. Each turn
   in it is a fresh model session, seeded with **exactly three things** (her

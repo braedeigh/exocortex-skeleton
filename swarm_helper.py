@@ -25,6 +25,14 @@ side (side_by_side):
 The new summaries REPLACE the old ones, so the next run reads only those plus
 what's new: the helper's context never grows, however long the swarm runs.
 
+Every summary is a few short LABELLED LINES, never a paragraph: a session's is
+"Now:", "Done:" and "Waiting on:"; the swarm's is "Goal:", "Where it stands:",
+"Next:" and "Waiting on:". The prompts ask for that, and the code holds them
+to it (tidy_summary): more lines than that, or a line longer than its cap, is
+cut off before it is stored, so a summary can't grow run after run.
+`python3 swarm_helper.py reshape <id>` rewrites a swarm's summaries into that
+shape without waiting for its sessions to do something new.
+
 Every run is written down in full (`swarm_helper_runs`: its exact input and
 output, cost, error) and into the helper's own chat, so the owner can see what
 information it used and what it did with it.
@@ -72,7 +80,8 @@ sonnet sessions, make these parallel and individual." — and, for the closing
 summary: "when a swarm retires, i want a summary of what was done to be
 written by that swarm's helper, which will then be put in the chat and noted
 ... so i can know what was completed and ask it questions about what
-happened."
+happened." — and, for the labelled lines: "Make the helper summaries more
+separated and succinct ... In swarms. They're too long. Labeled lines."
 """
 import json
 import os
@@ -110,7 +119,13 @@ _ITEM_CHARS = 400
 SYSTEM_PROMPT = """You are the helper for a swarm of AI coding agents working on one person's \
 app. The agents became a swarm by messaging each other. Your job:
 1. Name the swarm: 2-5 plain words for the shared project (keep the current name unless it's wrong).
-2. Summarise the swarm in a few sentences: the shared goal, where it stands, what's next.
+2. Summarise the swarm as at most four short lines, each starting with its label and holding \
+one or two plain sentences, under 40 words:
+Goal: what the swarm is building together.
+Where it stands: what is finished and what is in progress, at a glance.
+Next: what happens next.
+Waiting on: what is needed from the owner, or from outside. Leave this line out when nothing is.
+No other lines, no bullets, no bold, no lists of every issue or commit. Anything longer is cut off.
 3. Coordinate: notice where members' work overlaps, conflicts (two editing the same file, \
 contradictory decisions) or depends on each other. Only when it changes a member's work, send \
 a short message to the member who needs to know. Never more than one message per member per run. \
@@ -120,8 +135,9 @@ affect, don't chat, and never hand a member work outside its own brief.
 4. Answer any questions in your mailbox, addressed back to whoever asked (an agent's session id, \
 or "owner").
 You only see summaries and what's new since them. Each member's own summary is written by a \
-separate call, not by you. Your swarm summary replaces the old one, so carry forward anything \
-still true. Plain words; the owner reads these."""
+separate call, not by you. Your swarm summary replaces the old one: keep only what someone \
+glancing at the swarm needs today, and drop the rest — each member's detail is in its own \
+summary, and the history is in the transcripts. Plain words; the owner reads these."""
 
 SCHEMA = {
     "type": "object",
@@ -140,10 +156,17 @@ SCHEMA = {
 # One session's summary, written by a call of its own (summarise_sessions).
 SESSION_PROMPT = """You keep the summary of ONE AI coding agent's session, working on one \
 person's app. You get its current summary and what it has done since that was written: the \
-owner's asks, the agent's replies, its tool calls. Write its new summary in 1-3 sentences: what \
-it's doing now, what it has done, what it's waiting on. Your summary REPLACES the old one, so \
-carry forward anything still true. Say only what the activity shows. Plain words; the owner \
-reads these."""
+owner's asks, the agent's replies, its tool calls. Write its new summary as at most three short \
+lines, each starting with its label and holding ONE plain sentence, under 25 words:
+Now: what it is doing right now, or where it stopped.
+Done: the most important thing it has finished.
+Waiting on: what it needs, and from whom (the owner, another session). Leave this line out \
+when it waits on nothing.
+Leave out any line with nothing to say. No other lines, no bullets, no bold. Your summary \
+REPLACES the old one: keep only what someone glancing at it needs today and drop the rest — \
+commit hashes, counts, the rules it follows and the story of how it got here stay in its \
+transcript. Say only what the activity shows. Anything longer is cut off. Plain words; the \
+owner reads these."""
 
 SESSION_SCHEMA = {
     "type": "object",
@@ -183,6 +206,12 @@ _CLOSINGS_SHOWN = 5
 _CLOSING_MESSAGES = 80
 
 
+# How long a summary may be: (how many lines, how many characters each). A
+# session's is three labelled lines, the swarm's four (the prompts above).
+SESSION_SHAPE = (3, 220)
+SWARM_SHAPE = (4, 340)
+
+
 def _now():
     return datetime.now().isoformat(timespec="seconds")
 
@@ -190,6 +219,32 @@ def _now():
 def _trim(text, cap=_ITEM_CHARS):
     text = " ".join(str(text or "").split())
     return text if len(text) <= cap else text[:cap - 1] + "…"
+
+
+def tidy_summary(text, shape):
+    """Hold a summary to its shape before it is stored: short lines, a fixed
+    number of them. Blank lines, bullet marks and bold marks are taken out,
+    each line is cut at its cap, and lines past the last allowed one are
+    dropped. This is what stops a summary growing run after run — the prompt
+    asks for the shape, and this enforces it. Shared with room_helper.py
+    through summarise_sessions."""
+    max_lines, line_chars = shape
+    lines = []
+    for raw in str(text or "").splitlines():
+        line = " ".join(raw.replace("**", "").split()).lstrip("-*• ").strip()
+        if line:
+            lines.append(_trim(line, line_chars))
+    return "\n".join(lines[:max_lines])
+
+
+def _as_bullets(summary):
+    """A summary's labelled lines as a markdown list with the labels in bold,
+    for the helper's chat."""
+    out = []
+    for line in str(summary or "").splitlines():
+        label, colon, rest = line.partition(": ")
+        out.append(f"- **{label}:** {rest}" if colon and len(label) <= 20 else f"- {line}")
+    return out
 
 
 # --- The helper's own session ---------------------------------------------------
@@ -438,7 +493,7 @@ def summarise_sessions(results, convs):
             continue
         answer, call_cost = found
         cost += float(call_cost or 0)
-        text = str((answer or {}).get("summary") or "").strip()
+        text = tidy_summary((answer or {}).get("summary"), SESSION_SHAPE)
         if text:
             summaries[conv] = text
     return summaries, cost, errors
@@ -446,9 +501,10 @@ def summarise_sessions(results, convs):
 
 def _render(answer):
     """The run as the helper's chat shows it."""
-    lines = [f"**{answer.get('name')}**", "", answer.get("summary") or ""]
+    lines = [f"**{answer.get('name')}**", ""] + _as_bullets(answer.get("summary"))
+    # Each member under its own id, so the sessions read apart from each other.
     for m in answer.get("members") or []:
-        lines.append(f"- `{m.get('conv')}` — {m.get('summary')}")
+        lines += ["", f"`{m.get('conv')}`"] + _as_bullets(m.get("summary"))
     if answer.get("differences"):
         lines += ["", "**Where work differs or collides**"]
         lines += [f"- {d}" for d in answer["differences"]]
@@ -490,6 +546,7 @@ def run(swarm_id, trigger="turn", question_ids=()):
     cost = (float(cost or 0) + sessions_cost) if (cost is not None or sessions_cost) else None
     # The members' new summaries ride in the run's record and its chat post.
     if answer:
+        answer["summary"] = tidy_summary(answer.get("summary"), SWARM_SHAPE)
         answer["members"] = [{"conv": conv, "summary": summary}
                              for conv, summary in summaries.items()]
     now = _now()
@@ -561,6 +618,61 @@ def run(swarm_id, trigger="turn", question_ids=()):
     if error:
         raise RuntimeError(error)
     return answer
+
+
+# --- Rewriting summaries into the current shape ---------------------------------
+
+_RESHAPE_NOTE = ("(nothing new — rewrite the current summary in the required shape, keeping"
+                 " only what still matters)")
+
+
+def reshape(swarm_id):
+    """Rewrite a swarm's stored summaries into the current shape, without
+    waiting for new activity: the swarm's own, and each member's that is
+    still working. A normal run only rewrites a member that has done
+    something since its summary, so an idle one would keep an old long
+    paragraph for good. Nothing is posted, no message is sent, and every
+    `summary_at` is left alone — what is new since each summary is still new
+    to the next run. Returns (how many were rewritten, cost, [what failed])."""
+    card = next((c for c in swarms.overview() if c["id"] == swarm_id), None)
+    if card is None:
+        raise KeyError(swarm_id)
+    index = store.read("bot_chats/index", {})
+    index = index if isinstance(index, dict) else {}
+    working = [m for m in card["members"] if m.get("summary") and not m.get("retired")
+               and not swarms.is_helper_session(m["conv"], index)]
+    jobs = {}
+    if card.get("summary"):
+        text = gather(swarm_id) + ("\n(This is a rewrite only: put the current swarm summary into"
+                                   " the required shape. Send no messages.)\n")
+        jobs["swarm"] = lambda: _call_model(text)
+    for m in working:
+        member_text = "\n".join([f"# Session {m['conv']} — {m['title']} ({m['state']})", "",
+                                 "Current summary: " + m["summary"], "",
+                                 "New since then:", _RESHAPE_NOTE, ""])
+        jobs[m["conv"]] = lambda member_text=member_text: _call_session(member_text)
+    results = side_by_side(jobs)
+    summaries, cost, errors = summarise_sessions(results, [m["conv"] for m in working])
+    swarm_summary = ""
+    if "swarm" in results:
+        found, error = results["swarm"]
+        if error:
+            errors.append(f"swarm {swarm_id}: {error}")
+        else:
+            swarm_summary = tidy_summary(found[0].get("summary"), SWARM_SHAPE)
+            cost += float(found[1] or 0)
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        if swarm_summary:
+            conn.execute("UPDATE swarms SET summary = ? WHERE id = ?", (swarm_summary, swarm_id))
+        for conv, summary in summaries.items():
+            conn.execute("UPDATE swarm_members SET summary = ? WHERE swarm_id = ? AND conv = ?",
+                         (summary, swarm_id, conv))
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
+    return len(summaries) + bool(swarm_summary), cost, errors
 
 
 # --- When it runs -----------------------------------------------------------------
@@ -1197,8 +1309,16 @@ def main(argv):
             _not_busy(swarm_id)
             return 1
         return 0
+    # Rewrite a swarm's summaries into the current shape, by hand.
+    if len(argv) >= 3 and argv[1] == "reshape":
+        rewritten, cost, errors = reshape(int(argv[2]))
+        print(f"swarm {argv[2]}: {rewritten} summaries rewritten, ${cost:.3f}")
+        for problem in errors:
+            print(f"  failed — {problem}", file=sys.stderr)
+        return 1 if errors else 0
     print("usage: swarm_helper.py run <swarm_id> [trigger] [--questions 1,2]\n"
-          "       swarm_helper.py close <swarm_id>", file=sys.stderr)
+          "       swarm_helper.py close <swarm_id>\n"
+          "       swarm_helper.py reshape <swarm_id>", file=sys.stderr)
     return 2
 
 

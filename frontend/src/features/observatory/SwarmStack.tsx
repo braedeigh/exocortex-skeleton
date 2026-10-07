@@ -56,6 +56,7 @@ import { orderMembers, type SwarmView } from './roomOrder';
 import { ApprovalCard, AwaitingCard } from './SessionCard';
 import laneStyles from './SessionLane.module.css';
 import { SwarmNetwork } from './SwarmNetwork';
+import { SummaryLines } from './SummaryLines';
 import styles from './SwarmStack.module.css';
 
 const STACK_CLASS = { needs_input: 'stackNeeds', working: 'stackWorking', silent: '' } as const;
@@ -138,7 +139,7 @@ export function SwarmStack({
         </div>
         {/* The summary folds with the stack; the counts above it don't. */}
         {!open ? null : swarm.summary ? (
-          <p className={styles.summary}>{swarm.summary}</p>
+          <p className={styles.summary}><SummaryLines text={swarm.summary} /></p>
         ) : (
           <p className={styles.summaryPending}>The helper hasn&rsquo;t summarised this swarm yet.</p>
         )}

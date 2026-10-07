@@ -64,6 +64,7 @@ import { refreshSwarm, useSwarm } from './swarmApi';
 import { swarmView } from './roomOrder';
 import { useTerrain } from '../terrain/api';
 import { mdToHtml } from '../journal/markdown';
+import { SummaryLines } from './SummaryLines';
 
 export function SwarmPage({ swarmId }: { swarmId: number }) {
   const navigate = useNavigate();
@@ -199,7 +200,9 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
                   Update summaries
                 </button>
               </div>
-              <p className={styles.summary}>{swarm.summary ?? 'The helper hasn’t summarised this swarm yet.'}</p>
+              <p className={styles.summary}>
+                {swarm.summary ? <SummaryLines text={swarm.summary} /> : 'The helper hasn’t summarised this swarm yet.'}
+              </p>
               {swarm.differences.length > 0 ? (
                 <div className={styles.differences}>
                   <h2 className={styles.h2}>Where their work differs or collides</h2>
@@ -289,7 +292,12 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
                     <button type="button" className={styles.link} onClick={() => open(m.conv)}>
                       {m.title}
                     </button>
-                    <span className={styles.muted}> — {m.summary ?? 'not summarised yet'}</span>
+                    {/* Its summary's labelled lines, each on a line of its own under the title. */}
+                    {m.summary ? (
+                      <span className={styles.memberSummary}><SummaryLines text={m.summary} /></span>
+                    ) : (
+                      <span className={styles.muted}> — not summarised yet</span>
+                    )}
                   </li>
                 ))}
               </ul>

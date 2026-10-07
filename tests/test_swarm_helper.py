@@ -160,3 +160,62 @@ def test_runs_after_member_turns_are_debounced(swarm, monkeypatch):
     assert swarm_helper.poke(swarm, "turn") is False       # too soon: noted, not run
     assert store.read("bot_chats/index", {})[helper]["helper_pending"] == "turn"
     assert spawned == ["turn"]
+
+
+def test_summaries_are_held_to_a_few_labelled_lines(swarm, monkeypatch):
+    """Her ask: "Make the helper summaries more separated and succinct ...
+    They're too long. Labeled lines." Whatever the model hands back, what is
+    stored is short labelled lines — extra lines dropped, long ones cut, list
+    and bold marks gone — and the chat post shows each label apart."""
+    wall = "\n".join(["- **Goal:** build the pond page.", "", "Where it stands: " + "frogs " * 200,
+                      "Next: herons.", "Waiting on: her answer.", "Also: a fifth line.",
+                      "And a sixth."])
+    monkeypatch.setattr(swarm_helper, "_call_model",
+                        lambda text: ({"name": "Pond", "summary": wall, "messages": []}, 0.01))
+    monkeypatch.setattr(swarm_helper, "_call_session", lambda text: (
+        {"summary": "Now: editing pond.py.\nDone: the heron.\nWaiting on: nothing.\nExtra: no."},
+        0.001))
+    swarm_helper.run(swarm)
+    [card] = swarms.overview()
+    lines = card["summary"].splitlines()
+    assert [line.split(":")[0] for line in lines] == ["Goal", "Where it stands", "Next", "Waiting on"]
+    assert all(len(line) <= swarm_helper.SWARM_SHAPE[1] for line in lines) and "*" not in lines[0]
+    member = next(m for m in card["members"] if m["conv"] == "2026-09-27.100000")
+    assert member["summary"] == "Now: editing pond.py.\nDone: the heron.\nWaiting on: nothing."
+    helper = swarm_helper.ensure_helper(swarm)
+    post = json.loads((store.DATA_DIR / "bot_chats" / f"{helper}.jsonl").read_text().splitlines()[0])
+    text = post["message"]["content"][0]["text"]
+    assert "- **Goal:** build the pond page." in text and "- **Now:** editing pond.py." in text
+
+
+def test_reshape_rewrites_idle_summaries_without_calling_them_new(swarm, monkeypatch):
+    """A run only rewrites a member that did something, so an old long
+    summary would stay for good. Reshape rewrites the swarm's and every
+    working member's, and leaves each `summary_at` alone so nothing that
+    happened since is lost to the next run."""
+    conn = sqlstore.open_db()
+    conn.execute("UPDATE swarms SET summary = 'A long old paragraph.', summary_at = '2026-09-27T12:00:00'")
+    conn.execute("UPDATE swarm_members SET summary = 'Old ' || conv, summary_at = '2026-09-27T12:00:00'")
+    conn.commit()
+    conn.close()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["2026-09-27.110000"]["done_at"] = "2026-09-27T12:30:00"
+        index["2026-09-27.110000"]["archived"] = "2026-09-27T12:30:00"
+    sent = []
+    monkeypatch.setattr(observatory, "peer_send", lambda *a, **k: sent.append(a))
+    monkeypatch.setattr(swarm_helper, "_call_model", lambda text: (
+        {"name": "Renamed", "summary": "Goal: the pond page.", "messages": [
+            {"to": "2026-09-27.100000", "text": "hello"}]}, 0.01))
+    monkeypatch.setattr(swarm_helper, "_call_session",
+                        lambda text: ({"summary": "Now: " + text.split("Current summary: ")[1].split("\n")[0]}, 0.001))
+    rewritten, cost, errors = swarm_helper.reshape(swarm)
+    assert (rewritten, errors, sent) == (2, [], [])
+    conn = sqlstore.open_db()
+    swarm_row = conn.execute("SELECT summary, summary_at FROM swarms").fetchone()
+    members = dict((conv, (summary, at)) for conv, summary, at in conn.execute(
+        "SELECT conv, summary, summary_at FROM swarm_members"))
+    conn.close()
+    assert swarm_row == ("Goal: the pond page.", "2026-09-27T12:00:00")
+    assert members == {
+        "2026-09-27.100000": ("Now: Old 2026-09-27.100000", "2026-09-27T12:00:00"),
+        "2026-09-27.110000": ("Old 2026-09-27.110000", "2026-09-27T12:00:00")}   # finished: left as it was
