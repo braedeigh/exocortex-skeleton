@@ -182,6 +182,43 @@ def test_a_session_in_the_report_carries_the_last_summary_written_of_it(client, 
     assert (bare["summary"], bare["summary_at"], bare["summary_source"]) == (None, None, None)
 
 
+def test_the_main_map_reads_as_one_report_over_its_own_folders(client, roots, project):
+    """The main map is two folders. Its report is their histories read as one
+    — and a build's commits and sessions never leak into it."""
+    app, vault = roots / "app", roots / "vault"
+    _make_repo(app)
+    _commit(app, "server.py", "x = 1\n", "App work", "2026-10-02T10:00:00")
+    _make_repo(vault)
+    _commit(vault, "notes.md", "a\nb\n", "Vault work", "2026-10-03T10:00:00")
+    _seed_session(project)
+    index = store.read("bot_chats/index", {})
+    index["2026-10-02.100000"] = {"title": "App session", "lane": "coding",
+                                  "last_at": "2026-10-02T10:00:00"}
+    store.write("bot_chats/index", index)
+    footprints = store.read("bot_chats/footprints", {})
+    footprints["2026-10-02.100000"] = {"files": {
+        str(app / "server.py"): {"writes": 2, "reads": 0, "creates": 1,
+                                 "last": "2026-10-02T10:00:00Z"}}}
+    store.write("bot_chats/footprints", footprints)
+    _add(client, project)
+
+    report = client.get("/api/observatory/terrain/report").get_json()
+
+    assert [c["subject"] for c in report["commits"]] == ["Vault work", "App work"]
+    assert (report["summary"]["commits"], report["summary"]["days"]) == (2, 2)
+    assert report["summary"]["added"] == 3
+    assert [(s["title"], s["files"], s["writes"]) for s in report["sessions"]] == [
+        ("App session", 1, 2)]
+
+
+def test_the_main_maps_report_never_reaches_a_visitor(roots, monkeypatch):
+    monkeypatch.setattr(terrain, "_visitor", lambda: True)
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    terrain_builds.register(app)
+    assert app.test_client().get("/api/observatory/terrain/report").status_code == 404
+
+
 def test_a_builds_map_holds_only_that_build_and_the_main_map_never_holds_it(client, project):
     _seed_session(project)
     _add(client, project)

@@ -603,10 +603,11 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
     setGuideOpen(false);
     markGuideDismissed();
   };
-  // The build's report, docked where the Guide docks — so the two take turns:
-  // opening either one closes the other. Open from the start when there is
-  // room for a split; on a phone it would cover most of the map, so there it
-  // waits behind its button.
+  // The report, docked where the Guide docks — so the two take turns:
+  // opening either one closes the other. On a build's map it is open from the
+  // start when there is room for a split (the report is why she came); on a
+  // phone it would cover most of the map, and on the main map the map itself
+  // is the point, so there it waits behind its button.
   const [reportOpen, setReportOpen] = useState(
     () => Boolean(build) && typeof window !== 'undefined' && window.innerWidth > 768,
   );
@@ -1904,12 +1905,12 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
     openCodeFile(hit.repoId, hit.path);
   };
 
-  // The files the ringed session touched, as rows for the build report to
+  // The files the ringed session touched, as rows for the report to
   // print under it — read from the same visible nodes the rings are drawn
   // from, so the list names exactly the dots that are lit.
   const reportFiles = useMemo(
-    () => (build && footprintSession && visible ? sessionFootprintFiles(visible.nodes, footprintSession) : []),
-    [build, footprintSession, visible],
+    () => (footprintSession && visible ? sessionFootprintFiles(visible.nodes, footprintSession) : []),
+    [footprintSession, visible],
   );
 
   return (
@@ -2037,8 +2038,10 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
             >
               <span aria-hidden="true">?</span> Guide
             </button>
-            {/* The build's written report — what was built, by whom, when. */}
-            {build ? (
+            {/* The map's written report — what was built, by whom, when. On a
+                build's map and on the main one; never for a visitor, who has
+                no sessions or summaries to be shown. */}
+            {!visitor ? (
               <button
                 type="button"
                 className={[styles.chip, reportOpen ? styles.chipActive : ''].filter(Boolean).join(' ')}
@@ -2296,12 +2299,12 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
           Rendered above all the floating chrome (its backdrop covers the whole
           page), closed by Esc, the blur itself, or the Rooms button again. */}
       <TerrainRoomsIndex open={roomsOpen} onClose={() => setRoomsOpen(false)} />
-      {/* The build's report, docked on the right. It only asks the page for
+      {/* The map's report, docked on the right. It only asks the page for
           things: narrow the dates to one day, ring one session's files, open
           one of those files. */}
-      {build ? (
+      {!visitor ? (
         <BuildReport
-          buildId={build}
+          buildId={build ?? null}
           open={reportOpen && !embed}
           onClose={() => setReportOpen(false)}
           range={customRange}

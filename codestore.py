@@ -887,14 +887,24 @@ def growth_series(repo_id):
         conn.close()
 
 
+def _repo_ids(repo_id):
+    """One repo id or several, as a list plus the `?, ?` marks for an IN (…).
+    The two readers below take either, so the main map — two folders — reads
+    as one history the same way a single build does."""
+    ids = [repo_id] if isinstance(repo_id, str) else list(repo_id)
+    return ids, ",".join("?" * len(ids))
+
+
 def commit_log(repo_id, limit=None):
-    """One repo's commits, newest first — what a build's report lists:
-    [{sha, ts, author, subject, files, added, removed}].
+    """A repo's commits, newest first — what a report lists:
+    [{sha, ts, author, subject, files, added, removed}]. `repo_id` is one id
+    or a list of them; a list reads as one history, interleaved by time.
 
     `files` is how many files the commit changed; `added`/`removed` are its
     line counts summed over them, with a binary file counting as nothing
     (its counts are stored as NULL — uncountable, not zero). `limit` cuts the
     list to the newest N."""
+    ids, marks = _repo_ids(repo_id)
     conn = sqlstore.open_db()
     try:
         # LEFT JOIN, so a commit that changed no files (a merge) is still a row.
@@ -902,10 +912,10 @@ def commit_log(repo_id, limit=None):
             "SELECT c.sha, c.authored_ts, c.author, c.subject, COUNT(cf.file_id),"
             "       SUM(COALESCE(cf.added, 0)), SUM(COALESCE(cf.removed, 0))"
             " FROM commits c LEFT JOIN commit_files cf ON cf.sha = c.sha"
-            " WHERE c.repo = ? GROUP BY c.sha"
+            f" WHERE c.repo IN ({marks}) GROUP BY c.sha"
             " ORDER BY c.authored_ts DESC, c.sha"
             + (" LIMIT ?" if limit is not None else ""),
-            (repo_id, limit) if limit is not None else (repo_id,),
+            (*ids, limit) if limit is not None else ids,
         ).fetchall()
     finally:
         conn.close()
@@ -915,25 +925,27 @@ def commit_log(repo_id, limit=None):
 
 
 def repo_summary(repo_id):
-    """One repo's history in a handful of numbers — the line a build wears on
+    """A repo's history in a handful of numbers — the line a build wears on
     the Builds list: {commits, files, first, last, added, removed, days}.
+    `repo_id` is one id or a list of them; a list is summed as one history.
 
     `files` counts the files alive now; `first`/`last` are the oldest and
     newest commit as unix seconds (None for a repo with no commits indexed);
     `days` is how many distinct local days had a commit."""
+    ids, marks = _repo_ids(repo_id)
     conn = sqlstore.open_db()
     try:
         commits, first, last, days = conn.execute(
             "SELECT COUNT(*), MIN(authored_ts), MAX(authored_ts),"
             "       COUNT(DISTINCT date(authored_at))"
-            " FROM commits WHERE repo = ?", (repo_id,)).fetchone()
+            f" FROM commits WHERE repo IN ({marks})", ids).fetchone()
         added, removed = conn.execute(
             "SELECT SUM(COALESCE(cf.added, 0)), SUM(COALESCE(cf.removed, 0))"
             " FROM commit_files cf JOIN commits c ON c.sha = cf.sha"
-            " WHERE c.repo = ?", (repo_id,)).fetchone()
+            f" WHERE c.repo IN ({marks})", ids).fetchone()
         files = conn.execute(
-            "SELECT COUNT(*) FROM files WHERE repo = ? AND deleted_at IS NULL"
-            "  AND first_seen IS NOT NULL", (repo_id,)).fetchone()[0]
+            f"SELECT COUNT(*) FROM files WHERE repo IN ({marks}) AND deleted_at IS NULL"
+            "  AND first_seen IS NOT NULL", ids).fetchone()[0]
     finally:
         conn.close()
     return {"commits": commits, "files": files, "first": first, "last": last,

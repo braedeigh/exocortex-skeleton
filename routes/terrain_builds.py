@@ -15,6 +15,7 @@ The endpoints:
   DELETE /api/observatory/terrain/builds/<id>          take one off the list (the folder stays)
   POST   /api/observatory/terrain/builds/<id>/refresh  pull a clone up to date
   GET    /api/observatory/terrain/builds/<id>/report   summary, sessions, commits
+  GET    /api/observatory/terrain/report               the same report for the main map's own folders
 
 OWNER ONLY, all of it. None of these paths is in public_config.PUBLIC_PATHS,
 so the site's gate answers a visitor 401 before a handler runs; each handler
@@ -37,7 +38,7 @@ import buildlist
 import codestore
 import config
 import sqlstore
-from routes import terrain
+from routes import observatory, terrain
 
 # The most commits one report carries. A build with more says so through
 # `commits_total`, and the list holds the newest.
@@ -77,16 +78,17 @@ def _catch_up(builds):
         pass
 
 
-def _build_sessions(build):
-    """The sessions that touched this build, most recent first:
+def _report_sessions(build):
+    """The sessions that touched a folder, most recent first:
     [{id, title, lane, running, last, files, writes, reads, creates,
-      summary, summary_at, summary_source}].
+      summary, summary_at, summary_source}]. `build` is one build, or None for
+    the main map's own folders.
 
-    Read from the same payload the build's map draws (`terrain._build_terrain`
-    over this one folder), so the report and the map can't disagree about who
-    was here. Each file there lists the sessions that touched it; this turns
-    that inside out — per session, how many files and how many writes."""
-    payload = terrain._build_terrain(None, repos=[_repo(build)])
+    Read from the same payload the map draws (`terrain._build_terrain`), so
+    the report and the map can't disagree about who was here. Each file there
+    lists the sessions that touched it; this turns that inside out — per
+    session, how many files and how many writes."""
+    payload = terrain._build_terrain(None, repos=[_repo(build)] if build else None)
     roster = {session["id"]: session for session in payload.get("sessions") or []}
     totals = {}
     for repo in payload.get("repos") or []:
@@ -251,10 +253,46 @@ def register(app):
         except Exception:
             commits = []
         try:
-            sessions = _build_sessions(build)
+            sessions = _report_sessions(build)
         except Exception:
             sessions = []
         return jsonify({"build": _describe(build),
+                        "summary": summary,
+                        "sessions": sessions,
+                        "commits": commits,
+                        "commits_total": (summary or {}).get("commits", len(commits))})
+
+    @app.route("/api/observatory/terrain/report")
+    def terrain_main_report():
+        """The main map's report: the same three parts a build's report has,
+        read over the folders this system is made of as one history.
+
+        A door of its own rather than a build id, because the main map isn't
+        on the Builds list — it has no id to ask for, and a reserved one could
+        collide with a build she names the same. `build` is filled in with
+        the map's name and its folders' names so the page draws it unchanged."""
+        refusal = _refuse_visitor()
+        if refusal is not None:
+            return refusal
+        repos = list(observatory._terrain_repos())
+        repo_ids = [repo["id"] for repo in repos]
+        terrain._terrain_refresh_history()
+        try:
+            summary = codestore.repo_summary(repo_ids)
+        except Exception:
+            summary = None
+        try:
+            commits = codestore.commit_log(repo_ids, limit=_REPORT_COMMITS_MAX)
+        except Exception:
+            commits = []
+        try:
+            sessions = _report_sessions(None)
+        except Exception:
+            sessions = []
+        return jsonify({"build": {"id": "", "name": "Terrain",
+                                  "root": " + ".join(repo["name"] for repo in repos),
+                                  "source": None, "added": None, "state": "ready",
+                                  "detail": None, "summary": summary},
                         "summary": summary,
                         "sessions": sessions,
                         "commits": commits,

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useBuildReport } from './buildsApi';
 import {
   clockLabel,
@@ -12,9 +12,11 @@ import type { FileTouchKind, SessionFootprintFile } from './terrainGraph';
 import styles from './BuildReport.module.css';
 
 /**
- * BuildReport — the written half of a build's map: what was built, by which
+ * BuildReport — the written half of a map: what was built, by which
  * sessions, when. A reading column docked down the right edge of the map,
- * the same slot the Guide uses, so the map stays whole beside it.
+ * the same slot the Guide uses, so the map stays whole beside it. Every map
+ * has one: a build's covers that one folder, the main map's covers the
+ * folders this system is made of.
  *
  * Three parts, top to bottom:
  *   1. The summary — when the work happened, and how much of it there was.
@@ -23,7 +25,8 @@ import styles from './BuildReport.module.css';
  *      things under its row: the last summary a helper wrote of it, and the
  *      list of files it touched here — each one a button that opens the file.
  *      Tapping again folds it and clears the rings. "Open" goes to its
- *      conversation.
+ *      conversation. A long list (the main map's runs to hundreds) shows its
+ *      most recent sessions first, with a button for the rest.
  *   3. Every commit, grouped by day, newest first. A day's heading is a
  *      button: it narrows the map's date range to that day, so the dots left
  *      standing are the files that day touched. Tapping it again clears it.
@@ -40,6 +43,9 @@ import styles from './BuildReport.module.css';
  * Prompt that produced it: "I want to be able to view other folders in my
  * terrain view so I can basically see a report of what happened."
  */
+
+/** How many sessions the list shows before she asks for the rest. */
+const SESSIONS_SHOWN_FIRST = 40;
 
 /** How a session touched a file, in the word the list prints beside it. */
 const TOUCH_WORD: Record<FileTouchKind, string> = {
@@ -60,7 +66,8 @@ export function BuildReport({
   files,
   onOpenFile,
 }: {
-  buildId: string;
+  /** Which build's report; null is the main map's. */
+  buildId: string | null;
   open: boolean;
   onClose: () => void;
   /** The map's date range while she has one set, so the matching day reads as on. */
@@ -76,8 +83,17 @@ export function BuildReport({
   files: SessionFootprintFile[];
   onOpenFile: (file: SessionFootprintFile) => void;
 }) {
-  const { data, isLoading, isError } = useBuildReport(open ? buildId : null);
+  const { data, isLoading, isError } = useBuildReport(buildId, open);
   const days = useMemo(() => groupCommitsByDay(data?.commits ?? []), [data]);
+  // The session list, cut to the most recent few until she asks for all of
+  // them. The ringed session is always kept in, so a session she spotlit
+  // from the map itself still unfolds here.
+  const [allSessions, setAllSessions] = useState(false);
+  const sessions = useMemo(() => {
+    const every = data?.sessions ?? [];
+    if (allSessions || every.length <= SESSIONS_SHOWN_FIRST) return every;
+    return every.filter((session, at) => at < SESSIONS_SHOWN_FIRST || session.id === spotlighted);
+  }, [data, allSessions, spotlighted]);
 
   if (!open) return null;
   const summary = data?.summary ?? null;
@@ -122,7 +138,7 @@ export function BuildReport({
                 </div>
               </dl>
             ) : (
-              <p className={styles.note}>No commits indexed for this build yet.</p>
+              <p className={styles.note}>No commits indexed yet.</p>
             )}
             <p className={styles.where}>{data.build.source ?? data.build.root}</p>
 
@@ -130,12 +146,12 @@ export function BuildReport({
             <h3 className={styles.heading}>Sessions</h3>
             {data.sessions.length === 0 ? (
               <p className={styles.note}>
-                No agent session on this machine touched this folder. A repo cloned from GitHub
-                has its history, not its builders.
+                No agent session on this machine touched {buildId === null ? 'these folders' : 'this folder'}.
+                {buildId === null ? '' : ' A repo cloned from GitHub has its history, not its builders.'}
               </p>
             ) : (
               <ul className={styles.list}>
-                {data.sessions.map((session) => {
+                {sessions.map((session) => {
                   const on = spotlighted === session.id;
                   const toggle = () => onSpotlight(on ? null : session.id);
                   return (
@@ -228,6 +244,11 @@ export function BuildReport({
                 })}
               </ul>
             )}
+            {data.sessions.length > sessions.length ? (
+              <button type="button" className={styles.action} onClick={() => setAllSessions(true)}>
+                Show all {data.sessions.length.toLocaleString('en-US')} sessions
+              </button>
+            ) : null}
 
             {/* 3. Every commit, by day. */}
             <h3 className={styles.heading}>Commits</h3>

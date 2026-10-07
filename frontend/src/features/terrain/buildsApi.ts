@@ -2,7 +2,8 @@
  * buildsApi.ts — the typed fetches behind Terrain's Builds room and a build's
  * report (routes/terrain_builds.py). The shapes live in buildReport.ts; the
  * build's MAP comes through the ordinary terrain fetch with a build id
- * (api.ts `useTerrain`).
+ * (api.ts `useTerrain`). The main map has the same report, over its own two
+ * folders.
  *
  * Owner only: every one of these answers a visitor 401, and the rooms that
  * call them aren't reachable for a visitor in the first place.
@@ -33,16 +34,22 @@ export function useBuilds() {
   });
 }
 
-/** One build's report: summary, sessions, commits. Off while `id` is null. */
-export function useBuildReport(id: string | null) {
+/**
+ * A map's report: summary, sessions, commits. `buildId` names a build; null
+ * is the main map, which has a door of its own because it isn't on the Builds
+ * list. Fetched only while `open` — the report is a panel she opens.
+ */
+export function useBuildReport(buildId: string | null, open: boolean) {
   return useQuery({
-    queryKey: [...BUILDS_KEY, 'report', id] as const,
+    queryKey: [...BUILDS_KEY, 'report', buildId ?? 'main map'] as const,
     queryFn: ({ signal }) =>
       api.get<BuildReportData>(
-        `/api/observatory/terrain/builds/${encodeURIComponent(id ?? '')}/report`,
+        buildId === null
+          ? '/api/observatory/terrain/report'
+          : `/api/observatory/terrain/builds/${encodeURIComponent(buildId)}/report`,
         signal,
       ),
-    enabled: id !== null,
+    enabled: open,
   });
 }
 
