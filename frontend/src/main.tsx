@@ -50,6 +50,11 @@ if (isStandalone() && 'serviceWorker' in navigator) {
   });
 }
 
+// Name the window after this install in the desktop app. The page ships with
+// one fixed title (index.html); the desktop server sends the install's own
+// name in APP_META, so the title follows it.
+if (isStandalone() && window.APP_META?.name) document.title = window.APP_META.name;
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

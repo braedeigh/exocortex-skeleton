@@ -117,6 +117,14 @@ shows or does it. "Open" means it is still there.
   (`ownerHome.ts`). The desktop app uses the machine's own clock instead: a
   plain 6-to-18 day, since it doesn't know where the person is.
 - **The mobile Chat tab** lists her tmux terminal sessions. Not polled.
+- **Terrain's wording said "both repos"** and named them "App code" and
+  "Personal vault". In the desktop app the Files room's card and the map's
+  guide (`TerrainGuide.tsx`) speak of one folder.
+- **The agent bar on the Terrain map** filtered by her rooms. In the desktop
+  app its Section list offers only the rooms the roster draws
+  (`agentSectionsFor` in `TerrainAgentBar.tsx`).
+- **The window's title** is set from `window.APP_META.name` once the page
+  loads (`main.tsx`), instead of the fixed word in `index.html`.
 
 ### Open — still in the page
 
@@ -126,8 +134,9 @@ shows or does it. "Open" means it is still there.
   app ignores them, but they are still **in the file**. A download must be
   built on a machine, or in a checkout, with no `frontend/.env.local`.
 - **The app's name in the phone-app manifest** is the fixed word "Exocortex"
-  (`frontend/vite.config.ts`), as is the page title in `frontend/index.html`.
-  The first-run screen reads the name from `window.APP_META` instead.
+  (`frontend/vite.config.ts`), as is the page title in `frontend/index.html`
+  until the page loads. The desktop app has no phone-app install, so the
+  manifest's name is not shown anywhere there.
 - **The room names "Personal" and "Coding"**, and their introductions on the
   roster, are written in the owner's voice ("You, talking, in real time — your
   life, not the build"). They describe where a session stands on *her*
@@ -136,11 +145,6 @@ shows or does it. "Open" means it is still there.
 - **The Keeper slot** at the top of the roster is drawn only when a pinned
   session exists, so a new person never sees it — but the code and its wording
   are there, and the create-session sheet still offers a "journal" switch.
-- **Terrain's wording says "both repos"** (the Files room's card: "Every file
-  in both repos") and names them "App code" and "Personal vault". In the
-  desktop app there is one chosen folder.
-- **The agent bar on the Terrain map** filters by her rooms, including
-  research, linear and orchestra.
 - **The sudo popup** (`SudoHost`) still polls on every page. It is harmless
   with an empty list, but the thing it is for — reloading her web service —
   doesn't exist on a desktop.
@@ -149,6 +153,11 @@ shows or does it. "Open" means it is still there.
 - **Usage beacons** (`api/usageBeacon.ts`, `usageTracker.ts`) post every tab
   visit and tap to `/api/usage/*`. They stay on the person's own machine, and
   Terrain's Attention room reads them, so they were left on.
+- **The map's guide still describes the pond** (the journal's square on the
+  map) and says "coding sessions lean left, personal ones right". Both wait
+  on what the journal covers and on whether the desktop app has one room.
+- **The Setup tab is not pinned** on a wide window: it is in the tab bar's
+  menu, not in a starter tab set (those are seeded by `routes/tabsets.py`).
 - **The kept pages inside the Observatory** (archive, spinoff tree, swarms) have not been read line by line for
   owner-only wording.
 

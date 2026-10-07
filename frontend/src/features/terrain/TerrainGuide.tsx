@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import { AGENT_PURPLE, THREAD_TEAL } from './terrainCanvas';
 import { FILE_TYPES, OTHER_FILE_TYPE } from './fileTypes';
+import { isStandalone } from '../../shell/standalone';
 import styles from './TerrainGuide.module.css';
 
 /**
@@ -157,6 +158,7 @@ export function TerrainGuide({
 }): ReactElement | null {
   if (!open) return null;
   const typeRows = [...FILE_TYPES.slice(0, TYPE_ROWS), OTHER_FILE_TYPE];
+  const oneFolder = isStandalone();
   return (
     <aside className={styles.panel} aria-label="Guide to the map">
       <div className={styles.header}>
@@ -167,10 +169,23 @@ export function TerrainGuide({
       </div>
       <div className={styles.body}>
         <p className={styles.lead}>
-          This is a live map of one person&rsquo;s software and the AI agents working on
-          it. Every dot is a file. The two territories are the app&rsquo;s code and a
-          private vault of notes and data. The boxes in the corridor between them are the
-          database&rsquo;s tables. The rings standing outside the dots are agent sessions,
+          {/* The site draws two territories; the desktop app (shell/standalone.ts)
+              draws one, the folder chosen on its Setup page. */}
+          {oneFolder ? (
+            <>
+              This is a live map of the code in one folder and the AI agents working on
+              it. Every dot is a file. The folder is the one territory. The boxes are
+              database tables.
+            </>
+          ) : (
+            <>
+              This is a live map of one person&rsquo;s software and the AI agents working on
+              it. Every dot is a file. The two territories are the app&rsquo;s code and a
+              private vault of notes and data. The boxes in the corridor between them are the
+              database&rsquo;s tables.
+            </>
+          )}{' '}
+          The rings standing outside the dots are agent sessions,
           tethered to the files they touched. It redraws itself as the work happens.
         </p>
 
@@ -180,8 +195,15 @@ export function TerrainGuide({
             <b>A file.</b> Bigger means a bigger file on disk. Its colour says how recently it was edited or run.
           </Row>
           <Row mark={<Mark kind="folder" />}>
-            <b>A folder.</b> Hollow, never filled. The two heaviest outlines are the
-            territories themselves: <b>App code</b> and <b>Personal vault</b>.
+            <b>A folder.</b> Hollow, never filled.{' '}
+            {oneFolder ? (
+              <>The heaviest outline is the territory itself: the folder being drawn.</>
+            ) : (
+              <>
+                The two heaviest outlines are the territories themselves: <b>App code</b> and{' '}
+                <b>Personal vault</b>.
+              </>
+            )}
           </Row>
           <Row mark={<Mark kind="coil" />}>
             <b>A coil.</b> A folder of many dated files (uploads, chat logs, daily pages)
@@ -302,7 +324,11 @@ export function TerrainGuide({
 
         <h3 className={styles.heading}>The controls</h3>
         <ul className={styles.plain}>
-          <li><b>App code / Personal vault</b> show or hide a territory.</li>
+          {oneFolder ? (
+            <li><b>The chip with the folder&rsquo;s name</b> shows or hides its territory.</li>
+          ) : (
+            <li><b>App code / Personal vault</b> show or hide a territory.</li>
+          )}
           <li><b>Files</b> keeps only the hottest N files. Tables, coils and search hits are never cut.</li>
           <li><b>Dates</b> hides files not touched inside the range. Nothing moves.</li>
           <li><b>&#8635;</b> refetches the map; the number beside it is how old what you see is.</li>

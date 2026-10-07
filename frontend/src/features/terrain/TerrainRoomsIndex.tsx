@@ -3,7 +3,7 @@ import { Link, useRouterState } from '@tanstack/react-router';
 import { getCollections } from './sqlab/api';
 import { compact, monthLabel, type GrowthData } from './growthMath';
 import { formatDwell, rankPlaces, type UsageRecord } from './usageRanking';
-import { pageIsOffered } from '../../shell/standalone';
+import { isStandalone, pageIsOffered } from '../../shell/standalone';
 import styles from './TerrainRoomsIndex.module.css';
 
 /**
@@ -333,7 +333,10 @@ const ROOMS: ReadonlyArray<{
     key: 'files',
     to: '/terrain/files',
     name: 'Files',
-    line: 'Every file in both repos, glowing where the work has been.',
+    // The site draws two repos; the desktop app draws the one chosen folder.
+    line: isStandalone()
+      ? 'Every file in the folder, glowing where the work has been.'
+      : 'Every file in both repos, glowing where the work has been.',
     motif: FilesMotif,
   },
   {

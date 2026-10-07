@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import styles from './TerrainAgentBar.module.css';
+import { ROOMS } from '../observatory/api';
+import { isStandalone } from '../../shell/standalone';
 
 /**
  * TerrainAgentBar — the bottom agent control.
@@ -77,6 +79,19 @@ export const SECTION_LABELS: Record<AgentSection, string> = {
 
 const POOLS: readonly AgentPool[] = ['active', 'open', 'all'];
 const SECTIONS: readonly AgentSection[] = ['', 'personal', 'coding', 'research', 'linear', 'orchestra'];
+
+/**
+ * Which rooms the Section list offers.
+ *
+ * The site offers every room a session can be in. The desktop app
+ * (shell/standalone.ts) has only the rooms its Observatory draws (ROOMS in
+ * observatory/api.ts): the research desk, the Linear board and the orchestra
+ * belong to the owner's own install, and no session there is ever in one.
+ */
+export function agentSectionsFor(standalone: boolean): readonly AgentSection[] {
+  if (!standalone) return SECTIONS;
+  return SECTIONS.filter((section) => section === '' || (ROOMS as readonly string[]).includes(section));
+}
 
 export interface AgentEntry {
   id: string;
@@ -197,7 +212,7 @@ export function TerrainAgentBar({
               </button>
             ))}
             <div className={styles.popHead}>Section</div>
-            {SECTIONS.map((s) => (
+            {agentSectionsFor(isStandalone()).map((s) => (
               <button
                 key={s || 'all'}
                 type="button"
