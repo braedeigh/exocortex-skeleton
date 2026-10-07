@@ -733,7 +733,11 @@ def _sessions_section(entry, found, finished, place, repo=None, now=None):
            " session's whole life, read from the tool-call log (seconds behind): an Edit, Write or"
            " Read call is always caught; a shell command is caught only when it names a file git"
            " shows as changed in the app checkout — and shell commands far outnumber the others,"
-           " so both lists, the Read list most of all, are INCOMPLETE. Paths are relative to"
+           " so both lists, the Read list most of all, are INCOMPLETE. They can also be WRONG the"
+           " other way, though rarely: most entries are a guess from a shell command's text,"
+           " checked against whether the file changed afterwards. Before you tell two sessions"
+           " they are in the same file, confirm it (`peers.py show <id>`, `git status`, or the"
+           " `tool_calls` table). Paths are relative to"
            f" {repo} (or to its parent, for the vault).", ""]
     for _, text in _session_entries(found, repo, today):
         out += [text, ""]

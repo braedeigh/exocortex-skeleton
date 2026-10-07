@@ -32,7 +32,9 @@ any pair already written down for that file.
 
 What it can miss is what edited_files.py can miss: an edit or a read made
 through Bash is only seen when the command spells the file's name, and a
-Bash edit only for a file git shows as changed.
+Bash edit only for a file git shows as changed. It can be wrong the other
+way too, though rarely: a Bash edit is a guess from the command's text
+(edited_files.py's top block says exactly how it is made and checked).
 
 Touches: edited_files.py (open_lines, edits, reads — the detecting — and its
 section), helper_chat.py (the seed), sqlstore.py (the `file_alerts` table,

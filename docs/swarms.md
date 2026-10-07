@@ -197,9 +197,10 @@ or move solo sessions out of a swarm into the layer above."
   changed in the last `config.ROOM_HELPER_FILES_HOURS`, any file two of them
   touched flagged at the top, and the files git shows changed that no open
   session claims. Read from `tool_calls` (seconds behind for Observatory
-  turns). Edit/Write calls are always caught; a Bash edit only when the
-  command names a file git shows changed and writes to it — see the file's
-  top block for exactly what that misses.
+  turns). Edit/Write calls are always caught (a failed one is left out); a
+  Bash edit is a guess from the command's text, checked against whether the
+  file changed afterwards — see the file's top block for exactly what that
+  misses and what it can still get wrong.
 - **What it does.** Four moves — **form** a swarm from sessions working alone,
   **join** sessions to a swarm, **split** a cluster out of a swarm into its
   own, **release** sessions to work alone. It acts on its own (her decision,
@@ -303,6 +304,25 @@ read by the helper." So the app notices and writes it down
 - **Read from `tool_calls`**, through `edited_files.py` (`edits`, and `reads`
   beside it). Agents here mostly read and edit through Bash, so both count
   Bash commands that name the file, with the limits `edited_files.py` lists.
+- **A session that only runs or names a file is not its editor.** Her ask,
+  after a session that ran `scripts/peers.py` was listed as having edited
+  it: "tighten it." Measured on the log first (2026-10-07; 14,900 shell
+  commands since 09-26, against 1,040 Edit/Write calls): in the open Coding
+  room 64 of 109 session-and-file pairs rested on a shell command alone, and
+  every one of the 11 files tagged as shared did. Of the commands behind
+  them, read by hand: every finished heredoc made the rest of its command
+  count as a script cut short (always wrong, and the cause of that case);
+  `cp` counted the file copied FROM; a script counted every file whose name
+  appeared on a line with an `=`, so editing `projects.json` "edited" the
+  files listed in it. Now a script must name the file as a string of its
+  own and write; a shell verb must be run on the file; quoted prose is set
+  aside; a failed Edit or Write is left out; and each shell guess is dropped
+  when the file's timestamp and last commit are both older than the
+  command. On the same log: 269 claims dropped (60 read by hand, none a
+  real edit) and 336 gained (about 100 read by hand) — real edits the old
+  rules missed, mostly a second file written after a heredoc, and a file
+  name handed to a helper function. Shared files in the room went from 11 to 7. The lists remain a
+  guess, and the seed tells the helpers to confirm before acting on one.
 - **Once per pair per file.** The minute tick (`file_alerts.tick`) puts the
   pair and the file into `file_alerts`, whose unique key refuses a second
   row. A pair is two *lines of work*, so a continuation never overlaps with

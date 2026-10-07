@@ -84,6 +84,7 @@ def test_overlaps_are_written_down_once_for_the_room_helper_and_no_session_is_to
     _did(CARA, "Read", {"file_path": str(repo / "garden.py")}, minutes_ago=5)
     _did(BEN, "Bash", {"command": "python3 - <<'EOF'\np='pond.py'; s=open(p).read()\n"
                                   "open(p,'w').write(s.replace('1','2'))\nEOF"})
+    (repo / "pond.py").write_text("x = 3\n")     # his script ran: the file really changed
     # Words about a file aren't an edit of it: Cara only says she'll leave it alone.
     _did(CARA, "Bash", {"command": 'scripts/peers.py send x "Noted; I won\'t touch pond.py,'
                                    ' or rm notes.py"'})
