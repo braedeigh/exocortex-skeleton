@@ -6,6 +6,9 @@ What has to hold, and would break without anyone noticing:
 
   - A build reads as a report: its commits, its line counts, the sessions
     that worked in it — and its map carries only that folder.
+  - Each session in the report carries the LAST summary a helper wrote of
+    it, whichever of the two tables holds it — and says so plainly when no
+    helper ever summarised it.
   - A build never reaches the main map, a visitor, or the published mirror.
     The main map is public; a build is the owner's alone.
   - The code-history tables keep a build through a rebuild, and forget it when
@@ -26,6 +29,7 @@ from flask import Flask
 
 import buildlist
 import codestore
+import sqlstore
 import store
 from routes import observatory, terrain, terrain_builds
 
@@ -130,6 +134,52 @@ def test_a_build_reads_as_a_report_of_what_happened(client, project):
     # The same build on the list carries the same numbers.
     listed = client.get("/api/observatory/terrain/builds").get_json()["builds"]
     assert [(b["id"], b["summary"]["commits"]) for b in listed] == [("side-project", 3)]
+
+
+def test_a_session_in_the_report_carries_the_last_summary_written_of_it(client, project):
+    """The helpers keep a session's summary in two places: one row while it
+    works alone, one per swarm it was ever in. The report must show the newest
+    of them all, skip an empty one, and leave a never-summarised session bare."""
+    _seed_session(project)
+    index = store.read("bot_chats/index", {})
+    index["2026-10-02.090000"] = {"title": "Never summarised", "lane": "coding",
+                                  "last_at": "2026-10-02T09:00:00"}
+    store.write("bot_chats/index", index)
+    footprints = store.read("bot_chats/footprints", {})
+    footprints["2026-10-02.090000"] = {"files": {
+        str(project / "README.md"): {"writes": 0, "reads": 2, "creates": 0,
+                                     "last": "2026-10-02T09:00:00Z"}}}
+    store.write("bot_chats/footprints", footprints)
+
+    worker = "2026-10-01.011116"
+    conn = sqlstore.open_db()
+    try:
+        for swarm_id in (1, 2):
+            conn.execute("INSERT INTO swarms (id, created_at, updated_at) VALUES (?, ?, ?)",
+                         (swarm_id, "2026-10-01T00:00:00", "2026-10-01T00:00:00"))
+        conn.executemany(
+            "INSERT INTO swarm_members (swarm_id, conv, joined_at, summary, summary_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            [(1, worker, "2026-10-01T01:00:00", "Starting the workspace.", "2026-10-01T02:00:00"),
+             (2, worker, "2026-10-01T05:00:00", "Calculator shipped; docs left.", "2026-10-01T09:00:00"),
+             # Newer than everything, but empty: a summary that says nothing
+             # must not hide the last one that did.
+             (2, "2026-10-02.090000", "2026-10-02T09:00:00", "  ", "2026-10-03T00:00:00")])
+        conn.execute("INSERT INTO session_summaries (conv, summary, summary_at) VALUES (?, ?, ?)",
+                     (worker, "Working alone on the workspace.", "2026-10-01T04:00:00"))
+        conn.commit()
+    finally:
+        conn.close()
+
+    _add(client, project)
+    report = client.get("/api/observatory/terrain/builds/side-project/report").get_json()
+    by_title = {s["title"]: s for s in report["sessions"]}
+
+    summarised = by_title["Side project build"]
+    assert (summarised["summary"], summarised["summary_at"], summarised["summary_source"]) == (
+        "Calculator shipped; docs left.", "2026-10-01T09:00:00", "swarm helper")
+    bare = by_title["Never summarised"]
+    assert (bare["summary"], bare["summary_at"], bare["summary_source"]) == (None, None, None)
 
 
 def test_a_builds_map_holds_only_that_build_and_the_main_map_never_holds_it(client, project):

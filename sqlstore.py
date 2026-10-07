@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 47
+_SCHEMA_VERSION = 48
 
 
 def _db_path():
@@ -3178,6 +3178,34 @@ def _run_ladder(conn):
                      " ON context_loads (conv, at)")
         conn.execute("CREATE INDEX IF NOT EXISTS context_loads_by_slug"
                      " ON context_loads (kind, slug)")
+    if version < 48:
+        # One row per session: the newest summary a helper wrote of it.
+        # The summaries sit in two tables — session_summaries for a session
+        # working alone, swarm_members for one in a swarm (a row per swarm it
+        # was ever in) — so "this session's last summary" took a query over
+        # both. This view is that query, kept in the database: stack the two,
+        # drop the empty ones, keep the newest per session. When MAX() is the
+        # only aggregate, SQLite takes the other columns from the row that
+        # held the maximum, so `summary` and `source` are the newest row's
+        # own. A view stores nothing; it is re-read from the two tables every
+        # time, so it can't go stale.
+        #
+        # Prompt: "when i click footprint on the session from the report, i
+        # want it to give me the last generated summary from that agent
+        # session ... wire those up inside sql."
+        conn.execute("DROP VIEW IF EXISTS session_last_summary")
+        conn.execute(
+            "CREATE VIEW session_last_summary AS"
+            " SELECT conv, summary, MAX(summary_at) AS summary_at, source FROM ("
+            "   SELECT conv, summary, summary_at, 'room helper' AS source"
+            "     FROM session_summaries"
+            "   UNION ALL"
+            "   SELECT conv, summary, summary_at, 'swarm helper' AS source"
+            "     FROM swarm_members"
+            " )"
+            " WHERE summary IS NOT NULL AND TRIM(summary) != ''"
+            " GROUP BY conv"
+        )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

@@ -6,7 +6,9 @@ import {
   groupCommitsByDay,
   linesLabel,
   spanLabel,
+  stampLabel,
 } from './buildReport';
+import type { FileTouchKind, SessionFootprintFile } from './terrainGraph';
 import styles from './BuildReport.module.css';
 
 /**
@@ -16,8 +18,12 @@ import styles from './BuildReport.module.css';
  *
  * Three parts, top to bottom:
  *   1. The summary — when the work happened, and how much of it there was.
- *   2. The sessions that touched this folder. "Footprint" rings that
- *      session's files on the map; "Open" goes to its conversation.
+ *   2. The sessions that touched this folder. Tapping a session (its name
+ *      or "Footprint") rings that session's files on the map and unfolds two
+ *      things under its row: the last summary a helper wrote of it, and the
+ *      list of files it touched here — each one a button that opens the file.
+ *      Tapping again folds it and clears the rings. "Open" goes to its
+ *      conversation.
  *   3. Every commit, grouped by day, newest first. A day's heading is a
  *      button: it narrows the map's date range to that day, so the dots left
  *      standing are the files that day touched. Tapping it again clears it.
@@ -25,12 +31,23 @@ import styles from './BuildReport.module.css';
  * The map and this column are two readings of one build, so the column only
  * ever ASKS the page for things (ring this session, show this day) — the
  * page owns the map's state. The data comes from one fetch of the build's
- * report (buildsApi.ts `useBuildReport`); the grouping into days is
- * buildReport.ts.
+ * report (buildsApi.ts `useBuildReport`) — each session arrives with its
+ * summary already on it, read from the database's `session_last_summary`
+ * view by routes/terrain_builds.py. The file list is NOT fetched: the page
+ * hands it in, read from the same map nodes the rings are drawn on. The
+ * grouping into days is buildReport.ts.
  *
  * Prompt that produced it: "I want to be able to view other folders in my
  * terrain view so I can basically see a report of what happened."
  */
+
+/** How a session touched a file, in the word the list prints beside it. */
+const TOUCH_WORD: Record<FileTouchKind, string> = {
+  created: 'created',
+  modified: 'changed',
+  read: 'read',
+};
+
 export function BuildReport({
   buildId,
   open,
@@ -40,6 +57,8 @@ export function BuildReport({
   spotlighted,
   onSpotlight,
   onOpenSession,
+  files,
+  onOpenFile,
 }: {
   buildId: string;
   open: boolean;
@@ -52,6 +71,10 @@ export function BuildReport({
   spotlighted: string | null;
   onSpotlight: (sessionId: string | null) => void;
   onOpenSession: (sessionId: string) => void;
+  /** The ringed session's files on the map as it is drawn now, newest touch
+   * first. Empty while no session is ringed. */
+  files: SessionFootprintFile[];
+  onOpenFile: (file: SessionFootprintFile) => void;
 }) {
   const { data, isLoading, isError } = useBuildReport(open ? buildId : null);
   const days = useMemo(() => groupCommitsByDay(data?.commits ?? []), [data]);
@@ -112,38 +135,97 @@ export function BuildReport({
               </p>
             ) : (
               <ul className={styles.list}>
-                {data.sessions.map((session) => (
-                  <li key={session.id} className={styles.session}>
-                    <div className={styles.sessionText}>
-                      <span className={styles.sessionTitle}>
-                        {session.running ? <span className={styles.running} aria-label="running" /> : null}
-                        {session.title}
-                      </span>
-                      <span className={styles.meta}>
-                        {session.files} {session.files === 1 ? 'file' : 'files'}
-                        {' · '}
-                        {session.writes} {session.writes === 1 ? 'write' : 'writes'}
-                        {session.reads > 0 ? ` · ${session.reads} ${session.reads === 1 ? 'read' : 'reads'}` : ''}
-                      </span>
-                    </div>
-                    <div className={styles.sessionActions}>
-                      <button
-                        type="button"
-                        className={[styles.action, spotlighted === session.id ? styles.actionOn : '']
-                          .filter(Boolean)
-                          .join(' ')}
-                        aria-pressed={spotlighted === session.id}
-                        title="Ring this session's files on the map"
-                        onClick={() => onSpotlight(spotlighted === session.id ? null : session.id)}
-                      >
-                        Footprint
-                      </button>
-                      <button type="button" className={styles.action} onClick={() => onOpenSession(session.id)}>
-                        Open
-                      </button>
-                    </div>
-                  </li>
-                ))}
+                {data.sessions.map((session) => {
+                  const on = spotlighted === session.id;
+                  const toggle = () => onSpotlight(on ? null : session.id);
+                  return (
+                    <li key={session.id} className={styles.session}>
+                      <div className={styles.sessionRow}>
+                        {/* The session's name is a button too: tapping it does
+                            what Footprint does. */}
+                        <button
+                          type="button"
+                          className={styles.sessionText}
+                          aria-expanded={on}
+                          title="Ring this session's files on the map and show its summary"
+                          onClick={toggle}
+                        >
+                          <span className={styles.sessionTitle}>
+                            {session.running ? <span className={styles.running} aria-label="running" /> : null}
+                            {session.title}
+                          </span>
+                          <span className={styles.meta}>
+                            {session.files} {session.files === 1 ? 'file' : 'files'}
+                            {' · '}
+                            {session.writes} {session.writes === 1 ? 'write' : 'writes'}
+                            {session.reads > 0 ? ` · ${session.reads} ${session.reads === 1 ? 'read' : 'reads'}` : ''}
+                          </span>
+                        </button>
+                        <div className={styles.sessionActions}>
+                          <button
+                            type="button"
+                            className={[styles.action, on ? styles.actionOn : ''].filter(Boolean).join(' ')}
+                            aria-pressed={on}
+                            title="Ring this session's files on the map and show its summary"
+                            onClick={toggle}
+                          >
+                            Footprint
+                          </button>
+                          <button type="button" className={styles.action} onClick={() => onOpenSession(session.id)}>
+                            Open
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Unfolded under the ringed session: its last summary,
+                          then its files. The summary is whatever a helper last
+                          wrote — said plainly when none ever did. The files
+                          are the ones lit on the map right now, so a date
+                          range or a hidden file type shortens this list too. */}
+                      {on ? (
+                        <div className={styles.detail}>
+                          <h4 className={styles.detailHead}>Last summary</h4>
+                          {session.summary ? (
+                            <>
+                              <p className={styles.summaryText}>{session.summary}</p>
+                              <p className={styles.meta}>
+                                {[
+                                  session.summary_source ? `Written by the ${session.summary_source}` : '',
+                                  stampLabel(session.summary_at),
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </p>
+                            </>
+                          ) : (
+                            <p className={styles.note}>
+                              No summary was ever generated for this session. Open it to read the
+                              conversation.
+                            </p>
+                          )}
+
+                          <h4 className={styles.detailHead}>
+                            Files touched{files.length > 0 ? ` · ${files.length.toLocaleString('en-US')}` : ''}
+                          </h4>
+                          {files.length === 0 ? (
+                            <p className={styles.note}>None of its files are on the map as it&rsquo;s drawn now.</p>
+                          ) : (
+                            <ul className={styles.list}>
+                              {files.map((file) => (
+                                <li key={file.id}>
+                                  <button type="button" className={styles.file} onClick={() => onOpenFile(file)}>
+                                    <span className={styles.filePath}>{file.path}</span>
+                                    <span className={styles.meta}>{TOUCH_WORD[file.kind]}</span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             )}
 

@@ -131,11 +131,6 @@
 
 /* --- sessions --- */
 .session {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  flex-wrap: wrap;
   padding: var(--space-2) 0;
 }
 
@@ -143,11 +138,82 @@
   border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
 }
 
+.sessionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The session's name and counts — a button: it does what Footprint does. */
 .sessionText {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   min-width: 0;
+  min-height: 40px;
   flex: 1 1 10rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* What unfolds under the ringed session: its last summary, then its files. */
+.detail {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.detailHead {
+  margin: var(--space-2) 0 var(--space-1);
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.detailHead:first-child {
+  margin-top: 0;
+}
+
+.summaryText {
+  margin: 0 0 var(--space-1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* One touched file — a button that opens it. */
+.file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-1) 0;
+  border: none;
+  border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file:hover .filePath {
+  text-decoration: underline;
+}
+
+.filePath {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .sessionTitle {

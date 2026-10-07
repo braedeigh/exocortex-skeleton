@@ -1106,6 +1106,39 @@ export function sessionFootprintByRecency(nodes: TerrainNode[], sessionId: strin
   return scored.map((e) => e.id);
 }
 
+/** One file in a session's footprint, as a row a list can print. */
+export interface SessionFootprintFile {
+  /** The node id the map knows this file by. */
+  id: string;
+  repoId: string;
+  path: string;
+  /** How the session touched it — the same word its ring's colour says. */
+  kind: FileTouchKind;
+}
+
+/**
+ * A session's footprint as rows for a written list: every file it touched,
+ * newest touch first (the same order sessionFootprintByRecency gives the
+ * canvas's captions), each with its address and how the session touched it.
+ * The build report prints this under the session she tapped, so the list and
+ * the rings on the map are read from the same nodes and can't disagree.
+ */
+export function sessionFootprintFiles(nodes: TerrainNode[], sessionId: string): SessionFootprintFile[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const rows: SessionFootprintFile[] = [];
+  for (const id of sessionFootprintByRecency(nodes, sessionId)) {
+    const node = byId.get(id);
+    if (!node?.file || !node.path) continue;
+    rows.push({
+      id,
+      repoId: node.repoId,
+      path: node.path,
+      kind: sessionFileTouch(node.file, sessionId) ?? 'read',
+    });
+  }
+  return rows;
+}
+
 /** Node ids belonging to one session's footprint — every file node it
  * touched, so the canvas can ring them and dim everything else. */
 export function sessionFootprint(nodes: TerrainNode[], sessionId: string): Set<string> {

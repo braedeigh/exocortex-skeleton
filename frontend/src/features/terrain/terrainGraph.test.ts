@@ -16,6 +16,7 @@ import {
   sessionFootprint,
   sessionLastSeconds,
   sessionFootprintByRecency,
+  sessionFootprintFiles,
   sessionTouchRings,
   topHeatFiles,
   LENS_HALF_LIFE_SECONDS,
@@ -1066,6 +1067,20 @@ describe('sessionFootprintByRecency (which files a spotlit agent gets to name)',
       NOW,
     ).nodes;
   }
+
+  it('lists the footprint as rows a report can print: address, and how it was touched', () => {
+    const made = file('made.py', [NOW], [{ id: 's3', title: 'y', writes: 2, reads: 0, creates: 1, last: NOW - 5 }]);
+    const looked = file('looked.py', [NOW], [{ id: 's3', title: 'y', writes: 0, reads: 4, last: NOW - 50 }]);
+    const graph = buildTerrainGraph(
+      makeData([{ id: 'skeleton', name: 'App code', root: '/app', files: [looked, made, other] }]),
+      'week',
+      NOW,
+    ).nodes;
+    expect(sessionFootprintFiles(graph, 's3')).toEqual([
+      { id: 'skeleton:file:made.py', repoId: 'skeleton', path: 'made.py', kind: 'created' },
+      { id: 'skeleton:file:looked.py', repoId: 'skeleton', path: 'looked.py', kind: 'read' },
+    ]);
+  });
 
   it('orders the footprint newest-touch-first', () => {
     expect(sessionFootprintByRecency(nodes(), 's1').slice(0, 3)).toEqual([

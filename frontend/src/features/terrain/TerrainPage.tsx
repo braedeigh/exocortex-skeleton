@@ -32,6 +32,7 @@ import {
   relativeAge,
   sessionFootprint,
   sessionFootprintByRecency,
+  sessionFootprintFiles,
   sessionLastSeconds,
   terrainEarliestRun,
   terrainEarliestTouch,
@@ -1903,6 +1904,14 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
     openCodeFile(hit.repoId, hit.path);
   };
 
+  // The files the ringed session touched, as rows for the build report to
+  // print under it — read from the same visible nodes the rings are drawn
+  // from, so the list names exactly the dots that are lit.
+  const reportFiles = useMemo(
+    () => (build && footprintSession && visible ? sessionFootprintFiles(visible.nodes, footprintSession) : []),
+    [build, footprintSession, visible],
+  );
+
   return (
     <div className={[styles.page, guideOpen || reportOpen ? styles.guideOpen : ''].filter(Boolean).join(' ')}>
       {/* Canvas first and full-bleed: the chrome below floats over it, so the
@@ -2288,7 +2297,8 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
           page), closed by Esc, the blur itself, or the Rooms button again. */}
       <TerrainRoomsIndex open={roomsOpen} onClose={() => setRoomsOpen(false)} />
       {/* The build's report, docked on the right. It only asks the page for
-          things: narrow the dates to one day, ring one session's files. */}
+          things: narrow the dates to one day, ring one session's files, open
+          one of those files. */}
       {build ? (
         <BuildReport
           buildId={build}
@@ -2303,6 +2313,11 @@ export function TerrainPage({ build = null }: { build?: string | null } = {}) {
             if (id) setQuery('');
           }}
           onOpenSession={openSessionThere}
+          files={reportFiles}
+          onOpenFile={(file) => {
+            if (dispatchIntent({ kind: 'code', repo: file.repoId, path: file.path }) !== 'none') return;
+            openCodeFile(file.repoId, file.path);
+          }}
         />
       ) : null}
       </>

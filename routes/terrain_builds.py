@@ -22,7 +22,8 @@ also refuses a visitor itself, so the answer doesn't rest on one list staying
 right.
 
 Touches: `buildlist.py` (the list, clone state, pull), `codestore.py` (each
-build's commits, indexed under its id), `routes/terrain.py` (the per-build map
+build's commits, indexed under its id), `sqlstore.py` (the
+`session_last_summary` view each session's summary is read from), `routes/terrain.py` (the per-build map
 payload this report's session list is read from, and its cache).
 
 Prompt that produced this file: "I want to be able to view other folders in my
@@ -35,6 +36,7 @@ from flask import jsonify, request
 import buildlist
 import codestore
 import config
+import sqlstore
 from routes import terrain
 
 # The most commits one report carries. A build with more says so through
@@ -77,7 +79,8 @@ def _catch_up(builds):
 
 def _build_sessions(build):
     """The sessions that touched this build, most recent first:
-    [{id, title, lane, running, last, files, writes, reads, creates}].
+    [{id, title, lane, running, last, files, writes, reads, creates,
+      summary, summary_at, summary_source}].
 
     Read from the same payload the build's map draws (`terrain._build_terrain`
     over this one folder), so the report and the map can't disagree about who
@@ -101,7 +104,45 @@ def _build_sessions(build):
                 # when it last did anything anywhere.
                 if touch.get("last") and (total["last"] is None or touch["last"] > total["last"]):
                     total["last"] = touch["last"]
+    # Each session's last generated summary rides along, so the report can
+    # print it the moment she taps a session — no second request.
+    summaries = _last_summaries(list(totals))
+    for session_id, total in totals.items():
+        found = summaries.get(session_id)
+        total["summary"] = found["summary"] if found else None
+        total["summary_at"] = found["at"] if found else None
+        total["summary_source"] = found["source"] if found else None
     return sorted(totals.values(), key=lambda total: total["last"] or "", reverse=True)
+
+
+def _last_summaries(session_ids):
+    """The newest helper-written summary of each of these sessions:
+    {session id: {summary, at, source}}. A session no helper ever summarised
+    is simply absent.
+
+    One query against the `session_last_summary` view (sqlstore rung 48),
+    which already picks the newest per session out of the two tables the
+    helpers write. Asked for in batches, because SQLite caps how many `?` one
+    statement may carry. A database hiccup is a report without summaries,
+    never a 500."""
+    found = {}
+    try:
+        conn = sqlstore.open_db()
+    except Exception:
+        return found
+    try:
+        for start in range(0, len(session_ids), 500):
+            batch = session_ids[start:start + 500]
+            marks = ",".join("?" * len(batch))
+            for conv, summary, at, source in conn.execute(
+                    "SELECT conv, summary, summary_at, source FROM session_last_summary"
+                    f" WHERE conv IN ({marks})", batch):
+                found[conv] = {"summary": summary, "at": at, "source": source}
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return found
 
 
 def register(app):

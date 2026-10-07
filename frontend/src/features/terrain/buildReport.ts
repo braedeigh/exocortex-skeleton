@@ -72,6 +72,13 @@ export interface BuildSession {
   writes: number;
   reads: number;
   creates: number;
+  /** The last summary a helper wrote of this session — what it was doing and
+   * what it was waiting on — with when it was written (an ISO string) and
+   * which helper wrote it. All three null for a session no helper ever
+   * summarised, which is most sessions older than the helpers. */
+  summary: string | null;
+  summary_at: string | null;
+  summary_source: string | null;
 }
 
 export interface BuildReportData {
@@ -173,6 +180,16 @@ export function spanLabel(first: number | null, last: number | null): string {
   if (localDay(first) === localDay(last)) return shortDate(last, true);
   const sameYear = new Date(first * 1000).getFullYear() === new Date(last * 1000).getFullYear();
   return `${shortDate(first, !sameYear)} – ${shortDate(last, true)}`;
+}
+
+/** When a summary was written, from its ISO stamp: "5 Oct 2026, 16:58".
+ * Empty when there is no stamp or it can't be read. */
+export function stampLabel(iso: string | null): string {
+  if (!iso) return '';
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return '';
+  const seconds = Math.floor(ms / 1000);
+  return `${shortDate(seconds, true)}, ${clockLabel(seconds)}`;
 }
 
 function plural(n: number, word: string): string {
