@@ -93,6 +93,31 @@ choose-a-folder dialog when there is one (`window.exoDesktop.chooseFolder`);
 in a plain browser the type-or-paste box is the only way, because a web page
 can't learn a folder's full path.
 
+## Rooms a person edits
+
+On the site the Observatory has two fixed rooms. In the desktop app the rooms
+are a list the person owns: it starts as "Personal" and "Code", and the
+"Edit rooms" button under them opens a sheet to rename, delete and add
+(`features/observatory/RoomsDialog.tsx`).
+
+The list lives on the desktop server (`/api/standalone/rooms`: GET the list,
+POST `{name}` to add, POST `<id>` `{name}` to rename, DELETE `<id>`). Every
+answer is the whole list. `roomsApi.ts` fetches it and copies it into
+`api.ts`, where the helpers every page uses to place and name a session
+(`offeredRooms`, `toLane`, `isRoom`, `laneLabel`, `strayRoom`) read it. A
+room's id is the lane its sessions carry.
+
+- Deleting a room asks first. The server moves its sessions to the first room
+  left, and refuses to delete the last room.
+- Under each heading the desktop app says only where the room's sessions
+  work: the starting Personal room in the journal's folder, every other room
+  in the folder Terrain is drawing. The owner's own introductions are not
+  shown.
+- The same list feeds the new-session sheet's room picker, the archive's room
+  chips, and the Section list on Terrain's agent bar.
+- The new-session sheet in the desktop app says "Asks first" follows the
+  Setup page's switch, and hides the diary switch unless the journal is on.
+
 ## What in the page still assumes the owner's install
 
 Sorted by what was done about it. "Handled" means the desktop app no longer
@@ -124,8 +149,10 @@ shows or does it. "Open" means it is still there.
   "Personal vault". In the desktop app the Files room's card and the map's
   guide (`TerrainGuide.tsx`) speak of one folder.
 - **The agent bar on the Terrain map** filtered by her rooms. In the desktop
-  app its Section list offers only the rooms the roster draws
+  app its Section list offers the person's own rooms
   (`agentSectionsFor` in `TerrainAgentBar.tsx`).
+- **The room names and introductions** were in the owner's voice about her
+  machine. See "Rooms a person edits" above.
 - **The window's title** is set from `window.APP_META.name` once the page
   loads (`main.tsx`), instead of the fixed word in `index.html`.
 
@@ -140,11 +167,6 @@ shows or does it. "Open" means it is still there.
   (`frontend/vite.config.ts`), as is the page title in `frontend/index.html`
   until the page loads. The desktop app has no phone-app install, so the
   manifest's name is not shown anywhere there.
-- **The room names "Personal" and "Coding"**, and their introductions on the
-  roster, are written in the owner's voice ("You, talking, in real time — your
-  life, not the build"). They describe where a session stands on *her*
-  machine: Personal is rooted at the parent of two repos, which a stranger
-  doesn't have.
 - **The Keeper slot** at the top of the roster is drawn only when a pinned
   session exists, so a new person never sees it — but the code and its wording
   are there, and the create-session sheet still offers a "journal" switch.
@@ -157,8 +179,9 @@ shows or does it. "Open" means it is still there.
   visit and tap to `/api/usage/*`. They stay on the person's own machine, and
   Terrain's Attention room reads them, so they were left on.
 - **The map's guide still describes the pond** (the journal's square on the
-  map) and says "coding sessions lean left, personal ones right". Both wait
-  on what the journal covers and on whether the desktop app has one room.
+  map) and says "coding sessions lean left, personal ones right". The first
+  waits on the journal arriving; the second is not true of a room a person
+  added or renamed.
 - **The Setup tab is not pinned** on a wide window: it is in the tab bar's
   menu, not in a starter tab set (those are seeded by `routes/tabsets.py`).
 - **The kept pages inside the Observatory** (archive, spinoff tree, swarms) have not been read line by line for
@@ -166,6 +189,8 @@ shows or does it. "Open" means it is still there.
 
 ## Tests
 
+`frontend/src/features/observatory/desktopRooms.test.ts` — the room list
+through an add, a rename and a delete, and that the site keeps its fixed two.
 `frontend/src/shell/standalone.test.ts` — which pages the desktop app holds,
 where it sends the rest, and that the tab bar and starter tab sets only name
 pages that exist there. `frontend/src/features/setup/setupCheck.test.ts` —

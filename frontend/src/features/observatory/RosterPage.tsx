@@ -8,20 +8,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  LANE_LABEL,
-  ROOMS,
+  laneBlurb,
+  laneLabel,
   closeConversation,
   createSession,
   getHelpers,
   getLinearRoom,
   getResearchRoom,
   isRoom,
+  strayRoom,
   toLane,
   updateConversation,
   useSessionRoster,
   type HelpersState,
   type LinearRoomState,
   type ResearchRoomState,
+  type Lane,
   type Room,
   type SessionMeta,
 } from './api';
@@ -37,6 +39,8 @@ import { ResearchDoor } from './ResearchDoor';
 import { SpinoffTreeDoor } from './SpinoffTreeDoor';
 import { TokenBurnDoor } from './TokenBurnDoor';
 import { SavedLane } from './SavedLane';
+import { RoomsDialog } from './RoomsDialog';
+import { useRooms } from './roomsApi';
 import { WorktreeMapDoor } from './WorktreeMapDoor';
 import { SudoRequests } from '../sudo/SudoRequests';
 import { MemoryMeter } from '../runqueue/MemoryMeter';
@@ -142,6 +146,15 @@ const LANE_INTRO: Record<Room, string> = {
   coding:
     'You, building, in real time. Rooted in the app code so it stands where the work is — and it just acts, same as Personal, because you’re still here.',
 };
+
+/** The introduction under a room's heading. The site's two rooms get the
+ * prose above, which is about the owner's own machine. The desktop app says
+ * only where the room's sessions work (api.ts laneBlurb), which is true for a
+ * room with any name. */
+function roomIntro(lane: Lane): string {
+  if (isStandalone()) return laneBlurb(lane);
+  return LANE_INTRO[lane as Room] ?? '';
+}
 
 /**
  * /observatory — the Sessions page. A session is a SPACE, not a persona: she
@@ -256,7 +269,11 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // whole roster and genuinely can't know, so it opens 'unset' — and the sheet
   // makes her pick rather than seeding one, because the room fixes where the
   // session RUNS, permanently. Her call, 08-21: no guessing on that field.
-  const [creating, setCreating] = useState<Room | 'unset' | null>(null);
+  const [creating, setCreating] = useState<Lane | 'unset' | null>(null);
+  // The rooms to draw: the fixed two on the site, the person's own list in
+  // the desktop app (roomsApi.ts), where "Edit rooms" opens their editor.
+  const rooms = useRooms();
+  const [editingRooms, setEditingRooms] = useState(false);
   const [editTarget, setEditTarget] = useState<SessionMeta | null>(null);
 
   // Re-read the roster now, after she changes something on it.
@@ -340,10 +357,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // stands on the same ground (the app checkout). What it DOES is unaffected:
   // the gate is resolved server-side from its own lane, so an Orchestra session
   // drawn here still stops and asks.
-  const byLane = (room: Room) =>
+  const byLane = (room: Lane) =>
     shown.filter((s) => {
       const lane = toLane(s.lane);
-      return lane === room || (room === 'coding' && !isRoom(lane));
+      return lane === room || (room === strayRoom() && !isRoom(lane));
     });
 
   // What an empty lane says while the rail is narrowing it — "tap + to start
@@ -470,12 +487,12 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               just under the Keeper, so it's the first thing seen above the rooms. */}
           {pageIsOffered('/observatory/worktrees') ? <WorktreeMapDoor /> : null}
 
-          {ROOMS.map((lane) => (
+          {rooms.map(({ id: lane, name }) => (
             <SessionLane
               key={lane}
               laneKey={lane}
-              heading={LANE_LABEL[lane]}
-              blurb={LANE_INTRO[lane]}
+              heading={name}
+              blurb={roomIntro(lane)}
               sessions={byLane(lane)}
               roster={ordered}
               terrain={terrain}
@@ -489,6 +506,17 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               onClose={onCloseSession}
             />
           ))}
+
+          {/* The desktop app's rooms are the person's own list: this opens
+              the sheet where they rename, delete and add them. */}
+          {isStandalone() ? (
+            <button type="button" className={styles.editRoomsBtn} onClick={() => setEditingRooms(true)}>
+              Edit rooms
+            </button>
+          ) : null}
+          {isStandalone() ? (
+            <RoomsDialog open={editingRooms} onClose={() => setEditingRooms(false)} onChanged={refresh} />
+          ) : null}
 
           {/* Parked sessions, shut by default, right under the rooms they
               came from (SavedLane.tsx). */}
@@ -533,7 +561,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             open={creating !== null}
             title={
               creating && creating !== 'unset'
-                ? `New session in ${LANE_LABEL[creating]}`
+                ? `New session in ${laneLabel(creating)}`
                 : 'New session'
             }
             lane={creating === 'unset' ? null : creating}

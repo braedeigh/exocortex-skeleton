@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import styles from './TerrainAgentBar.module.css';
-import { ROOMS } from '../observatory/api';
+import { useRooms } from '../observatory/roomsApi';
 import { isStandalone } from '../../shell/standalone';
 
 /**
@@ -80,17 +80,32 @@ export const SECTION_LABELS: Record<AgentSection, string> = {
 const POOLS: readonly AgentPool[] = ['active', 'open', 'all'];
 const SECTIONS: readonly AgentSection[] = ['', 'personal', 'coding', 'research', 'linear', 'orchestra'];
 
+/** One row of the Section list: the lane to filter by ('' = all) and its name. */
+export interface AgentSectionChoice {
+  id: AgentSection;
+  label: string;
+}
+
 /**
  * Which rooms the Section list offers.
  *
  * The site offers every room a session can be in. The desktop app
- * (shell/standalone.ts) has only the rooms its Observatory draws (ROOMS in
- * observatory/api.ts): the research desk, the Linear board and the orchestra
- * belong to the owner's own install, and no session there is ever in one.
+ * (shell/standalone.ts) offers the person's own rooms, passed in as
+ * `desktopRooms` (observatory/roomsApi.ts): the research desk, the Linear
+ * board and the orchestra belong to the owner's own install, and no session
+ * there is ever in one. A desktop room's id is carried as an AgentSection
+ * though it isn't in that union; it is only ever compared with a session's
+ * lane.
  */
-export function agentSectionsFor(standalone: boolean): readonly AgentSection[] {
-  if (!standalone) return SECTIONS;
-  return SECTIONS.filter((section) => section === '' || (ROOMS as readonly string[]).includes(section));
+export function agentSectionsFor(
+  standalone: boolean,
+  desktopRooms: readonly { id: string; name: string }[] = [],
+): AgentSectionChoice[] {
+  if (!standalone) return SECTIONS.map((id) => ({ id, label: SECTION_LABELS[id] }));
+  return [
+    { id: '', label: SECTION_LABELS[''] },
+    ...desktopRooms.map((room) => ({ id: room.id as AgentSection, label: room.name })),
+  ];
 }
 
 export interface AgentEntry {
@@ -156,9 +171,9 @@ export function TerrainAgentBar({
   const shownList = ranked.filter((a) => shownIds.has(a.id));
   // The button says what it's showing. Section is only named when it's
   // actually filtering — "Active" beats "Active · All" for the common case.
-  const poolLabel = section
-    ? `${POOL_LABELS[pool]} · ${SECTION_LABELS[section]}`
-    : POOL_LABELS[pool];
+  const sectionChoices = agentSectionsFor(isStandalone(), useRooms());
+  const sectionLabel = sectionChoices.find((choice) => choice.id === section)?.label ?? section;
+  const poolLabel = section ? `${POOL_LABELS[pool]} · ${sectionLabel}` : POOL_LABELS[pool];
 
   // Agents are hidden: fold the bar down to the one button that brings them
   // back. Lit like any engaged control, so it reads as "a filter is on" and
@@ -212,7 +227,7 @@ export function TerrainAgentBar({
               </button>
             ))}
             <div className={styles.popHead}>Section</div>
-            {agentSectionsFor(isStandalone()).map((s) => (
+            {sectionChoices.map(({ id: s, label }) => (
               <button
                 key={s || 'all'}
                 type="button"
@@ -224,7 +239,7 @@ export function TerrainAgentBar({
                   setPoolOpen(false);
                 }}
               >
-                <span className={styles.popLabel}>{SECTION_LABELS[s]}</span>
+                <span className={styles.popLabel}>{label}</span>
               </button>
             ))}
           </div>

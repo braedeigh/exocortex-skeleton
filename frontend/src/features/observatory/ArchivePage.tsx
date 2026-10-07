@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ALL_LANES,
-  LANE_LABEL,
+  laneLabel,
   toLane,
   useArchiveList,
   type ArchivedSession,
@@ -12,6 +12,8 @@ import {
 import { SearchInToggle, SearchNotes, SearchResultRow, useChatSearch } from './ChatFinder';
 import { sessionLocation } from './sessionLocation';
 import styles from './ArchivePage.module.css';
+import { isStandalone } from '../../shell/standalone';
+import { useRooms } from './roomsApi';
 
 /**
  * /observatory/archive — everything a room has ever held, and a box to find it
@@ -77,7 +79,11 @@ export function ArchivePage({ lane }: { lane?: string }) {
 
   // '' = every room. A lane the client doesn't know falls to '' rather than to
   // an empty page — a bad URL should widen the view, never blank it.
-  const scope: Lane | '' = lane && ALL_LANES.includes(lane as Lane) ? (lane as Lane) : '';
+  // The rooms the chips offer: every lane on the site (a retired room's
+  // history is still reachable here), the person's own rooms in the desktop app.
+  const rooms = useRooms();
+  const scopeChoices: Lane[] = isStandalone() ? rooms.map((room) => room.id) : ALL_LANES;
+  const scope: Lane | '' = lane && scopeChoices.includes(lane as Lane) ? (lane as Lane) : '';
   // The scope lives in the URL, not in state: the door under each room IS a
   // link to a scoped archive, so back/forward and a shared link all behave.
   const setScope = (next: Lane | '') =>
@@ -129,7 +135,7 @@ export function ArchivePage({ lane }: { lane?: string }) {
           {/* The room is in the TITLE, not a chip she has to read off a row.
               She got here from one room's door; the page should say which. */}
           <h1 className={styles.title}>
-            Past sessions{scope ? <span className={styles.titleScope}> · {LANE_LABEL[scope]}</span> : null}
+            Past sessions{scope ? <span className={styles.titleScope}> · {laneLabel(scope)}</span> : null}
           </h1>
         </div>
 
@@ -140,7 +146,7 @@ export function ArchivePage({ lane }: { lane?: string }) {
             the record when its room goes. This chip row is the only way left to
             reach what Orchestra held. */}
         <div className={styles.scopeRow} role="group" aria-label="Which room">
-          {(['', ...ALL_LANES] as (Lane | '')[]).map((l) => (
+          {(['', ...scopeChoices] as (Lane | '')[]).map((l) => (
             <button
               key={l || 'all'}
               type="button"
@@ -150,7 +156,7 @@ export function ArchivePage({ lane }: { lane?: string }) {
               aria-pressed={scope === l}
               onClick={() => setScope(l)}
             >
-              {l ? LANE_LABEL[l] : 'All rooms'}
+              {l ? laneLabel(l) : 'All rooms'}
             </button>
           ))}
         </div>
@@ -162,7 +168,7 @@ export function ArchivePage({ lane }: { lane?: string }) {
             type="search"
             className={styles.search}
             placeholder={
-              scope ? `Search everything said in ${LANE_LABEL[scope]}…` : 'Search everything ever said…'
+              scope ? `Search everything said in ${laneLabel(scope)}…` : 'Search everything ever said…'
             }
             value={typed}
             autoComplete="off"
@@ -189,7 +195,7 @@ export function ArchivePage({ lane }: { lane?: string }) {
                 conclude the thing she remembers saying isn't in the record. */}
             {!search.searching && results && shownResults.length === 0 && results.length > 0 ? (
               <button type="button" className={styles.widen} onClick={() => setScope('')}>
-                Nothing in {LANE_LABEL[scope as Lane]} — but {results.length}{' '}
+                Nothing in {laneLabel(scope as Lane)} — but {results.length}{' '}
                 {results.length === 1 ? 'session' : 'sessions'} elsewhere{' '}
                 {results.length === 1 ? 'has' : 'have'} it. Show all rooms →
               </button>
@@ -223,7 +229,7 @@ export function ArchivePage({ lane }: { lane?: string }) {
                         actually happened in there. */}
                     {s.gist ? <div className={styles.gist}>{s.gist}</div> : null}
                     <div className={styles.chips}>
-                      <span className={styles.chip}>{LANE_LABEL[toLane(s.lane)]}</span>
+                      <span className={styles.chip}>{laneLabel(toLane(s.lane))}</span>
                       {s.journal ? <span className={styles.chipJournal}>journal</span> : null}
                       {s.archived ? <span className={styles.chip}>closed</span> : null}
                       {s.tags?.map((t) => (

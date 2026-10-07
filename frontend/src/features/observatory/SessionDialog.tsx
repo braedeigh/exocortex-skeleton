@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Sheet } from '../../ui';
-import { LANE_BLURB, LANE_LABEL, ROOMS, isRoom, type Lane } from './api';
+import { isStandalone, standaloneAllows } from '../../shell/standalone';
+import { isRoom, laneBlurb, laneLabel, type Lane } from './api';
+import { useRooms } from './roomsApi';
 import styles from './RosterPage.module.css';
 
 /** Display names for the model aliases the server offers. Anything not
@@ -157,8 +159,11 @@ export function SessionDialog({
   // sit on a value it doesn't list — showing blank, and quietly rewriting the
   // lane to whatever ended up selected the first time she saved something else.
   // '' isn't a lane and never joins the list; it gets the placeholder option.
-  const laneChoices: Lane[] =
-    pickedLane === '' || isRoom(pickedLane) ? [...ROOMS] : [...ROOMS, pickedLane];
+  const roomIds = useRooms().map((room) => room.id);
+  const laneChoices: Lane[] = pickedLane === '' || isRoom(pickedLane) ? roomIds : [...roomIds, pickedLane];
+  // The desktop app (shell/standalone.ts): its rooms follow the Setup page's
+  // "Ask me first" switch, and it keeps a diary only when it has the journal.
+  const desktop = isStandalone();
 
   return (
     <Sheet
@@ -218,7 +223,7 @@ export function SessionDialog({
             ) : null}
             {laneChoices.map((l) => (
               <option key={l} value={l}>
-                {LANE_LABEL[l]}
+                {laneLabel(l)}
               </option>
             ))}
           </select>
@@ -227,7 +232,7 @@ export function SessionDialog({
               'Where this session stands — which decides what it can reach. Pick one to start.'
             ) : (
               <>
-                {LANE_BLURB[pickedLane]}{' '}
+                {laneBlurb(pickedLane)}{' '}
                 {editable
                   ? 'Moving rooms changes that from the next turn on — it does not move where the session runs, which is fixed when it’s created.'
                   : 'This also fixes where the session runs, for good — that part can’t be changed later.'}
@@ -272,30 +277,36 @@ export function SessionDialog({
                 a room to follow. With none picked it can't know, and a label
                 that guesses is worse than one that waits. */}
             <option value="">
-              {pickedLane === ''
-                ? 'Follow the room'
-                : `Follow the room (${gateOn ? 'asks' : 'just acts'})`}
+              {desktop
+                ? 'Follow the Setup page'
+                : pickedLane === ''
+                  ? 'Follow the room'
+                  : `Follow the room (${gateOn ? 'asks' : 'just acts'})`}
             </option>
             <option value="on">Always ask</option>
             <option value="off">Never ask</option>
           </select>
           <span className={styles.dialogFieldDesc}>
-            Whether it stops and raises an orange card before something
-            irreversible. Personal and Coding don&rsquo;t ask, because
-            you&rsquo;re the one watching — set it here if you want this one to.
+            {desktop
+              ? 'Whether it stops and asks before something irreversible. Left alone, it follows the “Ask me first” switch on the Setup page.'
+              : 'Whether it stops and raises an orange card before something irreversible. Personal and Coding don’t ask, because you’re the one watching — set it here if you want this one to.'}
           </span>
         </label>
 
-        <label className={styles.dialogToggle}>
-          <input type="checkbox" checked={journal} onChange={(e) => setJournal(e.target.checked)} />
-          <span>
-            Journal this session
-            <span className={styles.dialogToggleDesc}>
-              Off by default — only the Keeper session writes to the diary. Turn
-              on deliberately, and rarely.
+        {/* The diary switch needs a journal to write to; the desktop app has
+            one only when its server offers it. */}
+        {!desktop || standaloneAllows('/journal') ? (
+          <label className={styles.dialogToggle}>
+            <input type="checkbox" checked={journal} onChange={(e) => setJournal(e.target.checked)} />
+            <span>
+              Journal this session
+              <span className={styles.dialogToggleDesc}>
+                Off by default — only the Keeper session writes to the diary. Turn
+                on deliberately, and rarely.
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
+        ) : null}
       </div>
     </Sheet>
   );

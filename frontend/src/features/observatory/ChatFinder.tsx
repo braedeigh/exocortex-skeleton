@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  LANE_LABEL,
+  laneLabel,
   mergeOpenedSessions,
   searchSessions,
   toLane,
@@ -215,7 +215,7 @@ export function SearchResultRow({
         <span className={styles.rowDate}>{dayOf(result.last_at || result.started)}</span>
       </div>
       <div className={styles.chips}>
-        <span className={styles.chip}>{LANE_LABEL[toLane(result.lane)]}</span>
+        <span className={styles.chip}>{laneLabel(toLane(result.lane))}</span>
         {result.journal ? <span className={styles.chipJournal}>journal</span> : null}
         {result.archived ? <span className={styles.chip}>closed</span> : null}
         {result.title_hit && result.hits.length === 0 ? (
@@ -263,7 +263,7 @@ function RecentRow({ session, onOpen }: { session: RecentSession; onOpen: (convI
   return (
     <button type="button" className={styles.recentRow} onClick={() => onOpen(session.id)}>
       <span className={styles.rowTitle}>{session.title}</span>
-      <span className={styles.chip}>{LANE_LABEL[toLane(session.lane)]}</span>
+      <span className={styles.chip}>{laneLabel(toLane(session.lane))}</span>
       {session.archived ? <span className={styles.chip}>closed</span> : null}
       <span className={styles.rowDate}>{openedAgo(session.opened_at)}</span>
     </button>

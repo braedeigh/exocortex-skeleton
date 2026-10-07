@@ -1,0 +1,62 @@
+/* RoomsDialog — the rows of the desktop app's room editor. The sheet's body,
+   its text boxes and their focus ring come from RosterPage.module.css; this
+   file only lays out a row (name box, then its buttons) and the two kinds of
+   button. */
+
+.lead {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* The name box takes the width that's left; the buttons keep their own. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.row > input {
+  flex: 1;
+  min-width: 0;
+}
+
+.rowBtn {
+  flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rowBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Delete is the destructive one, so it reads red. */
+.deleteBtn {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.problem {
+  margin: 0;
+  color: var(--red);
+  font-size: var(--font-size-sm);
+}

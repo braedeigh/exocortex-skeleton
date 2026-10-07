@@ -11,7 +11,6 @@ import { ALL_SECTIONS, sectionsFor } from './panels/sections';
 import { defaultSetsFor } from './panels/tabSets';
 import { TAB_ROUTES, VALID_TABS, VIEW_META } from './tabs';
 import { agentSectionsFor } from '../features/terrain/TerrainAgentBar';
-import { ROOMS } from '../features/observatory/api';
 
 describe('which pages the desktop app holds', () => {
   it('keeps the Observatory, Terrain, and the pages they open', () => {
@@ -141,11 +140,18 @@ describe('the desktop tab bar', () => {
 });
 
 describe('the map\'s agent filter in the desktop app', () => {
-  it('offers only the rooms the desktop Observatory draws', () => {
-    expect(agentSectionsFor(true)).toEqual(['', ...ROOMS]);
+  it('offers the person\'s own rooms, by their own names, and none of the owner\'s', () => {
+    const rooms = [
+      { id: 'personal', name: 'Home' },
+      { id: 'room-3', name: 'Experiments' },
+    ];
+    expect(agentSectionsFor(true, rooms)).toEqual([
+      { id: '', label: 'All' },
+      { id: 'personal', label: 'Home' },
+      { id: 'room-3', label: 'Experiments' },
+    ]);
     // The site still reaches every room a session can be in.
-    for (const room of ['research', 'linear', 'orchestra']) {
-      expect(agentSectionsFor(false), room).toContain(room);
-    }
+    const site = agentSectionsFor(false, rooms).map((choice) => choice.id);
+    for (const room of ['research', 'linear', 'orchestra']) expect(site, room).toContain(room);
   });
 });

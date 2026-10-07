@@ -11,6 +11,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
+import { isStandalone } from '../../shell/standalone';
 import { flushSseRest, parseSseChunk } from './sseFrames';
 
 /** Cached facts about the nightly rollover job, updated after each run
@@ -87,7 +88,81 @@ export type Room = (typeof ROOMS)[number];
  * what tells the roster to fold those sessions somewhere visible instead of
  * dropping them off the page. */
 export function isRoom(lane: Lane): lane is Room {
+  if (isStandalone()) return offeredRooms().some((room) => room.id === lane);
   return (ROOMS as readonly Lane[]).includes(lane);
+}
+
+/** One room as the roster draws it: the lane id sessions carry, and its name. */
+export interface RoomInfo {
+  id: Lane;
+  name: string;
+}
+
+/**
+ * The desktop app's rooms: a list the person edits.
+ *
+ * On the site the rooms are fixed (ROOMS, above). In the desktop app
+ * (shell/standalone.ts) a person can add, rename and delete them, so the list
+ * lives on the server and is copied here each time it's fetched or changed
+ * (roomsApi.ts does both). It is plain module state, not React state, so that
+ * toLane() and laneLabel() can read it from anywhere; the components that
+ * draw rooms re-render through roomsApi.ts's query. Null until the first
+ * answer, when the two rooms a fresh install starts with stand in.
+ *
+ * A room's id is the lane its sessions carry. The ids of added rooms are
+ * minted by the server and are not in the Lane union; they are carried as
+ * Lane anyway, because every place that holds a lane only compares it or
+ * hands it back to the server.
+ *
+ * Her ask: "2 rooms, personal and code, with the option to add more or
+ * delete or rename."
+ */
+let desktopRooms: RoomInfo[] | null = null;
+
+const DESKTOP_STARTING_ROOMS: RoomInfo[] = [
+  { id: 'personal', name: 'Personal' },
+  { id: 'coding', name: 'Code' },
+];
+
+/** Replace the desktop app's copy of the room list with the server's. */
+export function setDesktopRooms(rooms: readonly { id: string; name: string }[] | null): void {
+  desktopRooms = rooms ? rooms.map((room) => ({ id: room.id as Lane, name: room.name })) : null;
+}
+
+/** The rooms the roster draws and the pickers offer, in order: the fixed two
+ * on the site, the person's own list in the desktop app. */
+export function offeredRooms(): RoomInfo[] {
+  if (isStandalone()) return desktopRooms ?? DESKTOP_STARTING_ROOMS;
+  return ROOMS.map((id) => ({ id, name: LANE_LABEL[id] }));
+}
+
+/** The room that shows a session whose own lane has no room, so it is never
+ * dropped off the page: Coding on the site, the first room in the desktop
+ * app. Null only when the desktop app has no rooms at all. */
+export function strayRoom(): Lane | null {
+  if (isStandalone()) return offeredRooms()[0]?.id ?? null;
+  return 'coding';
+}
+
+/** A lane's display name. In the desktop app a room's own name wins, so a
+ * renamed room reads the same on the roster, the pickers and the archive. */
+export function laneLabel(lane: Lane): string {
+  if (isStandalone()) {
+    const room = offeredRooms().find((candidate) => candidate.id === lane);
+    if (room) return room.name;
+  }
+  return LANE_LABEL[lane] ?? lane;
+}
+
+/** One line on where a room's sessions stand, for the pickers. The site's
+ * lines are LANE_BLURB. The desktop app's say only what its server does:
+ * the starting Personal room stands in the journal's folder, every other
+ * room in the folder Terrain is drawing. */
+export function laneBlurb(lane: Lane): string {
+  if (!isStandalone()) return LANE_BLURB[lane] ?? '';
+  return lane === 'personal'
+    ? 'Sessions here work in the journal’s folder.'
+    : 'Sessions here work in the code folder Terrain is drawing.';
 }
 
 /** Narrow whatever the server said into a lane this client can name. An
@@ -95,6 +170,8 @@ export function isRoom(lane: Lane): lane is Room {
  * the backend uses for anything it can't place. Orchestra has no room, so the
  * roster shows such a session in Coding rather than dropping it (RosterPage). */
 export function toLane(value: string | undefined): Lane {
+  // The desktop app's own rooms have ids this file can't list ahead of time.
+  if (isStandalone() && offeredRooms().some((room) => room.id === value)) return value as Lane;
   return (ALL_LANES as string[]).includes(value ?? '') ? (value as Lane) : 'orchestra';
 }
 
