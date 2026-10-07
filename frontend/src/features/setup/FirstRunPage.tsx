@@ -38,6 +38,7 @@ import { useState } from 'react';
 import { ApiError } from '../../api/client';
 import { CLAUDE_CODE_LINK, looksLikeRepoAddress, readSetup, type SetupStep, type StepState } from './setupCheck';
 import { markSetupFinished, useProjectActions, useStandaloneStatus } from './setupApi';
+import { listGithubRepos, type GithubRepo } from './setupApi';
 import styles from './FirstRunPage.module.css';
 
 /** The mark each state wears, beside its headline. Never colour alone. */
@@ -100,6 +101,11 @@ export function FirstRunPage({
   const [address, setAddress] = useState('');
   const [sending, setSending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  // The GitHub picker: the account typed, and its projects once listed
+  // (null = not asked yet, so "none found" is only said after an answer).
+  const [githubUser, setGithubUser] = useState('');
+  const [githubRepos, setGithubRepos] = useState<GithubRepo[] | null>(null);
+  const [listing, setListing] = useState(false);
 
   const hasNativeDialog = typeof window.exoDesktop?.chooseFolder === 'function';
   const busy = sending || reading.stillWorking;
@@ -114,6 +120,20 @@ export function FirstRunPage({
         setRefusal(error instanceof ApiError && error.message ? error.message : 'Couldn’t reach the app’s server.');
       })
       .finally(() => setSending(false));
+  };
+
+  /** List a GitHub account's public projects under the box. A refusal (no
+   * such account, no network) shows the server's sentence like any other. */
+  const listRepos = () => {
+    setListing(true);
+    setRefusal(null);
+    setGithubRepos(null);
+    listGithubRepos(githubUser.trim())
+      .then(setGithubRepos)
+      .catch((error: unknown) => {
+        setRefusal(error instanceof ApiError && error.message ? error.message : 'Couldn’t reach the app’s server.');
+      })
+      .finally(() => setListing(false));
   };
 
   /** Ask the desktop window for a folder, then use it. Cancelling the dialog
@@ -230,6 +250,60 @@ export function FirstRunPage({
               </button>
             </div>
             <p className={styles.hint}>Its whole history comes with it, so the map has something to show at once.</p>
+          </div>
+
+          {/* Her ask: "paste an address or point to one in your library". The
+              library here is a GitHub account's public projects; each button
+              downloads that project the same way a pasted address does. */}
+          <div className={styles.choice}>
+            <label className={styles.label} htmlFor="setup-github-user">
+              Or pick one from a GitHub account
+            </label>
+            <div className={styles.row}>
+              <input
+                id="setup-github-user"
+                className={styles.input}
+                placeholder="GitHub username"
+                value={githubUser}
+                onChange={(event) => setGithubUser(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && githubUser.trim() && !listing) listRepos();
+                }}
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                disabled={busy}
+              />
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={listRepos}
+                disabled={busy || listing || !githubUser.trim()}
+              >
+                {listing ? 'Looking…' : 'Show projects'}
+              </button>
+            </div>
+            {githubRepos && githubRepos.length === 0 ? (
+              <p className={styles.hint}>No public projects on that account.</p>
+            ) : null}
+            {githubRepos && githubRepos.length > 0 ? (
+              <ul className={styles.repoList}>
+                {githubRepos.map((repo) => (
+                  <li key={repo.url}>
+                    <button
+                      type="button"
+                      className={styles.repoBtn}
+                      onClick={() => send(download(repo.url))}
+                      disabled={busy}
+                    >
+                      <span className={styles.repoName}>{repo.name}</span>
+                      {repo.description ? <span className={styles.repoAbout}>{repo.description}</span> : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
 
           {reading.otherProjects.length > 0 ? (

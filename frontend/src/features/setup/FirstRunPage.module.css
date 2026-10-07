@@ -267,3 +267,49 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* The GitHub picker's answer: one full-width button per project, its name
+   over a line about it. Scrolls inside itself so a long account doesn't push
+   the rest of the screen away. */
+.repoList {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.repoBtn {
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.repoBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.repoName {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.repoAbout {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}

@@ -66,7 +66,10 @@ It asks `GET /api/standalone` and shows two steps:
 1. **Code to draw.** Three ways to fill it, all through
    `POST /api/standalone/project`: this app's own code (`{"own": true}`, shown
    first when the server offers it), a folder on this computer (`{"path"}`),
-   or a download from a git address (`{"url"}`). While a download or a history
+   or a download from a git address (`{"url"}`). The address can be pasted,
+   or picked: typing a GitHub username lists that account's public projects
+   (`GET /api/standalone/github-repos?user=`), and each one is a button that
+   downloads it. While a download or a history
    read runs, the page re-asks every two seconds and shows the server's own
    progress line.
 2. **Claude Code.** Installed? Signed in? The screen only checks and explains.

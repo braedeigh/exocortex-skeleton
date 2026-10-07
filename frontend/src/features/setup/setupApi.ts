@@ -58,6 +58,24 @@ export function useProjectActions() {
   };
 }
 
+/** One public project on a GitHub account, as the server lists it. */
+export interface GithubRepo {
+  name: string;
+  /** The git address; goes straight to the download request. */
+  url: string;
+  description?: string;
+  updated?: string;
+}
+
+/** List a GitHub account's public projects, for the first-run screen's
+ * picker. The server does the asking (GET /api/standalone/github-repos); an
+ * unknown account or no network rejects with the server's own sentence. */
+export function listGithubRepos(user: string): Promise<GithubRepo[]> {
+  return api
+    .get<{ repos?: GithubRepo[] }>(`/api/standalone/github-repos?user=${encodeURIComponent(user)}`)
+    .then((answer) => (Array.isArray(answer.repos) ? answer.repos : []));
+}
+
 /* Remember that setup was finished on this machine. Kept in the browser's
    storage because it's a fact about this window's user having seen the
    screen, not about the server. Storage that refuses is treated as "not
