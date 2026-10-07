@@ -308,6 +308,29 @@ def test_her_message_lands_in_the_chat_when_the_agent_reads_it_and_says_after_wh
     assert how == "injected" and at
 
 
+def test_her_send_into_a_turn_the_app_started_is_refused_as_busy_and_reaches_it_by_mailbox(
+        streaming, bot_client):
+    """A watch fires in a chat she has open: the app starts a turn her page
+    hasn't seen yet, and she sends. The send door refuses it marked `busy` and
+    writes nothing; the page answers that refusal by putting the same words in
+    the mailbox, and the running turn reads them. Nothing she sent is lost."""
+    streaming(hold=5)
+    _, b = _seed_two()
+    # the turn a fired watch starts (queue_followup ends in this same call)
+    assert observatory.begin_turn(
+        b, "[Watch] it shipped", system={"display": "Watch fired", "source": "helper-watch"})["ok"]
+    refused = bot_client.post(f"/api/observatory/conversation/{b}/send",
+                              json={"text": "one more thing"})
+    assert refused.status_code == 409 and refused.get_json()["busy"] is True
+    assert _her_lines(b, "one more thing") == []
+    # what the page does with a busy refusal (sendFailure.ts)
+    bot_client.post(f"/api/observatory/conversation/{b}/inbox", json={"text": "one more thing"})
+    _until(lambda: not store.read("bot_chats/index", {})[b].get("running"), seconds=20)
+    [line] = _her_lines(b, "one more thing")
+    assert line["arrived"]["how"] == "injected"
+    assert "one more thing" in json.dumps([e for e in _conv_log(b) if e.get("type") == "assistant"])
+
+
 def test_a_message_stuck_behind_a_long_step_says_why_and_send_now_restarts_with_it(
         slow_reader, bot_client, monkeypatch):
     """While the agent is inside a long step, her handed-in message stays on

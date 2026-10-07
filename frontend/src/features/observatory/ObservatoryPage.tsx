@@ -33,6 +33,7 @@ import { useFloatRoom } from './useFloatRoom';
 import { useStepBack, useStepBackDismiss } from './useStepBack';
 import { PeerCard } from './PeerCard';
 import { useMessageQueue } from './useMessageQueue';
+import { messageWasRecorded, sendFailureKind } from './sendFailure';
 import { QueuedRows } from './QueuedRows';
 import { arrivedNote } from './queuedMessages';
 import { usePhotoAttach, AttachChips, DropVeil, UploadOverlay } from './photoAttach';
@@ -270,10 +271,17 @@ export function ObservatoryPage({
 
   const turnStats = useTurnStats(streaming);
 
+  // The record, re-read: draw it, and put it in turnsRef in the same breath —
+  // sendMessage reads the ref straight after a re-attach, before React has
+  // rendered, to see whether her message made it into the record.
+  const showRecord = useCallback((recorded: Turn[]) => {
+    turnsRef.current = recorded;
+    setTurns(recorded);
+  }, []);
   const reattachApi = useReattach({
     convRef,
     mountedRef,
-    onTurns: setTurns,
+    onTurns: showRecord,
     // the token/thought counts died with the old stream
     onStart: turnStats.reset,
     onGiveUp: setSendError,
@@ -305,7 +313,7 @@ export function ObservatoryPage({
   // Prompt: "tap to bring up the card floating around and tap again to send it
   // back to where it sits in the chat. Don't want it constantly scrolling with
   // the chat."
-  const { data: roster } = useSessionRoster(true, Boolean(convId));
+  const { data: roster, dataUpdatedAt: rosterReadAt } = useSessionRoster(true, Boolean(convId));
   const rosterQuestions = openQuestions((roster?.sessions ?? []).find((s) => s.id === convId));
   const openSet = convId ? openQuestionSet(turns, rosterQuestions) : null;
   const [floatedKey, setFloatedKey] = useState<string | null>(null);
@@ -459,6 +467,32 @@ export function ObservatoryPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convId, reattachApi.reattach, scrollContract.pinToBottom, scrollContract.pinToAnchor]);
 
+  // Notice a turn she didn't start. The app starts turns in an open chat by
+  // itself — a watch firing, a finished job's wake, a room notice, an agent's
+  // mail — and nothing told this page, so it sat showing the old transcript
+  // with the composer set to "send" rather than "queue". The roster this page
+  // already re-reads every five seconds says which sessions are running; when
+  // it says this one is and the page is idle, re-attach — the turn prints as
+  // it goes, and anything she sends meanwhile goes to the mailbox. (A send
+  // that still slips in ahead of the next roster read is caught by the busy
+  // refusal — see sendMessage's catch.)
+  // A roster read from before this page's own turn ended would still say
+  // "running" about that turn, so only a read newer than the moment the page
+  // went idle counts.
+  const serverRunning = (roster?.sessions ?? []).find((s) => s.id === convId)?.running === true;
+  const idleSinceRef = useRef(0);
+  useEffect(() => {
+    if (!writing) idleSinceRef.current = Date.now();
+  }, [writing]);
+  useEffect(() => {
+    if (!convId || !serverRunning || !histLoaded) return;
+    if (writing || wordFlow.pacing || busyRef.current) return;
+    if (rosterReadAt <= idleSinceRef.current) return;
+    void reattachApi.reattach(convId);
+    // reattachApi.reattach is stable (useCallback, [] deps).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convId, serverRunning, rosterReadAt, histLoaded, writing, wordFlow.pacing]);
+
   // Docked mode: hand the title to the pane holding us, so its tab reads as the
   // session she's actually in. Fires with null on mount too — the pane remounts
   // this page per conversation, so that's what clears the previous session's
@@ -501,6 +535,11 @@ export function ObservatoryPage({
     },
     [botId, navigate, onOpenConversation, onSessionCreated],
   );
+
+  // Her messages waiting in the session's mailbox (useMessageQueue.ts). Up
+  // here because sendMessage hands a message over when the server turns out
+  // to be busy.
+  const messageQueue = useMessageQueue({ botId, convId });
 
   const sendMessage = useCallback(
     async (text: string, sendOffRecord: boolean) => {
@@ -611,17 +650,44 @@ export function ObservatoryPage({
             serverRefused: true,
             pending: { text, offRecord: sendOffRecord },
           });
-        } else if (convRef.current) {
-          // The turn is known server-side and keeps writing without us
-          // (closed PWA, dropped proxy) — don't unsay her message; go find
-          // the reply in the record instead.
-          await reattachApi.reattach(convRef.current);
         } else {
-          // Never reached the server: restore so nothing is eaten (photo
-          // refs are text lines now, so they come back with the message).
-          composerBox.restore(text);
-          setSendError(e instanceof Error ? e.message : 'Send failed — message restored.');
-          setTurns(turnsRef.current.filter((t, i) => !(i === next.length - 1 && t.role === 'user')));
+          // The send didn't start a turn. The box is already empty and her
+          // message already drawn, so each case has to say where her words go
+          // (sendFailure.ts) — none of them may drop them.
+          const conv = convRef.current;
+          const withoutHers = () =>
+            turnsRef.current.filter((t, i) => !(i === next.length - 1 && t.role === 'user'));
+          const giveBack = (why: string) => {
+            composerBox.restore(text);
+            setSendError(why);
+          };
+          const failure = sendFailureKind(e);
+          if (failure === 'busy' && conv) {
+            // A turn she didn't start is running here — a watch firing, a
+            // job's wake, a room notice, an agent's mail — and this page
+            // hadn't seen it yet. Her message goes to the mailbox, which
+            // hands it to that turn; it shows as a waiting row until it's
+            // read. Then watch the turn that got in first.
+            setTurns(withoutHers());
+            messageQueue.enqueue(text, sendOffRecord);
+            await reattachApi.reattach(conv);
+          } else if (failure === 'unknown' && conv) {
+            // No answer from the server (closed PWA, dropped proxy): the turn
+            // may well be running without us, so go find it in the record.
+            // If the record turns out not to have her message, the send never
+            // arrived — give it back.
+            await reattachApi.reattach(conv);
+            if (mountedRef.current && !messageWasRecorded(turnsRef.current, next.length - 1, text)) {
+              giveBack('That message didn’t reach the server — it’s back in the box.');
+            }
+          } else {
+            // The server said no (or there's no session to ask): nothing is
+            // running and nothing will. Take her message back out of the
+            // transcript and put it in the box with the reason (photo refs
+            // are text lines now, so they come back with the message).
+            setTurns(withoutHers());
+            giveBack(e instanceof Error ? e.message : 'Send failed — message restored.');
+          }
         }
       } finally {
         abortRef.current = null;
@@ -633,6 +699,7 @@ export function ObservatoryPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       pointAtNewSession,
+      messageQueue.enqueue,
       reattachApi.reattach,
       wordFlow.begin,
       turnStats.start,
@@ -650,7 +717,6 @@ export function ObservatoryPage({
   // spinoff auto-start below. (Her queued messages don't wait on it any more:
   // the server's mailbox delivers them — see useMessageQueue.ts.)
   const canFire = histLoaded && !writing && !wordFlow.pacing && !sendError;
-  const messageQueue = useMessageQueue({ botId, convId });
 
   // Auto-start a spun-off session: once history has loaded and nothing else is
   // running (canFire), fire the staged kickoff exactly once through the normal

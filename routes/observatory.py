@@ -4466,13 +4466,17 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         if not isinstance(entry, dict):
             return {"ok": False, "status": 404, "body": {"error": "not found"}}
 
-        # One turn at a time per conversation: turns now outlive their
-        # HTTP connection, so a second send racing in (another device,
-        # a retry) must be refused, not run concurrently against the
-        # same resume id.
+        # Refuse a second turn while one is running: one turn at a time per
+        # conversation. Turns outlive their HTTP connection, so a send racing
+        # in (another device, a retry, or her own page that hasn't yet seen a
+        # turn the app started — a watch firing, a job's wake) must not run
+        # concurrently against the same resume id. `busy` tells the page this
+        # refusal is that one and no other 409, so it puts her message in the
+        # session's mailbox instead of dropping it.
         if _effective_running(conv_id, entry):
             return {"ok": False, "status": 409,
-                    "body": {"error": "a turn is already running in this conversation"}}
+                    "body": {"error": "a turn is already running in this conversation",
+                             "busy": True}}
         entry["last_at"] = _now()
         entry["running"] = True
         entry.pop("stop_requested", None)

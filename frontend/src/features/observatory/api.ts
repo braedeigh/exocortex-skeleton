@@ -623,12 +623,23 @@ export class SendError extends Error {
   /** True when the refusal is one this turn could be QUEUED past. */
   canQueue?: boolean;
 
-  constructor(message: string, status: number, extra?: { headroom?: unknown; canQueue?: boolean }) {
+  /** True when the server says the refusal is "a turn is already running
+   * here" and nothing else — the one 409 a message can go to the mailbox
+   * past (sendFailure.ts). Other 409s (a night session with nowhere to put a
+   * reply) don't carry it. */
+  busy?: boolean;
+
+  constructor(
+    message: string,
+    status: number,
+    extra?: { headroom?: unknown; canQueue?: boolean; busy?: boolean },
+  ) {
     super(message);
     this.name = 'SendError';
     this.status = status;
     this.headroom = extra?.headroom;
     this.canQueue = extra?.canQueue;
+    this.busy = extra?.busy;
   }
 }
 
@@ -695,10 +706,12 @@ export async function streamSend(
       error?: string;
       headroom?: unknown;
       can_queue?: boolean;
+      busy?: boolean;
     };
     throw new SendError(data.error || `send failed (${res.status})`, res.status, {
       headroom: data.headroom,
       canQueue: data.can_queue,
+      busy: data.busy === true,
     });
   }
 
