@@ -42,13 +42,15 @@ adding other models later does not touch it.
 
 ## Size, measured on this machine
 
-- The packed Python with every library in `requirements.txt`: 329 MB unpacked,
-  **101 MB as a compressed download**.
-- scipy, pandas and numpy are about 170 MB of the unpacked size. Only
-  `data_helpers.py` and `routes/health.py` import pandas, and scipy is the
-  meal-prep calculator. If the standalone server does not load those, a
-  shorter requirements file (`pack_python.sh <file>`) would cut the download
-  roughly in half. Not measured yet.
+- The packed Python with only what the standalone server needs
+  (`requirements-desktop.txt`: Flask, jsonschema, bcrypt, Pillow): 122 MB
+  unpacked, **39 MB as a compressed download**. The real server was started
+  on it and every address that takes no arguments was fetched (103 of them):
+  no server errors and no missing library. Addresses that need arguments, and
+  an actual agent turn, were not exercised.
+- With every library in `requirements.txt` instead: 329 MB unpacked, 101 MB
+  compressed. The difference is pandas, scipy and numpy, which the standalone
+  server does not load.
 - The app's own code is 24 MB and the built page 13 MB, before compression.
 - The window itself: about 10 MB, by Tauri's usual figures. Not measured.
 
@@ -77,6 +79,13 @@ nothing yet copies the tracked code and the built page into
 `src-tauri/resources/app/` or lists `resources/` in `tauri.conf.json`.
 `scripts/make-release.sh` already stages exactly that file set for the tarball
 and is the thing to reuse.
+
+**The page built without the owner's settings.** `frontend/.env.local` holds
+install-specific values (the home coordinates the theme's sunrise and sunset
+use), and the build writes them into the JavaScript as plain numbers. The
+download's page must be built in a checkout that has no `frontend/.env.local`.
+`scripts/make-release.sh` builds in the checkout's own `frontend/` folder, so
+on an install that has that file its tarball carries those values too.
 
 **An installer per system.**
 - Linux: Tauri makes a `.deb` and an AppImage (one file that runs on most

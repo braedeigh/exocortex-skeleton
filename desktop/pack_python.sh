@@ -13,7 +13,9 @@
 # turn). PyInstaller replaces Python with a single frozen program, which
 # cannot run a script handed to it, so those starts would all fail.
 #
-# Usage:  desktop/pack_python.sh [requirements file]     (default: requirements.txt)
+# Usage:  desktop/pack_python.sh [requirements file]
+#         (default: desktop/requirements-desktop.txt, the short list the
+#         standalone server needs; pass requirements.txt for everything)
 # Needs:  curl, tar, and the checkout's ./venv (only to read a JSON reply).
 # Builds for the machine it runs on. Linux x86_64/arm64 and Mac are named
 # below; only Linux x86_64 has been run.
@@ -23,7 +25,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REQUIREMENTS="${1:-requirements.txt}"
+REQUIREMENTS="${1:-desktop/requirements-desktop.txt}"
 PYTHON_SERIES="3.12"
 DEST="desktop/src-tauri/resources/python"
 

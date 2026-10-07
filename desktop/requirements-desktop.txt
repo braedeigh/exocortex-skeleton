@@ -1,0 +1,12 @@
+# The Python libraries packed into the desktop download (pack_python.sh).
+# A short list on purpose: the standalone server (standalone_app.py) serves
+# only the Observatory and Terrain, and loads none of the heavy number
+# libraries the full site uses (pandas, scipy, numpy — about half the
+# download). Versions match requirements.txt; keep them in step.
+# If the standalone server starts needing another library, add it here: a
+# missing one shows up as "No module named ..." in the data folder's
+# logs/desktop-server.log.
+flask==3.1.3
+jsonschema==4.26.0
+bcrypt==5.0.0
+Pillow==12.3.0
