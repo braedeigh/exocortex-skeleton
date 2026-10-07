@@ -850,17 +850,22 @@ const TIP_REPEL_REACH = 18;
  * not a wall. */
 const TIP_REPEL_PUSH = 0.12;
 /** How close two agent orbs may sit, in world units, before they push each
- * other apart (spreadOrbs, agentLayout.ts) — about a name's width at the zooms
- * the map is read at, so neighbouring agents' names have room to sit side by
- * side instead of stacking. Judged by eye. */
-const ORB_PERSONAL_SPACE = 130;
+ * other apart (spreadOrbs, agentLayout.ts) — well over a name's width at the
+ * zooms the map is read at, so each agent reads as standing on its own and
+ * neighbouring names have room to sit side by side. Not yet judged by eye at
+ * this value.
+ *
+ * Prompt that produced it: "Separate the agent dots on the terrain more. They
+ * should push apart more". */
+const ORB_PERSONAL_SPACE = 220;
 /** How much of an orb pair's overlap is corrected per tick. Not scaled by the
  * sim's cooling (like collision), so the tethers can't win it back. */
 const ORB_SPREAD_STRENGTH = 0.6;
 /** How far outside the cloud of files an agent's orb stands, in world units
- * (outsideSpot, agentLayout.ts). The same distance orbs keep from each other,
- * so there is one gap to read on the map, not two. */
-const ORB_CLOUD_GAP = ORB_PERSONAL_SPACE;
+ * (outsideSpot, agentLayout.ts). Its own number, smaller than the space orbs
+ * keep from each other: widening that one doesn't move the ring further out
+ * and make every tether longer. */
+const ORB_CLOUD_GAP = 130;
 /** How hard an agent's orb is pulled toward the middle of the files it
  * touched (the 'orbHome' force). It can't get there — the fence holds it
  * outside — so what this decides is how quickly it slides along its edge to
