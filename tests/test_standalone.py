@@ -468,7 +468,9 @@ def test_the_heartbeat_and_a_cron_script_run_on_an_empty_folder(standalone, monk
 
 # --- the start command -----------------------------------------------------------
 
-def test_one_command_starts_it_on_a_folder_it_makes_and_stops_with_its_window(tmp_path):
+@pytest.mark.parametrize("how_it_ends", ["the window closes", "it is told to stop"])
+def test_one_command_starts_it_on_a_folder_it_makes_and_stops_with_its_window(
+        tmp_path, how_it_ends):
     data = tmp_path / "fresh" / "data"
     env = {key: value for key, value in os.environ.items()
            if not key.startswith("EXOCORTEX_") or key in (
@@ -489,7 +491,13 @@ def test_one_command_starts_it_on_a_folder_it_makes_and_stops_with_its_window(tm
         # Everything it wrote is inside the folder it was given.
         assert (data / "content").is_dir() and (data / "jobs").is_dir()
         # The window goes away: its end of stdin closes, and the server stops.
-        server.stdin.close()
+        # Or the window is still there and tells it to stop (SIGTERM) — which
+        # must be a clean exit too, not an abort with the stdin watcher
+        # still parked in its read.
+        if how_it_ends == "the window closes":
+            server.stdin.close()
+        else:
+            server.terminate()
         assert server.wait(timeout=20) == 0
     finally:
         if server.poll() is None:

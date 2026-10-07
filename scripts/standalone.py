@@ -216,11 +216,16 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     if options.exit_with_stdin:
+        # Watch for stdin closing, reading the raw descriptor rather than
+        # sys.stdin. A thread parked in sys.stdin's buffered read holds that
+        # buffer's lock, and Python aborts with a core dump at shutdown when
+        # it cannot take the lock back — which is every SIGTERM that arrives
+        # while the window still holds its end open. os.read holds no lock.
         def wait_for_stdin_to_close():
             try:
-                while sys.stdin.buffer.read(4096):
+                while os.read(0, 4096):
                     pass
-            except (OSError, ValueError):
+            except OSError:
                 pass
             stop()
         threading.Thread(target=wait_for_stdin_to_close, daemon=True).start()
