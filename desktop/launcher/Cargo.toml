@@ -1,0 +1,13 @@
+# The part of the desktop app that starts and stops the Python server.
+# Kept as its own small crate with no window code in it, so it can be built and
+# tested on a machine that has none of the window toolkit's system packages.
+# The window (../src-tauri) depends on this by path.
+[package]
+name = "exo-launcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
