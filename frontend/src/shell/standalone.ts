@@ -43,8 +43,10 @@ export const STANDALONE_KEEPS: readonly string[] = ['/observatory', '/terrain', 
  *
  * Each one draws something only the owner's own install has: her Linear
  * board, her research desk, the night crew and helper jobs her cron starts,
- * the worktree map of that crew, and the two Terrain rooms that draw her
- * journal.
+ * the worktree map of that crew, the Terrain room that draws the journal
+ * (the Pond — let back in when the desktop app has a journal, see
+ * STANDALONE_EXTRA_PARTS), and the one that draws the whole site's data
+ * plumbing (the Creek), most of which the desktop app doesn't have.
  */
 export const STANDALONE_LEAVES_OUT: readonly string[] = [
   '/observatory/linear',
@@ -92,12 +94,14 @@ function pathOnly(url: string): string {
  * tab, no button, and its address goes home like any other. The journal is
  * the first: its page needs the journal's own data on the machine, which a
  * fresh install has only when the server has set it up. The Threads page
- * comes with it, because the journal's cards link to their threads.
+ * comes with it, because the journal's cards link to their threads, and so
+ * does Terrain's Pond, which draws those same cards and threads. A page an
+ * extra keeps wins over STANDALONE_LEAVES_OUT.
  *
  * Her ask: "I want journal to be actually in the build at first".
  */
 export const STANDALONE_EXTRA_PARTS: Readonly<Record<string, { keeps: readonly string[]; sectionIds: readonly string[] }>> = {
-  journal: { keeps: ['/journal', '/threads'], sectionIds: ['journal'] },
+  journal: { keeps: ['/journal', '/threads', '/terrain/pond'], sectionIds: ['journal'] },
 };
 
 /** The extra parts this desktop app's server offers. Names the page doesn't
@@ -107,14 +111,15 @@ export function standaloneExtras(): string[] {
   return window.STANDALONE_EXTRAS.filter((name) => typeof name === 'string' && name in STANDALONE_EXTRA_PARTS);
 }
 
-/** Does the desktop app hold this page? Kept parts and any extras the server
- * offers, minus what's left out. `extras` is passed in by tests; the app
- * reads it from the page. */
+/** Does the desktop app hold this page? A page one of the server's extras
+ * keeps is held outright. Otherwise it is the kept parts minus what's left
+ * out. `extras` is passed in by tests; the app reads it from the page. */
 export function standaloneAllows(url: string, extras: readonly string[] = standaloneExtras()): boolean {
   const path = pathOnly(url);
+  const extraKeeps = extras.flatMap((name) => STANDALONE_EXTRA_PARTS[name]?.keeps ?? []);
+  if (extraKeeps.some((prefix) => isUnder(prefix, path))) return true;
   if (STANDALONE_LEAVES_OUT.some((left) => isUnder(left, path))) return false;
-  const kept = [...STANDALONE_KEEPS, ...extras.flatMap((name) => STANDALONE_EXTRA_PARTS[name]?.keeps ?? [])];
-  return kept.some((prefix) => isUnder(prefix, path));
+  return STANDALONE_KEEPS.some((prefix) => isUnder(prefix, path));
 }
 
 /** The desktop tab bar's section ids, with any extras' sections on the end,

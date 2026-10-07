@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { looksLikeRepoAddress, readSetup, setupGate, type StandaloneStatus } from './setupCheck';
+import { childFolderPath, looksLikeRepoAddress, readSetup, setupGate, type StandaloneStatus } from './setupCheck';
 
 /** A machine where everything is in place. Each test breaks one thing. */
 const ALL_SET: StandaloneStatus = {
@@ -195,5 +195,23 @@ describe('telling an address from something else', () => {
     for (const text of ['', '   ', '/home/someone/project', 'github.com', 'https://github.com', 'someone/project', 'two words https://github.com/a/b']) {
       expect(looksLikeRepoAddress(text), text).toBe(false);
     }
+  });
+});
+
+describe('walking into a folder in the in-page folder list', () => {
+  it('joins with the separator the path already uses, never doubling it at a root', () => {
+    expect(childFolderPath('/home/someone', 'projects')).toBe('/home/someone/projects');
+    expect(childFolderPath('/', 'home')).toBe('/home');
+    expect(childFolderPath('C:\\Users\\someone', 'projects')).toBe('C:\\Users\\someone\\projects');
+    expect(childFolderPath('C:\\', 'Users')).toBe('C:\\Users');
+  });
+});
+
+describe('the switches, which are only drawn for settings the server reports', () => {
+  it('reads each setting the server names and leaves the rest unknown', () => {
+    const none = readSetup({ settings: {} });
+    expect([none.asksFirst, none.checksIdle, none.rollsOver]).toEqual([null, null, null]);
+    const all = readSetup({ settings: { ask_first: false, idle_check: true, keeper_rollover: true } });
+    expect([all.asksFirst, all.checksIdle, all.rollsOver]).toEqual([false, true, true]);
   });
 });

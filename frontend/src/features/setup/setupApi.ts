@@ -60,6 +60,9 @@ export function useProjectActions() {
     /** Choose whether NEW sessions stop and ask before changing anything. */
     setAsksFirst: (asksFirst: boolean) =>
       api.post<StandaloneStatus>('/api/standalone/settings', { ask_first: asksFirst }).then(accept),
+    /** Choose whether the Keeper's day closes by itself each night. */
+    setRollsOver: (rollsOver: boolean) =>
+      api.post<StandaloneStatus>('/api/standalone/settings', { keeper_rollover: rollsOver }).then(accept),
     /** Choose whether a session left alone for a day is asked if it's done. */
     setChecksIdle: (checksIdle: boolean) =>
       api.post<StandaloneStatus>('/api/standalone/settings', { idle_check: checksIdle }).then(accept),
@@ -82,6 +85,31 @@ export function listGithubRepos(user: string): Promise<GithubRepo[]> {
   return api
     .get<{ repos?: GithubRepo[] }>(`/api/standalone/github-repos?user=${encodeURIComponent(user)}`)
     .then((answer) => (Array.isArray(answer.repos) ? answer.repos : []));
+}
+
+/** One folder on this computer, as the server lists it: its full path, the
+ * folder above it (null at the top), the names of the folders inside, and
+ * whether it is itself a git project. */
+export interface FolderListing {
+  path: string;
+  parent: string | null;
+  folders: string[];
+  git: boolean;
+}
+
+/** List the folders inside `path` (the home folder when it's empty), for the
+ * first-run screen's in-page folder picker. A path that isn't a folder
+ * rejects with the server's own sentence. */
+export function listFolders(path: string): Promise<FolderListing> {
+  const query = path ? `?path=${encodeURIComponent(path)}` : '';
+  return api
+    .get<Partial<FolderListing>>(`/api/standalone/folders${query}`)
+    .then((answer) => ({
+      path: answer.path ?? path,
+      parent: answer.parent ?? null,
+      folders: Array.isArray(answer.folders) ? answer.folders : [],
+      git: answer.git === true,
+    }));
 }
 
 /* Remember that setup was finished on this machine. Kept in the browser's

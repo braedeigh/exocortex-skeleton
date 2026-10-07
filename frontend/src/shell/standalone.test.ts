@@ -74,7 +74,13 @@ describe('the journal, which the desktop app holds only when its server offers i
     // Setup stays last, and nothing else of the site comes along with it.
     expect(ids[ids.length - 1]).toBe('setup');
     expect(standaloneAllows('/todos', ['journal'])).toBe(false);
-    expect(standaloneAllows('/terrain/pond', ['journal'])).toBe(false);
+  });
+
+  it('brings Terrain’s Pond with it, and still leaves the Creek out', () => {
+    expect(standaloneAllows('/terrain/pond', [])).toBe(false);
+    expect(standaloneAllows('/terrain/pond', ['journal'])).toBe(true);
+    expect(standaloneRedirect('/terrain/pond', true, ['journal'])).toBeNull();
+    expect(standaloneAllows('/terrain/creek', ['journal'])).toBe(false);
   });
 
   it('ignores a part name it does not know', () => {

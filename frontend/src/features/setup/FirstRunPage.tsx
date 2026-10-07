@@ -2,7 +2,7 @@
  * FirstRunPage.tsx — what a new person sees when the desktop app opens for
  * the first time, and what the Setup tab shows afterwards.
  *
- * Two steps, each a card:
+ * Two steps, each a card (and a third, the journal, when the app has one):
  *
  *   1. Code to draw — start with this app's own code (the first option, when
  *      the server offers it), pick a folder already on this computer, or
@@ -19,12 +19,14 @@
  * The wording for both steps comes from setupCheck.ts; this file only draws it and
  * sends the two requests. "Open the app" turns on once there is a folder.
  *
- * The folder button uses the desktop window's own choose-a-folder dialog when
+ * The Browse button uses the desktop window's own choose-a-folder dialog when
  * the page is inside that window (window.exoDesktop.chooseFolder). In a plain
  * browser there is no such dialog — a web page can't learn a folder's full
- * path — so the box to type or paste a path is always there as well.
+ * path — so Browse opens a folder list drawn in the page instead
+ * (FolderBrowser.tsx), and the box to type or paste a path is always there.
  *
  * Touches: setupCheck.ts (the words), setupApi.ts (the calls),
+ * FolderBrowser.tsx (the in-page folder list),
  * routes/__root.tsx (shows this before the app), routes/observatory_.setup.tsx
  * (shows it again later).
  *
@@ -44,6 +46,7 @@ import {
   useStandaloneStatus,
   type GithubRepo,
 } from './setupApi';
+import { FolderBrowser } from './FolderBrowser';
 import styles from './FirstRunPage.module.css';
 
 /** The mark each state wears, beside its headline. Never colour alone. */
@@ -97,7 +100,7 @@ export function FirstRunPage({
   returning?: boolean;
 }) {
   const statusQuery = useStandaloneStatus(true);
-  const { drawOwnCode, drawProject, drawFolder, download, setAsksFirst, setChecksIdle, wakeKeeper } =
+  const { drawOwnCode, drawProject, drawFolder, download, setAsksFirst, setChecksIdle, setRollsOver, wakeKeeper } =
     useProjectActions();
   const status = statusQuery.data ?? null;
   const reading = readSetup(status);
@@ -112,6 +115,8 @@ export function FirstRunPage({
   const [githubUser, setGithubUser] = useState('');
   const [githubRepos, setGithubRepos] = useState<GithubRepo[] | null>(null);
   const [listing, setListing] = useState(false);
+  // The in-page folder list, open or shut.
+  const [browsing, setBrowsing] = useState(false);
 
   const hasNativeDialog = typeof window.exoDesktop?.chooseFolder === 'function';
   const busy = sending || reading.stillWorking;
@@ -186,8 +191,12 @@ export function FirstRunPage({
     <div className={styles.page}>
       <div className={styles.inner}>
         <h1 className={styles.title}>{returning ? 'Setup' : `Welcome to ${appName || 'the app'}`}</h1>
+        {/* A packaged install starts with a project already in it, so on a
+            machine with Claude Code ready there is nothing left to set up. */}
         <p className={styles.lede}>
-          Two things to set up: some code for the map to draw, and Claude Code so sessions can answer.
+          {reading.canOpen && reading.claude.state === 'done'
+            ? 'Everything is ready: there is code for the map to draw, and Claude Code can answer. You can change either below.'
+            : 'The app needs two things: some code for the map to draw, and Claude Code so sessions can answer.'}
         </p>
 
         {unreachable ? (
@@ -236,11 +245,15 @@ export function FirstRunPage({
                 spellCheck={false}
                 disabled={busy}
               />
-              {hasNativeDialog ? (
-                <button type="button" className={styles.secondaryBtn} onClick={chooseWithDialog} disabled={busy}>
-                  Browse…
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={hasNativeDialog ? chooseWithDialog : () => setBrowsing((open) => !open)}
+                disabled={busy}
+                aria-expanded={hasNativeDialog ? undefined : browsing}
+              >
+                {browsing && !hasNativeDialog ? 'Hide folders' : 'Browse…'}
+              </button>
               <button
                 type="button"
                 className={styles.primaryBtn}
@@ -250,6 +263,9 @@ export function FirstRunPage({
                 Use this folder
               </button>
             </div>
+            {browsing && !hasNativeDialog ? (
+              <FolderBrowser startPath={folderPath.trim()} onLook={setFolderPath} disabled={busy} />
+            ) : null}
           </div>
 
           <div className={styles.choice}>
@@ -406,6 +422,28 @@ export function FirstRunPage({
             </div>
             {!reading.keeper.canStart ? (
               <p className={styles.hint}>The Keeper is a session, so it needs Claude Code installed and signed in first.</p>
+            ) : null}
+            {/* The nightly rollover's switch, beside the Keeper it acts on.
+                Drawn only when the server reported the setting. Her ask:
+                "Leave it on with the option to turn off." */}
+            {reading.rollsOver !== null ? (
+              <>
+                <p className={styles.plain}>
+                  {reading.rollsOver
+                    ? 'Each night, after 3am, the Keeper closes the day it was keeping and a fresh Keeper starts for the new one. If the computer was off, it happens when the app is next open.'
+                    : 'The Keeper’s day stays open until you end it yourself. Nothing closes it overnight.'}
+                </p>
+                <label className={styles.toggle}>
+                  <input
+                    type="checkbox"
+                    className={styles.checkbox}
+                    checked={reading.rollsOver}
+                    onChange={(event) => send(setRollsOver(event.target.checked))}
+                    disabled={sending}
+                  />
+                  <span>Close the day each night</span>
+                </label>
+              </>
             ) : null}
           </section>
         ) : null}

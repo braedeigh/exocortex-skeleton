@@ -313,3 +313,28 @@
   font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
+
+/* The in-page folder list: where you are with a way up, then the folders
+   inside (drawn with the GitHub picker's list). */
+.browser {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.browserHere {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.browserPath {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}

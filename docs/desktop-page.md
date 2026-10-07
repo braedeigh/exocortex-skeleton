@@ -31,14 +31,16 @@ still in the download, unreachable.
 | Kept | Left out |
 |---|---|
 | `/observatory` — the session rooms, a session's chat, the archive, the spinoff tree, swarms, token burn | `/observatory/linear`, `/research`, `/nightcrew`, `/helpers`, `/worktrees` |
-| `/terrain` — Files, Map, Attention, Commands, Flow, Workshop, Activity, Growth, Builds, Wiring, Runs, SQL | `/terrain/pond`, `/terrain/creek` |
+| `/terrain` — Files, Map, Attention, Commands, Flow, Workshop, Activity, Growth, Builds, Wiring, Runs, SQL | `/terrain/creek`; `/terrain/pond` unless the journal is on |
 | `/code` (a file opened from the map), `/sql` | every other page of the site |
 
 **The journal is a part the server switches on.** The page holds `/journal`
-(with its tab) and `/threads` only when the desktop server lists `"journal"`
-in `window.STANDALONE_EXTRAS`; the server does so once it has a journal
-folder and the routes behind the page. Pond and Creek, the two Terrain rooms
-that draw the journal, are still left out.
+(with its tab), `/threads` and Terrain's Pond (`/terrain/pond`, which draws
+the journal's cards and threads) only when the desktop server lists
+`"journal"` in `window.STANDALONE_EXTRAS`; the server does so once it has a
+journal folder and the routes behind the page. A page an extra keeps wins
+over the left-out list. The Creek stays out either way: it draws the whole
+site's data plumbing, most of which the desktop app doesn't have.
 
 Inside the journal, the desktop app hides what its server can't answer:
 
@@ -92,6 +94,8 @@ are listed as buttons that switch which one Terrain draws (`{"id"}`).
    the Keeper's setup; "Wake the Keeper" once set up; "Go to the Keeper" when
    one is open. It calls `POST /api/standalone/keeper` and opens that
    session. It needs Claude Code ready, because the Keeper is a session.
+   Under the button is the nightly rollover's switch, "Close the day each
+   night" (`{"keeper_rollover"}`), on unless turned off.
 
 Under the steps is one notice: **sessions act without asking**, with an
 "Ask me first" switch (`POST /api/standalone/settings {"ask_first"}`). It
@@ -104,11 +108,18 @@ when the server reports that setting.
 Code does not block it — the map works without it — but the screen says
 sessions can't answer yet.
 
+A packaged install starts with a project already in it. The screen then
+opens with the folder step done, and its first line says everything is ready
+(when Claude Code is too) instead of listing things to set up.
+
 The wording lives in `setupCheck.ts`, apart from the drawing, so it can be
-tested without a browser. The folder button uses the window's own
-choose-a-folder dialog when there is one (`window.exoDesktop.chooseFolder`);
-in a plain browser the type-or-paste box is the only way, because a web page
-can't learn a folder's full path.
+tested without a browser. The Browse button uses the window's own
+choose-a-folder dialog when there is one (`window.exoDesktop.chooseFolder`).
+In a plain browser a web page can't learn a folder's full path, so Browse
+opens a folder list drawn in the page (`FolderBrowser.tsx`, fed by
+`GET /api/standalone/folders?path=`): it starts in the home folder, each
+folder opened goes into the path box, and it says whether that folder is a
+git project. "Use this folder" is still what sends it.
 
 ## Rooms a person edits
 
@@ -151,7 +162,8 @@ shows or does it. "Open" means it is still there.
   map or the sessions.
 - **Rooms that are hers.** The Linear room (her Linear board), the Research
   room (her research desk), Night crew and Helpers (jobs her cron starts), the
-  worktree map (of that crew), and Terrain's Pond and Creek (her journal).
+  worktree map (of that crew), and Terrain's Creek (the site's data plumbing).
+  Terrain's Pond is held only with the journal.
 - **The dev-notes pill** on the roster files notes into her build queue.
 - **The approvals popup** (`ApprovalsHost`) polls her pending-changes queue on
   every page. Not mounted.
@@ -170,6 +182,10 @@ shows or does it. "Open" means it is still there.
   (`agentSectionsFor` in `TerrainAgentBar.tsx`).
 - **The room names and introductions** were in the owner's voice about her
   machine. See "Rooms a person edits" above.
+- **The map's guide** described the pond (the journal's square on the map)
+  and said "coding sessions lean left, personal ones right". The desktop
+  map is one code folder: no journal files for a pond to sit over, and no
+  two sides for rooms to lean to. Both are left out of the guide there.
 - **The window's title** is set from `window.APP_META.name` once the page
   loads (`main.tsx`), instead of the fixed word in `index.html`.
 
@@ -194,10 +210,10 @@ shows or does it. "Open" means it is still there.
 - **Usage beacons** (`api/usageBeacon.ts`, `usageTracker.ts`) post every tab
   visit and tap to `/api/usage/*`. They stay on the person's own machine, and
   Terrain's Attention room reads them, so they were left on.
-- **The map's guide still describes the pond** (the journal's square on the
-  map) and says "coding sessions lean left, personal ones right". The first
-  waits on the journal arriving; the second is not true of a room a person
-  added or renamed.
+- **The Pond's own page** (now held with the journal) has not been read for
+  owner-only wording or for buttons that lead to pages the desktop app
+  doesn't hold. On an empty journal it loads and says "No cards in the pool
+  yet."
 - **The Setup tab is not pinned** on a wide window: it is in the tab bar's
   menu, not in a starter tab set (those are seeded by `routes/tabsets.py`).
 - **The kept pages inside the Observatory** (archive, spinoff tree, swarms) have not been read line by line for

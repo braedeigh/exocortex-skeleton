@@ -58,8 +58,9 @@ export interface StandaloneStatus {
   /** Every project, the current one included. */
   projects?: ProjectStatus[];
   /** `ask_first`: new sessions stop and ask before they change anything.
-   * `idle_check`: a session left alone for a day is asked whether it's done. */
-  settings?: { ask_first?: boolean; idle_check?: boolean };
+   * `idle_check`: a session left alone for a day is asked whether it's done.
+   * `keeper_rollover`: the Keeper's day closes by itself each night. */
+  settings?: { ask_first?: boolean; idle_check?: boolean; keeper_rollover?: boolean };
   /** The journal, when this desktop app has one. `keeper` is the open Keeper
    * session's id, or null; `setup_done` is false until the Keeper has asked
    * who it is keeping for. */
@@ -101,6 +102,9 @@ export interface SetupReading {
   /** Is a session left alone for a day asked whether it's finished? Null
    * when the server didn't say, so the page shows no switch rather than a guess. */
   checksIdle: boolean | null;
+  /** Does the Keeper's day close by itself each night? Null when the server
+   * didn't say, so the page shows no switch rather than a guess. */
+  rollsOver: boolean | null;
   /** The journal step, or null when this desktop app has no journal. */
   keeper: KeeperReading | null;
 }
@@ -231,6 +235,7 @@ export function readSetup(status: StandaloneStatus | null): SetupReading {
     ),
     asksFirst: typeof status?.settings?.ask_first === 'boolean' ? status.settings.ask_first : null,
     checksIdle: typeof status?.settings?.idle_check === 'boolean' ? status.settings.idle_check : null,
+    rollsOver: typeof status?.settings?.keeper_rollover === 'boolean' ? status.settings.keeper_rollover : null,
     keeper: readKeeper(status, claude.state === 'done'),
   };
 }
@@ -269,4 +274,12 @@ export function setupGate(args: {
 export function looksLikeRepoAddress(text: string): boolean {
   const trimmed = text.trim();
   return /^(https?:\/\/|git@|ssh:\/\/|git:\/\/)\S+\/\S+$/.test(trimmed);
+}
+
+/** The full path of a folder named `name` inside `parent`. Joined with the
+ * separator the parent path already uses, so a Windows path stays a Windows
+ * path, and without doubling it when the parent is a root ("/" or "C:\\"). */
+export function childFolderPath(parent: string, name: string): string {
+  const separator = parent.includes('\\') && !parent.includes('/') ? '\\' : '/';
+  return parent.endsWith(separator) ? parent + name : parent + separator + name;
 }

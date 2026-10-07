@@ -216,15 +216,20 @@ export function TerrainGuide({
           </Row>
           <Row mark={<Mark kind="orb" color={AGENT_PURPLE} />}>
             <b>An agent session.</b> It stands outside the files, on the
-            ring round them: coding sessions lean left, personal ones right. A
+            ring round them{oneFolder ? '.' : ': coding sessions lean left, personal ones right.'} A
             running one ripples. One that has news since it
             was last opened sends a slow orange ping. It is named only if it worked in
             the last hour.
           </Row>
-          <Row mark={<Mark kind="pond" />}>
-            <b>The pond.</b> The journal&rsquo;s cards folded into one square of water,
-            a column per day. Hover or tap it to see the last month card by card.
-          </Row>
+          {/* The pond sits over the journal's files on the map. The desktop
+              app's map is one code folder with no journal files in it, so
+              there is no pond there to explain. */}
+          {oneFolder ? null : (
+            <Row mark={<Mark kind="pond" />}>
+              <b>The pond.</b> The journal&rsquo;s cards folded into one square of water,
+              a column per day. Hover or tap it to see the last month card by card.
+            </Row>
+          )}
         </ul>
 
         <h3 className={styles.heading}>The colours</h3>
