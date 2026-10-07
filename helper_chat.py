@@ -1,8 +1,9 @@
 """A helper's chat — the swarm helper's, the room helper's, and the Linear
 helper's — one conversation for its whole life, with a rolling context instead
-of a growing one. (A helper named in config.HELPER_GROW_ROLES — the room
-helper — is the exception: its chat grows, then resets. See "Growing
-helpers" below, beside the code.)
+of a growing one. (A helper named in config.HELPER_GROW_ROLES — by default
+all three kinds — works the other way: its chat grows, then resets. See
+"Growing helpers" below, beside the code. What follows describes the seed,
+which both kinds start from.)
 
 **What this is, in plain English.** Every swarm has a helper session
 (swarm_helper.py), every room has one (room_helper.py), and Linear has one
@@ -178,8 +179,8 @@ that fired, an agent's mail) is NOT replayed;
 3. {world_line}, as it stood at the reset.
 After that, every turn begins with a block headed "The room now" that holds ONLY what changed \
 since you were last shown the room: a session that is new, or whose summary, state, swarm or \
-files changed, is given again whole; sessions that left the active list are named; her rules or \
-your watches are given again when they changed outside this chat. So for each session, the \
+files changed, is given again whole; sessions that left the active list are named; her rules, \
+your watches and anything else under this doc that changes are given again when they changed. So for each session, the \
 NEWEST entry anywhere above is the true one, and a session that hasn't appeared again is still \
 as you last saw it. When a message says part 3 is up to date, it means part 3 with every "The \
 room now" block. Then comes whatever just arrived: her new message, an agent's mail, or a system notice.
@@ -887,8 +888,9 @@ def write_update(conv_id, entry):
     text, ending where the message begins.
 
     A session that is new or whose entry differs is given whole; sessions no
-    longer active are named; the recorded overlaps, her rules and the
-    helper's watches are given again only when they differ. Everything is
+    longer active are named; the recorded overlaps, her rules, the helper's
+    watches, a closed swarm's closing summaries and the Linear news are given
+    again only when they differ. Everything is
     compared against what was kept after the last turn, so an unchanged room
     costs one line. With no record to compare against, the whole room is sent.
     Prompt: "for every turn I want it to inject updates as well from the
@@ -898,7 +900,6 @@ def write_update(conv_id, entry):
     sessions, rules and watches parts are brought up to now, so the page shows
     the room as the helper now knows it. What it was shown of each session is
     kept too, so the next wake-up is measured from this turn."""
-    import watches
     repo, today = Path(_REPO), datetime.now().date().isoformat()
     found, finished, place = sessions(entry)
     try:
@@ -930,13 +931,25 @@ def write_update(conv_id, entry):
                 " last shown them.", ""]
     elif same:
         out += [f"The other {same} active sessions are as you were last shown them.", ""]
-    # Her rules and its watches, only when they differ from what it was handed.
+    # The other parts that can change under it — her rules, its watches, a
+    # closed swarm's closing summaries, the Linear news — only when they
+    # differ from what it was handed. The doc and her messages are left out:
+    # the doc is fixed between resets, and the conversation holds her messages.
     kept = last_seed(conv_id) or {"parts": []}
     handed = {part["key"]: part["text"] for part in kept["parts"]}
-    current = {"rules": _rules_section(entry), "watches": watches.seed_section(conv_id),
-               "sessions": _sessions_section(entry, found, finished, place)}
-    out += [current[key] for key in ("rules", "watches") if current[key] != handed.get(key)]
-    parts = [dict(part, text=current.get(part["key"], part["text"])) for part in kept["parts"]]
+    fresh = seed_parts(conv_id, entry, (found, finished, place))
+    current = {part["key"]: part for part in fresh if part["key"] not in ("doc", "exchanges")}
+    out += [part["text"] for key, part in current.items()
+            if key != "sessions" and part["text"] != handed.get(key)]
+    parts = [dict(part, text=current[part["key"]]["text"]) if part["key"] in current else part
+             for part in kept["parts"]]
+    # A part the seed didn't have yet (a swarm's first closing) joins the
+    # page's copy just ahead of her messages, where a fresh seed would put it.
+    have = {part["key"] for part in parts}
+    for key, part in current.items():
+        if key not in have:
+            at = next((n for n, p in enumerate(parts) if p["key"] == "exchanges"), len(parts))
+            parts.insert(at, part)
     _parts_path(conv_id).write_text(json.dumps({"at": _now(), "parts": parts}), encoding="utf-8")
     _write_seen(conv_id, _seen_now(found))
     _shown_path(conv_id).write_text(json.dumps(now_shown), encoding="utf-8")

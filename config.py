@@ -264,10 +264,11 @@ HELPER_CHAT_EXCHANGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_EXCHANGES", "1
 # 500k about twice, because the whole conversation is paid for again whenever
 # the cache has expired.
 # Prompt: "increase the size of the helpers and maybe have a cache that is
-# reset every so often" — "expand the window for the room helper."
+# reset every so often" — "expand the window for the room helper." — "adopt
+# this design for all helpers."
 HELPER_GROW_ROLES = tuple(
     role.strip() for role in os.environ.get(
-        "EXOCORTEX_HELPER_GROW_ROLES", "room_helper").split(",") if role.strip())
+        "EXOCORTEX_HELPER_GROW_ROLES", "room_helper,swarm_helper,linear_helper").split(",") if role.strip())
 HELPER_RESET_TOKENS = int(os.environ.get("EXOCORTEX_HELPER_RESET_TOKENS", "300000"))
 # The helper's wake-up (helper_chat.wake_tick): the app starts a turn in a
 # helper's chat when the sessions it watches change, and the helper may stay

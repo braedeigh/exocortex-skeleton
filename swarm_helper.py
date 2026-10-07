@@ -37,10 +37,12 @@ Every run is written down in full (`swarm_helper_runs`: its exact input and
 output, cost, error) and into the helper's own chat, so the owner can see what
 information it used and what it did with it.
 
-Its chat is one conversation for the swarm's whole life. When the owner
-talks to it there, each turn starts fresh from a rolling seed (a doc, her
-last 15 messages with its replies, and each member's summary and files —
-helper_chat.py), so it never fills its context and is never continued.
+Its chat is one conversation for the swarm's whole life. It starts from a
+seed (a doc, her last messages with its replies, and each member's summary
+and files — helper_chat.py), resumes turn after turn, and starts over from a
+fresh seed once it passes config.HELPER_RESET_TOKENS, so it never fills its
+context and is never continued. (Taken out of config.HELPER_GROW_ROLES, it
+starts fresh from the seed every turn instead.)
 
 When the swarm closes — fewer than two of its members still working
 (swarms.retired) — the helper writes a CLOSING SUMMARY: one more model call,

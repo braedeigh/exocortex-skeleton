@@ -741,3 +741,36 @@ def test_a_helper_outside_the_growing_roles_still_starts_fresh_every_turn(room, 
             index[helper].update(claude_session_id="some-session", context_tokens=60000)
     assert [resume_sid for _, resume_sid in started] == [None, None]
     assert all("this chat is ROLLING" in seed for seed, _ in started)
+
+
+def test_a_swarm_helper_mid_conversation_is_handed_the_closing_summary_once(helper, monkeypatch):
+    """A swarm helper that grows is resuming when its swarm closes. The
+    closing summary is written outside its conversation, so the next turn
+    hands it over ahead of her message — and the turn after doesn't repeat it."""
+    started = []
+    monkeypatch.setattr(observatory, "_mem_available_mb", lambda: None)
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda turn_config, text, resume_sid, conv_id, log_path:
+                        started.append((text, resume_sid)) or True)
+
+    def turn(question, session_id):
+        with store.mutate("bot_chats/index", {}) as index:
+            index[helper].pop("archived", None)
+        assert observatory.begin_turn(helper, question)["ok"]
+        _turn_ends(helper, "noted")
+        with store.mutate("bot_chats/index", {}) as index:
+            index[helper].update(claude_session_id=session_id, context_tokens=60000)
+        return started[-1]
+
+    assert turn("who is in this swarm?", "grown-1")[1] is None      # its fresh start
+    long_ago = (datetime.now() - timedelta(days=3)).isoformat(timespec="seconds")
+    with store.mutate("bot_chats/index", {}) as index:
+        index[A].update(done_at=long_ago, last_at=long_ago)
+        index[B].update(done_at=long_ago, last_at=long_ago)
+    swarm_helper.tick()                                             # the swarm closes
+
+    text, resume_sid = turn("what did this swarm get done?", "grown-2")
+    assert resume_sid == "grown-1" and "Closing 1: the pond page was built." in text
+    assert "closings" in [p["key"] for p in helper_chat.last_seed(helper)["parts"]]
+    text, resume_sid = turn("anything else?", "grown-3")
+    assert resume_sid == "grown-2" and "Closing 1: the pond page was built." not in text

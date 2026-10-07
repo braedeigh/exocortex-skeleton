@@ -48,11 +48,10 @@ that are ongoing in the room and coordinate with them if necessary."
 
 Its chat is a helper chat like a swarm helper's (helper_chat.py), started from
 the same kind of seed — a doc, her last messages with its replies, and every
-active session in the room with its summary and files. Unlike a swarm
-helper's it grows: it resumes its conversation turn after turn and starts
-over from a fresh seed once it passes config.HELPER_RESET_TOKENS (while
-"room_helper" is in config.HELPER_GROW_ROLES; otherwise every turn starts
-fresh).
+active session in the room with its summary and files. It grows: it resumes
+its conversation turn after turn and starts over from a fresh seed once it
+passes config.HELPER_RESET_TOKENS (while "room_helper" is in
+config.HELPER_GROW_ROLES; otherwise every turn starts fresh).
 The room overview (room_overview) is what a RUN reads; the chat looks swarms,
 clusters and moves up when it needs them.
 
