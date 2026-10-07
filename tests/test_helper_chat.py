@@ -689,9 +689,24 @@ def test_a_growing_helper_resumes_with_its_seed_untouched_until_it_passes_the_re
     assert f"## `{A}`" in text
     assert f"## `{A}`" in helper_chat.last_seed(helper)["parts"][-1]["text"]
 
+    # A resumed turn is handed only what changed: nothing when the room is
+    # as it was, then the one session that left.
+    model_session("grown-2", 80000)
+    assert observatory.begin_turn(helper, "anything new?")["ok"]
+    _, text, resume_sid = started[-1]
+    assert resume_sid == "grown-2" and f"## `{A}`" not in text
+    assert "Nothing has changed in the 1 active sessions" in text
+    model_session("grown-3", 90000)
+    _seed(A, done_at="2026-09-27T13:00:00")
+    assert observatory.begin_turn(helper, "and after that?")["ok"]
+    _, text, _ = started[-1]
+    assert f"No longer active (finished, closed, or continued by another session): `{A}`." in text
+    with store.mutate("bot_chats/index", {}) as index:
+        index[A].pop("done_at")
+
     # Past the size it starts over, from a new seed that holds the room now
     # and every message she sent since the reset before.
-    model_session("grown-2", 200001)
+    model_session("grown-4", 200001)
     assert observatory.begin_turn(helper, "third question")["ok"]
     seed, text, resume_sid = started[-1]
     assert resume_sid is None and text.startswith("third question")

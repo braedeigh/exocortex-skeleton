@@ -175,11 +175,13 @@ and you begin again from exactly three things, and nothing else:
 — and never fewer than her last {exchanges}. Only the turns SHE started: what you said on a turn \
 she didn't start (a wake-up, a watch that fired, an agent's mail) is NOT replayed;
 3. {world_line}, as it stood at the reset.
-After that, every turn begins with a block headed "The room now": part 3 again, as it stands at \
-that moment, with her rules or your watches when they changed outside this chat. Only the NEWEST \
-such block is true. Every earlier one above it, and part 3 itself, is OUT OF DATE: never answer \
-from an older one. When a message says part 3 is up to date, it means the newest "The room now" \
-block. Then comes whatever just arrived: her new message, an agent's mail, or a system notice.
+After that, every turn begins with a block headed "The room now" that holds ONLY what changed \
+since you were last shown the room: a session that is new, or whose summary, state, swarm or \
+files changed, is given again whole; sessions that left the active list are named; her rules or \
+your watches are given again when they changed outside this chat. So for each session, the \
+NEWEST entry anywhere above is the true one, and a session that hasn't appeared again is still \
+as you last saw it. When a message says part 3 is up to date, it means part 3 with every "The \
+room now" block. Then comes whatever just arrived: her new message, an agent's mail, or a system notice.
 
 So never claim to remember what isn't here. Everything from before the last reset is gone from \
 view except those messages: if her message seems to answer something you can't see, \
@@ -187,8 +189,8 @@ read the end of your own transcript before you answer (the first lookup below)."
 
 # What opens and closes the block a growing helper is handed ahead of each
 # message on a resumed turn (write_update).
-ROOM_NOW_HEAD = ("[The room now — sent by the app with every turn, not by the owner. This replaces"
-                 " every earlier copy above, which is out of date.]")
+ROOM_NOW_HEAD = ("[The room now — sent by the app with every turn, not by the owner. Only what"
+                 " changed since you were last shown the room.]")
 ROOM_NOW_END = "[End of the room now. What just arrived follows.]"
 
 CHAT_PROMPT = """{lead}
@@ -615,26 +617,17 @@ def sessions(entry, index=None, repo=None, files=True):
     return found, finished, place
 
 
-def _sessions_section(entry, found, finished, place, repo=None, now=None):
-    """Part 3 of the seed: one entry per active session — its summary, every
-    file it edited, every file it read."""
-    repo = Path(repo or _REPO)
-    today = (now or datetime.now()).date().isoformat()
-    out = [f"# 3. The active sessions in {place}, {_now()}", "",
-           "One entry per open line of work (a session and its continuations are one line, shown"
-           " under the session carrying it now). Helper sessions are not listed. Each summary was"
-           " written by a summarizer model, one call per session. The file lists cover the"
-           " session's whole life, read from the tool-call log (seconds behind): an Edit, Write or"
-           " Read call is always caught; a shell command is caught only when it names a file git"
-           " shows as changed in the app checkout — and shell commands far outnumber the others,"
-           " so both lists, the Read list most of all, are INCOMPLETE. Paths are relative to"
-           f" {repo} (or to its parent, for the vault).", ""]
+def _session_entries(found, repo, today):
+    """Write each active session's entry — its summary, every file it
+    edited, every file it read — as (session id, text), in the order given."""
     # A file two listed sessions both edited is the likely collision: tag it on each.
     editors = {}
     for session in found:
         for path in session["edited"]:
             editors.setdefault(path, []).append(session["conv"])
+    entries = []
     for session in found:
+        out = []
         where = f"swarm {session['swarm']}" if session["swarm"] else "working alone"
         out.append(f"## `{session['conv']}` {session['title']} — {session['state']}, {where}")
         if len(session["line"]) > 1:
@@ -659,15 +652,38 @@ def _sessions_section(entry, found, finished, place, repo=None, now=None):
         read = sorted(edited_files._shown(path, repo) for path in session["read"])
         out.append(f"Read ({len(read)}):" if read else "Read: (nothing caught)")
         out += edited_files._by_folder(read)
-        out.append("")
+        entries.append((session["conv"], "\n".join(out)))
+    return entries
+
+
+def _overlaps_lines(found, repo, today):
+    """The overlaps the app has written down between these sessions
+    (file_alerts.py): two that changed one file, or one working from a copy
+    another has changed since. The helper isn't woken for a new one."""
+    import file_alerts
+    return file_alerts.recorded_section(
+        {session["conv"]: set(session["line"]) for session in found}, repo, today)
+
+
+def _sessions_section(entry, found, finished, place, repo=None, now=None):
+    """Part 3 of the seed: one entry per active session — its summary, every
+    file it edited, every file it read."""
+    repo = Path(repo or _REPO)
+    today = (now or datetime.now()).date().isoformat()
+    out = [f"# 3. The active sessions in {place}, {_now()}", "",
+           "One entry per open line of work (a session and its continuations are one line, shown"
+           " under the session carrying it now). Helper sessions are not listed. Each summary was"
+           " written by a summarizer model, one call per session. The file lists cover the"
+           " session's whole life, read from the tool-call log (seconds behind): an Edit, Write or"
+           " Read call is always caught; a shell command is caught only when it names a file git"
+           " shows as changed in the app checkout — and shell commands far outnumber the others,"
+           " so both lists, the Read list most of all, are INCOMPLETE. Paths are relative to"
+           f" {repo} (or to its parent, for the vault).", ""]
+    for _, text in _session_entries(found, repo, today):
+        out += [text, ""]
     if not found:
         out += ["(no session is open here)", ""]
-    # Name the overlaps the app has written down between these sessions
-    # (file_alerts.py): two that changed one file, or one working from a copy
-    # another has changed since. The helper isn't woken for a new one.
-    import file_alerts
-    recorded = file_alerts.recorded_section(
-        {session["conv"]: set(session["line"]) for session in found}, repo, today)
+    recorded = _overlaps_lines(found, repo, today)
     out += recorded + [""] if recorded else []
     if finished:
         out += [f"({len(finished)} finished and not listed: "
@@ -776,6 +792,7 @@ def write_seed(conv_id, entry):
     # her messages has a heading in it.
     _parts_path(conv_id).write_text(json.dumps({"at": _now(), "parts": parts}), encoding="utf-8")
     _write_seen(conv_id, _seen_now(watched[0]))
+    _shown_path(conv_id).write_text(json.dumps(_shown_now(watched[0])), encoding="utf-8")
     return str(path)
 
 
@@ -791,8 +808,8 @@ def _parts_path(conv_id):
 # the same text, so only what is new is paid for in full. Three rules follow:
 #   - the seed is written at a reset and then left alone, because it is the
 #     system prompt, and a changed system prompt throws the whole cache away;
-#   - what changes every turn (the active sessions) goes in at the BOTTOM,
-#     ahead of the message (write_update);
+#   - what changed in the room goes in at the BOTTOM, ahead of the message,
+#     and only what changed (write_update);
 #   - once the conversation passes config.HELPER_RESET_TOKENS the next turn
 #     starts over from a fresh seed (resumes says no; begin_turn writes one).
 # What it costs, measured on the room helper: config.py, at the two settings.
@@ -819,28 +836,85 @@ def resumes(conv_id, entry):
                 and seed_path(conv_id).is_file())
 
 
+def _shown_path(conv_id):
+    return _seed_folder() / f"{conv_id}.shown.json"
+
+
+def _mark(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _shown_now(found, repo=None, now=None):
+    """What a growing helper is being shown of the room, as fingerprints:
+    {"sessions": {session id: mark of its entry}, "overlaps": mark of the
+    recorded overlaps}. Kept after every turn; the next resumed turn sends
+    only the entries whose mark differs (write_update)."""
+    repo = Path(repo or _REPO)
+    today = (now or datetime.now()).date().isoformat()
+    return {"sessions": {conv: _mark(text) for conv, text in _session_entries(found, repo, today)},
+            "overlaps": _mark("\n".join(_overlaps_lines(found, repo, today)))}
+
+
 def write_update(conv_id, entry):
-    """Build the block a resumed turn is handed ahead of its message: the
-    active sessions as they stand now, and her rules or the helper's watches
-    when either differs from what it was last handed. Returns the text, ending
-    where the message begins.
+    """Build the block a resumed turn is handed ahead of its message: only
+    what changed in the room since the helper was last shown it. Returns the
+    text, ending where the message begins.
+
+    A session that is new or whose entry differs is given whole; sessions no
+    longer active are named; the recorded overlaps, her rules and the
+    helper's watches are given again only when they differ. Everything is
+    compared against what was kept after the last turn, so an unchanged room
+    costs one line. With no record to compare against, the whole room is sent.
+    Prompt: "for every turn I want it to inject updates as well from the
+    database to anything that has changed only if it has changed."
 
     The seed file is not touched. The copy kept for the context page is: its
     sessions, rules and watches parts are brought up to now, so the page shows
-    what the helper is working from. What it was shown of each session is kept
-    too, so the next wake-up is measured from this turn."""
+    the room as the helper now knows it. What it was shown of each session is
+    kept too, so the next wake-up is measured from this turn."""
     import watches
-    watched = sessions(entry)
-    found, finished, place = watched
+    repo, today = Path(_REPO), datetime.now().date().isoformat()
+    found, finished, place = sessions(entry)
+    try:
+        before = json.loads(_shown_path(conv_id).read_text(encoding="utf-8"))
+        before_sessions = dict(before.get("sessions") or {})
+    except (OSError, ValueError, AttributeError):
+        before, before_sessions = {}, None
+    now_shown = _shown_now(found, repo)
+    entries = _session_entries(found, repo, today)
+    out = [ROOM_NOW_HEAD, "", f"# The room now — {place}, {_now()}", ""]
+    if before_sessions is None:
+        changed = entries
+        out += ["Every active session, whole:", ""]
+    else:
+        changed = [(conv, text) for conv, text in entries
+                   if before_sessions.get(conv) != now_shown["sessions"][conv]]
+    for _, text in changed:
+        out += [text, ""]
+    gone = sorted(set(before_sessions or {}) - set(now_shown["sessions"]))
+    if gone:
+        out += ["No longer active (finished, closed, or continued by another session): "
+                + ", ".join(f"`{conv}`" for conv in gone) + ".", ""]
+    overlaps = _overlaps_lines(found, repo, today)
+    if before.get("overlaps") != now_shown["overlaps"]:
+        out += (overlaps or ["(No overlaps are recorded between these sessions now.)"]) + [""]
+    same = len(entries) - len(changed)
+    if not changed and not gone:
+        out += [f"Nothing has changed in the {len(entries)} active sessions since you were"
+                " last shown them.", ""]
+    elif same:
+        out += [f"The other {same} active sessions are as you were last shown them.", ""]
+    # Her rules and its watches, only when they differ from what it was handed.
     kept = last_seed(conv_id) or {"parts": []}
     handed = {part["key"]: part["text"] for part in kept["parts"]}
     current = {"rules": _rules_section(entry), "watches": watches.seed_section(conv_id),
                "sessions": _sessions_section(entry, found, finished, place)}
-    changed = [current[key] for key in ("rules", "watches") if current[key] != handed.get(key)]
+    out += [current[key] for key in ("rules", "watches") if current[key] != handed.get(key)]
     parts = [dict(part, text=current.get(part["key"], part["text"])) for part in kept["parts"]]
     _parts_path(conv_id).write_text(json.dumps({"at": _now(), "parts": parts}), encoding="utf-8")
     _write_seen(conv_id, _seen_now(found))
-    return "\n".join([ROOM_NOW_HEAD, "", *changed, current["sessions"], ROOM_NOW_END, "", ""])
+    _shown_path(conv_id).write_text(json.dumps(now_shown), encoding="utf-8")
+    return "\n".join(out + [ROOM_NOW_END, "", ""])
 
 
 def last_seed(conv_id):
