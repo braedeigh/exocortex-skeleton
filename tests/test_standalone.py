@@ -149,6 +149,44 @@ def test_projects_are_separate_and_the_current_one_can_be_switched(client, code)
     assert {f["path"] for f in other.get_json()["repos"][0]["files"]} == {"b.py"}
 
 
+def test_rooms_are_a_list_the_person_edits_and_sessions_follow_it(client, code):
+    repo = make_repo(code / "roomy", ["a.py"])
+    client.post("/api/standalone/project", json={"path": str(repo)}, headers=LOCAL)
+
+    def ids(answer):
+        return [room["id"] for room in answer.get_json()["rooms"]]
+
+    assert client.get("/api/standalone/rooms", headers=LOCAL).get_json()["rooms"] == [
+        {"id": "personal", "name": "Personal"}, {"id": "coding", "name": "Code"}]
+    # A new room gets an id of its own — never one of the live site's fixed
+    # rooms, even when it is named after one.
+    added = client.post("/api/standalone/rooms", json={"name": "Fairy"}, headers=LOCAL)
+    assert ids(added) == ["personal", "coding", "fairy-2"]
+    renamed = client.post("/api/standalone/rooms/fairy-2", json={"name": "Garden"}, headers=LOCAL)
+    assert renamed.get_json()["rooms"][2] == {"id": "fairy-2", "name": "Garden"}
+    # A session can be started in it; it stands in the project. Personal
+    # stands in the journal's folder, and neither is this app's own code.
+    made = client.post("/api/observatory/conversations",
+                       json={"lane": "fairy-2", "title": "in the garden"}, headers=LOCAL)
+    assert made.status_code == 200, made.get_json()
+    conv_id = made.get_json()["id"]
+    index = store.read("bot_chats/index", {})
+    assert (index[conv_id]["lane"], index[conv_id]["cwd"]) == ("fairy-2", str(repo))
+    assert observatory._lane_profile("personal")["cwd"] == str(store.CONTENT_DIR)
+    refused = client.post("/api/observatory/conversations", json={"lane": "nowhere"},
+                          headers=LOCAL)
+    assert refused.status_code == 400
+    # Removing the room moves its session to the first room left; the last
+    # room can't go.
+    assert ids(client.delete("/api/standalone/rooms/fairy-2", headers=LOCAL)) == [
+        "personal", "coding"]
+    assert store.read("bot_chats/index", {})[conv_id]["lane"] == "personal"
+    client.delete("/api/standalone/rooms/personal", headers=LOCAL)
+    last = client.delete("/api/standalone/rooms/coding", headers=LOCAL)
+    assert last.status_code == 400 and ids(
+        client.get("/api/standalone/rooms", headers=LOCAL)) == ["coding"]
+
+
 def test_a_download_goes_from_downloading_to_loading_to_ready(client, code, monkeypatch):
     source = make_repo(code / "upstream", ["readme.md", "app.py", "more.py"])
 
@@ -186,6 +224,37 @@ def test_the_apps_own_code_is_a_separate_download_never_the_running_copy(client,
     # Asking twice doesn't download twice.
     client.post("/api/standalone/project", json={"own": True}, headers=LOCAL)
     assert len(asked) == 1 and len(buildlist.builds()) == 1
+
+
+def test_a_persons_github_repos_can_be_listed_and_one_downloaded(client, monkeypatch):
+    import urllib.error
+    asked = []
+
+    def github(url, timeout=15):
+        asked.append(url)
+        if "/users/nobody/" in url:
+            raise urllib.error.HTTPError(url, 404, "Not Found", None, None)
+        return [{"name": "garden", "html_url": "https://github.com/someone/garden",
+                 "description": None, "pushed_at": "2026-01-02T03:04:05Z"},
+                {"name": "odd", "html_url": "https://elsewhere.example/someone/odd"}]
+
+    monkeypatch.setattr(standalone_app, "_fetch_json", github)
+    monkeypatch.setattr(buildlist, "start_clone", lambda address, destination: None)
+    listed = client.get("/api/standalone/github-repos?user=@someone", headers=LOCAL).get_json()
+    # Only addresses the download door will take are offered.
+    assert listed == {"user": "someone", "repos": [{
+        "name": "garden", "url": "https://github.com/someone/garden",
+        "description": "", "updated": "2026-01-02T03:04:05Z"}]}
+    picked = client.post("/api/standalone/project", json={"url": listed["repos"][0]["url"]},
+                         headers=LOCAL)
+    assert picked.status_code == 200 and picked.get_json()["project"]["id"] == "garden"
+    # A name that can't be an account never reaches the network; a missing
+    # account comes back as a sentence.
+    bad = client.get("/api/standalone/github-repos?user=../etc", headers=LOCAL)
+    missing = client.get("/api/standalone/github-repos?user=nobody", headers=LOCAL)
+    assert (bad.status_code, missing.status_code) == (400, 400)
+    assert "no account called nobody" in missing.get_json()["error"]
+    assert len(asked) == 2
 
 
 def test_refusals_come_back_as_a_sentence_not_a_crash(client, tmp_path, monkeypatch):
@@ -304,3 +373,46 @@ def test_one_command_starts_it_on_a_folder_it_makes_and_stops_with_its_window(tm
     finally:
         if server.poll() is None:
             server.kill()
+
+
+def test_a_seeded_install_has_its_first_project_ready_with_no_download(tmp_path, code):
+    upstream = make_repo(code / "app-source", ["server.py", "page.tsx"])
+    seed, data = tmp_path / "seed", tmp_path / "data"
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith("EXOCORTEX_") or key in (
+               "EXOCORTEX_STORE_STATS_OFF", "EXOCORTEX_CLAUDE_BIN")}
+    # Packaging time: the seed is made once, from a clone that needs no network.
+    made = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "standalone_seed.py"),
+         "--out", str(seed), "--from", str(upstream)],
+        capture_output=True, text=True, env=env)
+    assert made.returncode == 0, made.stderr
+    described = json.loads(made.stdout)
+    assert described["commits"] == 2 and (seed / "projects" / described["id"] / ".git").is_dir()
+
+    def first_status():
+        server = subprocess.Popen(
+            [sys.executable, str(ROOT / "scripts" / "standalone.py"), "--port", "0",
+             "--data", str(data), "--exit-with-stdin", "--no-jobs"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env={**env, "EXOCORTEX_STANDALONE_SEED": str(seed)}, text=True)
+        try:
+            url = json.loads(server.stdout.readline())["url"]
+            with urllib.request.urlopen(url + "/api/standalone", timeout=30) as answer:
+                return json.load(answer)
+        finally:
+            server.stdin.close()
+            server.wait(timeout=20)
+
+    # First start on a new folder: the very first ask finds the project
+    # current and ready, standing inside the data folder.
+    status = first_status()
+    assert (status["project"]["state"], status["project"]["detail"]) == ("ready", "2 commits")
+    assert status["project"]["path"] == str(data / "projects" / described["id"])
+    assert [(p["id"], p["current"]) for p in status["projects"]] == [(described["id"], True)]
+    # A second start leaves a used folder alone: still one project, and the
+    # database was not copied over.
+    (data / "marker").write_text("mine")
+    database = (data / "exo.db").stat().st_ino
+    again = first_status()
+    assert len(again["projects"]) == 1 and (data / "exo.db").stat().st_ino == database

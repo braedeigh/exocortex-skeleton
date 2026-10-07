@@ -38,10 +38,13 @@ from pathlib import Path
 from urllib.parse import urlsplit
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 
 from flask import Flask, jsonify, request
 
@@ -49,6 +52,7 @@ import buildlist
 import codestore
 import config
 import features
+import lanes
 import schemas
 import store
 from routes import (
@@ -119,6 +123,90 @@ def project_cwd():
     workspace = store.DATA_DIR / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     return str(workspace)
+
+
+def journal_cwd():
+    """Where a session in the Personal room stands: the journal's own folder
+    (the content folder inside the data folder), made if it isn't there. It
+    is where the Keeper lives, so the journal's files are right at hand —
+    and, like every room here, it is never this app's own code."""
+    folder = Path(store.CONTENT_DIR)
+    folder.mkdir(parents=True, exist_ok=True)
+    return str(folder)
+
+
+# --- rooms: the person's own list ---------------------------------------------
+
+# A room's id: short, lower-case, safe in a web address.
+_ROOM_ID_RE = re.compile(r"[^a-z0-9]+")
+_ROOM_NAME_MAX = 40
+
+
+def rooms():
+    """The rooms, in the order they are shown: [{id, name}] (lanes.py reads
+    the same list, so the routes accept exactly these)."""
+    return lanes.standalone_rooms()
+
+
+def _room_name(name):
+    """A room's name as it will be kept, or ValueError with a sentence."""
+    name = " ".join(str(name).split()) if isinstance(name, str) else ""
+    if not name:
+        raise ValueError("a room needs a name")
+    if len(name) > _ROOM_NAME_MAX:
+        raise ValueError(f"a room's name can be at most {_ROOM_NAME_MAX} characters")
+    return name
+
+
+def add_room(name):
+    """Add a room on the end of the list and return the list. The id is made
+    from the name, with a number on the end when that id is taken — by
+    another room, or by one of the live site's fixed rooms, whose ids carry
+    behaviour of their own there (lanes.LANES)."""
+    name = _room_name(name)
+    with store.mutate(_SETTINGS, {}) as settings:
+        current = rooms()
+        taken = {room["id"] for room in current} | set(lanes.LANES)
+        base = _ROOM_ID_RE.sub("-", name.lower()).strip("-")[:30] or "room"
+        room_id, number = base, 2
+        while room_id in taken:
+            room_id, number = f"{base}-{number}", number + 1
+        settings["rooms"] = current + [{"id": room_id, "name": name}]
+    return rooms()
+
+
+def rename_room(room_id, name):
+    """Give a room a new name (its id, and so its sessions, stay) and return
+    the list. ValueError when there is no such room."""
+    name = _room_name(name)
+    with store.mutate(_SETTINGS, {}) as settings:
+        current = rooms()
+        if not any(room["id"] == room_id for room in current):
+            raise ValueError("there is no room with that id")
+        settings["rooms"] = [{**room, "name": name} if room["id"] == room_id else room
+                             for room in current]
+    return rooms()
+
+
+def remove_room(room_id):
+    """Take a room off the list and return the list. Its sessions move to the
+    first room left — they keep the folder they were started in, only the
+    room they are shown in changes. ValueError for the last room, or one
+    that isn't there."""
+    with store.mutate(_SETTINGS, {}) as settings:
+        current = rooms()
+        if not any(room["id"] == room_id for room in current):
+            raise ValueError("there is no room with that id")
+        kept = [room for room in current if room["id"] != room_id]
+        if not kept:
+            raise ValueError("the last room can't be removed")
+        settings["rooms"] = kept
+    if store.read("bot_chats/index", {}):
+        with store.mutate("bot_chats/index", {}) as index:
+            for entry in index.values():
+                if isinstance(entry, dict) and entry.get("lane") == room_id:
+                    entry["lane"] = kept[0]["id"]
+    return rooms()
 
 
 def _load_history(build):
@@ -253,6 +341,83 @@ def choose_download(url):
     _choose(existing or buildlist.add_github(url))
 
 
+# A GitHub account name: letters, digits and single hyphens, up to 39 long.
+_GITHUB_USER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
+_GITHUB_API = "https://api.github.com"
+
+
+def _fetch_json(url, timeout=15):
+    """GET one address and read the answer as JSON. Its own function so a
+    test can stand in for the network."""
+    asked = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.github+json", "User-Agent": "exocortex-desktop"})
+    with urllib.request.urlopen(asked, timeout=timeout) as answer:
+        return json.load(answer)
+
+
+def github_repos(user):
+    """The public repos of one GitHub account, most recently changed first:
+    [{name, url, description, updated}] — the person's "library" to pick a
+    project from. No sign-in, so only what GitHub shows anyone, and at most
+    the first hundred. Raises ValueError with a sentence the screen can show.
+
+    Prompt that produced it: "paste an address or point to one in your
+    library maybe" — the library being their own GitHub repos, listed after
+    they type their username."""
+    user = str(user or "").strip().lstrip("@")
+    if not _GITHUB_USER_RE.match(user):
+        raise ValueError("that isn't a GitHub username")
+    try:
+        listed = _fetch_json(f"{_GITHUB_API}/users/{user}/repos?per_page=100&sort=pushed&type=owner")
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            raise ValueError(f"GitHub has no account called {user}") from None
+        if error.code in (403, 429):
+            raise ValueError("GitHub is refusing more lookups for now — try again in a "
+                             "few minutes, or paste the repo's address") from None
+        raise ValueError(f"GitHub answered with an error ({error.code})") from None
+    except (OSError, ValueError):
+        raise ValueError("couldn't reach GitHub — check the connection, "
+                         "or paste the repo's address") from None
+    return [{"name": repo["name"], "url": repo["html_url"],
+             "description": repo.get("description") or "",
+             "updated": repo.get("pushed_at") or ""}
+            for repo in listed if isinstance(repo, dict)
+            and isinstance(repo.get("name"), str) and isinstance(repo.get("html_url"), str)
+            and buildlist.parse_github(repo["html_url"])]
+
+
+def adopt_seed():
+    """Put the seeded project on the list and make it current, once. True
+    when it did.
+
+    The start command copies the seed's files into a new data folder
+    (scripts/standalone.py place_seed) and leaves seed.json beside them; this
+    is the half that needs the app: the folder becomes a project like any
+    other, with the published address as its source, so "start with this
+    app's own code" finds it already here instead of downloading it again.
+    Its history is already in the database, so it reads as ready at once.
+    seed.json is renamed afterwards so this happens one time only."""
+    note = store.DATA_DIR / "seed.json"
+    try:
+        seed = json.loads(note.read_text())
+        entry = {"id": seed["id"], "name": seed["name"], "source": seed["source"],
+                 "root": str(store.DATA_DIR / "projects" / seed["id"]),
+                 "added": observatory._now()}
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    if not Path(entry["root"]).is_dir():
+        return False
+    with store.mutate("terrain_builds", {}) as configured:
+        configured.setdefault("clone_dir", str(store.DATA_DIR / "projects"))
+    if buildlist.find(entry["id"]) is None:
+        buildlist._append(entry)
+    with store.mutate(_SETTINGS, {}) as settings:
+        settings.setdefault("project", entry["id"])
+    note.replace(note.with_name("seed.adopted.json"))
+    return True
+
+
 def own_code():
     """Whether "start with this app's own code" can be offered, and how:
     {available, name, how}. It is always a download of the published repo
@@ -359,6 +524,7 @@ def status():
         "project": chosen,
         "projects": projects(),
         "settings": {"ask_first": ask_first(), "idle_check": idle_check()},
+        "rooms": rooms(),
         "own": {key: own_code()[key] for key in ("available", "name")},
         "live_turns": len(live_turns()),
         "helpers": config.standalone_helpers(),
@@ -405,6 +571,7 @@ def create_app():
     importing this file on the live site."""
     if not config.standalone():
         raise RuntimeError("standalone_app is only for EXOCORTEX_STANDALONE=1")
+    adopt_seed()
     app = Flask(__name__)
     app.before_request(_guard)
     for module in ROUTE_MODULES:
@@ -467,6 +634,30 @@ def create_app():
             settings.update(changes)
         return jsonify(status())
 
+    @app.route("/api/standalone/rooms", methods=["GET", "POST"])
+    def standalone_rooms():
+        """The rooms, as {"rooms": [{id, name}]} in the order they are shown.
+        POST {"name": "…"} adds one. A refusal is 400 and a sentence."""
+        if request.method == "POST":
+            try:
+                add_room((request.get_json(silent=True) or {}).get("name"))
+            except ValueError as refusal:
+                return jsonify({"error": str(refusal)}), 400
+        return jsonify({"rooms": rooms()})
+
+    @app.route("/api/standalone/rooms/<room_id>", methods=["POST", "DELETE"])
+    def standalone_room(room_id):
+        """POST {"name": "…"} renames a room; DELETE removes it and moves its
+        sessions to the first room left. Both answer {"rooms": […]}."""
+        try:
+            if request.method == "DELETE":
+                remove_room(room_id)
+            else:
+                rename_room(room_id, (request.get_json(silent=True) or {}).get("name"))
+        except ValueError as refusal:
+            return jsonify({"error": str(refusal)}), 400
+        return jsonify({"rooms": rooms()})
+
     @app.route("/api/standalone/folders")
     def standalone_folders():
         """The folders inside ?path= (the home folder when it's left out), so
@@ -486,6 +677,17 @@ def create_app():
                         "parent": str(folder.parent) if folder.parent != folder else None,
                         "folders": names,
                         "git": buildlist.is_git_repo(folder)})
+
+    @app.route("/api/standalone/github-repos")
+    def standalone_github_repos():
+        """?user=NAME → {"user", "repos": [{name, url, description, updated}]}:
+        that account's public repos, for picking one to download. Each `url`
+        is what POST /api/standalone/project takes as {"url"}."""
+        try:
+            return jsonify({"user": (request.args.get("user") or "").strip().lstrip("@"),
+                            "repos": github_repos(request.args.get("user"))})
+        except ValueError as refusal:
+            return jsonify({"error": str(refusal)}), 400
 
     @app.route("/api/standalone/stop-turns", methods=["POST"])
     def standalone_stop_turns():

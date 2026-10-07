@@ -302,6 +302,18 @@ def _lane_profile(lane):
     Linear in their own room folders, Coding and Orchestra in the app
     checkout; only Orchestra asks."""
     watched = lane in _WATCHED_LANES
+    # The desktop app: rooms there are the person's own list, and none of
+    # them stands in this app's code. Personal stands in the journal's folder
+    # (where the Keeper lives); every other room stands in the current
+    # project (standalone_app.project_cwd). Its sessions just act unless the
+    # person switched "ask first" on.
+    if app_config.standalone():
+        import standalone_app
+        watched = not standalone_app.ask_first()
+        cwd = (standalone_app.journal_cwd() if lane == "personal"
+               else standalone_app.project_cwd())
+        return {"cwd": cwd, "allowed_tools": list(_BUILDER_TOOLS),
+                "act_gate": not watched, "guard_docs": not watched}
     # Where each lane stands. Anything not named here is the app checkout.
     if lane == "personal":
         cwd = _root_dir()
@@ -316,13 +328,6 @@ def _lane_profile(lane):
         # (fairywall.py), which refuses the write itself.
         return {"cwd": str(store.FAIRY_ROOM_DIR), "allowed_tools": list(fairywall.TOOLS),
                 "act_gate": False, "guard_docs": False}
-    elif app_config.standalone():
-        # The desktop app: a session stands in the person's own project
-        # folder, never in this app's code (standalone_app.project_cwd).
-        # Its sessions just act unless the person switched "ask first" on.
-        import standalone_app
-        cwd = standalone_app.project_cwd()
-        watched = watched and not standalone_app.ask_first()
     else:
         cwd = str(store.BUILD_DIR)
     return {"cwd": cwd,
@@ -3540,7 +3545,7 @@ def register(app):
         if model and model not in _MODEL_CHOICES:
             return jsonify({"error": f"unknown model {model!r}"}), 400
         lane = (data.get("lane") or _DEFAULT_LANE).strip()
-        if lane not in _LANES:
+        if not lanes.known(lane):
             return jsonify({"error": f"unknown lane {lane!r}"}), 400
         profile = _lane_profile(lane)
         # `front` — set when the session is started from a front's room. Two
@@ -3663,7 +3668,7 @@ def register(app):
         lane = None
         if "lane" in data:
             lane = (data.get("lane") or "").strip()
-            if lane not in _LANES:
+            if not lanes.known(lane):
                 return jsonify({"error": f"unknown lane {lane!r}"}), 400
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:

@@ -13,7 +13,10 @@ In order, it:
      per-user application-data folder) and creates it;
   2. switches standalone mode on and points every folder the app writes to
      INSIDE that data folder — nothing is written beside the code, which in a
-     packaged app is read-only;
+     packaged app is read-only. On a data folder that has never been used it
+     also copies in the seed, if the app was packaged with one
+     (`standalone-seed/`, or EXOCORTEX_STANDALONE_SEED) — a first project
+     with its map already read in;
   3. builds the small app (standalone_app.py), starts listening on this
      computer only, and prints ONE line of JSON on stdout:
          {"ready": true, "url": "http://127.0.0.1:5123", "port": 5123, "data_dir": "..."}
@@ -53,6 +56,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PORT = 5123
 APP_FOLDER = "exocortex-desktop"
+# The seed: a ready-made first project (scripts/standalone_seed.py makes it).
+SEED_FOLDER = "standalone-seed"
+SEED_FILE = "seed.json"
 
 
 def default_data_dir():
@@ -104,6 +110,40 @@ def prepare_environment(data_dir, environ=os.environ):
     return data_dir
 
 
+def place_seed(data_dir, seed_dir):
+    """Copy the seed into a data folder that has never been used, so the
+    first start has a project and its map with no download and no wait.
+    True when it was copied.
+
+    Only ever on a brand-new folder — one with no database yet — because the
+    seed brings a database of its own, and copying that over a used one would
+    throw the person's sessions away. This runs before the app is imported
+    (the database is opened at import); standalone_app.adopt_seed then puts
+    the project on the list."""
+    data_dir, seed_dir = Path(data_dir), Path(seed_dir)
+    try:
+        seed = json.loads((seed_dir / SEED_FILE).read_text())
+        code = seed_dir / "projects" / seed["id"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return False     # no seed here, or not one this can read
+    placed = data_dir / "projects" / seed["id"]
+    if (data_dir / "exo.db").exists() or placed.exists():
+        return False
+    if not code.is_dir() or not (seed_dir / "exo.db").is_file():
+        return False
+    # The code first and the database last: the database is what marks the
+    # folder as used, so a copy cut short is simply tried again next start.
+    try:
+        shutil.copytree(code, placed, symlinks=True)
+        shutil.copyfile(seed_dir / SEED_FILE, data_dir / SEED_FILE)
+        shutil.copyfile(seed_dir / "exo.db", data_dir / "exo.db")
+    except OSError as problem:
+        shutil.rmtree(placed, ignore_errors=True)
+        print(f"seed: could not copy it in ({problem})", file=sys.stderr)
+        return False
+    return True
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Start the desktop app's server.")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT,
@@ -117,6 +157,8 @@ def main(argv=None):
 
     data_dir = prepare_environment(
         options.data or os.environ.get("EXOCORTEX_DATA_DIR") or default_data_dir())
+
+    place_seed(data_dir, os.environ.get("EXOCORTEX_STANDALONE_SEED") or ROOT / SEED_FOLDER)
 
     # Only now import the app: store.py reads the folders set above at import.
     sys.path.insert(0, str(ROOT))

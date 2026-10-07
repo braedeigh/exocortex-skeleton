@@ -50,7 +50,8 @@
         "validate_data.py",
         "git_backup.sh",
         "restart_server.sh",
-        "standalone.py"
+        "standalone.py",
+        "standalone_seed.py"
       ],
       "tables": [
         "docs",

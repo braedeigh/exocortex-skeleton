@@ -17,9 +17,41 @@ there. Wanting personal, coding, etc to be there."
 """
 from pathlib import Path
 
+import config
 import store
 
 LANES = ("orchestra", "personal", "coding", "research", "linear", "fairy")
+
+# The desktop app's first rooms, until the person adds, renames or removes
+# some (standalone_app.py keeps the list; see standalone_rooms below).
+STANDALONE_ROOMS = ({"id": "personal", "name": "Personal"}, {"id": "coding", "name": "Code"})
+
+
+def standalone_rooms():
+    """The desktop app's rooms, in the order they are shown: [{id, name}].
+
+    There the rooms are a list the person edits, not the fixed six. It is
+    kept in the data folder's `standalone` file (written by
+    standalone_app.py's room doors) and read here so that this module — which
+    the routes and the database copy both ask — needs nothing but the store.
+    A list that is missing or empty reads as the two starting rooms.
+
+    Prompt that produced it: "2 rooms, personal and code, with the option to
+    add more or delete or rename."
+    """
+    stored = store.read("standalone", {}).get("rooms")
+    rooms = [{"id": room["id"], "name": room["name"]} for room in stored or ()
+             if isinstance(room, dict) and isinstance(room.get("id"), str)
+             and isinstance(room.get("name"), str)]
+    return rooms or [dict(room) for room in STANDALONE_ROOMS]
+
+
+def known(lane):
+    """Is this a room a session may be put in? One of the fixed six — or, in
+    the desktop app, any room on the person's own list."""
+    if lane in LANES:
+        return True
+    return config.standalone() and any(room["id"] == lane for room in standalone_rooms())
 
 
 def derive_lane(entry):
@@ -54,7 +86,7 @@ def derive_lane(entry):
     # It derives to the gated room below.
     if lane == "fairy":
         return "orchestra"
-    if lane in LANES:
+    if known(lane):
         return lane
     if not cwd:
         return "orchestra"

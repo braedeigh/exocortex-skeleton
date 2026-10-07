@@ -41,3 +41,7 @@ node_modules/
 
 # pytest-testmon's map of which test runs which code (see requirements-dev.txt)
 .testmondata*
+
+# The desktop app's seed (scripts/standalone_seed.py): a clone of this repo
+# plus a database, made when the app is packaged — never committed.
+standalone-seed/

@@ -26,6 +26,7 @@ stderr. It stops on Ctrl-C / SIGTERM, or when stdin closes with
 | `scripts/standalone.py` | the start command: picks the data folder, points every writable folder inside it, serves on 127.0.0.1 |
 | `standalone_app.py` | the small app: which route modules it serves, the no-other-site guard, the projects, `/api/standalone` |
 | `standalone_jobs.py` | the timed jobs cron would have run |
+| `scripts/standalone_seed.py` | run when packaging: makes the seed, a ready-made first project |
 | `tests/test_standalone.py` | the proof |
 
 Settings (all environment variables): `EXOCORTEX_STANDALONE_HELPERS=1` turns the
@@ -52,9 +53,32 @@ checkout — so an agent working on it can't change the app underneath itself.
 | `POST /api/standalone/project` | `{"path"}` a folder here, `{"url"}` download one, `{"own": true}` the app's own code, `{"id"}` switch |
 | `POST /api/standalone/settings` | `{"ask_first": bool}` — whether new sessions ask before what they can't undo (off: they just act); `{"idle_check": bool}` — whether a session idle for a day is asked if it is done (on) |
 | `GET /api/standalone/folders` | the folders inside a path, for a folder picker |
+| `GET /api/standalone/github-repos?user=` | that GitHub account's public repos, to pick one to download |
+| `GET`/`POST /api/standalone/rooms`, `POST`/`DELETE /api/standalone/rooms/<id>` | the rooms: list, add `{"name"}`, rename `{"name"}`, remove |
 | `POST /api/standalone/stop-turns` | stop every running agent turn |
 
 The page learns the mode from `window.STANDALONE` (`routes/spa.py`).
+
+## The seed: something to look at on first open
+
+A new install would otherwise wait about a minute, online, for its first
+project to download and its history to be read. So the app is packaged with a
+**seed** — `scripts/standalone_seed.py` clones the app's own code, reads its
+history into a new database, and saves both (about 39 MB, 18 MB compressed).
+On the first start on a never-used data folder, `scripts/standalone.py` copies
+the seed in and `standalone_app.adopt_seed` makes it the current project: the
+map draws at once, with no network. The seed lives in `standalone-seed/`
+beside the code, or wherever `EXOCORTEX_STANDALONE_SEED` points. It is as old
+as the release it shipped in. With no seed the app starts empty, as before.
+
+## Rooms
+
+On the live site the rooms are a fixed six. Here they are a list the person
+edits, starting as Personal and Code (`lanes.standalone_rooms`, kept in the
+data folder's `standalone` file). A session's room is the room's id. Personal
+stands in the journal's folder (the content folder); every other room stands
+in the current project. Removing a room moves its sessions to the first room
+left; the last room can't be removed.
 
 ## No login, so: only this computer
 
@@ -119,7 +143,8 @@ could post to these doors — and these doors start agents that run commands.
   which already skips itself when it can't read). Windows is further: file
   locks (`fcntl`), detached processes (`setsid`), `sh`.
 - **Downloads take GitHub addresses only** (`buildlist.parse_github`), public
-  repos only.
+  repos only. The repo list is GitHub's public one for a username: no sign-in,
+  first hundred repos, and GitHub allows about 60 lookups an hour per network.
 - **Claude Code's login on a Mac** lives in the keychain, so `signed_in` is
   `null` (can't tell) there.
 - **The journal** is not in the desktop app.

@@ -62,6 +62,7 @@ from pathlib import Path
 from flask import jsonify, request
 
 import briefstore
+import lanes
 import store
 import worktrees
 from routes.observatory import (_BUILDER_TOOLS, _CONV_ID_RE, _DEFAULT_LANE, _LANES,
@@ -305,7 +306,7 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
     that conversation untouched — including not re-firing it.
 
     `lane` names the room outright ("personal"/"coding"/"orchestra"/"research"
-    — validated against observatory._LANES, so a lane added there is accepted
+    — validated with lanes.known, so a lane added there is accepted
     here without a second list to keep in step); left None it's inherited from
     the sending session (_inherit_lane). The room supplies cwd
     and the safety-net defaults via _lane_profile; act_gate/guard_docs are
@@ -354,7 +355,7 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
     """
     if not SLUG_RE.match(slug or ""):
         return {"error": "bad slug"}, 400
-    if lane is not None and lane not in _LANES:
+    if lane is not None and not lanes.known(lane):
         return {"error": f"unknown room {lane!r}"}, 400
     if branch is not None and not branch.startswith("agent/"):
         # Stewards adopt agents' work. main (or anything hand-made) is never
@@ -576,7 +577,7 @@ def offer_spinoff(conv_id, slugs, lane=None):
         if briefstore.latest(slug) is None:
             return {"error": f"no brief for {slug!r} — save it first "
                              "(scripts/spinoff_brief.py)"}, 400
-    if lane is not None and lane not in _LANES:
+    if lane is not None and not lanes.known(lane):
         return {"error": f"unknown room {lane!r}"}, 400
     offer = {"slugs": slugs, "offered": _now()}
     if lane:
