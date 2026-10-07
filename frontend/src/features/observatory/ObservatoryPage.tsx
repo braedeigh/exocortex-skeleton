@@ -12,7 +12,7 @@ import { ChatApprovalCard } from './ChatApprovalCard';
 import { QuestionsBlock, QuestionsCard, QuestionsChip, QuestionsFloating, type QuestionsFloat } from './QuestionsCard';
 import { CloseSourcePrompt, SpinoffOffer } from './SpinoffOffer';
 import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
-import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, journalRestore, openQuestions, stopConversation, streamSend, useSessionRoster } from './api';
+import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, noteSessionOpened, journalRestore, openQuestions, stopConversation, streamSend, useSessionRoster } from './api';
 import { MemoryPrompt } from '../runqueue/MemoryPrompt';
 import { enqueueConversation, fetchHeadroom } from '../runqueue/api';
 import { shouldPrompt } from '../runqueue/memoryPrompt';
@@ -422,6 +422,9 @@ export function ObservatoryPage({
         // Capture the stamp BEFORE it's overwritten — this open's own
         // freshness can't be judged against a mark this same open just made.
         const prevOpened = markConversationOpened(convId);
+        // Also tell the server, which keeps the Recently opened list every
+        // device shares (the stamp above is this browser's own, for the dots).
+        noteSessionOpened(convId);
         // Reopened onto a turn that's still writing (the PWA was closed
         // mid-reply and the turn kept going) — pick it back up.
         if (data.meta?.running === true) void reattachApi.reattach(convId);

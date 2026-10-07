@@ -7,7 +7,8 @@ conversation logs (data/bot_chats/*.jsonl) and Claude Code's own transcripts
 `tool_calls` for every tool call that isn't there yet, a row into
 `turn_results` for every finished Observatory turn. Nothing is written at
 call time — the logs are the source, this just reads them — so the first run
-back-fills the whole history.
+back-fills the whole history. The same run then folds every newly spoken line
+into the chat search index (chatsearch.py).
 
     EXOCORTEX_DATA_DIR=... venv/bin/python3 scripts/usage_events.py
     ... scripts/usage_events.py --rebuild     # re-read every file from the top
@@ -29,6 +30,7 @@ SKELETON = os.path.dirname(HERE)
 if SKELETON not in sys.path:
     sys.path.insert(0, SKELETON)
 
+import chatsearch  # noqa: E402
 import toolcallstore  # noqa: E402
 
 
@@ -56,6 +58,14 @@ def main():
     print(f"usage_events: {stats['files']} files read, {stats['skipped']} unchanged,"
           f" {stats['calls']} calls, {stats['results']} results,"
           f" {stats['turns']} turns, {time.monotonic() - started:.1f}s")
+    # Fold what was newly SAID into the chat search index (chatsearch.py),
+    # from the same logs. A search also catches itself up, so this hourly
+    # pass is what keeps that catch-up small.
+    started = time.monotonic()
+    said = chatsearch.rebuild() if args.rebuild else chatsearch.ingest()
+    print(f"usage_events: chat search index, {said['files']} files read,"
+          f" {said['skipped']} unchanged, {said['lines']} lines,"
+          f" {time.monotonic() - started:.1f}s")
     return 0
 
 

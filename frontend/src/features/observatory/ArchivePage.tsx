@@ -1,16 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ALL_LANES,
   LANE_LABEL,
-  searchSessions,
   toLane,
   useArchiveList,
   type ArchivedSession,
   type Lane,
-  type SearchHit,
-  type SearchResult,
+  type SearchIn,
 } from './api';
+import { SearchInToggle, SearchNotes, SearchResultRow, useChatSearch } from './ChatFinder';
 import { sessionLocation } from './sessionLocation';
 import styles from './ArchivePage.module.css';
 
@@ -46,19 +45,17 @@ import styles from './ArchivePage.module.css';
  * words, each with the lines that say them. Clear the box and the scroll comes
  * back. No tab, no toggle: the box's contents ARE the mode.
  *
- * SEARCH IS SUBSTRING, NOT A QUERY LANGUAGE. See the route's docstring
- * (routes/observatory.py, observatory_search) — she's reaching for something
- * she half-remembers, which is the worst possible moment to hand her a syntax.
+ * THE SEARCH IS THE SAME ONE THE ROSTER'S BOX RUNS. The hook, the Said / Did
+ * chips and the result rows all come from ChatFinder.tsx, so a search reads
+ * the same here as at the top of the Observatory; this page adds the room
+ * scope on top. Plain words, no syntax needed: she's reaching for something
+ * she half-remembers, so a half-typed word finds the whole one (rules in
+ * chatsearch.py).
  *
  * Reads GET /api/observatory/atlas (the listing, archived included) and GET
- * /api/observatory/search (the transcripts). Tapping anything opens that
- * session through the same navigation the roster uses.
+ * /api/observatory/search (routes/chat_search.py). Tapping anything opens
+ * that session through the same navigation the roster uses.
  */
-
-/** Long enough that she's stopped typing a word, short enough that it still
- * feels like it's keeping up. The scan is server-side over every transcript,
- * so a request per keystroke would be real work thrown away. */
-const DEBOUNCE_MS = 250;
 
 function monthOf(iso: string | undefined): string {
   if (!iso) return 'Undated';
@@ -72,26 +69,6 @@ function dayOf(iso: string | undefined): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
-/** The matched words, marked. The server hands back where the match sits
- * inside the snippet it already trimmed and ellipsised — re-finding the query
- * here would mean reimplementing that trimming in a second language, and the
- * two would drift. */
-function Snippet({ hit }: { hit: SearchHit }) {
-  const before = hit.text.slice(0, hit.at);
-  const match = hit.text.slice(hit.at, hit.at + hit.len);
-  const after = hit.text.slice(hit.at + hit.len);
-  return (
-    <div className={styles.snippet}>
-      <span className={styles.who}>{hit.who === 'B' ? 'you' : 'it'}</span>
-      <span className={styles.snippetText}>
-        {before}
-        <mark className={styles.mark}>{match}</mark>
-        {after}
-      </span>
-    </div>
-  );
 }
 
 export function ArchivePage({ lane }: { lane?: string }) {
@@ -109,48 +86,9 @@ export function ArchivePage({ lane }: { lane?: string }) {
     scope ? rows.filter((r) => toLane(r.lane) === scope) : rows;
 
   const [typed, setTyped] = useState('');
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchResult[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState(false);
-  const [truncated, setTruncated] = useState(false);
-
-  // Debounce her typing into a query, then run exactly one search for it.
-  useEffect(() => {
-    const id = window.setTimeout(() => setQuery(typed.trim()), DEBOUNCE_MS);
-    return () => window.clearTimeout(id);
-  }, [typed]);
-
-  // Every in-flight search is abortable, and a superseded one is aborted —
-  // otherwise a slow scan for "ho" can land after a fast one for "housing"
-  // and overwrite the newer answer with the older.
-  const acRef = useRef<AbortController | null>(null);
-  useEffect(() => {
-    acRef.current?.abort();
-    if (query.length < 2) {
-      setResults(null);
-      setSearching(false);
-      setSearchError(false);
-      return;
-    }
-    const ac = new AbortController();
-    acRef.current = ac;
-    setSearching(true);
-    setSearchError(false);
-    searchSessions(query, ac.signal)
-      .then((res) => {
-        if (ac.signal.aborted) return;
-        setResults(res.results);
-        setTruncated(res.truncated);
-        setSearching(false);
-      })
-      .catch(() => {
-        if (ac.signal.aborted) return;
-        setSearchError(true);
-        setSearching(false);
-      });
-    return () => ac.abort();
-  }, [query]);
+  const [where, setWhere] = useState<SearchIn>('said');
+  const search = useChatSearch(typed, where);
+  const results = search.results;
 
   // Idle mode: every session, newest first, cut into months. `last_at` is when
   // it was last SAID IN, which is what she'd scroll looking for — `started` is
@@ -172,7 +110,7 @@ export function ArchivePage({ lane }: { lane?: string }) {
     void navigate(sessionLocation(convId));
   };
 
-  const searchingMode = query.length >= 2;
+  const searchingMode = search.searchingMode;
   // The server searches every room; the narrowing happens here, so the full
   // count is still known and can be offered when the scoped view comes up dry.
   const shownResults = inScope(results ?? []);
@@ -244,48 +182,22 @@ export function ArchivePage({ lane }: { lane?: string }) {
 
         {searchingMode ? (
           <>
-            {searching ? <div className={styles.hint}>Reading transcripts…</div> : null}
-            {searchError ? <div className={styles.hint}>Couldn&rsquo;t run that search.</div> : null}
+            <SearchInToggle value={where} onChange={setWhere} />
             {/* A scoped search that finds nothing must never be a dead end. The
                 server searched every room; if the words exist somewhere else,
                 say so and offer the one tap that shows them — otherwise she'd
                 conclude the thing she remembers saying isn't in the record. */}
-            {!searching && results && shownResults.length === 0 ? (
-              results.length > 0 ? (
-                <button type="button" className={styles.widen} onClick={() => setScope('')}>
-                  Nothing in {LANE_LABEL[scope as Lane]} — but {results.length}{' '}
-                  {results.length === 1 ? 'session' : 'sessions'} elsewhere say it. Show all rooms →
-                </button>
-              ) : (
-                <div className={styles.hint}>Nothing said those words.</div>
-              )
-            ) : null}
-            {/* Never a silent cap: if the scan stopped short of every session,
-                the page says so rather than passing a partial answer off as
-                the whole archive. */}
-            {truncated && shownResults.length > 0 ? (
-              <div className={styles.hint}>
-                Searched the most recent sessions only — there are more further back.
-              </div>
-            ) : null}
-            {shownResults.map((r) => (
-              <button key={r.id} type="button" className={styles.row} onClick={() => open(r.id)}>
-                <div className={styles.rowTop}>
-                  <span className={styles.rowTitle}>{r.title}</span>
-                  <span className={styles.rowDate}>{dayOf(r.last_at || r.started)}</span>
-                </div>
-                <div className={styles.chips}>
-                  <span className={styles.chip}>{LANE_LABEL[toLane(r.lane)]}</span>
-                  {r.journal ? <span className={styles.chipJournal}>journal</span> : null}
-                  {r.archived ? <span className={styles.chip}>closed</span> : null}
-                  {r.title_hit && r.hits.length === 0 ? (
-                    <span className={styles.chip}>name matches</span>
-                  ) : null}
-                </div>
-                {r.hits.map((h, i) => (
-                  <Snippet key={i} hit={h} />
-                ))}
+            {!search.searching && results && shownResults.length === 0 && results.length > 0 ? (
+              <button type="button" className={styles.widen} onClick={() => setScope('')}>
+                Nothing in {LANE_LABEL[scope as Lane]} — but {results.length}{' '}
+                {results.length === 1 ? 'session' : 'sessions'} elsewhere{' '}
+                {results.length === 1 ? 'has' : 'have'} it. Show all rooms →
               </button>
+            ) : (
+              <SearchNotes state={search} shown={shownResults.length} where={where} />
+            )}
+            {shownResults.map((r) => (
+              <SearchResultRow key={r.id} result={r} where={where} onOpen={open} />
             ))}
           </>
         ) : (

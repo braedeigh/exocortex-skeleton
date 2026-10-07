@@ -44,6 +44,7 @@ import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
 import { useToasts } from '../journal/useJournalData';
 import { ToastStack } from '../../ui';
+import { ChatFinder } from './ChatFinder';
 import styles from './RosterPage.module.css';
 
 // The roster's sort order — by creation time, so cards never churn on
@@ -431,6 +432,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             <h1 className={styles.title}>Observatory</h1>
             <MemoryMeter />
           </div>
+          {/* Find a chat again: search every session, and under the empty box
+              the ones she opened last. First thing under the title, so it's in
+              reach before any scrolling. */}
+          <ChatFinder onOpen={open} />
           {/* Agents waiting on her sudo password — orange, first thing in the room. */}
           <SudoRequests />
           {failed ? <div className={styles.pageError}>Couldn&rsquo;t load sessions.</div> : null}

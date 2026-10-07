@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 50
+_SCHEMA_VERSION = 51
 
 
 def _db_path():
@@ -198,6 +198,11 @@ _EXPECTED_TABLES = (
     # The journal word index, plus the five storage tables FTS5 keeps behind it.
     "cards_fts", "cards_fts_data", "cards_fts_idx", "cards_fts_content",
     "cards_fts_docsize", "cards_fts_config",
+    # The chat word index, the five storage tables FTS5 keeps behind it, and
+    # the record of how far into each chat log has been read.
+    "chat_lines_fts", "chat_lines_fts_data", "chat_lines_fts_idx",
+    "chat_lines_fts_content", "chat_lines_fts_docsize", "chat_lines_fts_config",
+    "chat_line_sources",
     "research_topics", "research_topic_fronts",
     "research_entries", "research_entry_topics", "research_entry_context",
     "research_sessions", "research_session_entries", "research_session_topics",
@@ -3249,6 +3254,40 @@ def _run_ladder(conn):
         columns = {row[1] for row in conn.execute("PRAGMA table_info(thread_summaries)")}
         if "status" not in columns:
             conn.execute("ALTER TABLE thread_summaries ADD COLUMN status TEXT")
+    if version < 51:
+        # A word index over everything said in the Observatory's chats, for
+        # the chat search box (chatsearch.py fills and reads it). One row per
+        # spoken line: which conversation, its place among that
+        # conversation's spoken lines, who said it ('B' the owner, 'K' the
+        # agent), when, and the words. Only `text` is indexed; the other
+        # columns ride along so a hit can say where it came from. SQLite's
+        # built-in full-text search (FTS5), with the porter stemmer so
+        # "bartending" also finds "bartender".
+        #
+        # A STANDALONE index, like cards_fts: the logs are the record and
+        # this is the only copy of the lines in the database, so there is no
+        # second table for it to drift from. Starts empty; the first
+        # chatsearch.ingest() fills it.
+        #
+        # Prompt: "Need some kind of search function for chats."
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS chat_lines_fts USING fts5("
+            "  conv UNINDEXED, turn UNINDEXED, who UNINDEXED, at UNINDEXED, text,"
+            "  tokenize = 'porter unicode61 remove_diacritics 2'"
+            ")"
+        )
+        # How far into each chat log has been read, so only what's new is
+        # read next time: the log's path, its conversation, the byte reading
+        # stopped at, and how many spoken lines it has given so far (the next
+        # line's number).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS chat_line_sources ("
+            "  path TEXT PRIMARY KEY,"
+            "  conv TEXT NOT NULL,"
+            "  size INTEGER NOT NULL,"
+            "  lines INTEGER NOT NULL DEFAULT 0,"
+            "  scanned_at TEXT NOT NULL)"
+        )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

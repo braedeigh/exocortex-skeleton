@@ -2918,6 +2918,137 @@
       }
     }
   },
+  "chat_lines_fts": {
+    "holds": "The chat word index: one row per line said in an Observatory session, by the owner or by the agent, organized so the chat search box can find every line that contains a set of words (with word endings folded, so 'bartending' matches 'bartender'). Tool calls and their results are not in here, only what was said.",
+    "source": "Filled by chatsearch.py, which reads the spoken lines out of the Observatory's conversation logs under the data folder's bot_chats/ (sqlstore.py, rung 51). Re-readable at any time, so it can be wiped and rebuilt with scripts/usage_events.py --rebuild.",
+    "kind": "mirror",
+    "time_column": "at",
+    "columns": {
+      "conv": {
+        "holds": "Which conversation the line was said in."
+      },
+      "turn": {
+        "holds": "The line's place among that conversation's spoken lines, counting from 0."
+      },
+      "who": {
+        "holds": "Who said it: B for the owner, K for the agent."
+      },
+      "at": {
+        "holds": "When it was said, in local time. Empty for lines logged before timestamps were kept."
+      },
+      "text": {
+        "holds": "What was said, as indexed for searching."
+      }
+    }
+  },
+  "chat_lines_fts_data": {
+    "holds": "Internal storage SQLite's full-text search keeps behind the `chat_lines_fts` word index. Not meant to be read directly; rebuilt along with the index. This one holds the index itself, in compressed blocks.",
+    "source": "Filled by chatsearch.py, which reads the spoken lines out of the Observatory's conversation logs under the data folder's bot_chats/ (sqlstore.py, rung 51). Re-readable at any time, so it can be wiped and rebuilt with scripts/usage_events.py --rebuild.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "id": {
+        "holds": "Which block."
+      },
+      "block": {
+        "holds": "The block's packed index data."
+      }
+    }
+  },
+  "chat_lines_fts_idx": {
+    "holds": "Internal storage SQLite's full-text search keeps behind the `chat_lines_fts` word index. Not meant to be read directly; rebuilt along with the index. This one holds a directory of where each stretch of words lives in the blocks.",
+    "source": "Filled by chatsearch.py, which reads the spoken lines out of the Observatory's conversation logs under the data folder's bot_chats/ (sqlstore.py, rung 51). Re-readable at any time, so it can be wiped and rebuilt with scripts/usage_events.py --rebuild.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "segid": {
+        "holds": "Which index segment."
+      },
+      "term": {
+        "holds": "The first word this stretch covers."
+      },
+      "pgno": {
+        "holds": "Which page of the segment it starts on."
+      }
+    }
+  },
+  "chat_lines_fts_content": {
+    "holds": "Internal storage SQLite's full-text search keeps behind the `chat_lines_fts` word index. Not meant to be read directly; rebuilt along with the index. This one holds a copy of each indexed line and where it came from.",
+    "source": "Filled by chatsearch.py, which reads the spoken lines out of the Observatory's conversation logs under the data folder's bot_chats/ (sqlstore.py, rung 51). Re-readable at any time, so it can be wiped and rebuilt with scripts/usage_events.py --rebuild.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "id": {
+        "holds": "The index's own row number."
+      },
+      "c0": {
+        "holds": "The conversation id (the index's first column)."
+      },
+      "c1": {
+        "holds": "The line's place in the conversation (the index's second column)."
+      },
+      "c2": {
+        "holds": "Who said it (the index's third column)."
+      },
+      "c3": {
+        "holds": "When it was said (the index's fourth column)."
+      },
+      "c4": {
+        "holds": "What was said (the index's fifth column)."
+      }
+    }
+  },
+  "chat_lines_fts_docsize": {
+    "holds": "Internal storage SQLite's full-text search keeps behind the `chat_lines_fts` word index. Not meant to be read directly; rebuilt along with the index. This one holds how many words each line has, used for ranking.",
+    "source": "Filled by chatsearch.py, which reads the spoken lines out of the Observatory's conversation logs under the data folder's bot_chats/ (sqlstore.py, rung 51). Re-readable at any time, so it can be wiped and rebuilt with scripts/usage_events.py --rebuild.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "id": {
+        "holds": "The index's own row number."
+      },
+      "sz": {
+        "holds": "Word counts, packed."
+      }
+    }
+  },
+  "chat_lines_fts_config": {
+    "holds": "Internal storage SQLite's full-text search keeps behind the `chat_lines_fts` word index. Not meant to be read directly; rebuilt along with the index. This one holds the index's settings.",
+    "source": "Filled by chatsearch.py, which reads the spoken lines out of the Observatory's conversation logs under the data folder's bot_chats/ (sqlstore.py, rung 51). Re-readable at any time, so it can be wiped and rebuilt with scripts/usage_events.py --rebuild.",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "k": {
+        "holds": "A setting's name."
+      },
+      "v": {
+        "holds": "Its value."
+      }
+    }
+  },
+  "chat_line_sources": {
+    "holds": "Bookkeeping for the chat word index: one row per conversation log, saying how far into it has been read and how many spoken lines it has given so far.",
+    "source": "Written by chatsearch.py as it reads. If wiped along with the index, the next read starts from the top.",
+    "kind": "mirror",
+    "time_column": "scanned_at",
+    "columns": {
+      "path": {
+        "holds": "One conversation log on disk."
+      },
+      "conv": {
+        "holds": "Which conversation it is the log of."
+      },
+      "size": {
+        "holds": "How many bytes of it have been read."
+      },
+      "lines": {
+        "holds": "How many spoken lines have been read from it, which is the next line's number."
+      },
+      "scanned_at": {
+        "holds": "When it was last read."
+      }
+    }
+  },
   "cards_fts": {
     "holds": "The journal's word index: one row per journal card, holding the card's text, organized so the search box can find every card that contains a set of words (with word endings folded, so 'bartending' matches 'bartender').",
     "source": "Kept up to date automatically by database triggers whenever a row in `cards` is added, changed, or removed (sqlstore.py, rung 23). Read by cardsearch.py for the journal's search box.",

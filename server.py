@@ -27,7 +27,7 @@ from routes import (
     kitchen, habits, todos, places, health, inventory, money, car,
     meditation, media, movement, reminders, food_test, terminal, settings,
     devnotes, ideas, buildtodo, ecosystem, keeper, pending, housing, triage, helpers, decisions,
-    entities, threads, person, shell, cards, journal_search, photos, archivals, research,
+    entities, threads, person, shell, cards, journal_search, chat_search, photos, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
     observatory, swarms, terrain, terrain_builds, terrain_map, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
@@ -1306,6 +1306,7 @@ threads.register(app)
 person.register(app)
 cards.register(app)
 journal_search.register(app)
+chat_search.register(app)
 photos.register(app)
 wiki.register(app)
 travel.register(app)

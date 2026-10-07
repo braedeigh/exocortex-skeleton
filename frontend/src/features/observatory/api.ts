@@ -362,15 +362,23 @@ export function useArchiveList() {
   });
 }
 
-/** One match inside a transcript: where the words sit in the snippet (`at`,
- * `len`) so the client can mark them without re-finding the query in trimmed,
- * ellipsised text. `turn` is its index among that session's spoken lines. */
-export interface SearchHit {
+/** One piece of an excerpt: a stretch of text, and whether it is one of the
+ * matched words. The server cuts the excerpt and marks the matches, so the
+ * page never re-finds the query in trimmed text. */
+export interface SearchPiece {
   text: string;
-  at: number;
-  len: number;
-  turn: number;
-  who: 'B' | 'K';
+  hit: boolean;
+}
+
+/** One match inside a session. In a "said" search `who` is 'B' (the owner)
+ * or 'K' (the agent) and `turn` is the line's place among that session's
+ * spoken lines; in a "did" search `who` is the tool's name (Edit, Bash…) and
+ * `turn` is null. */
+export interface SearchHit {
+  who: string;
+  turn: number | null;
+  said_at: string | null;
+  pieces: SearchPiece[];
 }
 
 export interface SearchResult {
@@ -384,22 +392,73 @@ export interface SearchResult {
   pinned: boolean;
   started?: string;
   last_at?: string;
+  /** How many lines (or tool calls) in this session matched; `hits` holds
+   * only the first few. */
+  count: number;
   hits: SearchHit[];
 }
 
+/** Which record a search reads: what was SAID in the chats, or what the
+ * agents DID (the files they touched, the commands they ran). */
+export type SearchIn = 'said' | 'did';
+
 export interface SearchResponse {
   query: string;
+  in: SearchIn;
   results: SearchResult[];
-  /** How many transcripts were actually read — so a partial scan is visible
-   * rather than silently passing for "everything". */
-  scanned: number;
+  /** More sessions matched than are shown. */
   truncated: boolean;
+  /** Some chat logs haven't been indexed yet, so the answer may be missing
+   * older sessions. */
+  catching_up: boolean;
 }
 
-/** Search every session's transcript, archived included. Plain substring, no
- * query language — see the route's docstring for why. */
-export function searchSessions(q: string, signal?: AbortSignal): Promise<SearchResponse> {
-  return api.get(`/api/observatory/search?q=${encodeURIComponent(q)}`, signal);
+/** Search every session, closed ones included. Query rules are in
+ * chatsearch.py: every word must appear, a half-typed word finds the whole
+ * one, "quotes" make a phrase, -word leaves a line out. */
+export function searchSessions(
+  q: string,
+  where: SearchIn = 'said',
+  signal?: AbortSignal,
+): Promise<SearchResponse> {
+  return api.get(`/api/observatory/search?q=${encodeURIComponent(q)}&in=${where}`, signal);
+}
+
+/** A session on the recently-opened list. */
+export interface RecentSession {
+  id: string;
+  title: string;
+  lane: Lane;
+  journal: boolean;
+  archived: boolean;
+  pinned: boolean;
+  started?: string;
+  last_at?: string;
+  opened_at: string;
+}
+
+/** The sessions she opened most recently, newest first, closed ones included.
+ * Kept on the server, so every device shows the same list. */
+export function useRecentSessions(limit = 20) {
+  return useQuery({
+    queryKey: ['observatory-recent', limit] as const,
+    queryFn: async ({ signal }) =>
+      api.get<{ sessions: RecentSession[] }>(`/api/observatory/recent?limit=${limit}`, signal),
+    staleTime: 15_000,
+  });
+}
+
+/** Tell the server she just opened a session, so it tops the recently-opened
+ * list on every device. Best-effort: a failed note only leaves the list a
+ * step behind. */
+export function noteSessionOpened(convId: string): void {
+  void api.post('/api/observatory/opened', { conv: convId }).catch(() => {});
+}
+
+/** Hand the server a whole map of opens (conversation id -> ISO time). The
+ * server keeps the later time for each session. */
+export function mergeOpenedSessions(opened: Record<string, string>): Promise<unknown> {
+  return api.post('/api/observatory/opened', { opened });
 }
 
 /** Create a session ahead of its first message — the roster's '+ New
