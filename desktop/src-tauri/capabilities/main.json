@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "What the one window may ask the program to do. The window shows a page served from this computer (127.0.0.1), which Tauri counts as a remote page, so it has to be named here before that page may call choose_folder.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*"]
+  },
+  "permissions": ["core:default"]
+}
