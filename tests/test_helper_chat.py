@@ -774,3 +774,21 @@ def test_a_swarm_helper_mid_conversation_is_handed_the_closing_summary_once(help
     assert "closings" in [p["key"] for p in helper_chat.last_seed(helper)["parts"]]
     text, resume_sid = turn("anything else?", "grown-3")
     assert resume_sid == "grown-2" and "Closing 1: the pond page was built." not in text
+
+
+def test_a_session_reads_the_same_whatever_order_its_files_come_in(tmp_path):
+    """A resumed turn re-sends a session whenever its entry's text differs,
+    so files edited in the same minute must not change places between looks."""
+    files = {str(tmp_path / "tools" / "stream.py"): "2026-10-07T09:00:00",
+             str(tmp_path / "store.py"): "2026-10-07T09:00:00",
+             str(tmp_path / "lanes.py"): "2026-10-07T09:00:00",
+             str(tmp_path / "scripts" / "boot.py"): "2026-10-07T10:00:00"}
+
+    def shown(edited):
+        session = {"conv": A, "title": "t", "state": "working", "swarm": None, "line": [A],
+                   "summary": "", "summary_from": None, "summary_at": "", "edited": edited,
+                   "read": set()}
+        return helper_chat._shown_now([session], repo=tmp_path)["sessions"][A]
+
+    assert shown(files) == shown(dict(reversed(list(files.items()))))
+    assert shown(files) != shown({**files, str(tmp_path / "new.py"): "2026-10-07T11:00:00"})

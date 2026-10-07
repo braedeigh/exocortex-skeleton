@@ -667,10 +667,15 @@ def _session_entries(found, repo, today):
                        f"{about}): {session['summary']}")
         else:
             out.append("Summary: (none written yet)")
-        edited = sorted(session["edited"].items(), key=lambda item: item[1], reverse=True)
+        # List the edited files newest first, and files changed in the same
+        # minute by path, so the same session always reads the same way: a
+        # resumed turn re-sends an entry whenever its text differs
+        # (write_update), and files in no fixed order would look like a change.
+        edited = sorted(session["edited"].items(), key=lambda item: item[0])
+        edited.sort(key=lambda item: item[1], reverse=True)
         shown = []
         for path, at in edited:
-            others = [c for c in editors[path] if c != session["conv"]]
+            others = sorted(c for c in editors[path] if c != session["conv"])
             also = f" [also edited by {' and '.join(f'`{c}`' for c in others)}]" if others else ""
             shown.append(f"{edited_files._shown(path, repo)} {edited_files._when(at, today)}{also}")
         out.append(f"Edited ({len(edited)}), with when it last changed each:"
