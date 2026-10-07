@@ -8,7 +8,6 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import json
 import uuid
-import pandas as pd
 
 from store import (  # noqa: F401  (re-exported for backward compatibility)
     BUILD_DIR, DATA_DIR, CONTENT_DIR, UPLOAD_DIR, RECEIPTS_DIR, RECIPES_DIR,
@@ -162,6 +161,11 @@ def load_health_data():
     csv_path = CONTENT_DIR / "habits.csv"
     if not csv_path.exists():
         return []
+    # pandas is loaded here, not at the top of the file: only the health CSV
+    # needs it, and it is the heaviest thing this file pulls in. The desktop
+    # app (standalone_app.py) reaches this file for its upload sweep alone,
+    # and so never loads pandas at all.
+    import pandas as pd
     df = pd.read_csv(csv_path)
     df["date"] = pd.to_datetime(df["date"], format="mixed")
     df = df.sort_values("date")
@@ -462,6 +466,7 @@ def validate_on_startup(app):
     csv_path = CONTENT_DIR / "habits.csv"
     if csv_path.exists():
         try:
+            import pandas as pd   # loaded only where it is used (see load_health_data)
             pd.read_csv(csv_path, nrows=1)
         except Exception as e:
             problems.append(f"habits.csv unreadable: {e}")

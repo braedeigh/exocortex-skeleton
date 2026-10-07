@@ -6,7 +6,7 @@ reachable at "/classic" as a rollback path, and the design doc this implements
 URL scheme:
   - "/" and every SPA route ("/todos", "/legacy/<tab>", "/journal", "/research",
     "/settings", "/files", "/chat") → `frontend/dist/index.html`, with `window.THEME_OVERRIDES`,
-    `window.VIEW_MODE`, `window.PUBLIC_ONLY`, and `window.PUBLIC_INTRO_HTML` injected before `</head>`.
+    `window.VIEW_MODE`, `window.PUBLIC_ONLY`, `window.STANDALONE`, and `window.PUBLIC_INTRO_HTML` injected before `</head>`.
     Client-side routing (TanStack Router) takes it from there. Cache-Control:
     no-store — this HTML is the one thing here that's never safe to cache (the
     injected values are per-request).
@@ -83,6 +83,12 @@ def _spa_response():
         # A public-only mirror has no login page, so the shell hides its
         # Sign-in buttons rather than pointing strangers at a 404.
         f"window.PUBLIC_ONLY = {'true' if config.public_only() else 'false'};"
+        # The desktop app (config.standalone): the shell shows only the
+        # Observatory and Terrain, and a first-run screen.
+        f"window.STANDALONE = {'true' if config.standalone() else 'false'};"
+        # Extra pages the desktop app's server also serves, by name. None yet:
+        # the page shows only the Observatory and Terrain.
+        "window.STANDALONE_EXTRAS = [];"
         f"window.PUBLIC_INTRO_HTML = {intro_json};"
         f"window.APP_META = {meta_json};"
         "</script></head>"
@@ -213,6 +219,10 @@ def register(app):
     def spa_root_file(filename):
         path = DIST_DIR / filename
         if not path.is_file() or path.suffix not in _ROOT_FILE_EXTS:
+            abort(404)
+        # No service worker in the desktop app: a cached shell on localhost
+        # only ever shows a stale page after an update.
+        if config.standalone() and filename in ("sw.js", "registerSW.js"):
             abort(404)
         resp = make_response(send_from_directory(DIST_DIR, filename))
         resp.headers["Cache-Control"] = "no-store" if filename == "sw.js" else "no-cache"

@@ -64,6 +64,7 @@ import os
 import subprocess
 
 import buildlist
+import config
 import lanes
 import sqlstore
 import store
@@ -79,7 +80,12 @@ def default_repos():
     """The two repos this system is made of, in the terrain payload's own ids:
     the skeleton checkout (the app code) and the vault (her data + content).
     Same roots routes/observatory._terrain_repos resolves — kept independent
-    so this module never imports the routes layer."""
+    so this module never imports the routes layer.
+
+    The desktop app has neither: its one folder is a build (buildlist.py), so
+    there this is empty and history_repos() is the builds alone."""
+    if config.standalone():
+        return ()
     return (
         {"id": "skeleton", "root": Path(store.BUILD_DIR)},
         {"id": "vault", "root": Path(store.CONTENT_DIR).parent},

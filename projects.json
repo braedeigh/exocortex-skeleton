@@ -20,7 +20,9 @@
         "textanchor.py",
         "textsearch.py",
         "commons.py",
-        "llm.py"
+        "llm.py",
+        "standalone_app.py",
+        "standalone_jobs.py"
       ],
       "routes": [
         "spa.py",
@@ -39,14 +41,16 @@
       "frontend": [
         "settings",
         "approvals",
-        "fronts"
+        "fronts",
+        "setup"
       ],
       "tools": [],
       "scripts": [
         "commons_fetch.py",
         "validate_data.py",
         "git_backup.sh",
-        "restart_server.sh"
+        "restart_server.sh",
+        "standalone.py"
       ],
       "tables": [
         "docs",

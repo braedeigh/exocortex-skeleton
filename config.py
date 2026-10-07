@@ -44,6 +44,40 @@ def public_only() -> bool:
     return os.environ.get("EXOCORTEX_PUBLIC_ONLY", "").strip().lower() in ("1", "true", "yes")
 
 
+def standalone() -> bool:
+    """True when this is the desktop app's server (EXOCORTEX_STANDALONE=1).
+
+    Off by default, and the live site never sets it. In that mode the server
+    is the small app in standalone_app.py: only the Observatory and Terrain,
+    on a data folder it makes itself, answering this computer alone with no
+    login, and running its own timed jobs in place of cron
+    (standalone_jobs.py). scripts/standalone.py is the start command and sets
+    this itself. Read at call time, like public_only(), so tests can flip it.
+    The whole of it is written up in docs/standalone.md.
+
+    Prompt that produced it: "What would it take to turn the observatory and
+    terrain into a downloadable desktop app?"
+    """
+    return os.environ.get("EXOCORTEX_STANDALONE", "").strip().lower() in ("1", "true", "yes")
+
+
+def standalone_helpers() -> bool:
+    """True when the desktop app may start agents nobody asked for
+    (EXOCORTEX_STANDALONE_HELPERS=1): the room and swarm helpers, the helper
+    wake-up, the auto-titler and the day-idle check. Off by default — each of
+    them spends the person's own Claude usage on a timer. Only read in
+    standalone mode (standalone_jobs.py)."""
+    return os.environ.get("EXOCORTEX_STANDALONE_HELPERS", "").strip().lower() in ("1", "true", "yes")
+
+
+def standalone_sample_repo() -> str:
+    """The public address of this app's own code, for the desktop app's "start
+    with this app's own code" (EXOCORTEX_STANDALONE_SAMPLE_REPO, e.g.
+    "https://github.com/owner/repo"). Empty by default: whoever packages the
+    app sets it. Only read in standalone mode (standalone_app.own_code)."""
+    return os.environ.get("EXOCORTEX_STANDALONE_SAMPLE_REPO", "").strip()
+
+
 def frame_ancestors():
     """Origins allowed to put this site in an <iframe>, read from
     EXOCORTEX_FRAME_ANCESTORS (space-separated, e.g.

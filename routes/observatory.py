@@ -316,6 +316,13 @@ def _lane_profile(lane):
         # (fairywall.py), which refuses the write itself.
         return {"cwd": str(store.FAIRY_ROOM_DIR), "allowed_tools": list(fairywall.TOOLS),
                 "act_gate": False, "guard_docs": False}
+    elif app_config.standalone():
+        # The desktop app: a session stands in the person's own project
+        # folder, never in this app's code (standalone_app.project_cwd).
+        # Its sessions just act unless the person switched "ask first" on.
+        import standalone_app
+        cwd = standalone_app.project_cwd()
+        watched = watched and not standalone_app.ask_first()
     else:
         cwd = str(store.BUILD_DIR)
     return {"cwd": cwd,
@@ -1794,7 +1801,13 @@ def _terrain_repos():
     """(id, name, root) for the two repos Terrain covers. Roots follow the
     same conventions as elsewhere in this module: the skeleton's own dir
     (store.BUILD_DIR — the app code) and the vault root (store.CONTENT_DIR's
-    parent, same as _default_bots()'s keeper cwd)."""
+    parent, same as _default_bots()'s keeper cwd).
+
+    The desktop app draws one folder instead: the project the person chose
+    (standalone_app.project_repos), and nothing until they have."""
+    if app_config.standalone():
+        import standalone_app
+        return standalone_app.project_repos()
     return (
         {"id": "skeleton", "name": "App code", "root": Path(store.BUILD_DIR)},
         {"id": "vault", "name": "Personal vault", "root": Path(store.CONTENT_DIR).parent},
