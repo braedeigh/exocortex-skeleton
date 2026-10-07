@@ -231,6 +231,18 @@ def test_disabled_by_env(sensor, tmp_path, monkeypatch):
 
 # --- coverage of the batch half ----------------------------------------------
 
+# Scripts that run as a process and are left off the runtime map on purpose.
+# Each one needs its reason here, because the guard below is the only thing
+# that notices an untraced script.
+#   standalone.py, standalone_seed.py — the desktop app's server and the maker
+#     of its seed. The desktop app switches the sensor off for its whole
+#     process (`prepare_environment` sets EXOCORTEX_RUNTIME_SENSOR=0; see
+#     docs/standalone.md), and neither may import `store` before that function
+#     has pointed the folders inside the data folder — which importing the
+#     sensor in the __main__ block would do.
+DELIBERATELY_UNTRACED = {"standalone.py", "standalone_seed.py"}
+
+
 def test_every_standalone_script_is_on_the_runtime_map():
     """The goal is that every file be traceable as it runs, and the batch half
     of the system — the cron scripts, the dispatchers, the rollups — is where
@@ -247,11 +259,17 @@ def test_every_standalone_script_is_on_the_runtime_map():
         text = path.read_text(encoding="utf-8", errors="replace")
         if 'if __name__ == "__main__":' not in text:
             continue          # a library module, not a process
-        if "runtime_sensor" not in text:
+        if "runtime_sensor" not in text and path.name not in DELIBERATELY_UNTRACED:
             missing.append(path.name)
     assert missing == [], (
         "these standalone scripts run untraced — add `import runtime_sensor;"
         f" runtime_sensor.attach()` inside their __main__ block: {missing}")
+    # An exemption for a script that is gone, or that has since been traced,
+    # is a stale excuse — take it off the list.
+    stale = sorted(name for name in DELIBERATELY_UNTRACED
+                   if not (scripts / name).is_file()
+                   or "runtime_sensor" in (scripts / name).read_text(encoding="utf-8"))
+    assert stale == [], f"no longer needs its exemption: {stale}"
 
 
 def test_attach_registers_the_exit_flush(sensor, tmp_path, monkeypatch):
