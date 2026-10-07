@@ -563,7 +563,7 @@
   },
   "thread_summaries": {
     "holds": "The summaries written of each journal thread: one row per summary. A new summary is added as a new row and the older ones are never changed, so a thread's rows read newest first are its summaries stacked on top of each other. Each is at most 120 words.",
-    "source": "Written by threadsummaries.py: the nightly thread tending (scripts/thread_tending.py) adds one for each thread that got new cards or a new fact that night, and a session adds one through scripts/thread_summary.py. A record: nothing else holds it. The database refuses an UPDATE on this table.",
+    "source": "Written by threadsummaries.py. The nightly thread tending (scripts/thread_tending.py) adds one when a fact is added to a thread's file and one when a thread's status changes; a cricket can add one through scripts/thread_summary.py. The Keeper does not write here: the one keeper row was added once at the owner's request. A record: nothing else holds it. The database refuses an UPDATE on this table.",
     "kind": "record",
     "time_column": "written_at",
     "columns": {
@@ -584,6 +584,14 @@
       },
       "based_on": {
         "holds": "The card ids and days the summary was based on, as a JSON list."
+      },
+      "status": {
+        "holds": "The status the thread moved to, when that move is why the summary was written. Empty otherwise.",
+        "values": {
+          "dormant": "the thread went quiet",
+          "retired": "the thread was closed",
+          "active": "the thread became active again"
+        }
       }
     }
   },

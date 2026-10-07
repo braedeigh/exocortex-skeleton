@@ -18,6 +18,10 @@ journal, or the card pool. Everything you need is in the job file and the thread
 - `thread_file`: the path of the thread's own file. Read it.
 - `cards`: the candidate cards from `window_start` to `target`. Each has `id`, `ts`,
   `text`, and `tagged` (true when the card already carries this thread's tag).
+- `history`: the thread's own older cards, from before `window_start` (`id`, `ts`,
+  `text`, each cut short). They are already judged: do not put them in `belongs` or
+  `does_not_belong`. They are there so your summary can cover the whole thread.
+  `history_left_out` says how many still older ones did not fit.
 - `max_facts`: the most facts you may propose tonight.
 - `report_path`: where to write your report.
 
@@ -41,9 +45,14 @@ journal, or the card pool. Everything you need is in the job file and the thread
 4. **What moved.** In a few short lines, say what changed in this thread across these
    cards. Every line carries the ids of the cards it comes from. A line with no card
    behind it is dropped.
-5. **Where the thread stands.** A short summary of the thread as it is now, from
-   the thread file plus tonight's cards. It is stored and the owner reads it at the
-   top of the thread's page, above the older summaries, so write it to stand alone.
+5. **The whole thread, in arcs.** A short summary of the whole thread and how it has
+   moved over time, from the thread file, the `history` cards and tonight's cards. It
+   is stored only on a night you propose a fact, and the owner reads it at the top of
+   the thread's page, above the older summaries. Write it to stand alone.
+   - **The whole thread, not tonight.** Start where the thread starts and end where it
+     is now.
+   - **In arcs.** Group it into the few stretches it really has (two to four), each
+     one sentence that opens with its dates: `Jun to Jul: …`. `Since Oct: …`.
    - **120 words at most.** Shorter is better. A longer one is cut at a sentence.
    - Plain sentences. No headings, no lists.
    - Quote her own words where you can, in quote marks, with the date. Only words

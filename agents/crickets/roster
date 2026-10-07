@@ -30,5 +30,5 @@ memory-scout  opus     off     # Sunday, after thread-scout: the week's context 
 # Thread tending is not a roster row. scripts/cricket_swarm.sh runs it after the last
 # cricket: scripts/thread_tending.py starts one main session, then one isolated session
 # per active thread and per ambiguous name (prompts: thread-main.md, thread-helper.md,
-# person-helper.md, thread-reconcile.md). It takes over thread tagging from `cards` and
+# person-helper.md, thread-reconcile.md, thread-status.md). It takes over thread tagging from `cards` and
 # thread tending from the front crickets. THREAD_TENDING=0 turns it off.

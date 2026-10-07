@@ -22,6 +22,11 @@ job file and write a report file.
 4. **The reconcile session** runs only when two or more thread sessions
    claimed the same card. It sees those cards beside the claiming threads and
    says which claims stand.
+5. **One status session per thread whose status changed** since the last
+   night: gone dormant, retired, or active again. Whatever changed it (the
+   weekly housekeeper, an approval, a hand edit), the script notices by
+   comparing each thread file's status with the one it remembered. The
+   session reads the thread and writes its summary.
 
 **What gets written, and through which door.**
 - A tag is added with the journal engine's own `tag` verb (`tools/stream/stream.py`).
@@ -36,17 +41,20 @@ job file and write a report file.
 - Topics the main session saw recurring with no thread to hold them are
   appended to `thread_tending/hints.jsonl`. Nothing is nominated from here:
   the weekly thread scout reads the hints and decides.
-- A thread that got new cards or a new fact tonight gets a new summary: one
-  row in the `thread_summaries` table in exo.db (`threadsummaries.py`), added
-  on top of the older ones, which are never changed. A summary is at most 120
-  words; a longer one loses whole sentences from its end.
+- A thread gets a new summary on two occasions only: a fact was added to its
+  file tonight, or its status changed since the last night (active, dormant,
+  retired). Either way the summary covers the whole thread and how it has
+  moved, and is one row in the `thread_summaries` table in exo.db
+  (`threadsummaries.py`), added on top of the older ones, which are never
+  changed. A status summary is marked with the new status. A summary is at
+  most 120 words; a longer one loses whole sentences from its end.
 - Each night's job files, reports, log and a readable `digest.md` are kept in
   `thread_tending/<date>/`. The newest movement notes and recording problems
   per thread are kept in `thread_tending/summaries/<slug>.json`.
 
 **Where the prompts are.** Each session is told to read one prompt file from
 the crickets folder (`thread-main.md`, `thread-helper.md`, `person-helper.md`,
-`thread-reconcile.md`) and its job file. The sessions run one at a time.
+`thread-reconcile.md`, `thread-status.md`) and its job file. The sessions run one at a time.
 
 Usage:
     thread_tending.py                      tend for yesterday
@@ -97,6 +105,13 @@ SESSION_TIMEOUT_SECONDS = 900
 MAX_UNTAG_PROPOSALS = 8
 # The most facts one thread session may add to its thread file in one night.
 MAX_FACTS_PER_THREAD = 1
+# The most of a thread's older cards handed to a session so it can summarise
+# the whole thread, and how much of each card's text. Newest cards are kept.
+MAX_HISTORY_CARDS = 120
+HISTORY_TEXT_LENGTH = 300
+# The most status sessions run in one night. The housekeeper can turn many
+# threads dormant at once; the rest are done on later nights.
+MAX_STATUS_SESSIONS = 12
 # The author recorded on a summary a thread session wrote.
 SUMMARY_AUTHOR = "cricket:thread-helper"
 # A thread alias shorter than this is not searched for in card text: two
@@ -142,6 +157,15 @@ def load_threads():
     return out
 
 
+def thread_statuses():
+    """Every thread, retired ones too: {slug: {status, name, file}}."""
+    from routes import threads
+
+    return {slug: {"status": thread.get("status") or "", "name": thread["name"],
+                   "file": str(store.CONTENT_DIR / thread["file"])}
+            for slug, thread in threads.threads_index().items()}
+
+
 def risky_names(people, today):
     """Each person's risky names, judged from the database's copy of the
     cards. With no database only the shared names can be known."""
@@ -165,7 +189,8 @@ def _work_dir():
 def load_state():
     """The memory between nights: `threads` and `names` map a slug or a name
     to the last day it was judged through; `untag_proposed` lists every
-    card-and-tag removal already put to the owner."""
+    card-and-tag removal already put to the owner; `statuses` maps a thread's
+    slug to the status its file had when last looked at."""
     try:
         state = json.loads((_work_dir() / "state.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -173,6 +198,7 @@ def load_state():
     state.setdefault("threads", {})
     state.setdefault("names", {})
     state.setdefault("untag_proposed", [])
+    state.setdefault("statuses", {})
     return state
 
 
@@ -206,6 +232,18 @@ def _in_days(cards, first, last):
 
 def _card_for_job(card, tagged):
     return {"id": card["id"], "ts": card["ts"], "text": card["body"], "tagged": tagged}
+
+
+def thread_history(cards, slug, before=None):
+    """A thread's own older cards, for a session that has to summarise the
+    whole thread: every card tagged with the slug (dated before `before`, when
+    given), oldest first, each cut to HISTORY_TEXT_LENGTH characters. Only the
+    newest MAX_HISTORY_CARDS are kept. Returns (cards, how many were left out)."""
+    tagged = [card for card in cards if slug in card["tags"]
+              and (before is None or card["day"] < before.isoformat())]
+    kept = tagged[-MAX_HISTORY_CARDS:]
+    return ([{"id": card["id"], "ts": card["ts"], "text": card["body"][:HISTORY_TEXT_LENGTH]}
+             for card in kept], len(tagged) - len(kept))
 
 
 def main_job(target, cards, threads, people, risky):
@@ -252,13 +290,34 @@ def thread_jobs(target, cards, threads, state, main_report):
         active = chosen or any(slug in card["tags"] for card in week)
         if not active:
             continue
+        history, left_out = thread_history(cards, slug, before=start)
         jobs.append({
             "slug": slug, "name": thread["name"], "charter": thread["charter"],
             "thread_file": thread["file"], "target": target.isoformat(),
             "window_start": start.isoformat(), "max_facts": MAX_FACTS_PER_THREAD,
             "cards": [_card_for_job(card, slug in card["tags"]) for card in chosen],
+            "history": history, "history_left_out": left_out,
         })
     return jobs
+
+
+def status_jobs(target, cards, statuses, state):
+    """One job per thread whose status is not the one remembered for it.
+
+    A thread seen for the first time has nothing remembered, so it gets no
+    job: its status is only written down. At most MAX_STATUS_SESSIONS a
+    night; the rest keep their old remembered status and come up again."""
+    jobs = []
+    for slug, thread in sorted(statuses.items()):
+        before = state["statuses"].get(slug)
+        if before is None or before == thread["status"] or thread["status"] not in threadsummaries.STATUSES:
+            continue
+        history, left_out = thread_history(cards, slug)
+        jobs.append({"slug": slug, "name": thread["name"], "thread_file": thread["file"],
+                     "target": target.isoformat(), "status_before": before,
+                     "status_now": thread["status"], "cards": history,
+                     "history_left_out": left_out})
+    return jobs[:MAX_STATUS_SESSIONS]
 
 
 def person_jobs(target, cards, people, risky, state):
@@ -474,41 +533,71 @@ def apply_person_reports(jobs, reports, state, target, apply):
     return tagged, removals
 
 
-def save_summaries(jobs, reports, tagged, facts, target, apply):
-    """Add a new summary on top of each thread that changed tonight.
+def save_summaries(jobs, reports, facts, apply):
+    """Add a new summary on top of each thread that got a fact tonight.
 
-    Changed means the thread session found at least one card that belongs, or
-    a fact was added to the thread file. A thread whose session only looked
-    and found nothing gets no new row, so the stack grows when the thread
-    does. The summary is based on the cards the session said belong. Returns
-    [{slug, words, ok, error}] for the digest."""
-    grew = {item["tag"] for item in tagged if item["ok"]} | {item["slug"] for item in facts if item["ok"]}
+    Only a fact added to the thread file counts. New cards alone do not: the
+    stack grows when the thread's own record does. The summary is based on
+    the cards the fact came from. Returns [{slug, words, ok, error}] for the
+    digest."""
+    sources = {item["slug"]: list(item["fact"].get("sources") or []) for item in facts if item["ok"]}
     saved = []
     for job in jobs:
         slug, report = job["slug"], reports.get(job["slug"])
-        if not report:
+        if not report or slug not in sources:
+            continue
+        saved.append(_store_summary(slug, report.get("summary"), sources[slug], None, apply))
+    return [item for item in saved if item]
+
+
+def save_status_summaries(jobs, reports, statuses, state, apply):
+    """Add a summary, marked with the new status, to each thread whose status
+    changed, and remember every thread's status for the next night.
+
+    A thread whose status session failed keeps its old remembered status, so
+    it is tried again. Returns [{slug, status, words, ok, error}]."""
+    saved, waiting = [], set()
+    for job in jobs:
+        report = reports.get(job["slug"])
+        if report is None:
+            waiting.add(job["slug"])
             continue
         in_job = {card["id"] for card in job["cards"]}
-        belongs = [card_id for card_id in report.get("belongs") or [] if card_id in in_job]
-        if not belongs and slug not in grew:
-            continue
-        body = threadsummaries.fit(str(report.get("summary") or ""))
-        if not body:
-            if str(report.get("summary") or "").strip():
-                saved.append({"slug": slug, "words": 0, "ok": False,
-                              "error": f"over {threadsummaries.MAX_WORDS} words with no sentence short enough to keep"})
-            continue
-        if not apply:
-            saved.append({"slug": slug, "words": threadsummaries.word_count(body), "ok": True, "error": ""})
-            continue
-        try:
-            row = threadsummaries.add(slug, SUMMARY_AUTHOR, body, belongs)
-        except (ValueError, sqlite3.Error) as error:
-            saved.append({"slug": slug, "words": 0, "ok": False, "error": str(error)})
-            continue
-        if row:
-            saved.append({"slug": slug, "words": threadsummaries.word_count(body), "ok": True, "error": ""})
+        based_on = [source for source in report.get("based_on") or [] if source in in_job]
+        item = _store_summary(job["slug"], report.get("summary"), based_on, job["status_now"], apply)
+        if item:
+            saved.append({**item, "status": job["status_now"]})
+    if apply:
+        asked = {job["slug"] for job in jobs}
+        for slug, thread in statuses.items():
+            changed = slug in state["statuses"] and state["statuses"][slug] != thread["status"]
+            # Over tonight's cap and not asked: leave the old status so it comes up again.
+            if slug in waiting or (changed and slug not in asked
+                                   and thread["status"] in threadsummaries.STATUSES):
+                continue
+            state["statuses"][slug] = thread["status"]
     return saved
+
+
+def _store_summary(slug, summary, based_on, status, apply):
+    """Fit one summary to the word limit and add it to the thread's stack.
+    Returns {slug, words, ok, error} for the digest, or None when there was
+    nothing to add."""
+    summary = str(summary or "").strip()
+    body = threadsummaries.fit(summary)
+    if not body:
+        if not summary:
+            return None
+        return {"slug": slug, "words": 0, "ok": False,
+                "error": f"over {threadsummaries.MAX_WORDS} words with no sentence short enough to keep"}
+    done = {"slug": slug, "words": threadsummaries.word_count(body), "ok": True, "error": ""}
+    if not apply:
+        return done
+    try:
+        row = threadsummaries.add(slug, SUMMARY_AUTHOR, body, based_on, status=status)
+    except (ValueError, sqlite3.Error) as error:
+        return {"slug": slug, "words": 0, "ok": False, "error": str(error)}
+    return done if row else None
 
 
 def main_removals(main_report, cards, target, people, risky):
@@ -577,7 +666,8 @@ def write_digest(night_dir, target, outcome):
         lines.append(f"- fact added to `{item['slug']}`: {item['fact'].get('section')}"
                      + ("" if item["ok"] else f" — REFUSED: {item['error']}"))
     for item in outcome["summaries"]:
-        lines.append(f"- new summary on `{item['slug']}` ({item['words']} words)" if item["ok"]
+        why = f", now {item['status']}" if item.get("status") else ""
+        lines.append(f"- new summary on `{item['slug']}` ({item['words']} words{why})" if item["ok"]
                      else f"- summary for `{item['slug']}` NOT kept: {item['error']}")
     for item in outcome["staged"]:
         lines.append(f"- asked you: remove `{item['tag']}` from `{item['card_id']}` — {item['reason']}")
@@ -671,7 +761,20 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
         jobs, reports, kept_claims, state, target, apply)
     people_tagged, people_removals = apply_person_reports(
         people_jobs, people_reports, state, target, apply)
-    summaries = save_summaries(jobs, reports, tagged, facts, target, apply)
+    summaries = save_summaries(jobs, reports, facts, apply)
+
+    # The status sessions: one per thread whose status changed since last night.
+    statuses = thread_statuses()
+    changed = [] if only_thread else status_jobs(target, cards, statuses, state)
+    status_reports = {}
+    for item in changed:
+        report = session("thread-status", item, night_dir, f"status.{item['slug']}",
+                         crickets_dir, model, log)
+        if report is None:
+            failed.append(f"status {item['slug']}")
+        status_reports[item["slug"]] = report
+    if not only_thread:
+        summaries += save_status_summaries(changed, status_reports, statuses, state, apply)
     removals = removals + people_removals + main_removals(main_report, cards, target, people, risky)
     staged, held = propose_untags(removals, state) if apply else ([], removals)
     hints = save_hints(main_report, cards, target, apply)

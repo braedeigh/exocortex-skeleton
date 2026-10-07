@@ -47,6 +47,18 @@
   color: var(--text-secondary);
 }
 
+/* The mark on a summary written because the thread changed status. */
+.status {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .body {
   margin: 0;
   font-size: var(--font-size-base);

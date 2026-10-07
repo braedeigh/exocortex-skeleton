@@ -4,7 +4,8 @@
  * A thread's summaries are short pieces of prose written by the Keeper or by
  * a night helper (a cricket), kept in the database one row each and never
  * rewritten (threadsummaries.py). This shows the newest one in full, and a
- * button under it that opens the older ones beneath, newest first. A thread
+ * button under it that opens the older ones beneath, newest first. A summary
+ * written because the thread changed status says so beside its date. A thread
  * nobody has summarised shows nothing here.
  *
  * Touches: ThreadJournalPage.tsx (the page that renders this and hands it the
@@ -38,6 +39,12 @@ export function authorLabel(author: string): string {
  */
 export function sourceDays(basedOn: string[]): string[] {
   return [...new Set(basedOn.map((source) => source.slice(0, 10)))].sort();
+}
+
+/** What to print beside a summary written because the thread changed status. */
+export function statusLabel(status: string | null): string | null {
+  if (status === 'active') return 'active again';
+  return status || null;
 }
 
 export function ThreadSummaries({ summaries, formatDay }: ThreadSummariesProps) {
@@ -76,6 +83,7 @@ interface SummaryCardProps {
 
 function SummaryCard({ summary, formatDay, newest = false }: SummaryCardProps) {
   const days = sourceDays(summary.based_on);
+  const status = statusLabel(summary.status);
   return (
     <article className={newest ? styles.card : `${styles.card} ${styles.older}`}>
       <div className={styles.meta}>
@@ -83,6 +91,7 @@ function SummaryCard({ summary, formatDay, newest = false }: SummaryCardProps) {
         <span className={styles.byline}>
           {authorLabel(summary.author)} · {formatDay(summary.written_at.slice(0, 10))}
         </span>
+        {status ? <span className={styles.status}>{status}</span> : null}
       </div>
       <p className={styles.body}>{summary.body}</p>
       {days.length > 0 ? (

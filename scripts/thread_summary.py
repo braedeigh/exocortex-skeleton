@@ -4,12 +4,16 @@
 **What this does, in plain English.** A thread's summaries are a stack in the
 `thread_summaries` table in exo.db (see `threadsummaries.py`): each new one is
 added on top and the older ones stay underneath. This script is how a session
-puts one there. It checks the thread exists, the author is `keeper` or
-`cricket:<name>`, and the summary is at most 120 words, and refuses loudly
+puts one there. It checks the thread exists, the author is a cricket
+(`cricket:<name>`), and the summary is at most 120 words, and refuses loudly
 otherwise. It never changes or removes a summary already written.
 
-    thread_summary.py add --slug SLUG --author keeper --body-file /tmp/summary.txt \\
-        --based-on 2026-06-26 2026-07-13.2220b
+The Keeper does not write summaries: this door refuses the author `keeper`.
+The one keeper row in the table was put there once, at the owner's request,
+before that rule.
+
+    thread_summary.py add --slug SLUG --author cricket:housekeep --body-file /tmp/summary.txt \\
+        --based-on 2026-06-26 2026-07-13.2220b [--status retired]
     thread_summary.py list SLUG
     thread_summary.py import-nights
 
@@ -50,12 +54,16 @@ def _known_thread(slug):
 
 
 def add(args):
+    if not args.author.startswith("cricket:"):
+        print("refused: only a cricket adds a summary (author cricket:<name>)", file=sys.stderr)
+        return 2
     if not _known_thread(args.slug):
         print(f"refused: no thread file for {args.slug!r}", file=sys.stderr)
         return 2
     body = Path(args.body_file).read_text(encoding="utf-8") if args.body_file else args.body
     try:
-        row = threadsummaries.add(args.slug, args.author, body, args.based_on, args.written_at)
+        row = threadsummaries.add(args.slug, args.author, body, args.based_on, args.written_at,
+                                  status=args.status)
     except ValueError as error:
         print(f"refused: {error}", file=sys.stderr)
         return 2
@@ -70,7 +78,8 @@ def add(args):
 
 def show(args):
     for row in threadsummaries.for_thread(args.slug):
-        print(f"--- {row['written_at']}  {row['author']}  ({len(row['based_on'])} source(s))")
+        marked = f"  [{row['status']}]" if row["status"] else ""
+        print(f"--- {row['written_at']}  {row['author']}{marked}  ({len(row['based_on'])} source(s))")
         print(row["body"])
     return 0
 
@@ -109,7 +118,9 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     adding = commands.add_parser("add", help="add one summary on top of a thread's stack")
     adding.add_argument("--slug", required=True)
-    adding.add_argument("--author", required=True, help="keeper, or cricket:<name>")
+    adding.add_argument("--author", required=True, help="cricket:<name>")
+    adding.add_argument("--status", choices=threadsummaries.STATUSES,
+                        help="the status the thread just moved to, when that is why this is written")
     words = adding.add_mutually_exclusive_group(required=True)
     words.add_argument("--body")
     words.add_argument("--body-file")

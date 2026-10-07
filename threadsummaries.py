@@ -8,7 +8,9 @@ row, and a thread's summaries are read newest first, so the older ones stay
 readable underneath.
 
 Each row says which thread, who wrote it (`keeper`, or `cricket:<name>` for a
-night helper), when, the words, and the card ids and days it was based on.
+night helper), when, the words, and the card ids and days it was based on. A
+summary written because the thread changed status also carries that status
+(`dormant`, `retired`, `active`).
 
 **The length rule.** A summary is at most MAX_WORDS words. `add()` refuses a
 longer one. `fit()` shortens one by dropping whole sentences from the end, for
@@ -35,6 +37,8 @@ MAX_WORDS = 120
 _SLUG = re.compile(r"^[a-z0-9-]{1,40}$")
 _AUTHOR = re.compile(r"^(keeper|cricket:[a-z0-9-]{1,40})$")
 # A card id (2026-07-08.1841b, sometimes with a trailing digit) or a bare day.
+# The statuses a thread can move to, which a summary can be marked with.
+STATUSES = ("active", "dormant", "retired")
 _SOURCE = re.compile(r"^\d{4}-\d{2}-\d{2}(\.\d{4}[a-z]\d*)?$")
 # One sentence: the words up to a full stop, question mark or exclamation mark,
 # plus any closing quote or bracket right after it. The last piece of a text
@@ -63,21 +67,26 @@ def fit(text):
 
 def _row(row):
     return {"id": row[0], "slug": row[1], "author": row[2], "written_at": row[3],
-            "body": row[4], "based_on": json.loads(row[5] or "[]")}
+            "body": row[4], "based_on": json.loads(row[5] or "[]"), "status": row[6]}
 
 
-def add(slug, author, body, based_on=(), written_at=None):
+def add(slug, author, body, based_on=(), written_at=None, status=None):
     """Add one summary on top of a thread's stack and return it.
 
-    Raises ValueError for a bad slug or author, an empty or over-long body, or
-    a source that is neither a card id nor a day. Returns None, and adds
-    nothing, when the body is word for word the thread's newest summary: a
-    writer that has nothing new to say does not grow the stack."""
+    `status` marks a summary written because the thread moved to that status.
+
+    Raises ValueError for a bad slug, author or status, an empty or over-long
+    body, or a source that is neither a card id nor a day. Returns None, and
+    adds nothing, when the body is word for word the thread's newest summary
+    and no status is being marked: a writer that has nothing new to say does
+    not grow the stack."""
     body = (body or "").strip()
     if not _SLUG.match(slug or ""):
         raise ValueError(f"not a thread slug: {slug!r}")
     if not _AUTHOR.match(author or ""):
         raise ValueError(f"author must be 'keeper' or 'cricket:<name>', not {author!r}")
+    if status is not None and status not in STATUSES:
+        raise ValueError(f"status must be one of {', '.join(STATUSES)}, not {status!r}")
     if not body:
         raise ValueError("a summary needs words")
     if word_count(body) > MAX_WORDS:
@@ -92,14 +101,15 @@ def add(slug, author, body, based_on=(), written_at=None):
         newest = conn.execute(
             "SELECT body FROM thread_summaries WHERE slug = ?"
             " ORDER BY written_at DESC, id DESC LIMIT 1", (slug,)).fetchone()
-        if newest and newest[0] == body:
+        if newest and newest[0] == body and status is None:
             return None
         cursor = conn.execute(
-            "INSERT INTO thread_summaries (slug, author, written_at, body, based_on)"
-            " VALUES (?, ?, ?, ?, ?)", (slug, author, written_at, body, json.dumps(based_on)))
+            "INSERT INTO thread_summaries (slug, author, written_at, body, based_on, status)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (slug, author, written_at, body, json.dumps(based_on), status))
         conn.commit()
         return {"id": cursor.lastrowid, "slug": slug, "author": author,
-                "written_at": written_at, "body": body, "based_on": based_on}
+                "written_at": written_at, "body": body, "based_on": based_on, "status": status}
     finally:
         conn.close()
 
@@ -109,7 +119,7 @@ def for_thread(slug):
     conn = sqlstore.open_db()
     try:
         return [_row(row) for row in conn.execute(
-            "SELECT id, slug, author, written_at, body, based_on FROM thread_summaries"
+            "SELECT id, slug, author, written_at, body, based_on, status FROM thread_summaries"
             " WHERE slug = ? ORDER BY written_at DESC, id DESC", (slug,))]
     finally:
         conn.close()

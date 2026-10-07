@@ -334,6 +334,9 @@ export interface ThreadSummary {
   body: string;
   /** Card ids ("2026-07-08.1841b") and bare days it was based on. */
   based_on: string[];
+  /** The status the thread moved to ("dormant", "retired", "active"), when
+   * that move is why this summary was written; otherwise null. */
+  status: string | null;
 }
 
 /** GET /api/thread/<slug>/summaries — newest first. */

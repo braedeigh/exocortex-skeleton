@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 49
+_SCHEMA_VERSION = 50
 
 
 def _db_path():
@@ -3240,6 +3240,15 @@ def _run_ladder(conn):
             " BEFORE UPDATE ON thread_summaries"
             " BEGIN SELECT RAISE(ABORT, 'a thread summary is never rewritten: add a new one'); END"
         )
+    if version < 50:
+        # Mark a summary that was written because its thread changed status.
+        # `status` holds the status the thread moved to ('dormant', 'retired',
+        # 'active'); it is empty on a summary written for any other reason.
+        #
+        # Prompt: "write a summary, tag as retired or whatnot"
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(thread_summaries)")}
+        if "status" not in columns:
+            conn.execute("ALTER TABLE thread_summaries ADD COLUMN status TEXT")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

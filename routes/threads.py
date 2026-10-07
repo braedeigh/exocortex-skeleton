@@ -671,8 +671,9 @@ def register(app):
     def thread_summaries(slug):
         """The summaries written of this thread, newest first, for the stack
         at the top of the thread's page. Each one: who wrote it (`keeper` or
-        `cricket:<name>`), when, the words, and the card ids and days it was
-        based on. They are rows in exo.db (threadsummaries.py), not part of
+        `cricket:<name>`), when, the words, the card ids and days it was
+        based on, and `status` (the status the thread moved to, when that
+        move is why it was written; otherwise null). They are rows in exo.db (threadsummaries.py), not part of
         the thread's file; a thread nobody has summarised returns an empty
         list."""
         # Imported here, not at module top: the rest of this file reads only
@@ -684,7 +685,7 @@ def register(app):
             return jsonify({"error": "not found", "slug": slug}), 404
         return jsonify({"summaries": [
             {"id": row["id"], "author": row["author"], "written_at": row["written_at"],
-             "body": row["body"], "based_on": row["based_on"]}
+             "body": row["body"], "based_on": row["based_on"], "status": row["status"]}
             for row in threadsummaries.for_thread(slug)]})
 
     @app.route("/api/thread/talk", methods=["POST"])

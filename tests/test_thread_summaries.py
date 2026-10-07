@@ -30,7 +30,7 @@ def vault(data_dir, tmp_path, monkeypatch):
     return content
 
 
-def add(*extra, slug="garden", author="keeper", body="The beans are in."):
+def add(*extra, slug="garden", author="cricket:housekeep", body="The beans are in."):
     return door.main(["add", "--slug", slug, "--author", author, "--body", body, *extra])
 
 
@@ -40,11 +40,14 @@ def test_each_summary_lands_on_top_and_the_older_ones_stay_as_written(vault):
                *["--written-at", "2026-03-11T02:00:00"]) == 0
     stack = threadsummaries.for_thread("garden")
     assert [(row["author"], row["body"]) for row in stack] == [
-        ("cricket:thread-helper", "The beans sprouted."), ("keeper", "The beans are in.")]
+        ("cricket:thread-helper", "The beans sprouted."), ("cricket:housekeep", "The beans are in.")]
     assert stack[1]["based_on"] == ["2026-03-08", "2026-03-10.0900b"]
     # Saying the same thing again does not grow the stack.
     assert add(author="cricket:thread-helper", body="The beans sprouted.") == 0
     assert len(threadsummaries.for_thread("garden")) == 2
+    # A status change is always recorded, and carries the status.
+    assert add("--status", "retired", author="cricket:thread-helper", body="The beans sprouted.") == 0
+    assert [row["status"] for row in threadsummaries.for_thread("garden")] == ["retired", None, None]
 
 
 def test_the_door_refuses_what_does_not_belong_in_the_stack(vault, capsys):
@@ -52,6 +55,7 @@ def test_the_door_refuses_what_does_not_belong_in_the_stack(vault, capsys):
     assert add(body=too_long) == 2
     assert add(slug="no-such-thread") == 2
     assert add(author="someone") == 2
+    assert add(author="keeper") == 2            # the Keeper does not write summaries
     assert add("--based-on", "last tuesday") == 2
     assert threadsummaries.for_thread("garden") == []
     assert "at most 120 words" in capsys.readouterr().err
