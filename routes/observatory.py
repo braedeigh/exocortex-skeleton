@@ -4551,12 +4551,24 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
             if card_prompt:
                 entry["last_prompt"] = card_prompt
         resume_sid = entry.get("claude_session_id")
-        # A helper's chat (a swarm's, a room's, the Linear helper's) never resumes: each turn
+        # Decide whether a helper's chat (a swarm's, a room's, the Linear
+        # helper's) picks its conversation back up. Most never do: each turn
         # starts fresh from a rolling seed (helper_chat.py), written just
         # below, so its context can't outgrow the window however long it runs.
+        # A growing helper (config.HELPER_GROW_ROLES) resumes until it passes
+        # its reset size, then starts fresh too. A fresh start drops the old
+        # model session there and then, so a turn that dies before the new
+        # one is saved can't leave the next turn resuming the old one.
         helper_chat_entry = dict(entry) if entry.get("role") in _HELPER_ROLES else None
+        helper_resumes = False
         if helper_chat_entry is not None:
-            resume_sid = None
+            import helper_chat
+            helper_resumes = helper_chat.resumes(conv_id, entry)
+            if not helper_resumes:
+                resume_sid = None
+                if helper_chat.grows(entry):
+                    entry["helper_grown_at"] = _now()
+                    entry.pop("claude_session_id", None)
         # Attach the boot package when this send wakes a Keeper. Any chat
         # can be woken this way — the pinned one the 3 AM rollover makes
         # (which also attaches it, in scripts/keeper_rollover.py) or one
@@ -4660,11 +4672,19 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
 
     # The helper chat's seed: its doc, her last messages with its replies,
     # and the active sessions. Written BEFORE this message goes in the log,
-    # so the seed's messages end where this new one begins.
+    # so the seed's messages end where this new one begins. A growing helper
+    # that is resuming keeps the seed it started from, untouched — a changed
+    # system prompt would throw its prompt cache away — and is handed the
+    # active sessions as they stand now ahead of its message instead.
+    helper_update = ""
     if helper_chat_entry is not None:
         import helper_chat
         try:
-            config["system_prompt_file"] = helper_chat.write_seed(conv_id, helper_chat_entry)
+            if helper_resumes:
+                config["system_prompt_file"] = str(helper_chat.seed_path(conv_id))
+                helper_update = helper_chat.write_update(conv_id, helper_chat_entry)
+            else:
+                config["system_prompt_file"] = helper_chat.write_seed(conv_id, helper_chat_entry)
         except Exception as e:
             print(f"helper seed failed for {conv_id}: {e}", file=sys.stderr)
 
@@ -4729,7 +4749,7 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
     # anybody else.
     # Tell the agent which open questions her message just cleared. What it
     # reads gets the note; the transcript and journal keep her words alone.
-    agent_text = text + _reopen_note(cleared_questions)
+    agent_text = helper_update + text + _reopen_note(cleared_questions)
     if not _spawn_host(config, agent_text, resume_sid, conv_id, log_path):
         if not fallback:
             return _refuse(502, {"error": "could not start the turn process"})

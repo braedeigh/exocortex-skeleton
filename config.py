@@ -253,6 +253,22 @@ SWARM_HELPER_TIMEOUT_SEC = int(os.environ.get("EXOCORTEX_SWARM_HELPER_TIMEOUT_SE
 # Prompt: "the rolling context of 15 inputs and outputs" — "specifically my
 # messages to the agent" — "always 15 no matter what."
 HELPER_CHAT_EXCHANGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_EXCHANGES", "15"))
+# The helpers whose chat grows, then resets, instead of starting fresh every
+# turn (helper_chat.py, "Growing helpers"). A helper named in
+# HELPER_GROW_ROLES resumes its conversation turn after turn, so what it was
+# sent last turn is read back from the prompt cache; once its context passes
+# HELPER_RESET_TOKENS it starts over from a fresh seed. Empty = every helper
+# starts fresh every turn. The size trades memory against cost. Estimated from
+# the room helper's logged turns (2026-10-07), not yet measured on this
+# design: 200k costs about what starting fresh did, 300k about 1.3 times and
+# 500k about twice, because the whole conversation is paid for again whenever
+# the cache has expired.
+# Prompt: "increase the size of the helpers and maybe have a cache that is
+# reset every so often" — "expand the window for the room helper."
+HELPER_GROW_ROLES = tuple(
+    role.strip() for role in os.environ.get(
+        "EXOCORTEX_HELPER_GROW_ROLES", "room_helper").split(",") if role.strip())
+HELPER_RESET_TOKENS = int(os.environ.get("EXOCORTEX_HELPER_RESET_TOKENS", "300000"))
 # The helper's wake-up (helper_chat.wake_tick): the app starts a turn in a
 # helper's chat when the sessions it watches change, and the helper may stay
 # silent. HELPER_WAKE_ON is what counts as a change:

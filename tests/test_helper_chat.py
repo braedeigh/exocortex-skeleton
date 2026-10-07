@@ -645,3 +645,72 @@ def test_a_summarizer_run_never_reads_an_old_helpers_handoff(helper):
     peermail.send(old, "old helper recap", from_conv=A)
     text = swarm_helper.gather(swarm_id)
     assert A in text and old not in text and "old helper recap" not in text
+
+
+def test_a_growing_helper_resumes_with_its_seed_untouched_until_it_passes_the_reset_size(
+        room, monkeypatch):
+    """A growing helper's whole cycle: fresh start, resumed turns that keep
+    the seed as it was and carry the room as it is now, then a fresh start
+    again once the conversation is past the reset size."""
+    helper, _, _ = room
+    monkeypatch.setattr(config, "HELPER_GROW_ROLES", ("room_helper",))
+    monkeypatch.setattr(config, "HELPER_RESET_TOKENS", 200000)
+    # One exchange is the usual number kept here, so the reset below shows
+    # that everything she said since the last reset is carried across.
+    monkeypatch.setattr(config, "HELPER_CHAT_EXCHANGES", 1)
+    started = []
+    monkeypatch.setattr(
+        observatory, "_spawn_host",
+        lambda turn_config, text, resume_sid, conv_id, log_path: started.append(
+            (open(turn_config["system_prompt_file"], encoding="utf-8").read(), text, resume_sid))
+        or True)
+
+    def model_session(session_id, context_tokens):
+        _turn_ends(helper, "noted")
+        with store.mutate("bot_chats/index", {}) as index:
+            index[helper].update(claude_session_id=session_id, context_tokens=context_tokens)
+
+    # Its first growing turn starts fresh, whatever session it last ran in.
+    with store.mutate("bot_chats/index", {}) as index:
+        index[helper].update(claude_session_id="rolling-session", context_tokens=50000)
+    assert observatory.begin_turn(helper, "who is on pond.py?")["ok"]
+    first_seed, text, resume_sid = started[-1]
+    assert resume_sid is None and text.startswith("who is on pond.py?")
+    assert "this chat GROWS, then RESETS" in first_seed
+    assert _entry(helper).get("claude_session_id") is None
+
+    # Under the size it resumes: same seed, the new session in the message.
+    model_session("grown-1", 70000)
+    _seed(A, last_at="2026-09-27T12:00:00")
+    assert observatory.begin_turn(helper, "and now?")["ok"]
+    seed, text, resume_sid = started[-1]
+    assert resume_sid == "grown-1" and seed == first_seed and f"## `{A}`" not in seed
+    assert text.startswith(helper_chat.ROOM_NOW_HEAD) and text.endswith("and now?")
+    assert f"## `{A}`" in text
+    assert f"## `{A}`" in helper_chat.last_seed(helper)["parts"][-1]["text"]
+
+    # Past the size it starts over, from a new seed that holds the room now
+    # and every message she sent since the reset before.
+    model_session("grown-2", 200001)
+    assert observatory.begin_turn(helper, "third question")["ok"]
+    seed, text, resume_sid = started[-1]
+    assert resume_sid is None and text.startswith("third question")
+    assert f"## `{A}`" in seed and "who is on pond.py?" in seed and "and now?" in seed
+
+
+def test_a_helper_outside_the_growing_roles_still_starts_fresh_every_turn(room, monkeypatch):
+    helper, _, _ = room
+    monkeypatch.setattr(config, "HELPER_GROW_ROLES", ())
+    started = []
+    monkeypatch.setattr(
+        observatory, "_spawn_host",
+        lambda turn_config, text, resume_sid, conv_id, log_path: started.append(
+            (open(turn_config["system_prompt_file"], encoding="utf-8").read(), resume_sid))
+        or True)
+    for question in ("first", "second"):
+        assert observatory.begin_turn(helper, question)["ok"]
+        _turn_ends(helper, "noted")
+        with store.mutate("bot_chats/index", {}) as index:
+            index[helper].update(claude_session_id="some-session", context_tokens=60000)
+    assert [resume_sid for _, resume_sid in started] == [None, None]
+    assert all("this chat is ROLLING" in seed for seed, _ in started)

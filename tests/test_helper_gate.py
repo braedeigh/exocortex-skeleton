@@ -228,8 +228,7 @@ def test_an_ordinary_session_has_no_helper_gate(data_dir):
 def test_the_helpers_instructions_say_it_never_builds(data_dir):
     import helper_chat
     prompt = helper_chat.CHAT_PROMPT.format(
-        lead="", wake="", world_line="", repo="/repo", chats="/c", conv="c", data="/d",
-        exchanges=15)
+        lead="", wake="", view="", rules_last="", repo="/repo", chats="/c", conv="c", data="/d")
     assert "You never build" in prompt and "BRIEF.md" not in prompt
     assert "scripts/spinoff_brief.py <slug> <<'BRIEF'" in prompt
     assert "scripts/spinoff_open.py <slug>" in prompt
