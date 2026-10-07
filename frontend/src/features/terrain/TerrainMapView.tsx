@@ -199,7 +199,10 @@ export function TerrainMapView({
     <div className={`${styles.view} ${card ? styles.cardView : ''}`}>
       {card ? (
         <div className={styles.cardHead}>
-          <span className={styles.cardTitle}>{current?.name ?? 'Map'} · a map of the code</span>
+          {/* The map's own name is the first crumb just below, so the head does not
+              repeat it (the portfolio card read "Observatory · a map of the code"
+              directly over "Observatory"). */}
+          <span className={styles.cardTitle}>A map of the code</span>
           <a
             className={styles.cardOpen}
             href={key ? `/terrain/map?map=${encodeURIComponent(key)}` : '/terrain/map'}
