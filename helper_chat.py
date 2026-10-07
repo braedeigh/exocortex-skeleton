@@ -172,8 +172,9 @@ is yours to use. When the conversation passes about {reset} tokens the app start
 and you begin again from exactly three things, and nothing else:
 1. this doc — your job, her standing rules, your open watches, and where to look things up;
 2. every message she sent you during the stretch that just ended, each with your reply to it \
-— and never fewer than her last {exchanges}. Only the turns SHE started: what you said on a turn \
-she didn't start (a wake-up, a watch that fired, an agent's mail) is NOT replayed;
+— and never fewer than her last {exchanges} — with what you said on wake-ups during that \
+stretch, whenever you said anything. What you said on other turns she didn't start (a watch \
+that fired, an agent's mail) is NOT replayed;
 3. {world_line}, as it stood at the reset.
 After that, every turn begins with a block headed "The room now" that holds ONLY what changed \
 since you were last shown the room: a session that is new, or whose summary, state, swarm or \
@@ -367,22 +368,47 @@ def _exchanges_section(conv_id, since=None):
     then every exchange she started from that moment on is kept, and never
     fewer than the usual number. A growing helper's reset passes the time its
     ending stretch began, so nothing she said during it is lost at the reset.
-    Prompt: "make it keep messages from up to the last cache"."""
-    mine = her_exchanges(conv_id)
+    With `since`, what the helper said on wake-ups from that moment on is kept
+    too, in its place among her messages — but not a wake-up it answered with
+    silence.
+    Prompt: "make it keep messages from up to the last cache" — "keep wake up
+    replies too"."""
+    every = exchanges(conv_id)
+    started_by_her = [e for e in every if any(who == "owner" for who, _ in e["in"])]
     keep = config.HELPER_CHAT_EXCHANGES
     if since:
-        keep = max(keep, sum(1 for exchange in mine if (exchange["at"] or "") >= since))
-    mine = mine[-keep:] if keep else []
-    out = [f"# 2. Her last {len(mine)} messages to you, each with your reply", ""]
-    for exchange in mine:
+        keep = max(keep, sum(1 for e in started_by_her if (e["at"] or "") >= since))
+    kept = {id(e) for e in (started_by_her[-keep:] if keep else [])}
+    hers = len(kept)
+    woken = 0
+    if since:
+        for e in every:
+            spoke = [text for text in e["out"] if text.strip() != SILENT]
+            if ((e["at"] or "") >= since and e["in"] and spoke
+                    and all(who == _WAKE_WHO for who, _ in e["in"])):
+                kept.add(id(e))
+                woken += 1
+    out = [f"# 2. Her last {hers} messages to you, each with your reply"
+           + (f" — and what you said on {woken} wake-ups in between" if woken else ""), ""]
+    for exchange in every:
+        if id(exchange) not in kept:
+            continue
         out.append(f"### {exchange['at'] or 'earlier'}")
-        for text in exchange["hers"]:
+        mine = [text for who, text in exchange["in"] if who == "owner"]
+        if not mine:
+            for _, text in exchange["in"]:
+                out += ["**The app woke you:**", str(text).strip(), ""]
+            for text in exchange["out"]:
+                if text.strip() != SILENT:
+                    out += ["**You said:**", str(text).strip(), ""]
+            continue
+        for text in mine:
             out += ["**She said:**", str(text).strip(), ""]
-        for text in exchange["replies"]:
+        for text in exchange["out"]:
             out += ["**You replied:**", str(text).strip(), ""]
-        if not exchange["replies"]:
+        if not exchange["out"]:
             out += ["**You replied:** (nothing — that turn ended without a reply)", ""]
-    if not mine:
+    if not kept:
         out += ["(none yet — this is her first message to you)", ""]
     return "\n".join(out)
 

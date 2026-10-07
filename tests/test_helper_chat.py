@@ -398,7 +398,7 @@ def test_the_wake_up_follows_its_switch(room, monkeypatch):
     assert "pond.py" in started[-1][1]
 
 
-def test_a_wake_up_answered_with_silence_leaves_the_card_as_it_was(room):
+def test_a_wake_up_answered_with_silence_leaves_the_card_as_it_was(room, monkeypatch):
     helper, started, repo = room
     with store.mutate("bot_chats/index", {}) as index:
         index[helper]["last_at"] = "2026-09-27T09:00:00"       # when she last heard from it
@@ -417,7 +417,10 @@ def test_a_wake_up_answered_with_silence_leaves_the_card_as_it_was(room):
     assert helper_chat.wake_tick() == 1
     _turn_ends(helper, "Two sessions are both in the pond page; I've joined them.")
     assert _entry(helper)["last_at"] != "2026-09-27T09:00:00"
-    # And what it said there is not replayed: she didn't start that turn.
+    # What it said there is carried across a growing helper's reset, and not
+    # replayed to a helper that starts fresh every turn: she didn't start it.
+    assert "joined them" in helper_chat.seed_text(helper, _entry(helper))
+    monkeypatch.setattr(config, "HELPER_GROW_ROLES", ())
     assert "joined them" not in helper_chat.seed_text(helper, _entry(helper))
 
 
@@ -704,13 +707,22 @@ def test_a_growing_helper_resumes_with_its_seed_untouched_until_it_passes_the_re
     with store.mutate("bot_chats/index", {}) as index:
         index[A].pop("done_at")
 
-    # Past the size it starts over, from a new seed that holds the room now
-    # and every message she sent since the reset before.
+    # Past the size it starts over, from a new seed that holds the room now,
+    # every message she sent since the reset before, and what it said on a
+    # wake-up in that stretch — but not a wake-up it answered with silence.
     model_session("grown-4", 200001)
+    for said in ("pond and garden both touch shared.py", helper_chat.SILENT):
+        _log(helper, {"type": "reminder", "text": "Room change — a session is new",
+                      "source": helper_chat.WAKE_SOURCE,
+                      "ts": datetime.now().isoformat(timespec="seconds")},
+             _reply(said, f"msg_wake_{len(said)}"))
     assert observatory.begin_turn(helper, "third question")["ok"]
     seed, text, resume_sid = started[-1]
     assert resume_sid is None and text.startswith("third question")
     assert f"## `{A}`" in seed and "who is on pond.py?" in seed and "and now?" in seed
+    assert "pond and garden both touch shared.py" in seed
+    assert seed.count("**The app woke you:**") == 1 and helper_chat.SILENT not in seed.split(
+        "# 2. Her last")[1].split("# 3.")[0]
 
 
 def test_a_helper_outside_the_growing_roles_still_starts_fresh_every_turn(room, monkeypatch):
