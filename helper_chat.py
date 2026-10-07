@@ -136,8 +136,9 @@ scripts/linear_feed.py list` prints the recent news, and `scripts/linear_feed.py
 # How a helper is woken by the app itself: said one way to the helpers woken
 # when their sessions change (config.HELPER_WAKE_ROLES), another to the Linear helper.
 ROOM_WAKE = """The app also wakes you by itself when the sessions you watch change — a System message headed \
-"Room change", naming the sessions that are new or that started editing a file they hadn't \
-touched; part 3 is already up to date when you read it. You don't have to do anything on such a \
+"Room change", naming the sessions that are new, that started editing a file they hadn't \
+touched, or that changed state (asked her something, hit an error, stalled mid-turn, finished); \
+part 3 is already up to date when you read it. You don't have to do anything on such a \
 turn. Look for what your job is about: two sessions in the same files that aren't working \
 together, one redoing what another did, something one should hear from another. If you find it, \
 act as you would on any turn and tell her in a line or two. If you have nothing to tell her, \
@@ -597,14 +598,37 @@ def _summaries(convs, index):
     return found
 
 
+def _flags(conv, live, now=None):
+    """Name the states of a session that a helper is woken for
+    (config.HELPER_WAKE_STATES): "asked" when it is waiting on the owner,
+    "error" when its last turn failed, "stalled" when a turn is running but
+    has written nothing for a long while. The silence is measured the way a
+    watch measures it (watches._state_events); a session that is merely idle
+    between turns is not stalled."""
+    import watches
+    flags = []
+    if live.get("awaiting_input"):
+        flags.append("asked")
+    if live.get("last_error"):
+        flags.append("error")
+    try:
+        quiet = watches._state_events({"kinds": ("stalled",), "created_at": "2000-01-01T00:00:00"},
+                                      conv, live, now or datetime.now())
+    except Exception:
+        quiet = []
+    if any("mid-turn" in line for line in quiet):
+        flags.append("stalled")
+    return flags
+
+
 def sessions(entry, index=None, repo=None, files=True):
     """What this helper watches, one dict per open line of work, latest
     active first — and the finished sessions it only names. Each dict:
     conv (the session carrying the line now), line (every session in it),
     title, state, swarm (id, or None when working alone), summary,
     summary_at, summary_from (the earlier session the summary was written
-    about, when the one carrying the line has none yet), edited and read
-    ({absolute path: last time}, the line's whole life).
+    about, when the one carrying the line has none yet), flags (_flags),
+    edited and read ({absolute path: last time}, the line's whole life).
 
     `files=False` skips the two file lists — the slow part, which reads every
     tool call the sessions ever made; the wake-up's first look doesn't need it."""
@@ -638,7 +662,7 @@ def sessions(entry, index=None, repo=None, files=True):
         found.append({"conv": face, "line": sorted(line), "title": live.get("title") or face,
                       "state": state, "swarm": swarm_id, "summary": summary or "",
                       "summary_at": summary_at or "", "summary_from": source,
-                      "last_at": live.get("last_at") or "",
+                      "last_at": live.get("last_at") or "", "flags": _flags(face, live),
                       "edited": edited.get(face, {}), "read": read.get(face, {})})
     found.sort(key=lambda s: s["last_at"], reverse=True)
     return found, finished, place
@@ -985,7 +1009,8 @@ def last_seed(conv_id):
 # The app starts a turn in a helper's chat when the sessions it watches
 # change, at most once every config.HELPER_WAKE_MIN_SEC, with every change
 # since its last turn folded into one message. What counts as a change is
-# config.HELPER_WAKE_ON. "Since its last turn" is exact: every seed written
+# config.HELPER_WAKE_ON (new sessions and files) and config.HELPER_WAKE_STATES
+# (a session's state: state_changes). "Since its last turn" is exact: every seed written
 # (write_seed) records what the helper was shown of each session, and the
 # tick compares the sessions now against that record.
 
@@ -997,7 +1022,7 @@ def _seen_now(found):
     """What a helper is being shown of each session, as the record to
     measure the next wake-up against."""
     return {s["conv"]: {"summary_at": s["summary_at"], "edited": sorted(s["edited"]),
-                        "read": sorted(s["read"]),
+                        "read": sorted(s["read"]), "flags": list(s.get("flags") or []),
                         "edit_at": max(s["edited"].values(), default="")} for s in found}
 
 
@@ -1067,6 +1092,60 @@ def changes(found, seen, mode, repo=None):
     return out
 
 
+_STATE_WORDS = {"asked": "asked her something and is waiting on her",
+                "error": "hit an error on its last turn",
+                "stalled": "is mid-turn but has written nothing for a long while — it may be stuck"}
+
+
+def state_changes(helper_conv, found, seen, index):
+    """What changed STATE since the helper last looked, as one plain line per
+    change (config.HELPER_WAKE_STATES): a session it was shown that has since
+    asked the owner something, hit an error, stalled mid-turn, or finished.
+    Returns (lines, filled).
+
+    Only a change counts: a state the helper was already shown is not said
+    again, and a session it has never been shown has no "before". A record
+    kept before states were tracked gets today's states written into it
+    without a line (`filled` says the record changed and should be saved).
+    A change one of the helper's own open watches is set to report is left
+    to the watch, so the helper isn't woken twice for one event."""
+    wanted = set(config.HELPER_WAKE_STATES)
+    if not wanted:
+        return [], False
+    import watches
+    try:
+        watched = {(watch["conv"], kind) for watch in watches.listing(owner_conv=helper_conv)
+                   for kind in watch["kinds"]}
+    except Exception:
+        watched = set()
+    lines, filled = [], False
+    for session in found:
+        was = _was(session, seen)
+        if was is None:
+            continue
+        if "flags" not in was:
+            was["flags"], filled = list(session["flags"]), True
+            continue
+        name = f"`{session['conv']}` ({session['title']})"
+        for flag in session["flags"]:
+            if flag in wanted and flag not in was["flags"] and not any(
+                    (conv, flag) in watched for conv in session["line"]):
+                lines.append(f"{name} {_STATE_WORDS[flag]}.")
+    # Finished: shown to the helper last time, gone from its view now, and
+    # marked done or closed. A session that handed its work on is not
+    # finished: its line is still in view under the session that took over.
+    if "finished" in wanted:
+        still = {conv for session in found for conv in session["line"]}
+        for conv in sorted(set(seen) - still):
+            live = index.get(conv) or {}
+            ended = live.get("done_at") or (live.get("archived") and not live.get("continued_by"))
+            if ended and (conv, "done") not in watched:
+                note = f": {str(live['done_note'])[:200]}" if live.get("done_note") else ""
+                how = f"marked itself done{note}" if live.get("done_at") else "was closed"
+                lines.append(f"`{conv}` ({live.get('title') or conv}) {how}.")
+    return lines, filled
+
+
 def wake_message(lines):
     """What the helper is told on a wake-up, and how its chat shows it.
     Returns (text, system) — begin_turn's pair, as in watches.wake_message."""
@@ -1110,8 +1189,12 @@ def wake_tick(now=None):
             # A first look without the file lists — reading them is the slow
             # part, and unless a summary is new there's nothing to wake for.
             quick, _, _ = sessions(entry, index, files=False)
-            if seen is not None and mode != "edit" and not any(
+            state_lines, filled = ([], False) if seen is None else state_changes(
+                conv, quick, seen, index)
+            if seen is not None and mode != "edit" and not state_lines and not any(
                     _has_new_summary(s, _was(s, seen)) for s in quick):
+                if filled:
+                    _write_seen(conv, seen)
                 continue
             found, _, _ = sessions(entry, index)
         except Exception as e:
@@ -1121,7 +1204,7 @@ def wake_tick(now=None):
         if seen is None:
             _write_seen(conv, _seen_now(found))
             continue
-        lines = changes(found, seen, mode)
+        lines = changes(found, seen, mode) + state_lines
         if not lines:
             # A new summary with nothing else new: remember the summary, so
             # the file lists aren't read again every minute for the same one.

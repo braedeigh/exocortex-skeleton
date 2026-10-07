@@ -792,3 +792,60 @@ def test_a_session_reads_the_same_whatever_order_its_files_come_in(tmp_path):
 
     assert shown(files) == shown(dict(reversed(list(files.items()))))
     assert shown(files) != shown({**files, str(tmp_path / "new.py"): "2026-10-07T11:00:00"})
+
+
+def test_the_helper_is_woken_once_when_a_session_it_was_shown_changes_state(room, monkeypatch):
+    """Her call: wake for state changes — a session that asked her something,
+    hit an error, stalled mid-turn, or finished. Told once each, never for a
+    turn simply ending, and never twice when a watch already covers it."""
+    import watches
+    helper, started, _ = room
+    _seed(A, B, C, last_at="2026-09-27T12:00:00")
+    for conv in (A, B, C):
+        _summary(conv, "Builds the pond page.", "2026-09-27T12:00:00")
+    assert helper_chat.wake_tick() == 0                        # its first look
+
+    def set_state(conv, **fields):
+        with store.mutate("bot_chats/index", {}) as index:
+            index[conv].update(fields)
+
+    # A turn starting and ending is not a state change.
+    set_state(A, running=True)
+    assert helper_chat.wake_tick() == 0
+    set_state(A, running=False)
+    assert helper_chat.wake_tick() == 0
+
+    # One asks her something, one fails, one is stuck mid-turn: one wake-up.
+    set_state(A, awaiting_input="which colour?")
+    set_state(B, last_error="could not start claude")
+    set_state(C, running=True)
+    monkeypatch.setattr(observatory, "_effective_running",
+                        lambda conv, entry: bool(entry.get("running")))
+    monkeypatch.setattr(observatory, "_unfinished_jobs", lambda conv: [])
+    assert helper_chat.wake_tick() == 1
+    count, told = _woken(started)
+    assert count == 1 and f"`{A}`" in told and "asked her something" in told
+    assert f"`{B}`" in told and "hit an error" in told
+    assert f"`{C}`" in told and "may be stuck" in told
+    _turn_ends(helper, helper_chat.SILENT)
+    _gap_passes(helper)
+    assert helper_chat.wake_tick() == 0                        # told once
+
+    # One finishes: named with what it said it finished.
+    set_state(B, done_at=datetime.now().isoformat(timespec="seconds"),
+              done_note="pond page shipped", last_error=None)
+    assert helper_chat.wake_tick() == 1
+    count, told = _woken(started)
+    assert count == 2 and f"`{B}`" in told and "marked itself done: pond page shipped" in told
+    _turn_ends(helper, helper_chat.SILENT)
+    _gap_passes(helper)
+    assert helper_chat.wake_tick() == 0
+
+    # A state one of its own watches will report is left to the watch.
+    set_state(A, awaiting_input=None)
+    assert observatory.begin_turn(helper, "thanks")["ok"]      # it sees A no longer asking
+    _turn_ends(helper, "noted")
+    watches.add(helper, A, ["asked"], "tell her when it asks again")
+    set_state(A, awaiting_input="another question")
+    _gap_passes(helper)
+    assert helper_chat.wake_tick() == 0

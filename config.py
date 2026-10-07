@@ -287,6 +287,18 @@ HELPER_RESET_TOKENS = int(os.environ.get("EXOCORTEX_HELPER_RESET_TOKENS", "30000
 # Prompt: "notified and performs a 'turn' every time a new session is
 # activated ... it doesn't necessarily have to do anything."
 HELPER_WAKE_ON = os.environ.get("EXOCORTEX_HELPER_WAKE_ON", "new-or-files")
+# HELPER_WAKE_STATES is the second thing a helper is woken for: a session it
+# watches changing state (helper_chat.state_changes). "asked" — it asked the
+# owner something; "error" — its last turn failed; "stalled" — a turn is
+# running but has written nothing for HELPER_WATCH_STALLED_MINUTES; "finished"
+# — it marked itself done or was closed. An ordinary working-to-idle flip is
+# never one. Empty = never woken for state. These share the wake-up gap below.
+# Prompt: "wake for state changes" — a session that asked something, hit an
+# error, stalled mid-work, or finished.
+HELPER_WAKE_STATES = tuple(
+    state.strip() for state in os.environ.get(
+        "EXOCORTEX_HELPER_WAKE_STATES", "asked,error,stalled,finished").split(",")
+    if state.strip())
 HELPER_WAKE_MIN_SEC = int(os.environ.get("EXOCORTEX_HELPER_WAKE_MIN_SEC", "300"))
 HELPER_WAKE_ROLES = tuple(
     role.strip() for role in os.environ.get(
