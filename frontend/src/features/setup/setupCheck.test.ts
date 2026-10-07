@@ -34,6 +34,13 @@ describe('what the first-run check reports', () => {
     expect(reading).toMatchObject({ canOpen: true, canChat: false });
   });
 
+  it('shows the version as a plain number, however the program prints it', () => {
+    const printed = readSetup(withClaude({ found: true, version: '2.1.289 (Claude Code)', signed_in: true }));
+    expect(printed.claude.headline).toBe('Claude Code is installed (2.1.289) and signed in.');
+    const none = readSetup(withClaude({ found: true, version: null, signed_in: true }));
+    expect(none.claude.headline).toBe('Claude Code is installed and signed in.');
+  });
+
   it('tells a signed-out person to sign in, not to install', () => {
     const reading = readSetup(withClaude({ found: true, version: '2.1.220', signed_in: false }));
     expect(reading.claude.state).toBe('problem');

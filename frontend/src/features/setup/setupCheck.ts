@@ -150,7 +150,9 @@ function readClaude(status: StandaloneStatus | null): SetupStep {
       ],
     };
   }
-  const version = claude.version ? ` (${claude.version})` : '';
+  // The program prints its version as "2.1.289 (Claude Code)"; keep the number.
+  const number = (claude.version ?? '').replace(/\s*\(.*\)\s*$/, '').trim();
+  const version = number ? ` (${number})` : '';
   if (claude.signed_in === false) {
     return {
       state: 'problem',
