@@ -91,7 +91,7 @@ export function FirstRunPage({
   returning?: boolean;
 }) {
   const statusQuery = useStandaloneStatus(true);
-  const { drawOwnCode, drawProject, drawFolder, download, setAsksFirst } = useProjectActions();
+  const { drawOwnCode, drawProject, drawFolder, download, setAsksFirst, setChecksIdle } = useProjectActions();
   const status = statusQuery.data ?? null;
   const reading = readSetup(status);
   const unreachable = statusQuery.isError && !status;
@@ -280,27 +280,54 @@ export function FirstRunPage({
           </div>
         </section>
 
-        {reading.asksFirst !== null ? (
+        {/* The settings card. Each switch is drawn only when the server
+            reported that setting, so an older server shows fewer switches
+            instead of a guessed one. */}
+        {reading.asksFirst !== null || reading.checksIdle !== null ? (
           <section className={styles.card} aria-labelledby="setup-behaviour">
             <h2 className={styles.cardTitle} id="setup-behaviour">
               How sessions behave
             </h2>
-            <p className={styles.plain}>
-              {reading.asksFirst
-                ? 'A session stops and asks you before it changes a file or runs a command.'
-                : 'A session acts without asking: it can change files and run commands in the folder it works in, on its own.'}
-            </p>
-            <label className={styles.toggle}>
-              <input
-                type="checkbox"
-                className={styles.checkbox}
-                checked={reading.asksFirst}
-                onChange={(event) => send(setAsksFirst(event.target.checked))}
-                disabled={sending}
-              />
-              <span>Ask me first</span>
-            </label>
-            <p className={styles.hint}>Applies to sessions you start from now on. You can change it here any time.</p>
+            {reading.asksFirst !== null ? (
+              <>
+                <p className={styles.plain}>
+                  {reading.asksFirst
+                    ? 'A session stops and asks you before it changes a file or runs a command.'
+                    : 'A session acts without asking: it can change files and run commands in the folder it works in, on its own.'}
+                </p>
+                <label className={styles.toggle}>
+                  <input
+                    type="checkbox"
+                    className={styles.checkbox}
+                    checked={reading.asksFirst}
+                    onChange={(event) => send(setAsksFirst(event.target.checked))}
+                    disabled={sending}
+                  />
+                  <span>Ask me first</span>
+                </label>
+                <p className={styles.hint}>Applies to sessions you start from now on. You can change it here any time.</p>
+              </>
+            ) : null}
+            {/* Her ask: "on by default with the option to turn it off next to it". */}
+            {reading.checksIdle !== null ? (
+              <>
+                <p className={styles.plain}>
+                  {reading.checksIdle
+                    ? 'A session left alone for a day gets one message asking whether its job is over. If it is, the session closes itself.'
+                    : 'A session left alone stays open until you close it. Nothing checks on it.'}
+                </p>
+                <label className={styles.toggle}>
+                  <input
+                    type="checkbox"
+                    className={styles.checkbox}
+                    checked={reading.checksIdle}
+                    onChange={(event) => send(setChecksIdle(event.target.checked))}
+                    disabled={sending}
+                  />
+                  <span>Check on idle sessions</span>
+                </label>
+              </>
+            ) : null}
           </section>
         ) : null}
 

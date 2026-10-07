@@ -78,7 +78,10 @@ are listed as buttons that switch which one Terrain draws (`{"id"}`).
 
 Under the two steps is one notice: **sessions act without asking**, with an
 "Ask me first" switch (`POST /api/standalone/settings {"ask_first"}`). It
-applies to sessions started from then on.
+applies to sessions started from then on. Beside it is the **idle check**: a
+session left alone for a day is asked whether its job is over. It has its own
+switch, "Check on idle sessions" (`{"idle_check"}`). Each switch is drawn only
+when the server reports that setting.
 
 "Open the app" turns on once there is a folder. A missing or signed-out Claude
 Code does not block it — the map works without it — but the screen says

@@ -57,8 +57,9 @@ export interface StandaloneStatus {
   project?: ProjectStatus;
   /** Every project, the current one included. */
   projects?: ProjectStatus[];
-  /** `ask_first`: new sessions stop and ask before they change anything. */
-  settings?: { ask_first?: boolean };
+  /** `ask_first`: new sessions stop and ask before they change anything.
+   * `idle_check`: a session left alone for a day is asked whether it's done. */
+  settings?: { ask_first?: boolean; idle_check?: boolean };
   ready?: boolean;
 }
 
@@ -93,6 +94,9 @@ export interface SetupReading {
   /** Whether new sessions ask before changing anything, or null when the
    * server didn't say — the screen then says nothing rather than guess. */
   asksFirst: boolean | null;
+  /** Is a session left alone for a day asked whether it's finished? Null
+   * when the server didn't say, so the page shows no switch rather than a guess. */
+  checksIdle: boolean | null;
 }
 
 /** Where Claude Code's own instructions live. */
@@ -187,6 +191,7 @@ export function readSetup(status: StandaloneStatus | null): SetupReading {
         : [],
     ),
     asksFirst: typeof status?.settings?.ask_first === 'boolean' ? status.settings.ask_first : null,
+    checksIdle: typeof status?.settings?.idle_check === 'boolean' ? status.settings.idle_check : null,
   };
 }
 

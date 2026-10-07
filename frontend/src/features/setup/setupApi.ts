@@ -32,7 +32,7 @@ export function useStandaloneStatus(enabled: boolean) {
 }
 
 /** The first-run screen's requests: the ways to give Terrain something to
- * draw, and the one setting. Each answers at once with the same status GET
+ * draw, and the two settings. Each answers at once with the same status GET
  * returns; a download then goes on in the background. */
 export function useProjectActions() {
   const queryClient = useQueryClient();
@@ -52,6 +52,9 @@ export function useProjectActions() {
     /** Choose whether NEW sessions stop and ask before changing anything. */
     setAsksFirst: (asksFirst: boolean) =>
       api.post<StandaloneStatus>('/api/standalone/settings', { ask_first: asksFirst }).then(accept),
+    /** Choose whether a session left alone for a day is asked if it's done. */
+    setChecksIdle: (checksIdle: boolean) =>
+      api.post<StandaloneStatus>('/api/standalone/settings', { idle_check: checksIdle }).then(accept),
   };
 }
 

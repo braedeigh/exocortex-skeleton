@@ -113,6 +113,10 @@ describe('what the first-run check reports', () => {
     expect(readSetup({ ...ALL_SET, settings: {} }).asksFirst).toBeNull();
     expect(readSetup({ ...ALL_SET, settings: { ask_first: false } }).asksFirst).toBe(false);
     expect(readSetup({ ...ALL_SET, settings: { ask_first: true } }).asksFirst).toBe(true);
+    // The idle check is its own setting: one being reported says nothing about the other.
+    expect(readSetup({ ...ALL_SET, settings: { ask_first: true } }).checksIdle).toBeNull();
+    expect(readSetup({ ...ALL_SET, settings: { idle_check: true } }).checksIdle).toBe(true);
+    expect(readSetup({ ...ALL_SET, settings: { idle_check: false } }).asksFirst).toBeNull();
   });
 
   it('still produces sentences from an empty or missing answer', () => {
