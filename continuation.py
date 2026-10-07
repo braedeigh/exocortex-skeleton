@@ -4,8 +4,8 @@ to a fresh one, with nobody watching.
 **What this does, in plain English.** Every model call reports how much the
 model is reading — the session's context size — and the turn loop keeps the
 latest number on the session (`context_tokens`, routes/observatory.py
-_note_model_call). Each model has a soft cap (config.CONTEXT_CAPS: Opus 200k,
-Fable 500k, …). Crossing it never interrupts anything: the turn finishes the
+_note_model_call). Each model has a soft cap (config.CONTEXT_CAPS: Opus 500k,
+Fable 800k, …). Crossing it never interrupts anything: the turn finishes the
 work it's on. When that turn ENDS, if the session is in a room that continues
 itself (config.CONTINUE_LANES — Coding), this:
 

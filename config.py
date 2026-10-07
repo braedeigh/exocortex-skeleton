@@ -226,9 +226,13 @@ TURN_STREAM_INPUT = os.environ.get("EXOCORTEX_TURN_STREAM_INPUT", "1") != "0"
 # turn it's on finishes, then it writes a handoff and a fresh session picks the
 # work up from it. The caps are soft, in tokens of context, per model family.
 # EXOCORTEX_CONTEXT_CAPS overrides any of them as JSON, e.g. '{"opus": 150000}'.
-# Prompt for the Opus and Fable numbers: "increase the token limit for opus to
-# 200k and fable to 500k".
-CONTEXT_CAPS = {"opus": 200000, "fable": 500000, "sonnet": 150000, "haiku": 100000}
+# A cap is where the handoff is ASKED for, not where the session stops: the
+# turn in flight finishes first. Across 136 Opus handoffs (2026-10-07) that
+# overshoot was 6k at the median and 330k at the most, so a cap wants that
+# much room under the model's 1M window.
+# Prompt for the Opus and Fable numbers: "extend the windows for opus to 500k
+# and fable to 800k".
+CONTEXT_CAPS = {"opus": 500000, "fable": 800000, "sonnet": 150000, "haiku": 100000}
 try:
     import json as _json
     CONTEXT_CAPS.update({str(k): int(v) for k, v in _json.loads(
