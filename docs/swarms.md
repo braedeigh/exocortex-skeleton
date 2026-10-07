@@ -7,7 +7,7 @@ lines say what exists *now*.
 ## Decisions (from the owner)
 
 - **Soft context caps, per model.** Opus 500k tokens, Fable 800k (her
-  numbers, raised 2026-09-30 from 120k / 250k); Sonnet 150k and Haiku 100k
+  numbers, raised 2026-10-07 from 200k / 500k); Sonnet 150k and Haiku 100k
   (chosen modestly, no owner number yet). A session that
   crosses its cap is **not interrupted** — it finishes the work it's on, and
   the handoff happens when that turn ends.
