@@ -11,8 +11,8 @@ route modules — just the agent chat (the Observatory) and the code map
     anything that isn't this computer's own browser talking to it;
   - no password file, no proxy, no gunicorn;
   - projects (`project_*` below): each is one code folder with its own map —
-    this app's own code is offered as the first, the person's own folder is
-    another. One is CURRENT: the main map draws it and new sessions stand in
+    this app's own code (downloaded, a copy of its own) is offered as the
+    first, the person's own folder is another. One is CURRENT: the main map draws it and new sessions stand in
     it. The rest are a tap away in Terrain's Builds room;
   - a few doors of its own under /api/standalone, which the first-run screen
     reads to learn whether Claude Code and git are there and to pick or
@@ -207,6 +207,14 @@ def ask_first():
     return store.read(_SETTINGS, {}).get("ask_first") is True
 
 
+def idle_check():
+    """Is a session that has sat idle for a day asked whether it is done? On
+    unless the person turned it off (POST /api/standalone/settings). The
+    question starts a short turn of its own, which is why it has a switch.
+    The heartbeat reads this (standalone_jobs.minute_tick)."""
+    return store.read(_SETTINGS, {}).get("idle_check") is not False
+
+
 def _choose(build):
     """Make `build` the project and start reading its history if it's there."""
     with store.mutate(_SETTINGS, {}) as settings:
@@ -247,40 +255,25 @@ def choose_download(url):
 
 def own_code():
     """Whether "start with this app's own code" can be offered, and how:
-    {available, name, how}. `how` is "folder" when this copy of the app is
-    itself a git checkout (its history is right here), "download" when a
-    public address for the app's code has been set
-    (EXOCORTEX_STANDALONE_SAMPLE_REPO — a packaged app carries no history of
-    its own), else None."""
+    {available, name, how}. It is always a download of the published repo
+    (config.standalone_sample_repo) into a project folder of its own — never
+    the copy of the app that is running, even when that copy is a git
+    checkout — so every project is separate and an agent working on "the
+    app's code" can't change the app underneath itself. `how` is "download",
+    or None when the address has been blanked."""
     name = config.get_profile()["app_name"]
-    if buildlist.is_git_repo(Path(store.BUILD_DIR)):
-        return {"available": True, "name": name, "how": "folder"}
     if config.standalone_sample_repo():
         return {"available": True, "name": name, "how": "download"}
     return {"available": False, "name": name, "how": None}
 
 
 def choose_own():
-    """Make this app's own code the project. Raises ValueError with a sentence
-    the screen can show when this copy can't offer it.
-
-    A git checkout of the app is used where it stands. buildlist.add_folder
-    would refuse it — on the live site the app's code is the main map already
-    — so its entry is written directly; in standalone mode the main map is
-    whatever the project is, so nothing is drawn twice."""
-    offer = own_code()
-    if offer["how"] == "download":
-        return choose_download(config.standalone_sample_repo())
-    if offer["how"] != "folder":
-        raise ValueError("this copy of the app doesn't carry its own code's history")
-    root = Path(store.BUILD_DIR).resolve()
-    existing = next((build for build in buildlist.builds()
-                     if Path(build["root"]) == root), None)
-    if existing is None:
-        buildlist._append({"id": "app-code", "name": offer["name"], "root": str(root),
-                           "added": observatory._now()})
-        existing = buildlist.find("app-code")
-    _choose(existing)
+    """Make this app's own code the project, by downloading it. Raises
+    ValueError with a sentence the screen can show when it can't be offered
+    or the download can't start."""
+    if not own_code()["available"]:
+        raise ValueError("this copy of the app has no address to download its own code from")
+    choose_download(config.standalone_sample_repo())
 
 
 # --- what the first-run screen asks about this computer ----------------------
@@ -365,7 +358,7 @@ def status():
         "git": _program("git"),
         "project": chosen,
         "projects": projects(),
-        "settings": {"ask_first": ask_first()},
+        "settings": {"ask_first": ask_first(), "idle_check": idle_check()},
         "own": {key: own_code()[key] for key in ("available", "name")},
         "live_turns": len(live_turns()),
         "helpers": config.standalone_helpers(),
@@ -461,14 +454,17 @@ def create_app():
 
     @app.route("/api/standalone/settings", methods=["POST"])
     def standalone_settings():
-        """Change the desktop app's own settings. {"ask_first": true|false} —
-        whether NEW sessions ask before anything they can't undo. Answers
-        with the same payload as GET /api/standalone."""
+        """Change the desktop app's own settings, one or both at a time:
+        {"ask_first": bool} — whether NEW sessions ask before anything they
+        can't undo; {"idle_check": bool} — whether a session idle for a day
+        is asked if it is done. Answers with the same payload as
+        GET /api/standalone."""
         data = request.get_json(silent=True) or {}
-        if not isinstance(data.get("ask_first"), bool):
-            return jsonify({"error": "ask_first must be true or false"}), 400
+        changes = {key: data[key] for key in ("ask_first", "idle_check") if key in data}
+        if not changes or not all(isinstance(value, bool) for value in changes.values()):
+            return jsonify({"error": "ask_first and idle_check must be true or false"}), 400
         with store.mutate(_SETTINGS, {}) as settings:
-            settings["ask_first"] = data["ask_first"]
+            settings.update(changes)
         return jsonify(status())
 
     @app.route("/api/standalone/folders")

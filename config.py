@@ -64,18 +64,25 @@ def standalone() -> bool:
 def standalone_helpers() -> bool:
     """True when the desktop app may start agents nobody asked for
     (EXOCORTEX_STANDALONE_HELPERS=1): the room and swarm helpers, the helper
-    wake-up, the auto-titler and the day-idle check. Off by default — each of
-    them spends the person's own Claude usage on a timer. Only read in
-    standalone mode (standalone_jobs.py)."""
+    wake-up and the auto-titler. Off by default — each of them spends the
+    person's own Claude usage on a timer. Only read in standalone mode
+    (standalone_jobs.py). The day-idle check is not one of these: it is on
+    unless the person turns it off in the app (standalone_app.idle_check)."""
     return os.environ.get("EXOCORTEX_STANDALONE_HELPERS", "").strip().lower() in ("1", "true", "yes")
+
+
+# Where this app's own code is published. The desktop app downloads it from
+# here for "start with this app's own code".
+STANDALONE_SAMPLE_REPO = "https://github.com/braedeigh/exocortex-skeleton"
 
 
 def standalone_sample_repo() -> str:
     """The public address of this app's own code, for the desktop app's "start
-    with this app's own code" (EXOCORTEX_STANDALONE_SAMPLE_REPO, e.g.
-    "https://github.com/owner/repo"). Empty by default: whoever packages the
-    app sets it. Only read in standalone mode (standalone_app.own_code)."""
-    return os.environ.get("EXOCORTEX_STANDALONE_SAMPLE_REPO", "").strip()
+    with this app's own code". The published repo unless
+    EXOCORTEX_STANDALONE_SAMPLE_REPO names another (a fork); set that to an
+    empty value to take the offer away. Only read in standalone mode
+    (standalone_app.own_code)."""
+    return os.environ.get("EXOCORTEX_STANDALONE_SAMPLE_REPO", STANDALONE_SAMPLE_REPO).strip()
 
 
 def frame_ancestors():

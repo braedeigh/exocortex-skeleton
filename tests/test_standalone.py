@@ -126,7 +126,7 @@ def test_the_chosen_folder_is_what_the_map_draws_and_where_sessions_stand(client
     profile = observatory._lane_profile("coding")
     assert (profile["cwd"], profile["act_gate"]) == (str(repo), False)
     changed = client.post("/api/standalone/settings", json={"ask_first": True}, headers=LOCAL)
-    assert changed.get_json()["settings"] == {"ask_first": True}
+    assert changed.get_json()["settings"] == {"ask_first": True, "idle_check": True}
     assert observatory._lane_profile("coding")["act_gate"] is True
 
 
@@ -168,6 +168,24 @@ def test_a_download_goes_from_downloading_to_loading_to_ready(client, code, monk
     subprocess.run(["git", "clone", "-q", str(source), project["path"]], check=True)
     finished = wait_for_project(client)
     assert (finished["state"], finished["detail"]) == ("ready", "3 commits")
+
+
+def test_the_apps_own_code_is_a_separate_download_never_the_running_copy(client, monkeypatch):
+    asked = []
+    monkeypatch.setattr(buildlist, "start_clone",
+                        lambda address, destination: asked.append((address, destination)))
+    offer = client.get("/api/standalone", headers=LOCAL).get_json()["own"]
+    assert offer["available"] is True
+    started = client.post("/api/standalone/project", json={"own": True}, headers=LOCAL)
+    project = started.get_json()["project"]
+    # This test runs from a git checkout of the app — the case where using the
+    # running copy in place would be possible. It still downloads its own.
+    assert [address for address, _ in asked] == [standalone_app.config.standalone_sample_repo()]
+    assert Path(project["path"]).parent == store.DATA_DIR / "projects"
+    assert Path(project["path"]) != Path(store.BUILD_DIR).resolve()
+    # Asking twice doesn't download twice.
+    client.post("/api/standalone/project", json={"own": True}, headers=LOCAL)
+    assert len(asked) == 1 and len(buildlist.builds()) == 1
 
 
 def test_refusals_come_back_as_a_sentence_not_a_crash(client, tmp_path, monkeypatch):
@@ -246,6 +264,11 @@ def test_the_heartbeat_and_a_cron_script_run_on_an_empty_folder(standalone, monk
     assert not [step for step, result in outcome.items()
                 if isinstance(result, str) and result.startswith("failed")], outcome
     assert "room helper" not in outcome           # helpers are off by default
+    # The day-idle check is the other way round: on until the person turns it off.
+    assert "idle check" in outcome
+    standalone_app.create_app().test_client().post(
+        "/api/standalone/settings", json={"idle_check": False}, headers=LOCAL)
+    assert "idle check" not in standalone_jobs.minute_tick()
     # A real cron script, run the way the scheduler runs it: its own process,
     # finding the data folder through the environment, with no cron involved.
     monkeypatch.setenv("EXOCORTEX_DATA_DIR", str(standalone))

@@ -29,8 +29,9 @@ stderr. It stops on Ctrl-C / SIGTERM, or when stdin closes with
 | `tests/test_standalone.py` | the proof |
 
 Settings (all environment variables): `EXOCORTEX_STANDALONE_HELPERS=1` turns the
-background helpers on; `EXOCORTEX_STANDALONE_SAMPLE_REPO` is the public address
-of the app's own code for a packaged copy; `EXOCORTEX_GIT_BIN` and
+background helpers on; `EXOCORTEX_STANDALONE_SAMPLE_REPO` names a different
+public address for the app's own code (a fork), or blank takes the offer away;
+`EXOCORTEX_GIT_BIN` and
 `EXOCORTEX_CLAUDE_BIN` name those two programs.
 
 ## Projects
@@ -40,11 +41,16 @@ build (`buildlist.py`). One project is *current*: the main map draws it and new
 sessions stand in it. The app's own code is offered as the first project; the
 person's own folder, or a repo downloaded from its address, is another.
 
+Every project is a folder of its own. "The app's own code" is always a fresh
+download of the published repo (`config.STANDALONE_SAMPLE_REPO`) into the data
+folder, never the copy of the app that is running — even on a developer's git
+checkout — so an agent working on it can't change the app underneath itself.
+
 | Door | What it does |
 |---|---|
 | `GET /api/standalone` | is Claude Code there and signed in, is git there, the current project and its state (`none`, `downloading`, `loading`, `ready`, `failed`), every project, running turns, settings |
 | `POST /api/standalone/project` | `{"path"}` a folder here, `{"url"}` download one, `{"own": true}` the app's own code, `{"id"}` switch |
-| `POST /api/standalone/settings` | `{"ask_first": bool}` — whether new sessions ask before what they can't undo (off: they just act) |
+| `POST /api/standalone/settings` | `{"ask_first": bool}` — whether new sessions ask before what they can't undo (off: they just act); `{"idle_check": bool}` — whether a session idle for a day is asked if it is done (on) |
 | `GET /api/standalone/folders` | the folders inside a path, for a folder picker |
 | `POST /api/standalone/stop-turns` | stop every running agent turn |
 
@@ -93,8 +99,10 @@ could post to these doors — and these doors start agents that run commands.
 - The night crew, the research and Linear rooms, the Keeper and its rollover,
   the Coming up reminders, phone push, the sudo password card (the door
   answers an empty list), the public mirror, the type-into-a-shell terminal.
-- The helpers (room, swarm, wake-ups), the auto-titler and the day-idle check
-  are **off unless switched on**: each starts Claude calls nobody asked for.
+- The helpers (room, swarm, wake-ups) and the auto-titler are **off unless
+  switched on**: each starts Claude calls nobody asked for. The day-idle check
+  ("are you done?" after a day) is **on, with a switch in the app** to turn
+  it off.
 - The runtime sensor ("which of the app's functions ran").
 
 **Needs the person's machine to have**

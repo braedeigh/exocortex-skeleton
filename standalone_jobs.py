@@ -130,9 +130,12 @@ def minute_tick(helpers=None):
             ("swarm helpers", _swarm_helpers),
             ("room helper", _room_helper),
             ("helper wake-up", _helper_wake),
-            # A session idle for a day is asked whether it is done.
-            ("idle check", observatory.idle_check_sessions),
         ]
+    # A session idle for a day is asked whether it is done — on unless the
+    # person switched it off in the app.
+    import standalone_app
+    if standalone_app.idle_check():
+        steps.append(("idle check", observatory.idle_check_sessions))
     done = {}
     for name, step in steps:
         try:
