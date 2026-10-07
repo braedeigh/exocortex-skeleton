@@ -114,13 +114,14 @@ only the publisher holds, and replaces itself. It needs somewhere public to
 host the files and that key kept safe. Until then, updating means downloading
 the new version by hand.
 
-**Somewhere public to host the files.** The code repository is private, and
-files attached to a private repository's releases cannot be downloaded by
-strangers. The downloads need a public home: the owner's website, or a public
-repository that holds only releases.
+**Somewhere to host the files.** The code repository is public
+(`braedeigh/exocortex-skeleton` on GitHub), so files attached to its releases
+can be downloaded by anyone, and the website's download link and the updater
+can both point there. (`INSTALL.md` still calls the repository private; that
+line is out of date.)
 
-**The source is readable.** The download contains the Python code and the
-built page as ordinary files. Anyone who downloads the app can read them.
+**The source is readable**, which is already true of a public repository: the
+download contains the Python code and the built page as ordinary files.
 
 **One copy at a time.** Opening the app twice would start two servers on the
 same data folder. Tauri has a single-instance plugin for this; not added yet.
@@ -138,7 +139,8 @@ What it takes beside the download link:
   the matching file, checks it against a published checksum, puts it in place
   (`~/.local/bin` plus a menu entry on Linux, `/Applications` on a Mac), and
   says how to remove it;
-- the same public file hosting the download link needs;
+- the release files on the public repository, the same ones the download
+  link uses;
 - keeping the script in step with each release.
 
 One thing worth knowing: a file fetched by `curl` on a Mac is not marked as
