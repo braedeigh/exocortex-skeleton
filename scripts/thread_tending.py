@@ -36,9 +36,13 @@ job file and write a report file.
 - Topics the main session saw recurring with no thread to hold them are
   appended to `thread_tending/hints.jsonl`. Nothing is nominated from here:
   the weekly thread scout reads the hints and decides.
+- A thread that got new cards or a new fact tonight gets a new summary: one
+  row in the `thread_summaries` table in exo.db (`threadsummaries.py`), added
+  on top of the older ones, which are never changed. A summary is at most 120
+  words; a longer one loses whole sentences from its end.
 - Each night's job files, reports, log and a readable `digest.md` are kept in
-  `thread_tending/<date>/`. The newest summary and movement notes per thread
-  are kept in `thread_tending/summaries/<slug>.json`.
+  `thread_tending/<date>/`. The newest movement notes and recording problems
+  per thread are kept in `thread_tending/summaries/<slug>.json`.
 
 **Where the prompts are.** Each session is told to read one prompt file from
 the crickets folder (`thread-main.md`, `thread-helper.md`, `person-helper.md`,
@@ -78,6 +82,7 @@ if str(SKELETON) not in sys.path:
 
 import namerisk  # noqa: E402
 import store  # noqa: E402
+import threadsummaries  # noqa: E402
 
 STREAM_PY = SKELETON / "tools" / "stream" / "stream.py"
 THREAD_BIN = SKELETON / "tools" / "thread" / "target" / "release" / "thread"
@@ -92,6 +97,8 @@ SESSION_TIMEOUT_SECONDS = 900
 MAX_UNTAG_PROPOSALS = 8
 # The most facts one thread session may add to its thread file in one night.
 MAX_FACTS_PER_THREAD = 1
+# The author recorded on a summary a thread session wrote.
+SUMMARY_AUTHOR = "cricket:thread-helper"
 # A thread alias shorter than this is not searched for in card text: two
 # letters match too many things.
 SHORTEST_ALIAS = 3
@@ -467,6 +474,43 @@ def apply_person_reports(jobs, reports, state, target, apply):
     return tagged, removals
 
 
+def save_summaries(jobs, reports, tagged, facts, target, apply):
+    """Add a new summary on top of each thread that changed tonight.
+
+    Changed means the thread session found at least one card that belongs, or
+    a fact was added to the thread file. A thread whose session only looked
+    and found nothing gets no new row, so the stack grows when the thread
+    does. The summary is based on the cards the session said belong. Returns
+    [{slug, words, ok, error}] for the digest."""
+    grew = {item["tag"] for item in tagged if item["ok"]} | {item["slug"] for item in facts if item["ok"]}
+    saved = []
+    for job in jobs:
+        slug, report = job["slug"], reports.get(job["slug"])
+        if not report:
+            continue
+        in_job = {card["id"] for card in job["cards"]}
+        belongs = [card_id for card_id in report.get("belongs") or [] if card_id in in_job]
+        if not belongs and slug not in grew:
+            continue
+        body = threadsummaries.fit(str(report.get("summary") or ""))
+        if not body:
+            if str(report.get("summary") or "").strip():
+                saved.append({"slug": slug, "words": 0, "ok": False,
+                              "error": f"over {threadsummaries.MAX_WORDS} words with no sentence short enough to keep"})
+            continue
+        if not apply:
+            saved.append({"slug": slug, "words": threadsummaries.word_count(body), "ok": True, "error": ""})
+            continue
+        try:
+            row = threadsummaries.add(slug, SUMMARY_AUTHOR, body, belongs)
+        except (ValueError, sqlite3.Error) as error:
+            saved.append({"slug": slug, "words": 0, "ok": False, "error": str(error)})
+            continue
+        if row:
+            saved.append({"slug": slug, "words": threadsummaries.word_count(body), "ok": True, "error": ""})
+    return saved
+
+
 def main_removals(main_report, cards, target, people, risky):
     """The person tags the main session called wrong, as removals to propose.
     Only real person tags on the day's own cards count, and risky names are
@@ -532,6 +576,9 @@ def write_digest(night_dir, target, outcome):
     for item in outcome["facts"]:
         lines.append(f"- fact added to `{item['slug']}`: {item['fact'].get('section')}"
                      + ("" if item["ok"] else f" — REFUSED: {item['error']}"))
+    for item in outcome["summaries"]:
+        lines.append(f"- new summary on `{item['slug']}` ({item['words']} words)" if item["ok"]
+                     else f"- summary for `{item['slug']}` NOT kept: {item['error']}")
     for item in outcome["staged"]:
         lines.append(f"- asked you: remove `{item['tag']}` from `{item['card_id']}` — {item['reason']}")
     for item in outcome["held"]:
@@ -624,6 +671,7 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
         jobs, reports, kept_claims, state, target, apply)
     people_tagged, people_removals = apply_person_reports(
         people_jobs, people_reports, state, target, apply)
+    summaries = save_summaries(jobs, reports, tagged, facts, target, apply)
     removals = removals + people_removals + main_removals(main_report, cards, target, people, risky)
     staged, held = propose_untags(removals, state) if apply else ([], removals)
     hints = save_hints(main_report, cards, target, apply)
@@ -631,7 +679,7 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
         save_state(state)
     outcome = {"target": target.isoformat(), "tagged": tagged + people_tagged, "facts": facts,
                "staged": staged, "held": held, "movement": movement, "failed": failed,
-               "hints": hints, "applied": apply}
+               "hints": hints, "summaries": summaries, "applied": apply}
     write_digest(night_dir, target, outcome)
     (night_dir / "outcome.json").write_text(json.dumps(outcome, indent=1), encoding="utf-8")
     out(f"thread tending {target}: {len(jobs)} thread(s), {len(people_reports)} name(s),"

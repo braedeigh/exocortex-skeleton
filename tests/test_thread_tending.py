@@ -16,7 +16,8 @@ import pytest
 from flask import Flask
 
 import store
-from routes import pending
+import threadsummaries
+from routes import pending, threads
 
 _spec = importlib.util.spec_from_file_location(
     "thread_tending", Path(__file__).resolve().parents[1] / "scripts" / "thread_tending.py")
@@ -47,7 +48,7 @@ def tags_of(content, card_id):
 
 
 @pytest.fixture
-def vault(tmp_path, monkeypatch):
+def vault(data_dir, tmp_path, monkeypatch):
     data, content = tmp_path / "data", tmp_path / "content"
     data.mkdir()
     (content / "Threads").mkdir(parents=True)
@@ -153,3 +154,40 @@ def test_a_thread_whose_session_failed_is_looked_at_again_the_next_night(vault):
     seen = {}
     night(ANSWERS, seen, target=date(2026, 3, 11))
     assert [c["id"] for c in seen["thread.knee"]["cards"]] == ["2026-03-10.0900b", "2026-03-10.0910b"]
+
+
+LONG = "The beds are weeded. " + "More was said about the soil than fits here. " * 20
+
+
+def test_a_thread_that_grew_gets_a_new_summary_on_top_and_keeps_the_old_ones(vault):
+    """Three nights on one thread, read back the way the thread's page reads
+    them: the newest summary first, every older one still there and unchanged,
+    and nothing added on a night the thread did not grow."""
+    night(ANSWERS)
+    mint(vault, "2026-03-11.0900b", "the beans sprouted")
+    night({"main": {"threads": {"garden": ["2026-03-11.0900b"]}},
+           "thread.garden": {"belongs": ["2026-03-11.0900b"], "summary": LONG}}, target=date(2026, 3, 11))
+    # A night with a card that turns out not to belong: the session ran, the
+    # thread did not grow, so the stack does not either.
+    mint(vault, "2026-03-12.0900b", "read about a garden in a novel")
+    night({"main": {"threads": {"garden": ["2026-03-12.0900b"]}},
+           "thread.garden": {"belongs": [], "summary": "Nothing new."}}, target=date(2026, 3, 12))
+
+    app = Flask(__name__)
+    threads.register(app)
+    stack = app.test_client().get("/api/thread/garden/summaries").get_json()["summaries"]
+    assert [row["author"] for row in stack] == ["cricket:thread-helper"] * 2
+    # Newest first; the over-long one was cut at a sentence, not mid-word.
+    assert stack[0]["body"].startswith("The beds are weeded.") and stack[0]["body"].endswith(".")
+    assert threadsummaries.word_count(stack[0]["body"]) <= threadsummaries.MAX_WORDS
+    assert stack[0]["based_on"] == ["2026-03-11.0900b"]
+    assert stack[1]["body"] == "Beans in, beds weeded."
+    assert stack[1]["based_on"] == ["2026-03-10.0900b"]
+    # The knee session gave no summary, so the knee has no stack.
+    assert app.test_client().get("/api/thread/knee/summaries").get_json() == {"summaries": []}
+    assert app.test_client().get("/api/thread/nope/summaries").status_code == 404
+
+
+def test_a_trial_run_stores_no_summary(vault):
+    tending.tend(NIGHT, Path("/nowhere"), apply=False, session=scripted(ANSWERS), out=lambda _: None)
+    assert threadsummaries.for_thread("garden") == []

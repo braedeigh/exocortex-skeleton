@@ -27,6 +27,7 @@ import type {
   SearchFilters,
   ThreadDetail,
   ThreadJournalResponse,
+  ThreadSummariesResponse,
   ThreadsResponse,
   ThreadsTreeResponse,
 } from './types';
@@ -170,6 +171,21 @@ export function useThreadJournal(id: string | null) {
   return useQuery({
     queryKey: ['journal', 'threadJournal', id ?? ''],
     queryFn: ({ signal }) => getThreadJournal(id as string, signal),
+    enabled: !!id,
+  });
+}
+
+/** GET /api/thread/<slug>/summaries — the summaries written of the thread,
+ * newest first. */
+function getThreadSummaries(id: string, signal?: AbortSignal): Promise<ThreadSummariesResponse> {
+  return api.get(`/api/thread/${encodeURIComponent(id)}/summaries`, signal);
+}
+
+/** The stack of summaries at the top of a thread's page. */
+export function useThreadSummaries(id: string | null) {
+  return useQuery({
+    queryKey: ['journal', 'threadSummaries', id ?? ''],
+    queryFn: ({ signal }) => getThreadSummaries(id as string, signal),
     enabled: !!id,
   });
 }

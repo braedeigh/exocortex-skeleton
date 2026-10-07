@@ -561,6 +561,32 @@
       }
     }
   },
+  "thread_summaries": {
+    "holds": "The summaries written of each journal thread: one row per summary. A new summary is added as a new row and the older ones are never changed, so a thread's rows read newest first are its summaries stacked on top of each other. Each is at most 120 words.",
+    "source": "Written by threadsummaries.py: the nightly thread tending (scripts/thread_tending.py) adds one for each thread that got new cards or a new fact that night, and a session adds one through scripts/thread_summary.py. A record: nothing else holds it. The database refuses an UPDATE on this table.",
+    "kind": "record",
+    "time_column": "written_at",
+    "columns": {
+      "id": {
+        "holds": "A running number that identifies the row."
+      },
+      "slug": {
+        "holds": "The thread, as its file name without the ending."
+      },
+      "author": {
+        "holds": "Who wrote it: 'keeper', or 'cricket:' and the name of the night helper."
+      },
+      "written_at": {
+        "holds": "When it was written, in local time. Rows imported from night passes that ran before this table existed are dated 23:59 on the night they describe."
+      },
+      "body": {
+        "holds": "The summary itself."
+      },
+      "based_on": {
+        "holds": "The card ids and days the summary was based on, as a JSON list."
+      }
+    }
+  },
   "context_loads": {
     "holds": "The tracker of what each session was handed: one row per load. A Keeper's boot package is one row; each person or thread whose cards loaded when the owner named them is one row, with the word that set it off, how many cards were handed over, which ones, and how many were left out because the session already had them.",
     "source": "Written by loadrecord.py, called from the wake (routes/observatory.py) and the context-on-mention hook (tools/mention_context.py). A record: nothing else holds it. A message sent off the record leaves no row. scripts/context_loads.py prints each load beside the reply that followed.",

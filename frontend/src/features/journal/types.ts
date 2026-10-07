@@ -324,6 +324,23 @@ export interface ThreadJournalResponse {
   entries: ThreadJournalEntry[];
 }
 
+/** One summary written of a thread (routes/threads.py thread_summaries). */
+export interface ThreadSummary {
+  id: number;
+  /** "keeper", or "cricket:<name>" for a night helper. */
+  author: string;
+  /** "YYYY-MM-DDTHH:MM:SS", local time — sliced as a string, never Date-parsed. */
+  written_at: string;
+  body: string;
+  /** Card ids ("2026-07-08.1841b") and bare days it was based on. */
+  based_on: string[];
+}
+
+/** GET /api/thread/<slug>/summaries — newest first. */
+export interface ThreadSummariesResponse {
+  summaries: ThreadSummary[];
+}
+
 export interface DevNote {
   id: string;
   text: string;

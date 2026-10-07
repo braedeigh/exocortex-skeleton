@@ -1,0 +1,85 @@
+/* The stack of summaries at the top of a thread's page (ThreadSummaries.tsx).
+   Same card look as the journal entries below it on ThreadJournalPage, so the
+   stack reads as part of the page; the newest is full strength and the older
+   ones are quieter. */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.card {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xl);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-3);
+}
+
+.older {
+  border-color: var(--border-soft);
+  box-shadow: none;
+}
+
+.meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.older .label {
+  color: var(--text-muted);
+}
+
+.byline {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.body {
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.sources {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+/* The button that opens the older summaries. Same muted outline as the
+   page's sort toggle, and a full tap target tall. */
+.olderToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  width: fit-content;
+  padding: 0 var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.olderToggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

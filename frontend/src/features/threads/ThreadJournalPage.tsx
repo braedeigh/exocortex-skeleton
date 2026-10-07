@@ -16,11 +16,13 @@ import {
   usePeople,
   useServerDate,
   useThreadJournal,
+  useThreadSummaries,
   useThreads,
   useToasts,
   useUpdateThreadEntry,
 } from '../journal/useJournalData';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
+import { ThreadSummaries } from './ThreadSummaries';
 import styles from './ThreadJournalPage.module.css';
 
 function isPublicMode(): boolean {
@@ -244,13 +246,15 @@ export interface ThreadJournalPageProps {
  * The dedicated per-thread journal page (/threads/$slug) — where "Open full
  * thread" from the Threads page / journal's ThreadPopover lands: every
  * journal record tied to the thread (tagged pool cards ∪ cited sources,
- * routes/threads.py thread_journal). Sortable newest/oldest first (a shared
+ * routes/threads.py thread_journal). Above the records sits the stack of
+ * summaries written of the thread (ThreadSummaries). Sortable newest/oldest first (a shared
  * localStorage preference, defaulting to newest first), and a sticky bottom
  * composer lets her add a new entry (tagged with the thread's slug) or add
  * one and jump straight into talking about the thread.
  */
 export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
   const { data, isLoading, isError } = useThreadJournal(slug);
+  const { data: summariesData } = useThreadSummaries(slug);
   const { data: serverDateData } = useServerDate();
   const { data: peopleData } = usePeople();
   const { data: threadsData } = useThreads();
@@ -419,6 +423,11 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
               </button>
             ) : null}
           </header>
+
+          <ThreadSummaries
+            summaries={summariesData?.summaries ?? []}
+            formatDay={(day) => formatDate(day, serverYear)}
+          />
 
           {entries.length > 0 ? (
             <button type="button" className={styles.sortToggle} onClick={toggleSortOrder}>

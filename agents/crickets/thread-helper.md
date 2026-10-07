@@ -41,8 +41,15 @@ journal, or the card pool. Everything you need is in the job file and the thread
 4. **What moved.** In a few short lines, say what changed in this thread across these
    cards. Every line carries the ids of the cards it comes from. A line with no card
    behind it is dropped.
-5. **Where the thread stands.** Two or three plain sentences: the thread as it is now,
-   from the thread file plus tonight's cards. Say only what the file and the cards say.
+5. **Where the thread stands.** A short summary of the thread as it is now, from
+   the thread file plus tonight's cards. It is stored and the owner reads it at the
+   top of the thread's page, above the older summaries, so write it to stand alone.
+   - **120 words at most.** Shorter is better. A longer one is cut at a sentence.
+   - Plain sentences. No headings, no lists.
+   - Quote her own words where you can, in quote marks, with the date. Only words
+     that are in the file or the cards.
+   - Say what she said and did, and when. No verdicts about her in your own voice:
+     not what it means, not what she should do, not what she is really feeling.
 6. **Is it being recorded properly?** Say `ok: false` and list the problems when you
    see one: cards that belong were untagged, the file is missing something the cards
    have said more than once, the file says something the cards now contradict, or the
@@ -58,7 +65,7 @@ Write this JSON, and nothing else, to `report_path`:
   "does_not_belong": [{"card": "<card id>", "reason": "<one plain line>"}],
   "facts": [{"section": "<date — heading>", "text": "<three lines at most>", "sources": ["<card id>"]}],
   "movement": [{"text": "<what moved>", "sources": ["<card id>"]}],
-  "summary": "<two or three sentences>",
+  "summary": "<120 words at most>",
   "recording": {"ok": true, "problems": []}
 }
 ```

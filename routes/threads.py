@@ -667,6 +667,26 @@ def register(app):
             "entries": entries,
         })
 
+    @app.route("/api/thread/<slug>/summaries")
+    def thread_summaries(slug):
+        """The summaries written of this thread, newest first, for the stack
+        at the top of the thread's page. Each one: who wrote it (`keeper` or
+        `cricket:<name>`), when, the words, and the card ids and days it was
+        based on. They are rows in exo.db (threadsummaries.py), not part of
+        the thread's file; a thread nobody has summarised returns an empty
+        list."""
+        # Imported here, not at module top: the rest of this file reads only
+        # the content vault, and its tests should not need a database.
+        import threadsummaries
+
+        slug = (slug or "").strip().lower()
+        if slug not in threads_index():
+            return jsonify({"error": "not found", "slug": slug}), 404
+        return jsonify({"summaries": [
+            {"id": row["id"], "author": row["author"], "written_at": row["written_at"],
+             "body": row["body"], "based_on": row["based_on"]}
+            for row in threadsummaries.for_thread(slug)]})
+
     @app.route("/api/thread/talk", methods=["POST"])
     def thread_talk():
         """Spawn a fresh terminal session running `claude "/thread <slug>"` —

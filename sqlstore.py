@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 48
+_SCHEMA_VERSION = 49
 
 
 def _db_path():
@@ -225,6 +225,8 @@ _EXPECTED_TABLES = (
     "journal_pages",
     # What each session was handed, load by load (rung 47).
     "context_loads",
+    # The summaries written of each thread, newest on top (rung 49).
+    "thread_summaries",
 )
 
 
@@ -3205,6 +3207,38 @@ def _run_ladder(conn):
             " )"
             " WHERE summary IS NOT NULL AND TRIM(summary) != ''"
             " GROUP BY conv"
+        )
+    if version < 49:
+        # The summaries written of each journal thread (threadsummaries.py):
+        # one row per summary. A new summary is a new row; the older ones stay
+        # underneath it and are read newest first. A record, not a copy of
+        # anything: the thread's own file holds no summary.
+        #
+        # Prompt: "Each summary sits above an old summary and I can read past
+        # summaries. Don't make them too long."
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS thread_summaries ("
+            "  id INTEGER PRIMARY KEY,"
+            # The thread, by the stem of its file name.
+            "  slug TEXT NOT NULL,"
+            # Who wrote it: 'keeper', or 'cricket:<name>' for a night helper.
+            "  author TEXT NOT NULL,"
+            # When it was written, in local time.
+            "  written_at TEXT NOT NULL,"
+            "  body TEXT NOT NULL,"
+            # The card ids and days it was based on, as a JSON list.
+            "  based_on TEXT NOT NULL DEFAULT '[]')"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS thread_summaries_by_slug"
+                     " ON thread_summaries (slug, written_at)")
+        # Refuse any change to a summary once it is written. The database
+        # itself turns down an UPDATE on this table, so no code path can
+        # overwrite an old summary by mistake. Deleting a row is still
+        # allowed, for a summary filed under the wrong thread.
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS thread_summaries_no_rewrite"
+            " BEFORE UPDATE ON thread_summaries"
+            " BEGIN SELECT RAISE(ABORT, 'a thread summary is never rewritten: add a new one'); END"
         )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
