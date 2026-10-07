@@ -35,6 +35,7 @@ inside the app on a timer".
 from pathlib import Path
 import fcntl
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -136,8 +137,13 @@ def minute_tick(helpers=None):
     # A session idle for a day is asked whether it is done — on unless the
     # person switched it off in the app.
     import standalone_app
+    import standalone_journal
     if standalone_app.idle_check():
         steps.append(("idle check", observatory.idle_check_sessions))
+    # The Keeper's day closes and a fresh Keeper opens, once a night after
+    # 3am — on unless the person switched it off. The step itself decides
+    # whether tonight's is due.
+    steps.append(("keeper rollover", standalone_journal.start_rollover))
     done = {}
     for name, step in steps:
         try:
@@ -147,16 +153,47 @@ def minute_tick(helpers=None):
     return done
 
 
+# The job that is running right now, if any — so stopping the app can stop it.
+_running_job = None
+
+
+def _stop_process_group(process):
+    """End a job and anything it started. Each job is the leader of its own
+    process group, so one signal to the group reaches them all."""
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 def run_job(command, timeout=JOB_TIMEOUT_SEC):
     """Run one job as its own process and return its exit code (-1 if it
     couldn't start or ran past its time). Its output goes to the server's
     stderr, which is where the desktop window keeps the log."""
+    global _running_job
     try:
-        return subprocess.run(
+        process = subprocess.Popen(
             [sys.executable, *command], cwd=str(ROOT), stdin=subprocess.DEVNULL,
-            stdout=sys.stderr, stderr=sys.stderr, timeout=timeout).returncode
-    except (OSError, subprocess.SubprocessError):
+            stdout=sys.stderr, stderr=sys.stderr, start_new_session=True)
+    except OSError:
         return -1
+    _running_job = process
+    try:
+        return process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _stop_process_group(process)
+        return -1
+    finally:
+        _running_job = None
+
+
+def stop_running_job():
+    """Stop the job that is running, if one is. Called when the app stops:
+    without it an hourly job caught mid-run would carry on with no app
+    behind it."""
+    process = _running_job
+    if process is not None and process.poll() is None:
+        _stop_process_group(process)
 
 
 class Scheduler:
@@ -219,6 +256,7 @@ class Scheduler:
 
     def stop(self):
         self._stop.set()
+        stop_running_job()
         if self._lock_file is not None:
             self._lock_file.close()
             self._lock_file = None

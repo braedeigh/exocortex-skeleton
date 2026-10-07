@@ -104,6 +104,7 @@ from pathlib import Path
 
 from flask import jsonify, request
 
+import config
 import public_config
 import store
 import tablelog
@@ -250,6 +251,14 @@ _SCAN_TTL_SEC = 300     # a cache that expires after five minutes: source files
                         # change on the order of commits, not requests
 _scan_cache = {"built_at": 0.0, "tables": None, "result": None}
 
+
+def _scan_ttl():
+    """How long a scan of the app's own code is remembered: five minutes on
+    the live site, where that code changes under it. In the desktop app the
+    app's code only changes when the app is updated and started again, and
+    the scan is its slowest read, so there it is kept until the app stops."""
+    return float("inf") if config.standalone() else _SCAN_TTL_SEC
+
 # Between the keyword and the table name there may be plain whitespace, or the
 # seam where one Python string literal ends and the next begins
 # (`"… FROM "` newline `"cards …"`), since long SQL here is written that way.
@@ -368,7 +377,7 @@ def _scan_code_cached(table_names):
     of tables changed, so a new table never waits out the cache."""
     now = time.monotonic()
     key = tuple(sorted(table_names))
-    fresh = now - _scan_cache["built_at"] < _SCAN_TTL_SEC
+    fresh = now - _scan_cache["built_at"] < _scan_ttl()
     if _scan_cache["result"] is None or not fresh or _scan_cache["tables"] != key:
         _scan_cache.update(built_at=now, tables=key, result=scan_code(table_names))
     return _scan_cache["result"]
@@ -385,7 +394,7 @@ def frontend_calls():
     remembered for _SCAN_TTL_SEC, the same cache the table scan keeps."""
     import apiseam
     now = time.monotonic()
-    if _calls_cache["result"] is None or now - _calls_cache["built_at"] >= _SCAN_TTL_SEC:
+    if _calls_cache["result"] is None or now - _calls_cache["built_at"] >= _scan_ttl():
         reach = apiseam.file_reach(store.BUILD_DIR)
         result = [{"path": path, "routes": [{"path": module, "calls": calls}
                                             for module, calls in routes.items()]}
@@ -530,7 +539,7 @@ def _definition_times_cached(table_names):
     key = tuple(sorted(table_names))
     cache = _definition_cache
     if (cache["result"] is None or cache["tables"] != key
-            or now - cache["built_at"] >= _SCAN_TTL_SEC):
+            or now - cache["built_at"] >= _scan_ttl()):
         code = _scan_code_cached(table_names)
         creates = {name: verbs["creates"] for name, verbs in code.items()}
         cache.update(built_at=now, tables=key, result=definition_times(table_names, creates))

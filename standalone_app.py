@@ -532,7 +532,8 @@ def status():
         "git": _program("git"),
         "project": chosen,
         "projects": projects(),
-        "settings": {"ask_first": ask_first(), "idle_check": idle_check()},
+        "settings": {"ask_first": ask_first(), "idle_check": idle_check(),
+                     "keeper_rollover": standalone_journal.rollover_on()},
         "rooms": rooms(),
         "journal": standalone_journal.status(),
         "own": {key: own_code()[key] for key in ("available", "name")},
@@ -632,15 +633,17 @@ def create_app():
 
     @app.route("/api/standalone/settings", methods=["POST"])
     def standalone_settings():
-        """Change the desktop app's own settings, one or both at a time:
+        """Change the desktop app's own settings, any of them at a time:
         {"ask_first": bool} — whether NEW sessions ask before anything they
         can't undo; {"idle_check": bool} — whether a session idle for a day
-        is asked if it is done. Answers with the same payload as
-        GET /api/standalone."""
+        is asked if it is done; {"keeper_rollover": bool} — whether the
+        Keeper's day closes by itself each night. Answers with the same
+        payload as GET /api/standalone."""
         data = request.get_json(silent=True) or {}
-        changes = {key: data[key] for key in ("ask_first", "idle_check") if key in data}
+        names = ("ask_first", "idle_check", "keeper_rollover")
+        changes = {key: data[key] for key in names if key in data}
         if not changes or not all(isinstance(value, bool) for value in changes.values()):
-            return jsonify({"error": "ask_first and idle_check must be true or false"}), 400
+            return jsonify({"error": " / ".join(names) + " must be true or false"}), 400
         with store.mutate(_SETTINGS, {}) as settings:
             settings.update(changes)
         return jsonify(status())

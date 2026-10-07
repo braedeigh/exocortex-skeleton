@@ -44,6 +44,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+# No compiled .pyc files beside the code — set before the first app import.
+sys.dont_write_bytecode = True
 
 from scripts import standalone  # noqa: E402  (stdlib only; sets no environment on import)
 

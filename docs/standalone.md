@@ -102,9 +102,14 @@ Checked for real once (2026-10-06): on an empty folder the Keeper woke, asked
 its first question, a typed reply was saved as a card, and it filled in the
 manifest and `context/about.md`.
 
-Not in: the nightly rollover that closes the day and opens a fresh Keeper
-(two agent turns on a timer), thread tending, timed reminders, and "Talk
-about this" on a thread (it needs tmux). The transcript reconciler isn't run
+- **The nightly rollover** is on, with a switch (`{"keeper_rollover": bool}`
+  on the settings door): once a night after 3am the heartbeat starts
+  `scripts/keeper_rollover.py`, which sends `/endsession` to the open Keeper
+  and wakes a fresh one. Only for a Keeper opened before today that has been
+  talked to; a computer that was off at 3am rolls when the app is next open.
+
+Not in: thread tending, timed reminders, and "Talk about this" on a thread
+(it needs tmux). The transcript reconciler isn't run
 either; it only matters for someone typing into a terminal `claude`.
 
 ## Rooms
@@ -157,8 +162,7 @@ could post to these doors — and these doors start agents that run commands.
 
 - Everything that isn't the Observatory, Terrain or the journal: its routes
   answer 404.
-- The night crew, the research and Linear rooms, the Keeper's nightly rollover,
-  the Coming up reminders, phone push, the sudo password card (the door
+- The night crew, the research and Linear rooms, the Coming up reminders, phone push, the sudo password card (the door
   answers an empty list), the public mirror, the type-into-a-shell terminal.
 - The helpers (room, swarm, wake-ups) and the auto-titler are **off unless
   switched on**: each starts Claude calls nobody asked for. The day-idle check
@@ -184,7 +188,6 @@ could post to these doors — and these doors start agents that run commands.
   first hundred repos, and GitHub allows about 60 lookups an hour per network.
 - **Claude Code's login on a Mac** lives in the keychain, so `signed_in` is
   `null` (can't tell) there.
-- **The Keeper's day never rolls over by itself** — see the journal section.
 
 ## Where the agent layer is tied to the `claude` program
 

@@ -32,6 +32,7 @@ desktop app — "The whole keeper with a first prompt for setup."
 from datetime import datetime
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 
 import store
@@ -182,7 +183,8 @@ def wake():
     If one is already open, that one is returned and nothing is sent. A new
     one stands in the journal's folder, journals every message, is pinned to
     the top of the Personal room, and is sent `/journalstart` — which, until
-    setup is done, begins with the setup conversation."""
+    setup is done, begins with the setup conversation. After that the
+    nightly rollover (below) closes each day and opens the next Keeper."""
     existing = keeper()
     if existing:
         return {"id": existing, "created": False}
@@ -218,3 +220,62 @@ def status():
     """What the page shows about the journal: {folder, setup_done, keeper}."""
     return {"folder": str(content_dir()), "setup_done": setup_done(), "keeper": keeper()}
 
+
+
+# --- the nightly rollover -------------------------------------------------------
+
+# The hour (this computer's clock) after which yesterday's Keeper is closed.
+ROLLOVER_HOUR = 3
+SETTINGS = "standalone"
+
+
+def rollover_on():
+    """Does the Keeper's day close by itself? On unless the person turned it
+    off (POST /api/standalone/settings {"keeper_rollover": false}). It costs
+    two agent turns a night, which is why it has a switch."""
+    return store.read(SETTINGS, {}).get("keeper_rollover") is not False
+
+
+def rollover_due(now=None):
+    """Should the rollover run now? Only when all of these hold: it is
+    switched on; it is past ROLLOVER_HOUR; it hasn't already run today; and
+    there is an open Keeper that was opened before today and has actually
+    been talked to. So an unused Keeper is never rolled, and a computer that
+    was off at 3am rolls the first time the app is open afterwards."""
+    now = now or datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    if not rollover_on() or now.hour < ROLLOVER_HOUR:
+        return False
+    if store.read(SETTINGS, {}).get("rolled_on") == today:
+        return False
+    conv_id = keeper()
+    if conv_id is None:
+        return False
+    entry = store.read("bot_chats/index", {}).get(conv_id) or {}
+    return bool(entry.get("claude_session_id")) and str(entry.get("started") or "")[:10] < today
+
+
+def start_rollover(now=None):
+    """Start tonight's rollover if it is due: `/endsession` in the open
+    Keeper, then a fresh Keeper woken with `/journalstart`
+    (scripts/keeper_rollover.py — the same script the live site's cron runs).
+    True when it was started.
+
+    The day is stamped BEFORE the script starts, so a rollover that fails
+    costs one night, not a retry every minute. The script runs on its own,
+    in a session of its own: it takes minutes, and the heartbeat that calls
+    this must not wait for it."""
+    now = now or datetime.now()
+    if not rollover_due(now) or not prepare():
+        return False
+    with store.mutate(SETTINGS, {}) as settings:
+        settings["rolled_on"] = now.strftime("%Y-%m-%d")
+    _launch([sys.executable, str(ROOT / "scripts" / "keeper_rollover.py"), "roll"])
+    return True
+
+
+def _launch(command):
+    """Start a program on its own and don't wait for it. Its own function so
+    a test can watch what would be started without starting it."""
+    subprocess.Popen(command, cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=sys.stderr,
+                     stderr=sys.stderr, start_new_session=True)

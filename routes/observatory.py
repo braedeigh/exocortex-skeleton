@@ -497,7 +497,10 @@ def _default_bots():
         "name": "Keeper",
         # The vault root: personas live beside the content dir, and running
         # there lets Claude Code pick up the vault's own CLAUDE.md protocol.
-        "cwd": str(store.CONTENT_DIR.parent),
+        # The desktop app's Keeper stands in the journal's own folder instead
+        # (standalone_app.journal_cwd) — its manifest and commands are there.
+        "cwd": (str(store.CONTENT_DIR) if app_config.standalone()
+                else str(store.CONTENT_DIR.parent)),
         "journal": True,
         "allowed_tools": list(_DEFAULT_ALLOWED_TOOLS),
     }]

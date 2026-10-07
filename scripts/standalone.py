@@ -155,6 +155,25 @@ def place_seed(data_dir, seed_dir):
     return True
 
 
+# The map's slow first reads, asked once in the background at start so the
+# person's first click finds them already made: the code graph (every file
+# parsed) and the tables room (the app's own code scanned).
+WARM_PATHS = ("/api/observatory/terrain", "/api/observatory/terrain/graph",
+              "/api/observatory/terrain/tables")
+
+
+def warm(app):
+    """Ask the app for each slow read once, from inside this process. Any
+    failure is ignored — warming is a courtesy, and the real request will
+    report whatever is wrong."""
+    client = app.test_client()
+    for path in WARM_PATHS:
+        try:
+            client.get(path, headers={"Host": "127.0.0.1"})
+        except Exception:
+            pass
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Start the desktop app's server.")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT,
@@ -208,6 +227,7 @@ def main(argv=None):
 
     print(json.dumps({"ready": True, "url": f"http://127.0.0.1:{port}", "port": port,
                       "data_dir": str(data_dir)}), flush=True)
+    threading.Thread(target=warm, args=(app,), daemon=True, name="standalone-warm").start()
     try:
         server.serve_forever()
     finally:

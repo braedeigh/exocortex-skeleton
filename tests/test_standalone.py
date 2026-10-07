@@ -127,7 +127,8 @@ def test_the_chosen_folder_is_what_the_map_draws_and_where_sessions_stand(client
     profile = observatory._lane_profile("coding")
     assert (profile["cwd"], profile["act_gate"]) == (str(repo), False)
     changed = client.post("/api/standalone/settings", json={"ask_first": True}, headers=LOCAL)
-    assert changed.get_json()["settings"] == {"ask_first": True, "idle_check": True}
+    assert changed.get_json()["settings"] == {
+        "ask_first": True, "idle_check": True, "keeper_rollover": True}
     assert observatory._lane_profile("coding")["act_gate"] is True
 
 
@@ -355,6 +356,43 @@ def test_waking_the_keeper_opens_one_journaling_session_that_starts_with_setup(
     assert (content / "CLAUDE.md").read_text() == manifest
 
 
+def test_the_keepers_day_rolls_over_once_a_night_unless_switched_off(
+        client, standalone, monkeypatch):
+    from datetime import datetime
+    started = []
+    monkeypatch.setattr(standalone_journal, "_launch", started.append)
+    monkeypatch.setattr(observatory, "begin_turn", lambda *a, **k: {"ok": True})
+    night, morning = datetime(2030, 5, 2, 2, 0), datetime(2030, 5, 2, 9, 0)
+    # No Keeper, nothing to roll.
+    assert standalone_journal.start_rollover(morning) is False
+    conv_id = client.post("/api/standalone/keeper", headers=LOCAL).get_json()["keeper"]
+
+    def keeper_was(opened, talked_to=True):
+        with store.mutate("bot_chats/index", {}) as index:
+            index[conv_id]["started"] = opened
+            index[conv_id]["claude_session_id"] = "abc" if talked_to else None
+
+    # A Keeper opened today, or one never talked to, is left alone; so is
+    # yesterday's before 3am.
+    keeper_was("2030-05-02T08:00:00")
+    assert standalone_journal.start_rollover(morning) is False
+    keeper_was("2030-05-01T08:00:00", talked_to=False)
+    assert standalone_journal.start_rollover(morning) is False
+    keeper_was("2030-05-01T08:00:00")
+    assert standalone_journal.start_rollover(night) is False
+    # The switch turns it off.
+    client.post("/api/standalone/settings", json={"keeper_rollover": False}, headers=LOCAL)
+    assert standalone_journal.start_rollover(morning) is False
+    client.post("/api/standalone/settings", json={"keeper_rollover": True}, headers=LOCAL)
+    # Yesterday's Keeper, after 3am: the rollover script is started, once.
+    assert standalone_journal.start_rollover(morning) is True
+    assert standalone_journal.start_rollover(morning) is False
+    assert len(started) == 1 and started[0][1:] == [
+        str(ROOT / "scripts" / "keeper_rollover.py"), "roll"]
+    # And the script's own Keeper would stand in the journal's folder.
+    assert observatory._default_bots()[0]["cwd"] == str(store.CONTENT_DIR)
+
+
 # --- the timed jobs ------------------------------------------------------------
 
 def test_each_job_runs_soon_after_start_and_then_on_its_own_interval():
@@ -390,6 +428,22 @@ def test_only_one_server_per_data_folder_runs_the_jobs(tmp_path):
         assert third.start(tmp_path) is True      # the lock went with the first
     finally:
         third.stop()
+
+
+def test_stopping_the_app_stops_a_job_caught_mid_run(tmp_path):
+    import threading
+    started = tmp_path / "started"
+    exit_codes = []
+    slow = ["-c", f"import pathlib, time; pathlib.Path({str(started)!r}).touch(); time.sleep(60)"]
+    job = threading.Thread(target=lambda: exit_codes.append(standalone_jobs.run_job(slow)))
+    began = time.time()
+    job.start()
+    while not started.exists() and time.time() - began < 20:
+        time.sleep(0.05)
+    standalone_jobs.Scheduler(jobs=()).stop()
+    job.join(timeout=10)
+    assert not job.is_alive() and exit_codes and exit_codes[0] != 0
+    assert time.time() - began < 30
 
 
 def test_the_heartbeat_and_a_cron_script_run_on_an_empty_folder(standalone, monkeypatch):
