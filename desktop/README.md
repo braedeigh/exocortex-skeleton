@@ -14,10 +14,11 @@ and the first-run pages (`frontend/src/features/setup/`) are the other two.
 | Piece | What it does | State |
 |---|---|---|
 | `launcher/` | Starts the Python server on a free port with its own data folder, waits for it to say it is ready, asks how many agents are working, stops it. | Compiles. Three tests pass against a stand-in server. `cargo run --example smoke` started and stopped the real `scripts/standalone.py` on 2026-10-06, once with the checkout's venv and once with the packed Python, while that script was still uncommitted work in progress. |
-| `src-tauri/` | The window. Shows `splash/`, starts the server through the launcher, opens the Observatory, asks before quitting while agents work, offers the page a folder chooser. | **Written, never compiled.** This machine lacks the system packages (below). Every Tauri call in it was read against the source of the exact versions in `Cargo.lock`; that reading found one fault, now fixed (the served page would have been refused the folder chooser: `build.rs` and `capabilities/main.json`). Reading is weaker than compiling. |
+| `src-tauri/` | The window. Shows `splash/`, starts the server through the launcher, opens the Observatory, asks before quitting while agents work (one box: stop agents and quit, quit and let them finish, keep open), offers the page a folder chooser. | **Written, never compiled.** This machine lacks the system packages (below). Every Tauri call in it was read against the source of the exact versions in `Cargo.lock`; that reading found one fault, now fixed (the served page would have been refused the folder chooser: `build.rs` and `capabilities/main.json`). Reading is weaker than compiling. |
 | `splash/` | The "Starting…" page, and the error page if the server never comes up. | Written, not seen in a window. |
 | `pack_python.sh` | Makes the Python that travels inside the download, with the app's libraries in it. | Runs on Linux x86_64. The result was moved to another folder and loaded every library. |
-| `stage_app.sh` | Makes the copy of the app's code and a freshly built page that travels inside the download. | Runs. The real server was started from the staged copy on the packed Python (2026-10-06): the Observatory, Terrain and the page's JavaScript all answered, no missing library, and nothing was written beside the staged code. No agent turn was run. |
+| `stage_app.sh` | Makes the copy of the app's code and a freshly built page that travels inside the download. | Runs. The real server was started from the staged copy on the packed Python (2026-10-06): the Observatory, Terrain and the page's JavaScript all answered, the first-start project was put in place (1,039 commits), no missing library, and nothing was written beside the staged code. No agent turn was run. |
+| `install.sh` | Installs the app from one pasted terminal line. | Tested against stand-in files only; no release exists to download. See below. |
 | `src-tauri/tauri.bundle.conf.json` | Tells the installer build to pack the Python and the staged code. Kept apart from `tauri.conf.json` so `cargo run` works from a checkout with neither. | Written, never used: making an installer needs the window to compile first. |
 
 ## The choices, and why
@@ -80,7 +81,9 @@ where the window looks, for testing.
 
 **The installer build, run once.** The two halves of the download's contents
 exist: `pack_python.sh` (the Python) and `stage_app.sh` (the code and the
-page, 20 MB before compression). What has never been run is the step that
+page, 60 MB before compression: code 7.7 MB, page 13 MB, and 41 MB for the
+first-start project, a copy of this app's own code with its history already
+read in, so a new install opens on something without a download). What has never been run is the step that
 packs them with the window: `cargo tauri build --config tauri.bundle.conf.json`
 from `src-tauri/`. Unknown until it runs: whether Tauri's packing keeps the
 links inside the packed Python (`bin/python3` is a link to `bin/python3.12`).
@@ -91,9 +94,8 @@ sunset use), and a build writes them into the JavaScript as plain numbers.
 `stage_app.sh` builds in a scratch copy that does not contain that file, then
 stops if any of its values is found in the result. Checked on this machine:
 three of them are in the live site's own build, none in the staged one.
-`scripts/make-release.sh` (the tarball, not the desktop app) still builds in
-the checkout's own `frontend/` folder, so on an install that has that file its
-tarball carries those values.
+`scripts/make-release.sh` (the tarball, not the desktop app) builds the same
+way and makes the same check.
 
 **An installer per system.**
 - Linux: Tauri makes a `.deb` and an AppImage (one file that runs on most
@@ -136,24 +138,35 @@ same data folder. Tauri has a single-instance plugin for this; not added yet.
 
 ## Installing from a terminal
 
-The usual shape is one line a person pastes:
+`install.sh` is the one line a person pastes (the owner asked for it,
+2026-10-06):
 
 ```
-curl -fsSL https://<the website>/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/braedeigh/exocortex-skeleton/main/desktop/install.sh | sh
 ```
 
-What it takes beside the download link:
-- a small script on the website that works out the system and chip, downloads
-  the matching file, checks it against a published checksum, puts it in place
-  (`~/.local/bin` plus a menu entry on Linux, `/Applications` on a Mac), and
-  says how to remove it;
-- the release files on the public repository, the same ones the download
-  link uses;
-- keeping the script in step with each release.
+It works out the system and chip, downloads the matching file from the public
+repository's newest release, refuses to install unless the file matches the
+published checksum, and puts the app in `~/.local/bin` with a menu entry. It
+asks for no password. `sh install.sh --remove` takes it away again and leaves
+the person's data alone.
 
-One thing worth knowing: a file fetched by `curl` on a Mac is not marked as
-"downloaded from the internet", so the Mac does not run its unsigned-app check
-on it. A terminal install therefore works on a Mac without the paid signing.
-The download link does not.
+State: tested against a folder of stand-in files (a good file installs and
+runs, a changed file is refused, a missing checksum list is refused, remove
+leaves nothing behind). **No release has been published, so the real line
+above does not work yet.** Linux only; on a Mac it says there is no build.
 
-Not built. The owner said "maybe".
+Each release has to carry files with exactly these names:
+`Exocortex-linux-x86_64.AppImage`, `SHA256SUMS` (made with `sha256sum`), and
+optionally `exocortex.png` (`src-tauri/icons/128x128.png`). Tauri names its
+AppImage differently (`Exocortex_<version>_amd64.AppImage`), so the release
+step has to rename it.
+
+Two things worth knowing:
+- An AppImage needs the system library libfuse2 to start, and Ubuntu 22.04 and
+  later do not install it by default. The installer says so when it is
+  missing. The `.deb` does not have this problem.
+- A file fetched by `curl` on a Mac is not marked as "downloaded from the
+  internet", so the Mac does not run its unsigned-app check on it. A terminal
+  install would therefore work on a Mac without the paid signing. The download
+  link would not.

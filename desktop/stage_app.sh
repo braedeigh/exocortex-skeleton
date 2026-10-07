@@ -8,6 +8,9 @@
 # window looks for exactly that folder (src-tauri/src/main.rs, `server_spec`),
 # and tauri.bundle.conf.json tells the installer build to pack it.
 #
+# Last, it makes the first-start project (`standalone-seed/`), described at
+# that step below.
+#
 # What goes in: every file git tracks, minus the folders a running app never
 # reads (the page's source, the tests, this desktop folder), plus the built
 # page. Because the list comes from `git ls-files`, nothing gitignored (data,
@@ -22,7 +25,8 @@
 # files only, so that file is not there to read.
 #
 # Usage:  desktop/stage_app.sh
-# Needs:  git, npm, and frontend/node_modules already installed.
+# Needs:  git, npm, frontend/node_modules already installed, the checkout's
+#         ./venv, and the network (for the first-start project).
 #
 # Prompt that produced it: "copy the app's code + a freshly built page into
 # the download; build the page without the owner's settings file."
@@ -65,4 +69,12 @@ git ls-files -z -- . ':!frontend' ':!tests' ':!desktop' | tar --null -T - -cf - 
 cp -r "$SCRATCH/dist" "$DEST/frontend/dist"
 touch "$DEST/frontend/dist/.prebuilt"
 
-echo "✓ $DEST  ($(du -sh "$DEST" | cut -f1): code $(du -sh --exclude=frontend "$DEST" | cut -f1), page $(du -sh "$DEST/frontend/dist" | cut -f1))"
+# Make the first project a new install opens on: this app's own code with its
+# history already read in (scripts/standalone_seed.py), so the first start
+# needs no download and no wait. It is cloned from the published address;
+# set EXO_DESKTOP_SEED_FROM to a local checkout to make it without the network.
+echo "→ Making the first-start project (a clone with its history read in)"
+./venv/bin/python3 scripts/standalone_seed.py --out "$DEST/standalone-seed" \
+  ${EXO_DESKTOP_SEED_FROM:+--from "$EXO_DESKTOP_SEED_FROM"} >/dev/null
+
+echo "✓ $DEST  ($(du -sh "$DEST" | cut -f1): code $(du -sh --exclude=frontend --exclude=standalone-seed "$DEST" | cut -f1), page $(du -sh "$DEST/frontend/dist" | cut -f1), first-start project $(du -sh "$DEST/standalone-seed" | cut -f1))"

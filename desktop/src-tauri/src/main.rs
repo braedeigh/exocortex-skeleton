@@ -38,7 +38,9 @@ use std::time::Duration;
 
 use exo_launcher::{login_shell_path, Server, ServerSpec};
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_dialog::{
+    DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
+};
 
 /// The running server, shared between the thread that starts it, the window's
 /// close handler and the exit handler. `None` before it is up and after it has
@@ -163,30 +165,39 @@ fn live_turns(app: &AppHandle) -> u64 {
     guard.as_ref().and_then(|server| server.live_turns()).unwrap_or(0)
 }
 
-/// Ask before quitting while agents are working. Two questions, each with two
-/// buttons: quit or keep open; then stop the agents or let them finish. A turn
-/// runs in its own process and outlives the server, so "let them finish" just
-/// means not stopping them.
+/// Ask before quitting while agents are working. One box, three buttons:
+/// stop the agents and quit, quit and let them finish, or keep the window
+/// open. A turn runs in its own process and outlives the server, so "let them
+/// finish" just means not stopping them. Closing the box any other way counts
+/// as "keep open".
 fn ask_then_quit(app: AppHandle, count: u64) {
+    const STOP_AND_QUIT: &str = "Stop agents and quit";
+    const QUIT_AND_LEAVE: &str = "Quit and let them finish";
+    const KEEP_OPEN: &str = "Keep open";
     std::thread::spawn(move || {
         let agents = if count == 1 { "1 agent is".to_string() } else { format!("{count} agents are") };
-        let quit = app
+        let answer = app
             .dialog()
-            .message(format!("{agents} still working."))
+            .message(format!(
+                "{agents} still working. Agents left running keep working, and spending, with no window open."
+            ))
             .title("Quit Exocortex?")
             .kind(MessageDialogKind::Warning)
-            .buttons(MessageDialogButtons::OkCancelCustom("Quit".into(), "Keep open".into()))
-            .blocking_show();
-        if !quit {
-            return;
-        }
-        let stop_them = app
-            .dialog()
-            .message("Stop them now, or let them finish in the background? Agents left running keep working, and spending, with no window open.")
-            .title("Agents still working")
-            .kind(MessageDialogKind::Warning)
-            .buttons(MessageDialogButtons::OkCancelCustom("Stop them".into(), "Let them finish".into()))
-            .blocking_show();
+            .buttons(MessageDialogButtons::YesNoCancelCustom(
+                STOP_AND_QUIT.into(),
+                QUIT_AND_LEAVE.into(),
+                KEEP_OPEN.into(),
+            ))
+            .blocking_show_with_result();
+        // The dialog answers with the label of the button pressed; the plain
+        // Yes and No are accepted too, in case a system reports those instead.
+        let stop_them = match answer {
+            MessageDialogResult::Custom(label) if label == STOP_AND_QUIT => true,
+            MessageDialogResult::Custom(label) if label == QUIT_AND_LEAVE => false,
+            MessageDialogResult::Yes => true,
+            MessageDialogResult::No => false,
+            _ => return,
+        };
         if stop_them {
             let running = app.state::<Running>();
             if let Some(server) = running.0.lock().unwrap().as_ref() {
