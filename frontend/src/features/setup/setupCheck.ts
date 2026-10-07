@@ -60,6 +60,10 @@ export interface StandaloneStatus {
   /** `ask_first`: new sessions stop and ask before they change anything.
    * `idle_check`: a session left alone for a day is asked whether it's done. */
   settings?: { ask_first?: boolean; idle_check?: boolean };
+  /** The journal, when this desktop app has one. `keeper` is the open Keeper
+   * session's id, or null; `setup_done` is false until the Keeper has asked
+   * who it is keeping for. */
+  journal?: { folder?: string; setup_done?: boolean; keeper?: string | null };
   ready?: boolean;
 }
 
@@ -97,6 +101,41 @@ export interface SetupReading {
   /** Is a session left alone for a day asked whether it's finished? Null
    * when the server didn't say, so the page shows no switch rather than a guess. */
   checksIdle: boolean | null;
+  /** The journal step, or null when this desktop app has no journal. */
+  keeper: KeeperReading | null;
+}
+
+/** Where the journal's Keeper stands, and what its one button does. */
+export interface KeeperReading {
+  /** The open Keeper session to show, or null when none is open. */
+  sessionId: string | null;
+  /** One sentence: where it stands. */
+  headline: string;
+  /** The button's words. */
+  action: string;
+  /** False when pressing would start a session that can't answer. */
+  canStart: boolean;
+}
+
+/** Read the journal step. Three states: a Keeper is open (go to it), none is
+ * open on a set-up journal (wake one), or the journal is new (the first wake
+ * is the setup conversation). Waking needs Claude Code ready, because the
+ * Keeper is a session. */
+function readKeeper(status: StandaloneStatus | null, claudeReady: boolean): KeeperReading | null {
+  const journal = status?.journal;
+  if (!journal) return null;
+  if (journal.keeper) {
+    return { sessionId: journal.keeper, headline: 'The Keeper is open.', action: 'Go to the Keeper', canStart: true };
+  }
+  if (journal.setup_done) {
+    return { sessionId: null, headline: 'The journal is set up. No Keeper session is open.', action: 'Wake the Keeper', canStart: claudeReady };
+  }
+  return {
+    sessionId: null,
+    headline: 'The journal is new. The Keeper’s first conversation sets it up: it explains itself and asks who it is keeping for.',
+    action: 'Start the journal',
+    canStart: claudeReady,
+  };
 }
 
 /** Where Claude Code's own instructions live. */
@@ -192,6 +231,7 @@ export function readSetup(status: StandaloneStatus | null): SetupReading {
     ),
     asksFirst: typeof status?.settings?.ask_first === 'boolean' ? status.settings.ask_first : null,
     checksIdle: typeof status?.settings?.idle_check === 'boolean' ? status.settings.idle_check : null,
+    keeper: readKeeper(status, claude.state === 'done'),
   };
 }
 

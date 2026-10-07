@@ -91,12 +91,13 @@ function pathOnly(url: string): string {
  * them answer. Until it names one, that part doesn't exist in the page: no
  * tab, no button, and its address goes home like any other. The journal is
  * the first: its page needs the journal's own data on the machine, which a
- * fresh install has only when the server has set it up.
+ * fresh install has only when the server has set it up. The Threads page
+ * comes with it, because the journal's cards link to their threads.
  *
  * Her ask: "I want journal to be actually in the build at first".
  */
 export const STANDALONE_EXTRA_PARTS: Readonly<Record<string, { keeps: readonly string[]; sectionIds: readonly string[] }>> = {
-  journal: { keeps: ['/journal'], sectionIds: ['journal'] },
+  journal: { keeps: ['/journal', '/threads'], sectionIds: ['journal'] },
 };
 
 /** The extra parts this desktop app's server offers. Names the page doesn't

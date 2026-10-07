@@ -35,11 +35,19 @@ still in the download, unreachable.
 | `/code` (a file opened from the map), `/sql` | every other page of the site |
 
 **The journal is a part the server switches on.** The page holds `/journal`
-(and its tab) only when the desktop server lists it in
-`window.STANDALONE_EXTRAS`. The Journal page needs the journal's own data on
-the machine, so until the server has that and says so, the page shows no
-journal at all. What "journal" covers beyond that one page (the Keeper that
-writes it, Pond, Creek, Threads) is not decided.
+(with its tab) and `/threads` only when the desktop server lists `"journal"`
+in `window.STANDALONE_EXTRAS`; the server does so once it has a journal
+folder and the routes behind the page. Pond and Creek, the two Terrain rooms
+that draw the journal, are still left out.
+
+Inside the journal, the desktop app hides what its server can't answer:
+
+- the moon on a dev note (it sends the note to the night crew);
+- "talk about this thread" (it starts a terminal session on the owner's
+  server) — one check, `threadTalkOffered()` in `journal/threadTalk.ts`, for
+  the journal's popover and both Threads pages;
+- links to the Files page and to a person's page, which the desktop app
+  doesn't hold. A file reference is shown as plain text instead.
 
 Four places enforce it:
 
@@ -61,7 +69,7 @@ Four places enforce it:
 presses "Open the app", and is reachable afterwards as the Setup tab
 (`/observatory/setup`).
 
-It asks `GET /api/standalone` and shows two steps:
+It asks `GET /api/standalone` and shows its steps:
 
 1. **Code to draw.** Three ways to fill it, all through
    `POST /api/standalone/project`: this app's own code (`{"own": true}`, shown
@@ -79,7 +87,13 @@ When more than one project is on the machine (the app's own code and a
 person's own folder are separate projects, each with its own map), the others
 are listed as buttons that switch which one Terrain draws (`{"id"}`).
 
-Under the two steps is one notice: **sessions act without asking**, with an
+3. **The journal**, when the app has one (`journal` in the status). One
+   button: "Start the journal" on a new journal, whose first conversation is
+   the Keeper's setup; "Wake the Keeper" once set up; "Go to the Keeper" when
+   one is open. It calls `POST /api/standalone/keeper` and opens that
+   session. It needs Claude Code ready, because the Keeper is a session.
+
+Under the steps is one notice: **sessions act without asking**, with an
 "Ask me first" switch (`POST /api/standalone/settings {"ask_first"}`). It
 applies to sessions started from then on. Beside it is the **idle check**: a
 session left alone for a day is asked whether its job is over. It has its own
@@ -170,9 +184,8 @@ shows or does it. "Open" means it is still there.
   (`frontend/vite.config.ts`), as is the page title in `frontend/index.html`
   until the page loads. The desktop app has no phone-app install, so the
   manifest's name is not shown anywhere there.
-- **The Keeper slot** at the top of the roster is drawn only when a pinned
-  session exists, so a new person never sees it — but the code and its wording
-  are there, and the create-session sheet still offers a "journal" switch.
+- **The Journal page asks for `/api/fronts/…`**, which the desktop server
+  answers 404. Nothing visible breaks.
 - **The sudo popup** (`SudoHost`) still polls on every page. It is harmless
   with an empty list, but the thing it is for — reloading her web service —
   doesn't exist on a desktop.

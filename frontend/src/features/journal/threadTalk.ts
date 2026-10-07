@@ -10,12 +10,20 @@
  * the terminal there.
  */
 import { api } from '../../api/client';
+import { isStandalone } from '../../shell/standalone';
 
 export interface ThreadTalkResult {
   ok: true;
   /** The tmux session that was spawned (thread-<slug>, -2/-3 if taken). */
   session: string;
   thread: string;
+}
+
+/** Should the "talk about this thread" button be drawn? Not for a public
+ * visitor, and not in the desktop app: the action starts a terminal session
+ * on the owner's server, which the desktop server doesn't have. */
+export function threadTalkOffered(): boolean {
+  return typeof window !== 'undefined' && window.VIEW_MODE !== 'public' && !isStandalone();
 }
 
 export function startThreadTalk(id: string): Promise<ThreadTalkResult> {

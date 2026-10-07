@@ -49,6 +49,14 @@ export function useProjectActions() {
     drawFolder: (path: string) => api.post<StandaloneStatus>('/api/standalone/project', { path }).then(accept),
     /** Download a project from its git address, history included. */
     download: (url: string) => api.post<StandaloneStatus>('/api/standalone/project', { url }).then(accept),
+    /** Open the journal's Keeper session (or find the one already open) and
+     * answer with its id. On a new journal its first turn is the setup
+     * conversation. */
+    wakeKeeper: () =>
+      api.post<{ keeper?: string | null }>('/api/standalone/keeper').then((answer) => {
+        void queryClient.invalidateQueries({ queryKey: STATUS_KEY });
+        return answer.keeper ?? null;
+      }),
     /** Choose whether NEW sessions stop and ask before changing anything. */
     setAsksFirst: (asksFirst: boolean) =>
       api.post<StandaloneStatus>('/api/standalone/settings', { ask_first: asksFirst }).then(accept),

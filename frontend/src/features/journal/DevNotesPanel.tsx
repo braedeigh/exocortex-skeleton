@@ -3,6 +3,7 @@ import { Button, IconButton, Sheet } from '../../ui';
 import { useDevNoteMutations, useJournalDevNotes } from './useJournalData';
 import { useGreenlight } from '../nightcrew/useGreenlight';
 import styles from './DevNotesPanel.module.css';
+import { isStandalone } from '../../shell/standalone';
 
 export interface DevNotesPanelProps {
   open: boolean;
@@ -123,13 +124,17 @@ export function DevNotesPanel({ open, onClose, onError }: DevNotesPanelProps) {
                   <div className={styles.askNote}>Night crew asks — edit the note to answer:{'\n'}{n.night_questions}</div>
                 ) : null}
               </div>
-              <IconButton
-                aria-label={night.isOn(n.id, n.night === true) ? 'Remove from tonight' : 'Send to the night crew'}
-                onClick={() => night.toggle(n.id, !night.isOn(n.id, n.night === true))}
-                data-track="dev-note-night"
-              >
-                <span className={night.isOn(n.id, n.night === true) ? styles.nightOn : styles.nightOff}>☾</span>
-              </IconButton>
+              {/* The moon sends a note to the night crew, which only the
+                  owner's own install has. */}
+              {isStandalone() ? null : (
+                <IconButton
+                  aria-label={night.isOn(n.id, n.night === true) ? 'Remove from tonight' : 'Send to the night crew'}
+                  onClick={() => night.toggle(n.id, !night.isOn(n.id, n.night === true))}
+                  data-track="dev-note-night"
+                >
+                  <span className={night.isOn(n.id, n.night === true) ? styles.nightOn : styles.nightOff}>☾</span>
+                </IconButton>
+              )}
               <IconButton aria-label="Edit note" onClick={() => startEdit(n.id, n.text)} data-track="dev-note-edit">
                 &#9998;
               </IconButton>

@@ -3,6 +3,7 @@ import { entityHue } from './markdown';
 import { useBacklinks } from './useJournalData';
 import type { Mention } from './types';
 import styles from './PersonPopover.module.css';
+import { pageIsOffered } from '../../shell/standalone';
 
 export interface PersonPopoverProps {
   slug: string | null;
@@ -96,17 +97,22 @@ export function PersonPopover({ slug, onClose, onJournalMention }: PersonPopover
                 >
                   {content}
                 </button>
-              ) : (
+              ) : pageIsOffered('/files') ? (
                 <a key={i} className={styles.mentionRow} href={`/files?path=${encodeURIComponent(m.file)}`}>
                   {content}
                 </a>
+              ) : (
+                // The desktop app has no Files page to open it in.
+                <div key={i} className={styles.mentionRow}>
+                  {content}
+                </div>
               );
             })}
             {!data?.mentions?.length ? <div className={styles.emptyMentions}>No references recorded yet.</div> : null}
             {!person ? <div className={styles.emptyMentions}>No file yet.</div> : null}
           </div>
 
-          {person ? (
+          {person && pageIsOffered('/person') ? (
             <a className={styles.openPerson} href={`/person/${person.id}`}>
               Open person page &rarr;
             </a>

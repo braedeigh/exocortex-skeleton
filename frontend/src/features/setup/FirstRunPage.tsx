@@ -37,8 +37,13 @@
 import { useState } from 'react';
 import { ApiError } from '../../api/client';
 import { CLAUDE_CODE_LINK, looksLikeRepoAddress, readSetup, type SetupStep, type StepState } from './setupCheck';
-import { markSetupFinished, useProjectActions, useStandaloneStatus } from './setupApi';
-import { listGithubRepos, type GithubRepo } from './setupApi';
+import {
+  listGithubRepos,
+  markSetupFinished,
+  useProjectActions,
+  useStandaloneStatus,
+  type GithubRepo,
+} from './setupApi';
 import styles from './FirstRunPage.module.css';
 
 /** The mark each state wears, beside its headline. Never colour alone. */
@@ -92,7 +97,8 @@ export function FirstRunPage({
   returning?: boolean;
 }) {
   const statusQuery = useStandaloneStatus(true);
-  const { drawOwnCode, drawProject, drawFolder, download, setAsksFirst, setChecksIdle } = useProjectActions();
+  const { drawOwnCode, drawProject, drawFolder, download, setAsksFirst, setChecksIdle, wakeKeeper } =
+    useProjectActions();
   const status = statusQuery.data ?? null;
   const reading = readSetup(status);
   const unreachable = statusQuery.isError && !status;
@@ -151,6 +157,29 @@ export function FirstRunPage({
   const open = () => {
     markSetupFinished();
     onOpen();
+  };
+
+  /** Go to the journal's Keeper, waking it first if none is open. This also
+   * finishes setup, since the person is now in the app. A full page load
+   * rather than a router move: the first-run screen may be standing in
+   * front of a router that hasn't drawn the Observatory yet. */
+  const goToKeeper = () => {
+    setSending(true);
+    setRefusal(null);
+    const known = reading.keeper?.sessionId;
+    (known ? Promise.resolve<string | null>(known) : wakeKeeper())
+      .then((sessionId) => {
+        if (!sessionId) {
+          setRefusal('The Keeper didn’t start.');
+          return;
+        }
+        markSetupFinished();
+        window.location.assign(`/observatory/session?conv=${encodeURIComponent(sessionId)}`);
+      })
+      .catch((error: unknown) => {
+        setRefusal(error instanceof ApiError && error.message ? error.message : 'Couldn’t reach the app’s server.');
+      })
+      .finally(() => setSending(false));
   };
 
   return (
@@ -353,6 +382,33 @@ export function FirstRunPage({
             ) : null}
           </div>
         </section>
+
+        {/* The journal step, on a desktop app that has a journal. Her ask:
+            "The whole keeper with a first prompt for setup." */}
+        {reading.keeper ? (
+          <section className={styles.card} aria-labelledby="setup-journal">
+            <h2 className={styles.cardTitle} id="setup-journal">
+              The journal
+            </h2>
+            <p className={styles.plain}>
+              The Keeper is the session that keeps your journal: you talk, it writes the day down.
+            </p>
+            <p className={styles.plain}>{reading.keeper.headline}</p>
+            <div className={styles.row}>
+              <button
+                type="button"
+                className={styles.primaryBtn}
+                onClick={goToKeeper}
+                disabled={sending || !reading.keeper.canStart}
+              >
+                {reading.keeper.action}
+              </button>
+            </div>
+            {!reading.keeper.canStart ? (
+              <p className={styles.hint}>The Keeper is a session, so it needs Claude Code installed and signed in first.</p>
+            ) : null}
+          </section>
+        ) : null}
 
         {/* The settings card. Each switch is drawn only when the server
             reported that setting, so an older server shows fewer switches

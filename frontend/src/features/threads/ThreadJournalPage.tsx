@@ -8,7 +8,7 @@ import { Button, IconButton, Sheet, ToastStack } from '../../ui';
 import type { EntityMatcher } from '../journal/entityHighlight';
 import { buildEntityMatcher, highlightEntities } from '../journal/entityHighlight';
 import { mdToHtml } from '../journal/markdown';
-import { startThreadTalk, talkLabel, type TalkState } from '../journal/threadTalk';
+import { startThreadTalk, talkLabel, threadTalkOffered, type TalkState } from '../journal/threadTalk';
 import type { ThreadJournalCardEntry, ThreadJournalDayEntry, ThreadJournalEntry } from '../journal/types';
 import {
   useAddThreadEntry,
@@ -417,7 +417,7 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
               </div>
             ) : null}
 
-            {!isPublicMode() ? (
+            {threadTalkOffered() ? (
               <button type="button" className={styles.talkBtn} onClick={talk} disabled={talkState === 'sending'}>
                 {talkLabel(talkState)}
               </button>

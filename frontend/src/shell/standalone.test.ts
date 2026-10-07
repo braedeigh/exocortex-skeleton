@@ -65,6 +65,9 @@ describe('the journal, which the desktop app holds only when its server offers i
 
   it('is a kept page with its own tab once the server names it', () => {
     expect(standaloneAllows('/journal', ['journal'])).toBe(true);
+    // The journal's cards link to their threads, so that page comes with it.
+    expect(standaloneAllows('/threads/some-thread', ['journal'])).toBe(true);
+    expect(standaloneAllows('/threads', [])).toBe(false);
     expect(standaloneRedirect('/journal', true, ['journal'])).toBeNull();
     const ids = sectionsFor(true, standaloneSectionIds(['journal'])).map((section) => section.id);
     expect(ids).toContain('journal');

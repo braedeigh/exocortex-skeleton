@@ -119,6 +119,23 @@ describe('what the first-run check reports', () => {
     expect(readSetup({ ...ALL_SET, settings: { idle_check: false } }).asksFirst).toBeNull();
   });
 
+  it('walks the journal step from a new journal to an open Keeper', () => {
+    // No journal on this desktop app: no step at all.
+    expect(readSetup(ALL_SET).keeper).toBeNull();
+    // New journal: the first wake is the setup conversation.
+    const fresh = readSetup({ ...ALL_SET, journal: { setup_done: false, keeper: null } }).keeper;
+    expect(fresh?.action).toBe('Start the journal');
+    expect(fresh?.canStart).toBe(true);
+    // Set up, nothing open: wake one.
+    expect(readSetup({ ...ALL_SET, journal: { setup_done: true, keeper: null } }).keeper?.action).toBe('Wake the Keeper');
+    // One is open: the button goes to it, by its id.
+    const openKeeper = readSetup({ ...ALL_SET, journal: { setup_done: true, keeper: '2026-10-06.1' } }).keeper;
+    expect(openKeeper?.sessionId).toBe('2026-10-06.1');
+    // The Keeper is a session, so it can't be started without Claude Code.
+    const noClaude = readSetup({ ...ALL_SET, claude: { found: false }, journal: { setup_done: false, keeper: null } });
+    expect(noClaude.keeper?.canStart).toBe(false);
+  });
+
   it('still produces sentences from an empty or missing answer', () => {
     for (const status of [null, {}, { claude: {}, project: {} }] as const) {
       const reading = readSetup(status);

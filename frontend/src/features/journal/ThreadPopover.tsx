@@ -4,10 +4,11 @@ import { Sheet } from '../../ui';
 import { useSessionsContext } from '../../shell/SessionsContext';
 import { DESKTOP_QUERY } from '../../shell/useMediaQuery';
 import { openSessionInTerminal } from '../../shell/sessionIntent';
-import { startThreadTalk, talkLabel, type TalkState } from './threadTalk';
+import { startThreadTalk, talkLabel, threadTalkOffered, type TalkState } from './threadTalk';
 import { useThread } from './useJournalData';
 import type { ThreadSource } from './types';
 import styles from './ThreadPopover.module.css';
+import { pageIsOffered } from '../../shell/standalone';
 
 export interface ThreadPopoverProps {
   /** Thread id (slug) to show, or null when closed. */
@@ -95,9 +96,17 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
                     <div className={styles.sources}>
                       {c.sources.map((s, j) =>
                         s.kind === 'keeper' ? (
-                          <a key={j} className={styles.sourceChip} href={`/files?path=${encodeURIComponent(s.val)}`}>
-                            {s.label} &rarr;
-                          </a>
+                          // A link to the Files page where there is one; the
+                          // desktop app has none, so there it is only a label.
+                          pageIsOffered('/files') ? (
+                            <a key={j} className={styles.sourceChip} href={`/files?path=${encodeURIComponent(s.val)}`}>
+                              {s.label} &rarr;
+                            </a>
+                          ) : (
+                            <span key={j} className={styles.sourceChip}>
+                              {s.label}
+                            </span>
+                          )
                         ) : (
                           <button
                             key={j}
@@ -117,7 +126,7 @@ export function ThreadPopover({ id, onClose, onNavigateDate }: ThreadPopoverProp
             );
           })}
 
-          {window.VIEW_MODE !== 'public' ? (
+          {threadTalkOffered() ? (
             <button
               type="button"
               className={styles.talkBtn}
