@@ -21,7 +21,7 @@ import styles from './ThreadSummaries.module.css';
 export interface ThreadSummariesProps {
   /** Newest first, as the server sends them. */
   summaries: ThreadSummary[];
-  /** "2026-10-06" -> "Oct 6" — the page's own day formatter. */
+  /** "2026-03-10" -> "Mar 10" — the page's own day formatter. */
   formatDay: (day: string) => string;
 }
 
@@ -34,7 +34,7 @@ export function authorLabel(author: string): string {
 
 /**
  * The days a summary was based on, each once, in order.
- * A source is a card id ("2026-07-13.2220b") or a bare day; both start with
+ * A source is a card id ("2026-03-10.0900b") or a bare day; both start with
  * the day, so the first ten characters are the day either way.
  */
 export function sourceDays(basedOn: string[]): string[] {

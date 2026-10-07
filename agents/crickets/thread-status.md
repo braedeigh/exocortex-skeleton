@@ -25,7 +25,7 @@ journal, or the card pool. Everything you need is in the job file and the thread
 - **The whole thread.** Start where the thread starts and end at its last card.
 - **In arcs.** Group it into the few stretches it really has (two to four), each one
   sentence that opens with its dates: `Jun to Jul: …`. `Since Oct: …`.
-- **End with the status as a plain fact:** `Retired Oct 6; the last card was Sep 14.`
+- **End with the status as a plain fact:** `Retired Mar 12; the last card was Feb 3.`
   Do not say why it changed unless the file or a card says why.
 - **120 words at most.** Shorter is better. A longer one is cut at a sentence.
 - Plain sentences. No headings, no lists.

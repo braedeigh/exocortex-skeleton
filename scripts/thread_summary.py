@@ -13,7 +13,7 @@ The one keeper row in the table was put there once, at the owner's request,
 before that rule.
 
     thread_summary.py add --slug SLUG --author cricket:housekeep --body-file /tmp/summary.txt \\
-        --based-on 2026-06-26 2026-07-13.2220b [--status retired]
+        --based-on 2026-03-08 2026-03-10.0900b [--status retired]
     thread_summary.py list SLUG
     thread_summary.py import-nights
 

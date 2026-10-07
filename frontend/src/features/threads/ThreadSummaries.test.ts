@@ -4,8 +4,8 @@ import { authorLabel, sourceDays, statusLabel } from './ThreadSummaries';
 describe('sourceDays', () => {
   it('turns a mix of card ids and bare days into each day once, in order', () => {
     expect(
-      sourceDays(['2026-07-13.2220b', '2026-06-26', '2026-07-13.2218b', '2026-10-02.2043b2']),
-    ).toEqual(['2026-06-26', '2026-07-13', '2026-10-02']);
+      sourceDays(['2026-03-10.0910b', '2026-03-08', '2026-03-10.0900b', '2026-03-12.0900b2']),
+    ).toEqual(['2026-03-08', '2026-03-10', '2026-03-12']);
   });
 });
 
