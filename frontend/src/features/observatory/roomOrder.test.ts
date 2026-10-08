@@ -8,7 +8,6 @@ import { describe, expect, it } from 'vitest';
 import {
   foldsIntoDone,
   orderMembers,
-  topicGroups,
   orderRoom,
   sessionPlace,
   swarmPlace,
@@ -102,31 +101,6 @@ describe('orderRoom', () => {
   it('keeps a done session in the done band even while a peer wakes it', () => {
     const woken = session('a', { done_at: ago(30 * MIN), running: true });
     expect(sessionPlace(woken, undefined, NOW).tier).toBe('done');
-  });
-});
-
-describe('topicGroups', () => {
-  const topic = (id: number, name: string) => ({ id, name, summary: null, summary_at: null, convs: [] });
-
-  it('heads each topic that has members, puts the unsorted last, and draws no headings for an undivided swarm', () => {
-    const topics = [topic(1, 'Desktop app'), topic(2, 'Chat search'), topic(3, 'Nobody left')];
-    const members = [
-      member('search', { topic_id: 2 }),
-      member('window', { topic_id: 1 }),
-      member('new'),
-      member('server', { topic_id: 1 }),
-    ];
-    expect(
-      topicGroups(topics, members).map((group) => [group.topic?.name ?? null, group.members.map((m) => m.conv)]),
-    ).toEqual([
-      ['Desktop app', ['window', 'server']],
-      ['Chat search', ['search']],
-      [null, ['new']],
-    ]);
-    // Only one topic among the members shown, or no topics at all: one group, no heading.
-    const desktop = members.filter((m) => m.topic_id === 1);
-    expect(topicGroups(topics, desktop)).toEqual([{ topic: null, members: desktop }]);
-    expect(topicGroups(undefined, members)).toEqual([{ topic: null, members }]);
   });
 });
 

@@ -10,9 +10,6 @@
  *
  * Closed swarms (fewer than two sessions still at work) come with the rest, marked `closed`;
  * pages draw them only when the shared "show closed swarms" switch is on.
- * A swarm doing more than one piece of work comes sorted into topics
- * (`topics`, and `topic_id` on each member); roomOrder.topicGroups turns
- * that into the headed groups the pages draw.
  *
  * Touches: routes/swarms.py (the endpoints), SwarmClosingFold.tsx (a closed swarm's summary, opened from a room
  * helper's chat), terrain/codeHeatPref.ts (the sticky switch), SwarmCard.tsx and SessionLane.tsx
@@ -39,21 +36,6 @@ export interface SwarmMember {
   joined_at: string;
   summary: string | null;
   summary_at: string | null;
-  /** The topic it reads under (Swarm.topics), or null when it isn't sorted.
-   * Absent from an older server, so treat it as optional. */
-  topic_id?: number | null;
-}
-
-/** One topic inside a swarm (swarms.py `set_topic`): a named group of
- * members doing the same piece of work. The room helper names it and sorts
- * the members; the swarm's helper writes its summary. Everyone stays a member
- * of the one swarm. */
-export interface SwarmTopic {
-  id: number;
-  name: string;
-  summary: string | null;
-  summary_at: string | null;
-  convs: string[];
 }
 
 export interface Swarm {
@@ -68,10 +50,6 @@ export interface Swarm {
   created_at: string;
   counts: { working: number; silent: number; needs_input: number };
   members: SwarmMember[];
-  /** The topics the swarm is sorted into, the ones with members. Empty for a
-   * swarm doing one piece of work. Absent from an older server, so treat it
-   * as optional. */
-  topics?: SwarmTopic[];
   /** Fewer than two of its sessions are still at work (a session and its
    * continuations count as one; done, archived and handed-on ones don't count)
    * — swarms.py `is_closed`. A swarm is two sessions working together; the

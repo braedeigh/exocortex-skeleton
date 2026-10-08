@@ -452,38 +452,27 @@ def test_a_heads_up_and_a_thanks_link_nobody_but_a_back_and_forth_does(data_dir)
     assert swarms.swarm_of("c") is None
 
 
-def test_a_swarm_is_sorted_into_topics_that_follow_its_members(data_dir):
-    """Topics divide a swarm without unlinking anyone: every member stays,
-    each reads under its topic, a continuation reads under its parent's, a
-    member moved to another topic leaves the first, and a topic nobody is in
-    any more is gone."""
+def test_sessions_that_keep_changing_the_same_files_are_a_swarm_without_a_word(data_dir):
+    """Her call: a swarm also forms "if they are continuously working on
+    things in the same files". Two shared files link two sessions that never
+    messaged; one shared file does not; a continuation rides along; and a
+    session released afterwards is not pulled straight back by the same files."""
+    import sqlstore
     _seed("a", "b", "c")
-    _seed("a2", spawned_from="a", spawned_via="continue")
-    peermail.send("b", "hi", from_conv="a")
-    peermail.send("a", "ok", from_conv="b")
-    peermail.send("b", "thanks", from_conv="a")
-    peermail.send("c", "hi", from_conv="b")
-    peermail.send("b", "ok", from_conv="c")
-    peermail.send("c", "thanks", from_conv="b")
-    [swarm_id] = swarms.sync()
-    assert swarms.overview()[0]["topics"] == []
-    pond = swarms.set_topic(swarm_id, "Pond page", ["a", "b"])
-    assert (pond["convs"], pond["changed"]) == (["a", "a2", "b"], True)
-    assert swarms.set_topic(swarm_id, "pond page", ["a"])["changed"] is False
-    swarms.set_topic(swarm_id, "Search", ["c"])
-    [card] = swarms.overview()
-    assert {t["name"]: t["convs"] for t in card["topics"]} == {
-        "Pond page": ["a", "a2", "b"], "Search": ["c"]}
-    assert len(card["members"]) == 4
-    # A continuation that joins after the sorting reads under its parent's topic.
-    _seed("c2", spawned_from="c", spawned_via="continue")
-    [card] = swarms.overview()
-    by_conv = {m["conv"]: m["topic_id"] for m in card["members"]}
-    assert by_conv["c2"] == by_conv["c"] != by_conv["a"]
-    # Everyone sorted into one topic: the emptied one is deleted.
-    swarms.set_topic(swarm_id, "Pond page", ["c"])
-    assert [t["name"] for t in swarms.overview()[0]["topics"]] == ["Pond page"]
-    import pytest
-    with pytest.raises(ValueError):
-        swarms.set_topic(swarm_id, "Strangers", ["nobody"])
+    _seed("b2", spawned_from="b", spawned_via="continue")
 
+    def both_changed(path, one, other, at="2026-10-08T10:00:00"):
+        conn = sqlstore.open_db()
+        conn.execute("INSERT INTO file_alerts (at, kind, path, line_a, line_b, conv_a, conv_b)"
+                     " VALUES (?, 'same-file', ?, ?, ?, ?, ?)", (at, path, one, other, one, other))
+        conn.commit()
+        conn.close()
+
+    both_changed("/repo/x.py", "a", "b")
+    both_changed("/repo/x.py", "a", "c")
+    assert swarms.sync() == {}
+    both_changed("/repo/y.py", "a", "b")
+    [(swarm_id, members)] = swarms.sync().items()
+    assert members == {"a", "b", "b2"}
+    swarms.place(["b", "b2"], None)
+    assert swarms.swarm_of("b") is None and swarm_id not in swarms.sync()

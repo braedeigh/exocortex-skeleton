@@ -20,9 +20,6 @@
  * wait first. A waiting member with a reply she hasn't read (or a failed turn)
  * is a grey chip with an orange dot.
  *
- * When the swarm is sorted into topics (roomOrder.topicGroups), the chips
- * stand in rows under each topic's name.
- *
  * Chip prompt: "if I click on a button on the swarm card for an agent, it
  * takes me directly to that agent".
  *
@@ -40,7 +37,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import laneStyles from './SessionLane.module.css';
 import styles from './SwarmCard.module.css';
-import { orderMembers, topicGroups, type SwarmView } from './roomOrder';
+import { orderMembers, type SwarmView } from './roomOrder';
 
 const CARD_CLASS = { needs_input: 'cardUnread', working: 'cardLive', silent: '' } as const;
 const DOT_CLASS = { needs_input: 'readyDot', working: 'liveDot', silent: 'restDot' } as const;
@@ -50,7 +47,6 @@ export function SwarmCard({ view, onOpen }: { view: SwarmView; onOpen: (convId: 
   const navigate = useNavigate();
   const { swarm, state, members } = view;
   const { working, silent, needs_input: needing } = view.counts;
-  const groups = topicGroups(swarm.topics, orderMembers(members));
   return (
     <div
       className={[laneStyles.card, CARD_CLASS[state] ? laneStyles[CARD_CLASS[state]] : '', styles.swarm]
@@ -82,29 +78,21 @@ export function SwarmCard({ view, onOpen }: { view: SwarmView; onOpen: (convId: 
       </button>
       {/* One button per member, opening that session directly. They sit
           outside the card-wide button because buttons can't nest. */}
-      {groups.map((group) => (
-        <div key={group.topic?.id ?? 'unsorted'}>
-          {/* The topic's name over its chips, only when the swarm is divided. */}
-          {groups.length > 1 ? (
-            <div className={styles.topicLabel}>{group.topic?.name ?? 'Not sorted yet'}</div>
-          ) : null}
-          <div className={styles.members}>
-            {group.members.map((m) => (
-              <button
-                type="button"
-                key={m.conv}
-                className={[styles.member, styles[MEMBER_CLASS[m.state]]].join(' ')}
-                onClick={() => onOpen(m.conv)}
-                title={`Open ${m.title}`}
-                {...agentPointerProps(m.conv)}
-              >
-                {m.unread && m.state !== 'needs_input' ? <span className={styles.unreadDot} aria-label="unread" /> : null}
-                {m.title}
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
+      <div className={styles.members}>
+        {orderMembers(members).map((m) => (
+          <button
+            type="button"
+            key={m.conv}
+            className={[styles.member, styles[MEMBER_CLASS[m.state]]].join(' ')}
+            onClick={() => onOpen(m.conv)}
+            title={`Open ${m.title}`}
+            {...agentPointerProps(m.conv)}
+          >
+            {m.unread && m.state !== 'needs_input' ? <span className={styles.unreadDot} aria-label="unread" /> : null}
+            {m.title}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

@@ -31,15 +31,6 @@ From those it can make four moves:
   - SPLIT a swarm, when a cluster in it has stopped talking to the rest;
   - RELEASE sessions from a swarm, back to working alone.
 
-It also SORTS A SWARM INTO TOPICS (sort_topic): when one swarm holds more
-than one piece of work, it names each piece and says which members are in
-it. Nobody is moved — they all stay members of the one swarm and can still
-warn each other — but the swarm's pages then show each topic apart, with a
-summary of its own written by the swarm's helper. A whole topic that has
-nothing to do with the rest can still be split out with the split move.
-Her ask: "Can you make it such that there are sub swarms by topic?" — and,
-asked who sorts: the room helper.
-
 A move is a PLACEMENT (swarms.place): it overrides every message the
 sessions exchanged before it, so a swarm glued together by old messages
 really comes apart. A session's continuations always move with it. It acts
@@ -70,8 +61,7 @@ something since the last run. Each run is its own detached process
 (`python3 room_helper.py run <room>`): one model call for the room, and one
 for each session working alone that has done something since its summary.
 
-Touches: swarms.py (placements: place, unplace, new_swarm, line_of_work;
-topics: set_topic),
+Touches: swarms.py (placements: place, unplace, new_swarm, line_of_work),
 swarm_helper.py (ask_model, side_by_side, summarise_sessions, the
 member-activity reader, poke), sqlstore.py
 (session_summaries, swarm_pins, room_moves, room_helper_runs), the session
@@ -142,17 +132,7 @@ that would leave one behind closes that swarm, and the one left works alone too.
 Be conservative. No move is better than a wrong one. Never split clusters that messaged each \
 other within the last {quiet} hours. Never redo a move she undid. A finished or retired \
 session doesn't need moving.
-3. Sort swarms into topics, in `topics`. A swarm doing one piece of work needs none. When a \
-swarm's members are doing two or more different pieces of work (different features, a tutor \
-beside a build, sessions that only share files), give each piece a topic: `swarm` its id, \
-`name` 2-5 plain words for that piece of work, `convs` the members in it. Go by what the \
-members' summaries say they are doing, with the clusters as a hint. A session and its \
-continuations share a topic (naming one of them is enough). Each swarm's current topics are \
-shown; list a topic ONLY when it is new or its members should change, and reuse a topic's \
-exact name to add members to it. Leave `topics` empty when the sorting already reads right. \
-Sorting moves nobody and sends no message. If a whole topic has stopped talking to the rest, \
-that is a split, as above.
-4. For every move write the reason (for the owner) and one short message to the moved \
+3. For every move write the reason (for the owner) and one short message to the moved \
 sessions: who they're now working with and why it matters to their work. One message per \
 move; don't chat.
 Use session ids exactly as given; `swarm` is the swarm id a join or split refers to. Plain \
@@ -171,13 +151,6 @@ SCHEMA = {
                 "reason": {"type": "string"},
                 "message": {"type": "string"}},
             "required": ["kind", "convs", "reason", "message"]}},
-        "topics": {"type": "array", "items": {
-            "type": "object",
-            "properties": {
-                "swarm": {"type": "integer"},
-                "name": {"type": "string"},
-                "convs": {"type": "array", "items": {"type": "string"}}},
-            "required": ["swarm", "name", "convs"]}},
     },
     "required": ["overview", "moves"],
 }
@@ -363,18 +336,6 @@ def room_overview(room, activity=False):
                 out.append(f"- cluster {n}: {', '.join(working)}"
                            f" (+{len(cluster['convs']) - len(working)} retired)"
                            f" — last messaged another cluster: {cluster['last_cross'] or 'never'}")
-            # How the swarm is sorted into topics now, working members only.
-            out += ["", "Topics:"]
-            working = [m for m in live if not swarms.is_helper_session(m["conv"], index)]
-            for topic in card.get("topics") or []:
-                inside = [m["conv"] for m in working if m.get("topic_id") == topic["id"]]
-                if inside:
-                    out.append(f"- \"{topic['name']}\": {', '.join(inside)}")
-            loose = [m["conv"] for m in working if m.get("topic_id") is None]
-            if not card.get("topics"):
-                out.append("- (not sorted into topics)")
-            elif loose:
-                out.append(f"- not sorted yet: {', '.join(loose)}")
             out.append("")
     finally:
         conn.close()
@@ -561,35 +522,6 @@ def _move_note(kind, to_swarm, moved, index):
             "`scripts/peers.py swarm` shows it.)")
 
 
-def sort_topic(room, swarm_id, name, convs, by=None):
-    """Sort these members of an open swarm in this room into the topic with
-    this name (swarms.set_topic: the topic is made if it's new, continuations
-    go along, emptied topics are deleted). Nobody is moved and nobody is
-    told. The swarm's helper is woken when something changed, so the topic
-    gets its summary. Returns the topic; raises MoveError when it can't be
-    done. A sorting made by hand is posted in the room helper's chat; a run
-    posts its own."""
-    if swarm_id not in {c["id"] for c in open_swarms(room)}:
-        raise MoveError(f"swarm {swarm_id} isn't an open swarm in the {room} room")
-    try:
-        topic = swarms.set_topic(swarm_id, name, convs)
-    except ValueError as e:
-        raise MoveError(str(e))
-    if topic["changed"]:
-        try:
-            swarm_helper.poke(swarm_id, "topics")
-        except Exception as e:
-            print(f"{_now()} helper poke for swarm {swarm_id} failed: {e}", file=sys.stderr)
-        if by != "room_helper":
-            _post(ensure_room_helper(room), _render_topic(swarm_id, topic), _now())
-    return topic
-
-
-def _render_topic(swarm_id, topic):
-    return (f"**Topic in swarm {swarm_id} — {topic['name']}**: "
-            + ", ".join(topic["convs"]))
-
-
 def undo(move_id):
     """Put the sessions of one move back where they were before it. Returns
     the move, or raises MoveError (no such move, already undone, or a later
@@ -662,7 +594,7 @@ def _render_move(move, by=None):
         f"Undo: `./venv/bin/python3 scripts/room_moves.py undo {move['id']}`"] if line)
 
 
-def _render(answer, made, refused, sorted_topics=None):
+def _render(answer, made, refused):
     lines = ["**The room now**", "", answer.get("overview") or ""]
     if answer.get("solos"):
         lines += ["", "**Working alone**"]
@@ -672,8 +604,6 @@ def _render(answer, made, refused, sorted_topics=None):
     for move, why in refused:
         lines += ["", f"~~{move.get('kind')} {', '.join(move.get('convs') or [])}~~"
                       f" — not made: {why}"]
-    for swarm_id, topic in sorted_topics or []:
-        lines += ["", _render_topic(swarm_id, topic)]
     return "\n".join(lines)
 
 
@@ -737,21 +667,9 @@ def run(room, trigger="tick"):
         except Exception as e:
             # A move that doesn't fit is reported in the chat, not dropped.
             refused.append((move, str(e)))
-    # Sort the swarms into the topics it named, after the moves: a move may
-    # have changed who is in which swarm. Only what changed is posted.
-    sorted_topics = []
-    for topic in (answer or {}).get("topics") or []:
-        try:
-            done = sort_topic(room, topic.get("swarm"), topic.get("name"),
-                              list(topic.get("convs") or []), by="room_helper")
-            if done["changed"]:
-                sorted_topics.append((topic.get("swarm"), done))
-        except Exception as e:
-            refused.append(({"kind": f"topic \"{topic.get('name')}\"",
-                             "convs": topic.get("convs")}, str(e)))
     log_path = store.DATA_DIR / "bot_chats" / f"{helper}.jsonl"
     if answer:
-        _post(helper, _render(answer, made, refused, sorted_topics), now)
+        _post(helper, _render(answer, made, refused), now)
     else:
         peermail.append_line(log_path, {"type": "error", "error": error, "ts": now})
     peermail.append_line(log_path, {"type": "result", "subtype": "success" if answer else "error",

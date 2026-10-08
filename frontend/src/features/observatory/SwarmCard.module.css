@@ -134,11 +134,3 @@
   background: var(--orange);
   vertical-align: middle;
 }
-
-/* A topic's name over its row of chips, when the swarm is sorted into topics. */
-.topicLabel {
-  margin-top: var(--space-2);
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-}

@@ -15,13 +15,6 @@ undoable like the helper's own.
     ./venv/bin/python3 scripts/room_moves.py split <swarm id> <conv>... --reason "…"
     ./venv/bin/python3 scripts/room_moves.py release <conv>... --reason "…"
 
-    ./venv/bin/python3 scripts/room_moves.py topics <swarm id>
-    ./venv/bin/python3 scripts/room_moves.py topic <swarm id> "<topic name>" <conv>...
-
-`topics` lists how a swarm is sorted into topics; `topic` sorts members into
-one (made if the name is new). Sorting moves nobody: they all stay in the
-swarm, and its pages show each topic apart (room_helper.sort_topic).
-
 A session's continuations always move with it. `--by-owner` marks a move as
 hers, which lets it redo a move she undid.
 
@@ -57,38 +50,7 @@ def main(argv=None):
         move.add_argument("--reason", required=True)
         move.add_argument("--message", default="")
         move.add_argument("--by-owner", action="store_true")
-    listing = sub.add_parser("topics")
-    listing.add_argument("swarm_id", type=int)
-    topic = sub.add_parser("topic")
-    topic.add_argument("swarm_id", type=int)
-    topic.add_argument("name")
-    topic.add_argument("convs", nargs="+")
     args = parser.parse_args(argv)
-
-    # List how one swarm is sorted into topics, unsorted members last.
-    if args.cmd == "topics":
-        import swarms
-        card = next((c for c in swarms.overview() if c["id"] == args.swarm_id), None)
-        if card is None:
-            print(f"not done: no live swarm {args.swarm_id}", file=sys.stderr)
-            return 1
-        titles = {m["conv"]: m["title"] for m in card["members"]}
-        loose = [m["conv"] for m in card["members"] if m.get("topic_id") is None]
-        for name, convs in [(t["name"], t["convs"]) for t in card["topics"]] + (
-                [("(not sorted)", loose)] if loose else []):
-            print(name)
-            for conv in convs:
-                print(f"    {conv}  {titles[conv]}")
-        return 0
-    if args.cmd == "topic":
-        try:
-            done = room_helper.sort_topic(args.room, args.swarm_id, args.name, args.convs,
-                                          by="cli")
-        except room_helper.MoveError as e:
-            print(f"not done: {e}", file=sys.stderr)
-            return 1
-        print(f"topic \"{done['name']}\" in swarm {args.swarm_id}: {', '.join(done['convs'])}")
-        return 0
 
     if args.cmd == "list":
         for move in room_helper.recent_moves(args.room, limit=50):

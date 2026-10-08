@@ -48,7 +48,7 @@
  */
 import type { SessionMeta } from './api';
 import { cardState, finalOutputAt, isAsking, sessionIs } from './sessionFilters';
-import { swarmState, type MemberState, type Swarm, type SwarmMember, type SwarmTopic } from './swarmApi';
+import { swarmState, type MemberState, type Swarm, type SwarmMember } from './swarmApi';
 
 /** The four places a card can stand, top to bottom. `waiting` is split in two
  * so the orange ones lead it. */
@@ -204,34 +204,6 @@ export function orderMembers(members: SwarmMemberView[]): SwarmMemberView[] {
       at: member.lastAt,
     })),
   );
-}
-
-/** Some of a swarm's members under one heading: a topic's, or (topic null)
- * the ones not sorted into a topic yet. */
-export interface TopicGroup<Member> {
-  topic: SwarmTopic | null;
-  members: Member[];
-}
-
-/** Split a swarm's members into the headed groups its pages draw, one per
- * topic that has any of these members, in the server's order, with the
- * unsorted ones last. A swarm that isn't divided comes back as ONE group
- * with no topic, and the page draws no headings: that is a swarm with no
- * topics, or one whose members here all sit in the same topic. The members
- * keep the order they were given in.
- *
- * Prompt: "Can you make it such that there are sub swarms by topic?" */
-export function topicGroups<Member extends { topic_id?: number | null }>(
-  topics: SwarmTopic[] | undefined,
-  members: Member[],
-): TopicGroup<Member>[] {
-  const groups: TopicGroup<Member>[] = (topics ?? [])
-    .map((topic) => ({ topic, members: members.filter((member) => member.topic_id === topic.id) }))
-    .filter((group) => group.members.length > 0);
-  const known = new Set(groups.map((group) => group.topic?.id));
-  const unsorted = members.filter((member) => member.topic_id == null || !known.has(member.topic_id));
-  if (unsorted.length > 0) groups.push({ topic: null, members: unsorted });
-  return groups.length >= 2 ? groups : [{ topic: null, members }];
 }
 
 /** A swarm's band in its room, from the members still at work: any asking

@@ -20,9 +20,7 @@ side (side_by_side):
     members, and any questions waiting in the helper's mailbox. It hands
     back a new name (if it has a better one), a new swarm summary, where
     members' work differs or collides, and any messages to send — to
-    members, or answers to whoever asked. When the room helper has sorted
-    the swarm into topics (swarms.py), the same call writes each topic a
-    summary of its own: "Goal:", "Where it stands:", "Waiting on:".
+    members, or answers to whoever asked.
 
 The new summaries REPLACE the old ones, so the next run reads only those plus
 what's new: the helper's context never grows, however long the swarm runs.
@@ -138,13 +136,6 @@ send it again — a reworded repeat is still a repeat. Don't message members the
 affect, don't chat, and never hand a member work outside its own brief.
 4. Answer any questions in your mailbox, addressed back to whoever asked (an agent's session id, \
 or "owner").
-5. Only when a "Topics" section is given: the swarm holds more than one piece of work, and the \
-room's helper has sorted its members into topics. For EVERY topic listed, write its summary in \
-`topics`, under the topic's id, as at most three short lines of one plain sentence each: \
-"Goal:" what that group is building, "Where it stands:", and "Waiting on:" (leave it out when \
-nothing is). Say only what that topic's own members are doing. The swarm summary then covers \
-the swarm as a whole, with each topic given its due — not only the biggest one. You don't \
-choose the topics or who is in them.
 You only see summaries and what's new since them. Each member's own summary is written by a \
 separate call, not by you. Your swarm summary replaces the old one: keep only what someone \
 glancing at the swarm needs today, and drop the rest — each member's detail is in its own \
@@ -156,10 +147,6 @@ SCHEMA = {
         "name": {"type": "string"},
         "summary": {"type": "string"},
         "differences": {"type": "array", "items": {"type": "string"}},
-        "topics": {"type": "array", "items": {
-            "type": "object",
-            "properties": {"id": {"type": "integer"}, "summary": {"type": "string"}},
-            "required": ["id", "summary"]}},
         "messages": {"type": "array", "items": {
             "type": "object",
             "properties": {"to": {"type": "string"}, "text": {"type": "string"}},
@@ -222,11 +209,9 @@ _CLOSING_MESSAGES = 80
 
 
 # How long a summary may be: (how many lines, how many characters each). A
-# session's is three labelled lines, the swarm's four, a topic's three (the
-# prompts above).
+# session's is three labelled lines, the swarm's four (the prompts above).
 SESSION_SHAPE = (3, 220)
 SWARM_SHAPE = (4, 340)
-TOPIC_SHAPE = (3, 240)
 
 
 def _now():
@@ -398,19 +383,6 @@ def gather(swarm_id, questions=()):
                 "Current summary: " + (m.get("summary") or "(none yet)"), "",
                 f"New since {m.get('summary_at') or 'joining'}:",
                 _member_activity(m["conv"], m.get("summary_at")) or "(nothing new)", ""]
-    # The topics the room helper sorted the swarm into, each with who is in
-    # it and its current summary, for the call to write each a new one.
-    if card.get("topics"):
-        in_view = {m["conv"] for m in shown}
-        out += ["## Topics (the room helper sorted the members; write each one's summary)", ""]
-        for topic in card["topics"]:
-            out += [f"### Topic {topic['id']}: {topic['name']}",
-                    "Members: " + (", ".join(c for c in topic["convs"] if c in in_view)
-                                   or "(all finished)"),
-                    "Current summary: " + (topic.get("summary") or "(none yet)"), ""]
-        loose = [m["conv"] for m in shown if m.get("topic_id") is None]
-        if loose:
-            out += ["Not sorted into a topic yet: " + ", ".join(loose), ""]
     conn = sqlstore.open_db()
     try:
         # Messages between members, leaving out old helper sessions: what
@@ -532,10 +504,6 @@ def summarise_sessions(results, convs):
 def _render(answer):
     """The run as the helper's chat shows it."""
     lines = [f"**{answer.get('name')}**", ""] + _as_bullets(answer.get("summary"))
-    # Each topic under its own name, when the swarm is sorted into topics.
-    for topic in answer.get("topics") or []:
-        lines += ["", f"**Topic: {topic.get('name') or topic.get('id')}**"]
-        lines += _as_bullets(topic.get("summary"))
     # Each member under its own id, so the sessions read apart from each other.
     for m in answer.get("members") or []:
         lines += ["", f"`{m.get('conv')}`"] + _as_bullets(m.get("summary"))
@@ -583,15 +551,6 @@ def run(swarm_id, trigger="turn", question_ids=()):
         answer["summary"] = tidy_summary(answer.get("summary"), SWARM_SHAPE)
         answer["members"] = [{"conv": conv, "summary": summary}
                              for conv, summary in summaries.items()]
-        # Keep the summaries of the swarm's own topics only, each held to its
-        # shape, with the topic's name beside it for the chat post.
-        names = {t["id"]: t["name"] for t in (card or {}).get("topics") or []}
-        answer["topics"] = [
-            {"id": t["id"], "name": names[t["id"]],
-             "summary": tidy_summary(t.get("summary"), TOPIC_SHAPE)}
-            for t in answer.get("topics") or []
-            if isinstance(t, dict) and t.get("id") in names
-            and tidy_summary(t.get("summary"), TOPIC_SHAPE)]
     now = _now()
     members = set(swarms.overview_members(swarm_id))
     conn = sqlstore.open_db()
@@ -608,10 +567,6 @@ def run(swarm_id, trigger="turn", question_ids=()):
                          " updated_at = ? WHERE id = ?",
                          ((answer.get("name") or "").strip()[:80] or None,
                           answer.get("summary"), now, now, swarm_id))
-            for topic in answer["topics"]:
-                conn.execute("UPDATE swarm_topics SET summary = ?, summary_at = ?"
-                             " WHERE id = ? AND swarm_id = ?",
-                             (topic["summary"], now, topic["id"], swarm_id))
         # A member's summary is stored even when the swarm's own call failed.
         for conv, summary in summaries.items():
             if conv in members:

@@ -24,9 +24,7 @@
  *     the most recently finished last (SessionLane, told it's showing a swarm
  *     so it doesn't fold them again). The counts at the top leave the done
  *     ones out (roomOrder.swarmView);
- *   - what the helper thinks each member is doing — under each topic's name
- *     and its own short summary when the swarm is sorted into topics (the
- *     room helper sorts them; roomOrder.topicGroups);
+ *   - what the helper thinks each member is doing;
  *   - every message between members;
  *   - every helper run, each opening to show exactly what it was given and
  *     what it wrote back — the information it used, nothing hidden.
@@ -44,7 +42,6 @@
  * · "i want to make it possible to add a session per swarm room"
  * · "when a swarm retires, i want a summary of what was done ... so i can
  * know what was completed and ask it questions about what happened"
- * · "Can you make it such that there are sub swarms by topic?"
  */
 import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
@@ -64,7 +61,7 @@ import { SessionLane } from './SessionLane';
 import styles from './SwarmPage.module.css';
 import { SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
 import { refreshSwarm, useSwarm } from './swarmApi';
-import { swarmView, topicGroups } from './roomOrder';
+import { swarmView } from './roomOrder';
 import { useTerrain } from '../terrain/api';
 import { mdToHtml } from '../journal/markdown';
 import { SummaryLines } from './SummaryLines';
@@ -286,24 +283,9 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
             {/* What the helper thinks each member is doing. */}
             <section className={styles.section}>
               <h2 className={styles.h2}>What each session is doing</h2>
-              {/* One list per topic, each under the topic's name and summary;
-                  a swarm that isn't divided is one list with no heading. */}
-              {topicGroups(swarm.topics, swarm.members).map((group, _n, groups) => (
-              <div key={group.topic?.id ?? 'unsorted'} className={groups.length > 1 ? styles.topic : undefined}>
-              {groups.length > 1 ? (
-                <h3 className={styles.topicName}>
-                  {group.topic?.name ?? 'Not sorted into a topic yet'}
-                  <span className={styles.muted}>
-                    {' '}· {group.members.length} {group.members.length === 1 ? 'session' : 'sessions'}
-                  </span>
-                </h3>
-              ) : null}
-              {groups.length > 1 && group.topic?.summary ? (
-                <p className={styles.topicSummary}><SummaryLines text={group.topic.summary} /></p>
-              ) : null}
               <ul className={styles.list}>
                 {/* Done and retired members last, so the live work reads first. */}
-                {[...group.members]
+                {[...swarm.members]
                   .sort((a, b) => Number(!liveConvs.has(a.conv)) - Number(!liveConvs.has(b.conv)))
                   .map((m) => (
                   <li key={m.conv}>
@@ -319,8 +301,6 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
                   </li>
                 ))}
               </ul>
-              </div>
-              ))}
             </section>
 
             {/* Everything said between members (and the helper). */}
