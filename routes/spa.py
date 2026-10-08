@@ -10,6 +10,8 @@ URL scheme:
     Client-side routing (TanStack Router) takes it from there. Cache-Control:
     no-store — this HTML is the one thing here that's never safe to cache (the
     injected values are per-request).
+  - "/api/build" → the name of the build in `dist/` right now, so an open
+    page can tell it has fallen behind.
   - "/assets/<path>" → the hashed, content-addressed build output — safe to
     cache forever.
   - "/geo/<file>" → the US county/state boundary GeoJSON the Ecosystem map
@@ -29,9 +31,10 @@ iframes and the `/classic` rollback shell are gone with the legacy frontend
 survives only as a redirect for old bookmarks.
 """
 import json
+import re
 from pathlib import Path
 
-from flask import request, make_response, send_from_directory, abort
+from flask import request, make_response, send_from_directory, abort, jsonify
 
 import config
 from routes.settings import load_theme
@@ -52,6 +55,23 @@ INDEX_PATH = DIST_DIR / "index.html"
 # opposed to the hashed dist/assets/ bundle). Anything else at a single path
 # segment 404s same as before this route existed.
 _ROOT_FILE_EXTS = {".js", ".webmanifest", ".png", ".svg", ".ico"}
+
+
+def build_id():
+    """Name the page build now sitting in frontend/dist/.
+
+    The built index.html points at its main script and stylesheet by names
+    that carry a hash of their contents ("index-CohfYSG0.js"), so those names
+    change exactly when the build does. They are sorted and joined into one
+    string. The page reads the same names off its own document
+    (frontend/src/shell/newBuild.ts) and compares. Answers "" while a build
+    is being written and index.html is briefly missing.
+    """
+    try:
+        html = INDEX_PATH.read_text()
+    except OSError:
+        return ""
+    return "+".join(sorted(set(re.findall(r"/assets/(index-[\w-]+\.(?:js|css))", html))))
 
 
 def _spa_response():
@@ -199,6 +219,17 @@ def register(app):
         # worker (and its cached shell) forever.
         resp = make_response(send_from_directory(DIST_DIR, "index.html"))
         resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+    # Tell an open page which build the server has now, so it can offer a
+    # reload when its own is older (frontend/src/shell/NewBuildBar.tsx). Never
+    # cached: an old answer here would hide exactly the news it carries.
+    # Prompt: "add a small 'A newer version is ready — Reload' bar that
+    # appears when the server has a newer build than the page you have open"
+    @app.route("/api/build")
+    def spa_build():
+        resp = jsonify({"build": build_id()})
+        resp.headers["Cache-Control"] = "no-store"
         return resp
 
     @app.route("/assets/<path:filename>")

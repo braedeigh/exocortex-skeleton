@@ -1,0 +1,51 @@
+/* NewBuildBar — the "a newer version is ready" strip across the top of the
+   window. One row in the page's own flow, so it pushes the tabs down rather
+   than covering them. */
+
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: color-mix(in srgb, var(--accent) 22%, var(--card-bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--text);
+  font-size: var(--font-size-base);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+}
+
+.reload {
+  flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* House rule: a × is never faint and never small. */
+.dismiss {
+  flex: none;
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--text);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dismiss:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}

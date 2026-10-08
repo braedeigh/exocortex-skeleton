@@ -6,6 +6,7 @@ import { TopTabs } from '../shell/TopTabs';
 import { SplitLayout } from '../shell/SplitLayout';
 import { SessionsProvider } from '../shell/SessionsContext';
 import { ScrollTopStrip } from '../shell/ScrollTopStrip';
+import { NewBuildBar } from '../shell/NewBuildBar';
 import { useFrameBridge } from '../shell/frameBridge';
 import { useDocScrollLock } from '../shell/useDocScrollLock';
 import { useMediaQuery, DESKTOP_QUERY } from '../shell/useMediaQuery';
@@ -112,6 +113,10 @@ function WindowRoot() {
   return (
     <main style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
       <ScrollTopStrip />
+      {/* Says when the server has a newer build than this open page, with a
+          Reload button. Not in the desktop app, whose page and server ship
+          together, and not for public visitors. */}
+      <NewBuildBar enabled={!standalone && !isPublic} />
       {/* The tab strip is handed over SEPARATELY from the content because on
           authed desktop the workspace puts it INSIDE the primary tile's header
           row rather than above it. Stacking a tile header on top of the tab

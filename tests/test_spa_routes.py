@@ -212,3 +212,28 @@ def test_legacy_unknown_tab_redirects_to_todos():
     r = _client().get("/legacy/nonsense")
     assert r.status_code == 302
     assert r.headers["Location"] == "/todos"
+
+
+# --- /api/build: which build the server holds ----------------------------------
+
+def test_build_route_names_the_scripts_the_served_page_loads():
+    """The page compares this answer with the script and stylesheet names in
+    its own document, so the two must be built from the same names."""
+    import re
+
+    client = _client()
+    served = client.get("/").get_data(as_text=True)
+    names = sorted(set(re.findall(r"/assets/(index-[\w-]+\.(?:js|css))", served)))
+    assert names, "the built page loads no index-* script"
+
+    r = client.get("/api/build")
+    assert r.status_code == 200
+    assert r.headers["Cache-Control"] == "no-store"
+    assert r.get_json() == {"build": "+".join(names)}
+
+
+def test_build_route_answers_blank_while_a_build_is_being_written(monkeypatch, tmp_path):
+    """Mid-build there is no index.html; the page must read that as "unknown",
+    not as a new build."""
+    monkeypatch.setattr(spa, "INDEX_PATH", tmp_path / "index.html")
+    assert _client().get("/api/build").get_json() == {"build": ""}
