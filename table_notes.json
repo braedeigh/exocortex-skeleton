@@ -1352,7 +1352,7 @@
   },
   "swarm_members": {
     "holds": "Which sessions belong to which swarm, when each joined, and the helper's current summary of what that session is doing.",
-    "source": "Membership by swarms.py from who has messaged whom (and which session continued which); only ever grows. Summaries by the helper. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
+    "source": "Membership by swarms.py from who has had a back-and-forth by message, who keeps changing the same files, and which session continued which; only ever grows. Summaries by the helper. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "mixed",
     "time_column": "joined_at",
     "columns": {
@@ -1370,9 +1370,6 @@
       },
       "summary_at": {
         "holds": "When that summary was written."
-      },
-      "topic_id": {
-        "holds": "Which topic inside the swarm this member is sorted into (swarm_topics). Empty until the room helper sorts it."
       }
     }
   },
@@ -3941,35 +3938,6 @@
       },
       "told_at": {
         "holds": "When the Linear helper was woken with it. Empty while it's still waiting; rows read on the feed's first run are stamped without waking anyone."
-      }
-    }
-  },
-  "swarm_topics": {
-    "holds": "The topics inside a swarm: one row per named group of members doing the same piece of work, with a short summary of that group. A swarm with unrelated work in it reads as several topics instead of one blur.",
-    "source": "The room helper (room_helper.py) names the topics and sorts members into them; the swarm's helper (swarm_helper.py) writes each topic's summary. A topic with no members left is deleted; a dissolved swarm takes its topics with it. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
-    "kind": "record",
-    "time_column": "updated_at",
-    "columns": {
-      "id": {
-        "holds": "The row's number."
-      },
-      "swarm_id": {
-        "holds": "Which swarm."
-      },
-      "name": {
-        "holds": "The topic's name, a few plain words, given by the room helper."
-      },
-      "summary": {
-        "holds": "The swarm helper's current summary of this topic — replaced each time."
-      },
-      "summary_at": {
-        "holds": "When that summary was written."
-      },
-      "created_at": {
-        "holds": "When the topic was first made."
-      },
-      "updated_at": {
-        "holds": "When its name, members or summary last changed."
       }
     }
   },

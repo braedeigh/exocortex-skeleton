@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 53
+_SCHEMA_VERSION = 54
 
 
 def _db_path():
@@ -225,8 +225,6 @@ _EXPECTED_TABLES = (
     "linear_events",
     # What each swarm did, written when it closed (rung 45).
     "swarm_closings",
-    # The topics inside a swarm (rung 52).
-    "swarm_topics",
     # One line per agent message, and one per thread of them (rung 53).
     "message_summaries", "message_thread_summaries",
     "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs",
@@ -3293,6 +3291,7 @@ def _run_ladder(conn):
             "  scanned_at TEXT NOT NULL)"
         )
     if version < 52:
+        # (Taken out again by rung 54.)
         # Rung 52: topics inside a swarm (swarms.py). A swarm can hold several
         # unrelated pieces of work; the room helper sorts its members into
         # named topics, and the swarm's helper keeps a short summary of each.
@@ -3353,6 +3352,20 @@ def _run_ladder(conn):
             "  PRIMARY KEY (conv_a, conv_b)"
             ")"
         )
+    if version < 54:
+        # Rung 54: take topics inside a swarm (rung 52) out again. She tried
+        # them and had them removed: a swarm now only forms from a real
+        # back-and-forth or from shared files (swarms.links), so unrelated
+        # sessions no longer land in one swarm to be sorted apart. The table
+        # and the column go; nothing reads them.
+        #
+        # Prompt: "yes remove"
+        conn.execute("DROP INDEX IF EXISTS swarm_topics_by_swarm")
+        conn.execute("DROP TABLE IF EXISTS swarm_topics")
+        try:
+            conn.execute("ALTER TABLE swarm_members DROP COLUMN topic_id")
+        except sqlite3.OperationalError:
+            pass  # the column is already gone
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

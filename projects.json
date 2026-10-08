@@ -528,7 +528,7 @@
         "chat_lines_fts", "chat_lines_fts_data", "chat_lines_fts_idx",
         "chat_lines_fts_content", "chat_lines_fts_docsize", "chat_lines_fts_config",
         "chat_line_sources",
-        "session_summaries", "swarm_pins", "room_moves", "room_helper_runs", "helper_watches", "file_alerts", "linear_events", "swarm_closings", "swarm_topics", "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs"
+        "session_summaries", "swarm_pins", "room_moves", "room_helper_runs", "helper_watches", "file_alerts", "linear_events", "swarm_closings", "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs"
       ],
       "collections": [
         "dev_notes",
