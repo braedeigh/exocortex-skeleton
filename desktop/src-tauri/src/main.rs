@@ -17,14 +17,9 @@
 //!   - the page (frontend), which calls `window.exoDesktop.chooseFolder()`
 //!     when it exists.
 //!
-//! NOT YET COMPILED. Written 2026-10-06 on a machine without the WebKitGTK
-//! development packages Tauri needs on Linux, so nothing in this file has been
-//! through the compiler or run. The launcher it calls has been (see
-//! ../launcher/tests). The Tauri calls below were read against the source of
-//! the versions in Cargo.lock (names, arguments, return types, and the rule
-//! that lets the served page call `choose_folder`), which is weaker than
-//! compiling. Treat them as unverified until `cargo build` passes; then
-//! delete this paragraph.
+//! State (2026-10-07): compiles, and has been run once on Linux (GNOME,
+//! Wayland): the window opened, started the server and loaded the Observatory.
+//! Not yet tried by a person: the folder chooser and the quit question.
 //!
 //! Prompt that produced it: "one thing to launch, it starts the server itself
 //! on a free local port with its own data folder, opens a window on
@@ -200,7 +195,8 @@ fn ask_then_quit(app: AppHandle, count: u64) {
         };
         if stop_them {
             let running = app.state::<Running>();
-            if let Some(server) = running.0.lock().unwrap().as_ref() {
+            let guard = running.0.lock().unwrap();
+            if let Some(server) = guard.as_ref() {
                 let _ = server.stop_turns();
             }
         }
