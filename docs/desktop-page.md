@@ -135,6 +135,7 @@ answer is the whole list. `roomsApi.ts` fetches it and copies it into
 (`offeredRooms`, `toLane`, `isRoom`, `laneLabel`, `strayRoom`) read it. A
 room's id is the lane its sessions carry.
 
+- Both rules below are the owner's call (2026-10-07: "both").
 - Deleting a room asks first. The server moves its sessions to the first room
   left, and refuses to delete the last room.
 - Under each heading the desktop app says only where the room's sessions
@@ -210,14 +211,16 @@ shows or does it. "Open" means it is still there.
 - **Usage beacons** (`api/usageBeacon.ts`, `usageTracker.ts`) post every tab
   visit and tap to `/api/usage/*`. They stay on the person's own machine, and
   Terrain's Attention room reads them, so they were left on.
-- **The Pond's own page** (now held with the journal) has not been read for
-  owner-only wording or for buttons that lead to pages the desktop app
-  doesn't hold. On an empty journal it loads and says "No cards in the pool
-  yet."
 - **The Setup tab is not pinned** on a wide window: it is in the tab bar's
   menu, not in a starter tab set (those are seeded by `routes/tabsets.py`).
-- **The kept pages inside the Observatory** (archive, spinoff tree, swarms) have not been read line by line for
-  owner-only wording.
+
+### Read and found clean
+
+The archive, spinoff tree and swarm pages, and the Pond's page, were searched
+for links to pages the desktop app doesn't hold and for wording about the
+owner. None found: the Pond's one link out goes to the journal, which is
+held whenever the Pond is, and its "Keeper" button only hides the Keeper's
+cards. This was a search for links and owner words, not a line-by-line read.
 
 ## Tests
 
