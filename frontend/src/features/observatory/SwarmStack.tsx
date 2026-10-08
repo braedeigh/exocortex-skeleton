@@ -15,6 +15,9 @@
  *      (SessionCard.tsx), so she answers right here;
  *   4. a LITTLE CARD for each of the other live members: its dot, its name,
  *      and the helper's line on what it's doing. Tap it to open that session.
+ *      When the swarm is sorted into topics (roomOrder.topicGroups), the
+ *      little cards stand under their topic's name and its short summary, so
+ *      unrelated work in one swarm reads apart.
  *
  * The stack FOLDS from its top: a chevron at the head of the name line shuts
  * it down to that line and the counts, and opens it again. Open/shut is
@@ -52,7 +55,7 @@ import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import type { SessionMeta } from './api';
 import { useLaneOpen } from './LaneHead';
 import { orchestraRows } from './orchestra';
-import { orderMembers, type SwarmView } from './roomOrder';
+import { orderMembers, topicGroups, type SwarmView } from './roomOrder';
 import { ApprovalCard, AwaitingCard } from './SessionCard';
 import laneStyles from './SessionLane.module.css';
 import { SwarmNetwork } from './SwarmNetwork';
@@ -95,7 +98,10 @@ export function SwarmStack({
     return row && (row.pendingApproval || row.awaiting) ? [row] : [];
   });
   const askingIds = new Set(asking.map((row) => row.id));
-  const others = ordered.filter((m) => !askingIds.has(m.conv));
+  // Group the live members by topic. One group with no topic means the swarm
+  // isn't divided, and the little cards are drawn with no headings.
+  const groups = topicGroups(swarm.topics, ordered);
+  const headed = groups.length > 1;
 
   return (
     <div className={[styles.stack, STACK_CLASS[state] ? styles[STACK_CLASS[state]] : ''].filter(Boolean).join(' ')}>
@@ -172,9 +178,27 @@ export function SwarmStack({
         ) : null}
 
         {/* 4. A little card for each other live member; tap to open it. */}
-        {others.length > 0 ? (
+        {/* Under its topic's name and summary when the swarm is sorted into
+            topics. A topic whose members are all asking above still shows
+            its heading, so its summary isn't lost. */}
+        {groups.map((group) => {
+          const cards = group.members.filter((m) => !askingIds.has(m.conv));
+          if (!headed && cards.length === 0) return null;
+          return (
+          <div key={group.topic?.id ?? 'unsorted'} className={headed ? styles.topic : undefined}>
+            {headed ? (
+              <div className={styles.topicHead}>
+                <span className={styles.topicName}>{group.topic?.name ?? 'Not sorted yet'}</span>
+                <span className={styles.topicSize}>
+                  {group.members.length} {group.members.length === 1 ? 'session' : 'sessions'}
+                </span>
+              </div>
+            ) : null}
+            {headed && group.topic?.summary ? (
+              <p className={styles.topicSummary}><SummaryLines text={group.topic.summary} /></p>
+            ) : null}
           <div className={styles.members}>
-            {others.map((m) => (
+            {cards.map((m) => (
               <button
                 key={m.conv}
                 type="button"
@@ -195,7 +219,9 @@ export function SwarmStack({
               </button>
             ))}
           </div>
-        ) : null}
+          </div>
+          );
+        })}
         </>
       ) : null}
     </div>

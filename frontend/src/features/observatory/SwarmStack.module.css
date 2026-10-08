@@ -235,3 +235,38 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* A topic inside the swarm: its name, how many sessions, its short summary,
+   then its members' little cards. A line above sets each topic apart. */
+.topic {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.topicHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+}
+
+.topicName {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.topicSize {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.topicSummary {
+  margin: 0;
+  padding: 0 var(--space-2);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}

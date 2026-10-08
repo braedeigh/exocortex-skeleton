@@ -199,3 +199,22 @@
   margin: var(--space-1) 0 var(--space-2);
   color: var(--text-secondary);
 }
+
+/* A topic inside the swarm, in "What each session is doing": its name, its
+   own short summary, then its members. */
+.topic {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.topicName {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+.topicSummary {
+  margin: 0 0 var(--space-2);
+  line-height: 1.45;
+}
