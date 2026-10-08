@@ -3066,6 +3066,7 @@ def _a_swarm(monkeypatch):
         index["b"] = {"title": "B", "lane": "coding"}
     peermail.send("b", "hello", from_conv="a")
     peermail.send("a", "hello back", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [swarm_id] = swarms.sync()
     return swarm_id
 

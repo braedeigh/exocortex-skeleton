@@ -121,6 +121,7 @@ def helper(data_dir, monkeypatch):
     _seed(A, B)
     peermail.send(B, "I'm editing pond.py too", from_conv=A)
     peermail.send(A, "ok", from_conv=B)
+    peermail.send(B, "thanks", from_conv=A)
     [swarm_id] = swarms.sync()
     return swarm_helper.ensure_helper(swarm_id)
 

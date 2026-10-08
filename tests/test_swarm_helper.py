@@ -36,6 +36,7 @@ def swarm(data_dir, monkeypatch):
         json.dumps({"type": "user", "text": "build the pond page", "ts": "2026-09-27T10:00:00"}) + "\n")
     peermail.send("2026-09-27.110000", "I'm editing pond.py too", from_conv="2026-09-27.100000")
     peermail.send("2026-09-27.100000", "ok", from_conv="2026-09-27.110000")
+    peermail.send("2026-09-27.110000", "thanks", from_conv="2026-09-27.100000")
     [swarm_id] = swarms.sync()
     return swarm_id
 

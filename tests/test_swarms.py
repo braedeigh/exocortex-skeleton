@@ -1,7 +1,8 @@
 """Swarms (swarms.py): who belongs together, and how a swarm keeps its identity.
 
-What these pin: two sessions that wrote to each other are a swarm, and a
-message nobody answered links no one; a chain
+What these pin: two sessions that had a back-and-forth (three messages, one
+at least each way) are a swarm, and a heads-up links no one, thanked or not;
+a chain
 (a↔b, b↔c) is ONE swarm even though a and c never spoke; a continuation stays
 in its parent's swarm, but a handoff alone makes no swarm; a swarm keeps its
 number as it grows; two swarms that get linked become one, the older
@@ -35,10 +36,11 @@ def test_groups_are_connected_not_complete():
     assert sorted(sorted(g) for g in found) == [["a", "b", "c"], ["x", "y"]]
 
 
-def test_a_message_each_way_makes_a_swarm(data_dir):
+def test_a_back_and_forth_makes_a_swarm(data_dir):
     _seed("a", "b", "c")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     live = swarms.sync()
     assert list(live.values()) == [{"a", "b"}]
     assert swarms.swarm_of("c") is None
@@ -48,9 +50,11 @@ def test_a_swarm_keeps_its_number_as_it_grows(data_dir):
     _seed("a", "b", "c")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [first] = swarms.sync()
     peermail.send("c", "you too", from_conv="b")
     peermail.send("b", "ok", from_conv="c")
+    peermail.send("c", "thanks", from_conv="b")
     live = swarms.sync()
     assert live == {first: {"a", "b", "c"}}
 
@@ -59,12 +63,15 @@ def test_linking_two_swarms_merges_them_into_the_older(data_dir):
     _seed("a", "b", "x", "y")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [older] = swarms.sync()
     peermail.send("y", "hi", from_conv="x")
     peermail.send("x", "ok", from_conv="y")
+    peermail.send("y", "thanks", from_conv="x")
     swarms.sync()
     peermail.send("x", "bridge", from_conv="b")
     peermail.send("b", "ok", from_conv="x")
+    peermail.send("x", "thanks", from_conv="b")
     live = swarms.sync()
     assert live == {older: {"a", "b", "x", "y"}}
     assert swarms.swarm_of("y") == older
@@ -75,6 +82,7 @@ def test_a_continuation_stays_in_its_parents_swarm(data_dir):
     _seed("a2", spawned_from="a", spawned_via="continue")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     live = swarms.sync()
     assert list(live.values()) == [{"a", "b", "a2"}]
 
@@ -93,6 +101,7 @@ def test_a_chain_of_handoffs_rides_along_with_its_swarm(data_dir):
     _seed("a3", spawned_from="a2", spawned_via="continue")
     peermail.send("b", "hi", from_conv="a3")
     peermail.send("a3", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a3")
     live = swarms.sync()
     assert list(live.values()) == [{"a", "a2", "a3", "b"}]
 
@@ -122,6 +131,7 @@ def test_a_dissolved_swarm_takes_its_closing_summaries_with_it(data_dir):
     _seed("a", "b")
     sent = peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [swarm_id] = swarms.sync()
     conn = sqlstore.open_db()
     conn.execute("INSERT INTO swarm_closings (swarm_id, at, facts) VALUES (?, 'x', 'facts')",
@@ -137,14 +147,17 @@ def test_an_absorbed_swarms_helper_is_archived(data_dir):
     _seed("a", "b", "x", "y")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [older] = swarms.sync()
     peermail.send("y", "hi", from_conv="x")
     peermail.send("x", "ok", from_conv="y")
+    peermail.send("y", "thanks", from_conv="x")
     younger = next(sid for sid in swarms.sync() if sid != older)
     _seed("h_old", role="swarm_helper", swarm_id=older)
     _seed("h_young", role="swarm_helper", swarm_id=younger)
     peermail.send("x", "bridge", from_conv="b")
     peermail.send("b", "ok", from_conv="x")
+    peermail.send("x", "thanks", from_conv="b")
     swarms.sync()
     index = store.read("bot_chats/index", {})
     assert not index["h_old"].get("archived")
@@ -157,8 +170,10 @@ def test_overview_counts_members_by_state(data_dir):
     _seed("c")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     peermail.send("c", "hi", from_conv="b")
     peermail.send("b", "ok", from_conv="c")
+    peermail.send("c", "thanks", from_conv="b")
     [card] = swarms.overview()
     assert card["counts"] == {"working": 1, "silent": 1, "needs_input": 1}
     assert card["lane"] == "coding"
@@ -171,6 +186,7 @@ def test_overview_names_which_member_continued_which(data_dir):
     _seed("a2", spawned_from="a", spawned_via="continue")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [card] = swarms.overview()
     assert card["continues"] == [{"from": "a", "to": "a2"}]
 
@@ -179,6 +195,7 @@ def test_overview_counts_the_helpers_messages_to_each_member(data_dir):
     _seed("a", "b", "c")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [sid] = swarms.sync()
     _seed("h_old", role="swarm_helper", swarm_id=sid, archived="2026-09-27T19:00:00")
     _seed("h", role="swarm_helper", swarm_id=sid)
@@ -196,8 +213,10 @@ def test_overview_marks_handed_off_and_archived_members_retired(data_dir):
     _seed("a2", spawned_from="a", spawned_via="continue")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     peermail.send("c", "hi", from_conv="b")
     peermail.send("b", "ok", from_conv="c")
+    peermail.send("c", "thanks", from_conv="b")
     [card] = swarms.overview()
     retired = {m["conv"] for m in card["members"] if m["retired"]}
     assert retired == {"a", "c"}
@@ -212,6 +231,7 @@ def test_a_handoff_does_not_close_a_swarm_before_the_continuation_joins(data_dir
     _seed("a", "b", running=True)
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [swarm_id] = swarms.sync()
     with store.mutate("bot_chats/index", {}) as index:
         index["a"].update(running=False, continued_by="a2")
@@ -239,10 +259,13 @@ def _bridged_swarm():
     _seed("a", "b", "x", "y")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     peermail.send("y", "hi", from_conv="x")
     peermail.send("x", "ok", from_conv="y")
+    peermail.send("y", "thanks", from_conv="x")
     peermail.send("x", "bridge", from_conv="b")
     peermail.send("b", "ok", from_conv="x")
+    peermail.send("x", "thanks", from_conv="b")
     [swarm_id] = swarms.sync()
     return swarm_id
 
@@ -262,6 +285,7 @@ def test_a_message_after_the_placement_links_again(data_dir):
     _backdate_pins(["x", "y"])
     peermail.send("x", "back again", from_conv="a")
     peermail.send("a", "ok", from_conv="x")
+    peermail.send("x", "thanks", from_conv="a")
     live = swarms.sync()
     assert live == {old: {"a", "b", "x", "y"}}
 
@@ -270,8 +294,10 @@ def test_release_makes_a_session_work_alone(data_dir):
     _seed("a", "b", "c")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     peermail.send("c", "hi", from_conv="b")
     peermail.send("b", "ok", from_conv="c")
+    peermail.send("c", "thanks", from_conv="b")
     [swarm_id] = swarms.sync()
     swarms.place(["c"], None)
     assert swarms.sync() == {swarm_id: {"a", "b"}}
@@ -282,11 +308,14 @@ def test_join_moves_a_session_between_swarms(data_dir):
     _seed("a", "b", "x", "y", "z")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [first] = swarms.sync()
     peermail.send("y", "hi", from_conv="x")
     peermail.send("x", "ok", from_conv="y")
+    peermail.send("y", "thanks", from_conv="x")
     peermail.send("z", "hi", from_conv="y")
     peermail.send("y", "ok", from_conv="z")
+    peermail.send("z", "thanks", from_conv="y")
     second = next(sid for sid in swarms.sync() if sid != first)
     swarms.place(["z"], first)
     assert swarms.sync() == {first: {"a", "b", "z"}, second: {"x", "y"}}
@@ -324,6 +353,7 @@ def test_a_swarm_closes_when_every_member_has_finished(data_dir):
     _seed("h", role="swarm_helper", swarm_id=1)
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [card] = swarms.overview()
     assert card["closed"] is True
 
@@ -332,6 +362,7 @@ def test_a_closed_swarm_opens_again_when_two_members_work_again(data_dir):
     _seed("a", "b", done_at="2026-09-28T09:00:00")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     with store.mutate("bot_chats/index", {}) as index:
         index["a"]["running"] = True
     [card] = swarms.overview()
@@ -347,6 +378,7 @@ def test_a_new_member_opens_a_closed_swarm(data_dir):
     _seed("b", "c")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [swarm_id] = swarms.sync()
     swarms.join(swarm_id, "c")
     [card] = swarms.overview()
@@ -362,6 +394,7 @@ def test_a_sync_with_nothing_new_needs_no_write_lock(data_dir, monkeypatch):
     _seed("a", "b")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     live = swarms.sync()
     real_begin = sqlstore.begin_immediate
     monkeypatch.setattr(sqlstore, "begin_immediate",
@@ -400,16 +433,21 @@ def test_the_helper_never_reads_old_helper_sessions_or_their_handoffs():
     assert (kept, dropped) == (["worker", "worker_cont"], [])
 
 
-def test_an_unanswered_heads_up_links_nobody_but_a_continuations_reply_counts(data_dir):
-    """Her call: "both ways". A file heads-up that nobody answers must not
-    pull a session into a swarm. The answer may come from the session that
-    took over from the one written to: they are one line of work."""
+def test_a_heads_up_and_a_thanks_link_nobody_but_a_back_and_forth_does(data_dir):
+    """Her rule: a swarm needs a back-and-forth — three messages between two
+    sessions, at least one each way. A file heads-up must not pull a session
+    into a swarm, answered or not, and neither do many messages nobody
+    answered. The answer may come from the session that took over from the
+    one written to: they are one line of work."""
     _seed("a", "b", "c")
     _seed("b2", spawned_from="b", spawned_via="continue")
     peermail.send("b", "heads-up: I'm in x.py", from_conv="a")
-    peermail.send("b", "me too", from_conv="c")
+    for nudge in ("me too", "still here", "anyone?"):
+        peermail.send("b", nudge, from_conv="c")
     assert swarms.sync() == {}
-    peermail.send("a", "thanks, I'll stay out", from_conv="b2")
+    peermail.send("a", "thanks, noted", from_conv="b2")
+    assert swarms.sync() == {}
+    peermail.send("b2", "which lines are yours?", from_conv="a")
     assert list(swarms.sync().values()) == [{"a", "b", "b2"}]
     assert swarms.swarm_of("c") is None
 
@@ -423,8 +461,10 @@ def test_a_swarm_is_sorted_into_topics_that_follow_its_members(data_dir):
     _seed("a2", spawned_from="a", spawned_via="continue")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     peermail.send("c", "hi", from_conv="b")
     peermail.send("b", "ok", from_conv="c")
+    peermail.send("c", "thanks", from_conv="b")
     [swarm_id] = swarms.sync()
     assert swarms.overview()[0]["topics"] == []
     pond = swarms.set_topic(swarm_id, "Pond page", ["a", "b"])

@@ -1,12 +1,14 @@
 """Swarms — groups of agent sessions that have talked to each other.
 
 **What this is, in plain English.** When agents message each other through the
-mailbox (peermail.py), they form groups: any two sessions that have written
-to EACH OTHER are linked, and everything linked together — directly or through
-someone else — is one swarm. Not everyone in a swarm has to have talked to
-everyone; one conversation with one other member is enough to join. But it
-has to be a conversation: a message one way that was never answered — a
-heads-up about a shared file — links nobody (her call: "both ways"). A
+mailbox (peermail.py), they form groups: any two sessions that have had a
+real BACK-AND-FORTH are linked, and everything linked together — directly or
+through someone else — is one swarm. Not everyone in a swarm has to have
+talked to everyone; one conversation with one other member is enough to join.
+But it has to be a conversation: at least LINK_MESSAGES (three) messages
+between the two, with at least one each way — a message, an answer and a
+follow-up. A heads-up about a shared file links nobody, answered with a
+"thanks" or not (her calls: "both ways", then the three-message rule). A
 session and its continuations count as one sender, so a reply from the
 session that took over still answers. A session
 that continued itself (a fresh session taking over when the old one's context
@@ -83,6 +85,11 @@ import store
 HELPER_ROLES = ("swarm_helper", "room_helper", "linear_helper")
 
 
+# How many messages two sessions must have exchanged, with at least one each
+# way, before they are linked (links).
+LINK_MESSAGES = 3
+
+
 def _now():
     return datetime.now().isoformat(timespec="seconds")
 
@@ -123,14 +130,15 @@ def groups(links):
 
 
 def links(conn, index):
-    """Who is linked to whom, as two lists: every pair that has written to
-    each other (delivered or not — sending is the interaction), and every
+    """Who is linked to whom, as two lists: every pair that has had a
+    back-and-forth (delivered or not — sending is the interaction), and every
     session paired with the continuation that took over from it.
 
-    A pair needs a message EACH way. One that was never answered links
-    nobody: a heads-up about a shared file is not working together. A
-    session and its continuations are one sender here (`line`), so an answer
-    from the session that took over counts.
+    A pair needs LINK_MESSAGES messages between them, at least one EACH way:
+    a message, an answer and a follow-up. A heads-up links nobody, whether
+    or not it got a "thanks": that is not working together. A session and
+    its continuations are one sender here (`line`), so an answer from the
+    session that took over counts.
 
     Placements (swarm_pins) bend both lists. A message is left out when it
     came at or before the placement of either end. And the
@@ -147,14 +155,15 @@ def links(conn, index):
         pin = placed.get(conv)
         return bool(pin) and (last or "") <= pin[1]
 
-    sent = [(a, b) for a, b, last in conn.execute(
-        "SELECT from_conv, to_conv, MAX(at) FROM agent_messages"
+    sent = [(a, b, count) for a, b, last, count in conn.execute(
+        "SELECT from_conv, to_conv, MAX(at), COUNT(*) FROM agent_messages"
         " WHERE kind = 'A' AND status != 'cancelled' AND from_conv IS NOT NULL"
         " GROUP BY from_conv, to_conv")
         if a not in helpers and b not in helpers and not cut(a, last) and not cut(b, last)]
-    # Keep only the pairs that wrote each way, counting a session and its
-    # continuations as one sender: each session is named by the first session
-    # of its line of work, and a pair stays when the other line wrote back.
+    # Keep only the pairs that had a back-and-forth, counting a session and
+    # its continuations as one sender: each session is named by the first
+    # session of its line of work, and a pair stays when both lines wrote and
+    # there were LINK_MESSAGES messages between them.
     parent = {c: e.get("spawned_from") for c, e in index.items()
               if isinstance(e, dict) and e.get("spawned_via") == "continue"}
 
@@ -165,9 +174,12 @@ def links(conn, index):
             seen.add(conv)
         return conv
 
-    ways = {(line(a), line(b)) for a, b in sent}
-    talked = [(a, b) for a, b in sent
-              if line(a) != line(b) and (line(b), line(a)) in ways]
+    ways = Counter()
+    for a, b, count in sent:
+        ways[line(a), line(b)] += count
+    talked = [(a, b) for a, b, _ in sent
+              if line(a) != line(b) and ways[line(b), line(a)]
+              and ways[line(a), line(b)] + ways[line(b), line(a)] >= LINK_MESSAGES]
     # Placed sessions: chained to each other and to one member of their swarm.
     by_swarm = {}
     for conv, (swarm_id, _) in placed.items():

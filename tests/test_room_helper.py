@@ -73,10 +73,13 @@ def _bridged_swarm():
     _seed("a", "b", "x", "y")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     peermail.send("y", "hi", from_conv="x")
     peermail.send("x", "ok", from_conv="y")
+    peermail.send("y", "thanks", from_conv="x")
     peermail.send("x", "bridge", from_conv="b")
     peermail.send("b", "ok", from_conv="x")
+    peermail.send("x", "thanks", from_conv="b")
     [swarm_id] = swarms.sync()
     return swarm_id
 
@@ -140,8 +143,10 @@ def test_a_continuation_moves_with_its_session(room):
     _seed("c2", spawned_from="c", spawned_via="continue")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     peermail.send("c2", "hi", from_conv="b")
     peermail.send("b", "ok", from_conv="c2")
+    peermail.send("c2", "thanks", from_conv="b")
     [swarm_id] = swarms.sync()
     move = room_helper.execute("coding", "release", ["c2"], None, "separate work")
     assert move["convs"] == ["c", "c2"]
@@ -210,6 +215,7 @@ def _closed_swarm():
     _seed("a", "b", done_at="2026-09-28T09:00:00")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [swarm_id] = swarms.sync()
     return swarm_id
 
@@ -248,6 +254,7 @@ def test_a_swarm_down_to_one_working_session_closes_and_it_works_alone(room):
     _seed("a", "b")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [swarm_id] = swarms.sync()
     helper = swarm_helper.ensure_helper(swarm_id)
     with store.mutate("bot_chats/index", {}) as index:
@@ -261,6 +268,7 @@ def test_a_swarm_down_to_one_working_session_closes_and_it_works_alone(room):
     _seed("c")
     peermail.send("a", "can I use your parser?", from_conv="c")
     peermail.send("c", "ok", from_conv="a")
+    peermail.send("a", "thanks", from_conv="c")
     [card] = room_helper.open_swarms("coding")
     assert card["id"] == swarm_id and {m["conv"] for m in card["members"]} == {"a", "b", "c"}
 
@@ -269,6 +277,7 @@ def test_a_release_that_leaves_one_session_closes_the_swarm(room):
     _seed("a", "b")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     swarms.sync()
     move = room_helper.execute("coding", "release", ["b"], None, "separate work", by="cli")
     assert move["left_alone"] == ["a"]
@@ -288,6 +297,7 @@ def test_a_handoff_is_not_a_second_session(room):
     _seed("a", "b")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     [swarm_id] = swarms.sync()
     with store.mutate("bot_chats/index", {}) as index:
         index["a"].update(continued_by="a2", archived="2026-09-30T10:00:00")
@@ -306,6 +316,7 @@ def test_a_swarm_whose_members_were_all_released_is_gone_from_the_room(room):
     _seed("a", "b")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
     swarms.sync()
     room_helper.execute("coding", "release", ["a", "b"], None, "both done with it", by="cli")
     assert swarms.overview() == []

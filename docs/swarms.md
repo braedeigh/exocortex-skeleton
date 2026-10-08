@@ -16,10 +16,12 @@ lines say what exists *now*.
 - **A swarm is defined by interaction, not assignment.** Two or more sessions
   where each has talked with at least one other member (a connected group in
   the `agent_messages` graph). Not everyone has to have talked to everyone.
-- **Talking means both ways.** Two sessions are linked only when each has
-  written to the other. A message nobody answered — a one-off heads-up about
-  a shared file — links no one. Her call (2026-10-07), asked whether a
-  one-off heads-up should still pull a session into a swarm: "both ways". A
+- **Talking means a back-and-forth.** Two sessions are linked only when
+  there have been at least three messages between them, at least one each
+  way: a message, an answer and a follow-up (`swarms.LINK_MESSAGES`). A
+  one-off heads-up about a shared file links no one, whether or not it got a
+  "thanks". Her calls: "both ways" (2026-10-07), then the three-message rule
+  (2026-10-08) — of 143 past pairs, 23 were exactly a heads-up and a reply. A
   session and its continuations are one sender, so an answer from the session
   that took over counts (`swarms.links`). Members a swarm already had before
   this rule stay until they are released: membership only grows.
