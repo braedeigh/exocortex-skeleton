@@ -1,6 +1,15 @@
+/* The backdrop covers the window. Inside a tall frame on someone else's page
+   (the frozen swarm card, SwarmDemoPage.tsx) the window is the whole frame,
+   most of it off screen, so that page hands over the band of the frame a
+   visitor can see as --sheet-view-top / --sheet-view-height, and the backdrop
+   covers that band instead. Unset everywhere else. */
 .backdrop {
   position: fixed;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: var(--sheet-view-top, 0px);
+  height: var(--sheet-view-height, 100%);
+  box-sizing: border-box;
   background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
@@ -13,7 +22,7 @@
 .sheet {
   width: 100%;
   max-width: 560px;
-  max-height: min(85vh, calc(100dvh - 2 * var(--space-4)));
+  max-height: min(85vh, calc(100dvh - 2 * var(--space-4)), calc(var(--sheet-view-height, 100vh) - 2 * var(--space-4)));
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--card-bg);

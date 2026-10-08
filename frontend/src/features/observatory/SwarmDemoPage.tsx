@@ -27,7 +27,10 @@
  *
  * Nothing here polls, writes or reads a live session. `?embed=1` is the
  * portfolio's card: the same page with no app chrome around it
- * (shell/embed.ts).
+ * (shell/embed.ts). There it also talks to the page that frames it, so the
+ * whole swarm shows with no scrolling inside the card: it tells that page
+ * how tall it is, and is told which band of itself is on screen, which is
+ * where a chat's sheet then opens (ui/Sheet.module.css).
  *
  * Touches: routes/swarm_demo.py (the two reads), SwarmNetwork.tsx (the
  * bubble, and its key), roomOrder.ts (the members' order), events.ts (the
@@ -43,7 +46,7 @@
  * "with question cards and everything. but like, make those expandable."
  */
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client';
 import { Sheet } from '../../ui/Sheet';
 import { questionsState, turnsFromHistory } from './events';
@@ -108,6 +111,52 @@ export function SwarmDemoPage({ embed = false }: { embed?: boolean }) {
   const [openChat, setOpenChat] = useState<string | null>(null);
   const [unfolded, setUnfolded] = useState<Record<string, boolean>>({});
   const [wholeSummary, setWholeSummary] = useState(false);
+  const [pageElement, setPageElement] = useState<HTMLDivElement | null>(null);
+
+  // Tell the framing page how tall this page is, now and whenever that
+  // changes (a card unfolds, the frame narrows), so its frame can fit all of
+  // it. Only a number is sent, so any framing page may hear it.
+  useEffect(() => {
+    if (!embed || !pageElement || window.parent === window) return;
+    // Measure what the page holds, not the page's own box: the box is
+    // stretched to fill the frame, so it would only ever report the frame.
+    // The height is from the top of the document to the foot of the last
+    // thing on the page, plus the page's own bottom padding.
+    const tell = () => {
+      const last = pageElement.lastElementChild;
+      if (!last) return;
+      const scrolled = document.scrollingElement?.scrollTop ?? 0;
+      const padding = parseFloat(getComputedStyle(pageElement).paddingBottom) || 0;
+      const height = Math.ceil(last.getBoundingClientRect().bottom + scrolled + padding);
+      window.parent.postMessage({ type: 'swarm-demo-height', height }, '*');
+    };
+    const observer = new ResizeObserver(tell);
+    observer.observe(pageElement);
+    for (const child of Array.from(pageElement.children)) observer.observe(child);
+    tell();
+    return () => observer.disconnect();
+  }, [embed, pageElement]);
+
+  // Hear which band of this page is on screen in the framing page, and keep
+  // it where a sheet reads it. Two plain numbers, checked before use.
+  useEffect(() => {
+    if (!embed || window.parent === window) return;
+    const root = document.documentElement;
+    const hear = (event: MessageEvent) => {
+      const said = event.data as { type?: unknown; top?: unknown; height?: unknown } | null;
+      if (!said || said.type !== 'swarm-demo-view') return;
+      if (typeof said.top !== 'number' || typeof said.height !== 'number') return;
+      if (!(said.top >= 0) || !(said.height >= 200)) return;
+      root.style.setProperty('--sheet-view-top', `${Math.round(said.top)}px`);
+      root.style.setProperty('--sheet-view-height', `${Math.round(said.height)}px`);
+    };
+    window.addEventListener('message', hear);
+    return () => {
+      window.removeEventListener('message', hear);
+      root.style.removeProperty('--sheet-view-top');
+      root.style.removeProperty('--sheet-view-height');
+    };
+  }, [embed]);
 
   if (isError) return <p className={styles.note}>The frozen swarm isn&rsquo;t here right now.</p>;
   if (!demo) return null;
@@ -123,7 +172,7 @@ export function SwarmDemoPage({ embed = false }: { embed?: boolean }) {
   const { working, silent, needs_input: needing } = view.counts;
 
   return (
-    <div className={[styles.page, embed ? styles.embed : ''].filter(Boolean).join(' ')}>
+    <div ref={setPageElement} className={[styles.page, embed ? styles.embed : ''].filter(Boolean).join(' ')}>
       <p className={styles.frozen}>
         <span className={styles.frozenMark} aria-hidden="true">&#10052;</span>
         A real swarm, frozen at {momentWords(demo.frozen_at)}. Tap a dot to read that session&rsquo;s chat, a line

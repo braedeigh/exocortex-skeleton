@@ -14,9 +14,11 @@
   box-sizing: border-box;
 }
 
-/* Inside the portfolio's frame: no room wasted round the stack. */
+/* Inside the portfolio's frame: no room wasted round the stack, and no
+   taller than what it holds, because the frame is sized from this height. */
 .embed {
   padding: var(--space-3) var(--space-2) var(--space-4);
+  min-height: 0;
 }
 
 .stack {
