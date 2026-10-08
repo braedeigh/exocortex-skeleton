@@ -257,6 +257,16 @@ export interface LineMessage {
   text: string;
   mode: string;
   status: string;
+  /** One plain line on what the message asked, told or settled
+   * (message_summaries.py); missing until it has been written. */
+  gist?: string | null;
+}
+
+/** What the two ends of a line are coordinating on and where it stands,
+ * rewritten each time one messages the other (message_summaries.py). */
+export interface LineThread {
+  summary: string;
+  at: string;
 }
 
 /** The messages one line of the swarm drawing stands for, newest first,
@@ -280,16 +290,6 @@ export function useSwarm(id: number) {
   return useQuery({
     queryKey: ['swarm', id] as const,
     queryFn: async ({ signal }) => api.get<SwarmDetail>(`/api/swarms/${id}`, signal),
-  /** One plain line on what the message asked, told or settled
-   * (message_summaries.py); missing until it has been written. */
-  gist?: string | null;
-}
-
-/** What the two ends of a line are coordinating on and where it stands,
- * rewritten each time one messages the other (message_summaries.py). */
-export interface LineThread {
-  summary: string;
-  at: string;
     refetchInterval: 5_000,
   });
 }
