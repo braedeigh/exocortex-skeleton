@@ -107,6 +107,9 @@ manifest and `context/about.md`.
   `scripts/keeper_rollover.py`, which sends `/endsession` to the open Keeper
   and wakes a fresh one. Only for a Keeper opened before today that has been
   talked to; a computer that was off at 3am rolls when the app is next open.
+  Run for real once (2026-10-07) on a throwaway folder: the heartbeat started
+  it unasked, the old Keeper wrote its diary entry and was archived, and a
+  new pinned Keeper woke standing in the content folder.
 
 Not in: thread tending, timed reminders, and "Talk about this" on a thread
 (it needs tmux). The transcript reconciler isn't run
@@ -146,8 +149,11 @@ could post to these doors — and these doors start agents that run commands.
 
 - **gunicorn + systemd + reload** → one Python process (`scripts/standalone.py`).
   There is nothing to reload; closing and opening the app is the deploy.
-- **cron** → `standalone_jobs.py`, a thread that runs the same scripts on the
-  same cadences, each as its own process: the minute heartbeat (mailbox, dead
+- **cron** → `standalone_jobs.py`, which runs the same scripts on the same
+  cadences, each as its own process, in two lanes (the once-a-minute jobs,
+  and the slower ones) so a slow job never holds up the heartbeat — the first
+  tool-calls pass reads every Claude Code transcript on the computer and
+  takes minutes. The jobs: the minute heartbeat (mailbox, dead
   turns, closing done sessions, follow-ups, interrupted jobs, file overlaps),
   the run queue, footprints, code history, tool calls and chat search, slash
   commands, the usage ledger.

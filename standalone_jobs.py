@@ -6,14 +6,16 @@ lines keep the Observatory and Terrain current — a once-a-minute heartbeat
 that delivers waiting messages and notices dead turns, an hourly pass that
 works out which files each session touched, and so on. A downloaded app has no
 cron. So this file is a very small cron of its own: a list of jobs (`JOBS`),
-each with how often it runs, and one background thread (`Scheduler`) that
-starts whichever are due.
+each with how often it runs, and a `Scheduler` that starts whichever are due.
 
 Each job runs as its own short process — the same script cron would have run,
 with the same environment the server has — so a job that crashes or leaks
-can't hurt the server, and the scripts themselves needed no changes. Jobs run
-one at a time, never overlapping. Every job also runs once shortly after the
-app starts, so a window opened for ten minutes still gets the hourly ones.
+can't hurt the server, and the scripts themselves needed no changes. There are
+two lanes, each running its jobs one at a time: the once-a-minute jobs in one,
+the slower jobs in the other. So a slow job never holds up the heartbeat — the
+first tool-calls pass reads every Claude Code transcript on the computer and
+can take minutes. Every job also runs once shortly after the app starts, so a
+window opened for ten minutes still gets the hourly ones.
 
 Only one server per data folder runs the jobs: `Scheduler.start` takes a lock
 file in the data folder, and a second server on the same folder leaves the
@@ -77,6 +79,8 @@ STAGGER_SEC = 3
 JOB_TIMEOUT_SEC = 600
 # How often the scheduler looks for a due job.
 POLL_SEC = 2
+# The two lanes: jobs due every minute, and everything slower.
+LANES = ("minute", "slow")
 
 
 def minute_tick(helpers=None):
@@ -153,8 +157,9 @@ def minute_tick(helpers=None):
     return done
 
 
-# The job that is running right now, if any — so stopping the app can stop it.
-_running_job = None
+# The jobs that are running right now (at most one per lane) — so stopping
+# the app can stop them.
+_running_jobs = set()
 
 
 def _stop_process_group(process):
@@ -170,34 +175,34 @@ def run_job(command, timeout=JOB_TIMEOUT_SEC):
     """Run one job as its own process and return its exit code (-1 if it
     couldn't start or ran past its time). Its output goes to the server's
     stderr, which is where the desktop window keeps the log."""
-    global _running_job
     try:
         process = subprocess.Popen(
             [sys.executable, *command], cwd=str(ROOT), stdin=subprocess.DEVNULL,
             stdout=sys.stderr, stderr=sys.stderr, start_new_session=True)
     except OSError:
         return -1
-    _running_job = process
+    _running_jobs.add(process)
     try:
         return process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         _stop_process_group(process)
         return -1
     finally:
-        _running_job = None
+        _running_jobs.discard(process)
 
 
-def stop_running_job():
-    """Stop the job that is running, if one is. Called when the app stops:
-    without it an hourly job caught mid-run would carry on with no app
-    behind it."""
-    process = _running_job
-    if process is not None and process.poll() is None:
-        _stop_process_group(process)
+def stop_running_jobs():
+    """Stop every job that is running. Called when the app stops: without it
+    an hourly job caught mid-run would carry on with no app behind it."""
+    for process in list(_running_jobs):
+        if process.poll() is None:
+            _stop_process_group(process)
 
 
 class Scheduler:
-    """Runs each job when it is due, one at a time, on a background thread.
+    """Runs each job when it is due, on two background threads — one lane
+    for the once-a-minute jobs, one for the slower ones (LANES). Within a lane
+    jobs run one at a time; across lanes they don't wait for each other.
 
     `clock` and `runner` are parameters so a test can drive it with a made-up
     time and a runner that only records what it was asked to run."""
@@ -218,14 +223,17 @@ class Scheduler:
                 continue
             due = now + FIRST_RUN_AFTER_SEC + STAGGER_SEC * len(self.jobs)
             self.jobs.append({"name": name, "every": every, "command": list(command),
-                              "due": due})
+                              "due": due, "lane": "minute" if every <= MINUTE else "slow"})
 
-    def run_pending(self):
-        """Run every job that is due right now, in list order. Returns the
-        names it ran. The next run is counted from when this one FINISHED, so
-        a slow job can never queue up behind itself."""
+    def run_pending(self, lane=None):
+        """Run every job that is due right now, in list order — only one
+        lane's jobs when a lane is named. Returns the names it ran. The next
+        run is counted from when this one FINISHED, so a slow job can never
+        queue up behind itself."""
         ran = []
         for job in self.jobs:
+            if lane is not None and job["lane"] != lane:
+                continue
             if self._stop.is_set() or self.clock() < job["due"]:
                 continue
             self.last_exit[job["name"]] = self.runner(job["command"])
@@ -234,9 +242,9 @@ class Scheduler:
             ran.append(job["name"])
         return ran
 
-    def _loop(self):
+    def _loop(self, lane):
         while not self._stop.wait(POLL_SEC):
-            self.run_pending()
+            self.run_pending(lane)
 
     def start(self, data_dir):
         """Start the clock unless another server on this data folder already
@@ -251,12 +259,14 @@ class Scheduler:
             lock_file.close()
             return False
         self._lock_file = lock_file
-        threading.Thread(target=self._loop, daemon=True, name="standalone-jobs").start()
+        for lane in LANES:
+            threading.Thread(target=self._loop, args=(lane,), daemon=True,
+                             name=f"standalone-jobs-{lane}").start()
         return True
 
     def stop(self):
         self._stop.set()
-        stop_running_job()
+        stop_running_jobs()
         if self._lock_file is not None:
             self._lock_file.close()
             self._lock_file = None

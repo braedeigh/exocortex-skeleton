@@ -415,6 +415,34 @@ def test_each_job_runs_soon_after_start_and_then_on_its_own_interval():
     assert scheduler.runs["footprints"] == 2 and len(asked) == sum(scheduler.runs.values())
 
 
+def test_a_slow_hourly_job_does_not_hold_up_the_heartbeat(tmp_path):
+    # The first tool-calls pass reads every transcript on the computer and can
+    # run for minutes. Mail, dead turns and the Keeper's rollover all hang off
+    # the heartbeat, so it has to keep ticking the whole time.
+    import threading
+    release, ran = threading.Event(), []
+
+    def runner(command):
+        ran.append(command[0])
+        if command[0] == "slow":
+            release.wait(20)
+        return 0
+
+    scheduler = standalone_jobs.Scheduler(
+        jobs=(("crawl", standalone_jobs.HOUR, ["slow"], False),
+              ("heartbeat", standalone_jobs.MINUTE, ["quick"], False)),
+        clock=lambda: time.monotonic() * 100, runner=runner)   # a minute passes in 0.6s
+    try:
+        assert scheduler.start(tmp_path) is True
+        began = time.time()
+        while ran.count("quick") < 2 and time.time() - began < 15:
+            time.sleep(0.05)
+        assert ran.count("slow") == 1 and ran.count("quick") >= 2
+    finally:
+        release.set()
+        scheduler.stop()
+
+
 def test_only_one_server_per_data_folder_runs_the_jobs(tmp_path):
     first, second = standalone_jobs.Scheduler(), standalone_jobs.Scheduler()
     try:
