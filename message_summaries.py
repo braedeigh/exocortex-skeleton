@@ -46,8 +46,10 @@ message accomplished and what they're coordinating on between messages" —
 and, on when it is written: "i want context between every message."
 """
 import os
+import sqlite3
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -92,6 +94,10 @@ _EARLIER_CHARS = 700
 _TICK_HOURS = 6
 _TICK_WAIT_SEC = 180
 _TICK_MOST = 4
+
+# How long a finished call keeps trying to write its answer to a busy database.
+_WRITE_TRIES = 6
+_WRITE_WAIT_SEC = 5
 
 
 def _now():
@@ -179,6 +185,35 @@ def _call(text):
     return swarm_helper.ask_model(text, PROMPT, SCHEMA)
 
 
+def _store(message_id, now, gist, cost, error, key, thread):
+    """Write one message's row and, when there is one, its thread's summary."""
+    a, b = key
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO message_summaries (message_id, at, gist, cost_usd,"
+                " error) VALUES (?, ?, ?, ?, ?)", (message_id, now, gist, cost, error))
+            # Keep the thread's summary only when it is the newest account:
+            # two calls for one thread can finish out of order, and the one
+            # that read the later message wins.
+            if thread:
+                conn.execute(
+                    "INSERT INTO message_thread_summaries (conv_a, conv_b, summary,"
+                    " summary_at, through_id) VALUES (?, ?, ?, ?, ?)"
+                    " ON CONFLICT (conv_a, conv_b) DO UPDATE SET summary = excluded.summary,"
+                    " summary_at = excluded.summary_at, through_id = excluded.through_id"
+                    " WHERE excluded.through_id > message_thread_summaries.through_id",
+                    (a, b, thread, now, message_id))
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
+
+
 def summarise(message_id):
     """Write one message's gist and refresh its thread's summary. Returns the
     gist, or None when the message gets none (not wanted, already written, or
@@ -204,32 +239,19 @@ def summarise(message_id):
             error = "the model wrote nothing"
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as e:
         error = str(e)
-    a, b = pair(row["from_conv"], row["to_conv"])
     now = _now()
-    conn = sqlstore.open_db()
-    try:
-        sqlstore.begin_immediate(conn)
+    # Write both down, waiting out a busy database. The answer is already
+    # paid for: giving up on "database is locked" would throw it away and
+    # have the minute tick buy it again.
+    for attempt in range(_WRITE_TRIES):
         try:
-            conn.execute(
-                "INSERT OR REPLACE INTO message_summaries (message_id, at, gist, cost_usd,"
-                " error) VALUES (?, ?, ?, ?, ?)", (message_id, now, gist, cost, error))
-            # Keep the thread's summary only when it is the newest account:
-            # two calls for one thread can finish out of order, and the one
-            # that read the later message wins.
-            if thread:
-                conn.execute(
-                    "INSERT INTO message_thread_summaries (conv_a, conv_b, summary,"
-                    " summary_at, through_id) VALUES (?, ?, ?, ?, ?)"
-                    " ON CONFLICT (conv_a, conv_b) DO UPDATE SET summary = excluded.summary,"
-                    " summary_at = excluded.summary_at, through_id = excluded.through_id"
-                    " WHERE excluded.through_id > message_thread_summaries.through_id",
-                    (a, b, thread, now, message_id))
-            conn.execute("COMMIT")
-        except BaseException:
-            conn.execute("ROLLBACK")
-            raise
-    finally:
-        conn.close()
+            _store(message_id, now, gist, cost, error, pair(row["from_conv"], row["to_conv"]),
+                   thread)
+            break
+        except sqlite3.OperationalError:
+            if attempt == _WRITE_TRIES - 1:
+                raise
+            time.sleep(_WRITE_WAIT_SEC)
     return gist
 
 

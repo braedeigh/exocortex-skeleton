@@ -125,3 +125,20 @@ def test_the_tick_starts_a_call_that_never_started_and_only_once(room, monkeypat
     assert message_summaries.tick() == 1
     assert message_summaries.gists([sent["id"]]) == {sent["id"]: "gist of missed at send"}
     assert message_summaries.tick() == 0
+
+
+def test_a_busy_database_does_not_lose_an_answer_already_paid_for(room, monkeypatch):
+    import sqlite3
+    real, tries = message_summaries._store, []
+
+    def busy_twice(*args):
+        tries.append(1)
+        if len(tries) < 3:
+            raise sqlite3.OperationalError("database is locked")
+        return real(*args)
+
+    monkeypatch.setattr(message_summaries, "_store", busy_twice)
+    monkeypatch.setattr(message_summaries, "_WRITE_WAIT_SEC", 0)
+    sent = observatory.peer_send("a", "b", "hold on")
+    assert message_summaries.gists([sent["id"]]) == {sent["id"]: "gist of hold on"}
+    assert len(room) == 1
