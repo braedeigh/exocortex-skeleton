@@ -63,8 +63,17 @@ export interface StandaloneStatus {
   settings?: { ask_first?: boolean; idle_check?: boolean; keeper_rollover?: boolean };
   /** The journal, when this desktop app has one. `keeper` is the open Keeper
    * session's id, or null; `setup_done` is false until the Keeper has asked
-   * who it is keeping for. */
-  journal?: { folder?: string; setup_done?: boolean; keeper?: string | null };
+   * who it is keeping for. `can_import` is true while the journal is still
+   * untouched, so an existing one can be brought in instead; `source` is
+   * where a brought-in journal came from; `import` is that copy's progress. */
+  journal?: {
+    folder?: string;
+    setup_done?: boolean;
+    keeper?: string | null;
+    can_import?: boolean;
+    source?: string | null;
+    import?: { state?: 'downloading' | 'failed' | null; detail?: string; error?: string | null } | null;
+  };
   ready?: boolean;
 }
 
@@ -117,28 +126,55 @@ export interface KeeperReading {
   headline: string;
   /** The button's words. */
   action: string;
-  /** False when pressing would start a session that can't answer. */
+  /** False when pressing would start a session that can't answer, or while
+   * a journal is being brought in. */
   canStart: boolean;
+  /** An existing journal can still be brought in: the server says this one
+   * is untouched. False when the server doesn't say. */
+  canImport: boolean;
+  /** A journal is being copied in right now, with the server's progress line. */
+  importing: string | null;
+  /** Why the last bring-in failed, or null. */
+  importError: string | null;
 }
 
 /** Read the journal step. Three states: a Keeper is open (go to it), none is
  * open on a set-up journal (wake one), or the journal is new (the first wake
  * is the setup conversation). Waking needs Claude Code ready, because the
- * Keeper is a session. */
+ * Keeper is a session. A fourth, while an existing journal is being copied
+ * in: the card waits. */
 function readKeeper(status: StandaloneStatus | null, claudeReady: boolean): KeeperReading | null {
   const journal = status?.journal;
   if (!journal) return null;
+  // Bringing in an existing journal: its progress, its failure, and whether
+  // it is still on offer. While a copy runs, nothing else on the card can be
+  // pressed, so a Keeper can't be woken into a half-copied folder.
+  const copy = journal.import ?? null;
+  const importing = copy?.state === 'downloading' ? copy.detail || 'Bringing the journal in…' : null;
+  const importError = copy?.state === 'failed' ? copy.error || 'That journal couldn’t be brought in.' : null;
+  const bringIn = { canImport: journal.can_import === true && !importing, importing, importError };
+  const from = journal.source ? ` It was brought in from ${journal.source}.` : '';
+  if (importing) {
+    return { sessionId: null, headline: importing, action: 'Start the journal', canStart: false, ...bringIn };
+  }
   if (journal.keeper) {
-    return { sessionId: journal.keeper, headline: 'The Keeper is open.', action: 'Go to the Keeper', canStart: true };
+    return { sessionId: journal.keeper, headline: 'The Keeper is open.', action: 'Go to the Keeper', canStart: true, ...bringIn };
   }
   if (journal.setup_done) {
-    return { sessionId: null, headline: 'The journal is set up. No Keeper session is open.', action: 'Wake the Keeper', canStart: claudeReady };
+    return {
+      sessionId: null,
+      headline: `The journal is set up.${from} No Keeper session is open.`,
+      action: 'Wake the Keeper',
+      canStart: claudeReady,
+      ...bringIn,
+    };
   }
   return {
     sessionId: null,
-    headline: 'The journal is new. The Keeper’s first conversation sets it up: it explains itself and asks who it is keeping for.',
+    headline: `The journal is new.${from} The Keeper’s first conversation sets it up: it explains itself and asks who it is keeping for.`,
     action: 'Start the journal',
     canStart: claudeReady,
+    ...bringIn,
   };
 }
 
@@ -221,12 +257,13 @@ function readClaude(status: StandaloneStatus | null): SetupStep {
 export function readSetup(status: StandaloneStatus | null): SetupReading {
   const folder = readFolder(status);
   const claude = readClaude(status);
+  const keeper = readKeeper(status, claude.state === 'done');
   return {
     folder,
     claude,
     canOpen: folder.state === 'done',
     canChat: claude.state === 'done' || claude.state === 'unknown',
-    stillWorking: folder.state === 'working',
+    stillWorking: folder.state === 'working' || Boolean(keeper?.importing),
     ownCode: status?.own?.available ? { name: status.own.name || 'this app' } : null,
     otherProjects: (status?.projects ?? []).flatMap((project) =>
       project.id && !project.current && project.id !== status?.project?.id && project.state === 'ready'
@@ -236,7 +273,7 @@ export function readSetup(status: StandaloneStatus | null): SetupReading {
     asksFirst: typeof status?.settings?.ask_first === 'boolean' ? status.settings.ask_first : null,
     checksIdle: typeof status?.settings?.idle_check === 'boolean' ? status.settings.idle_check : null,
     rollsOver: typeof status?.settings?.keeper_rollover === 'boolean' ? status.settings.keeper_rollover : null,
-    keeper: readKeeper(status, claude.state === 'done'),
+    keeper,
   };
 }
 

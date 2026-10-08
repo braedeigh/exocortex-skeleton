@@ -13,6 +13,9 @@
  *      the map but nothing can answer. This screen only checks and explains;
  *      it doesn't install anything or sign anyone in.
  *
+ * The journal card can also bring in a journal that already exists, from a
+ * git address or a folder, while the one here is still untouched.
+ *
  * Under them, one notice a new person has to see before starting anything:
  * sessions act without asking, with the switch to make them ask first.
  *
@@ -100,7 +103,7 @@ export function FirstRunPage({
   returning?: boolean;
 }) {
   const statusQuery = useStandaloneStatus(true);
-  const { drawOwnCode, drawProject, drawFolder, download, setAsksFirst, setChecksIdle, setRollsOver, wakeKeeper } =
+  const { drawOwnCode, drawProject, drawFolder, download, importJournal, setAsksFirst, setChecksIdle, setRollsOver, wakeKeeper } =
     useProjectActions();
   const status = statusQuery.data ?? null;
   const reading = readSetup(status);
@@ -115,6 +118,11 @@ export function FirstRunPage({
   const [githubUser, setGithubUser] = useState('');
   const [githubRepos, setGithubRepos] = useState<GithubRepo[] | null>(null);
   const [listing, setListing] = useState(false);
+  // Where an existing journal is, typed for the journal card's bring-in box.
+  const [journalFrom, setJournalFrom] = useState('');
+  // The server's sentence when it refuses a bring-in, shown on the journal
+  // card rather than up on the code card where `refusal` is drawn.
+  const [journalRefusal, setJournalRefusal] = useState<string | null>(null);
   // The in-page folder list, open or shut.
   const [browsing, setBrowsing] = useState(false);
 
@@ -420,6 +428,62 @@ export function FirstRunPage({
                 {reading.keeper.action}
               </button>
             </div>
+            {/* Bring in a journal that already exists, instead of starting an
+                empty one. Offered only while the server says this journal is
+                untouched. One box takes either a git address or a folder's
+                path; which it is decides what is sent. Her ask: "On setup, a
+                person can bring in an existing repository to BE their
+                journal, instead of starting an empty one." */}
+            {journalRefusal || reading.keeper.importError ? (
+              <div className={styles.refusal} role="alert">
+                {journalRefusal || reading.keeper.importError}
+              </div>
+            ) : null}
+            {reading.keeper.canImport ? (
+              <div className={styles.choice}>
+                <label className={styles.label} htmlFor="setup-journal-from">
+                  Or bring in a journal you already have
+                </label>
+                <div className={styles.row}>
+                  <input
+                    id="setup-journal-from"
+                    className={styles.input}
+                    placeholder="A git address, or a folder on this computer"
+                    value={journalFrom}
+                    onChange={(event) => setJournalFrom(event.target.value)}
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    disabled={busy}
+                  />
+                  <button
+                    type="button"
+                    className={styles.secondaryBtn}
+                    onClick={() => {
+                      const from = journalFrom.trim();
+                      setSending(true);
+                      setJournalRefusal(null);
+                      importJournal(looksLikeRepoAddress(from) ? { url: from } : { path: from })
+                        .catch((error: unknown) => {
+                          setJournalRefusal(
+                            error instanceof ApiError && error.message ? error.message : 'Couldn’t reach the app’s server.',
+                          );
+                        })
+                        .finally(() => setSending(false));
+                    }}
+                    disabled={busy || !journalFrom.trim()}
+                  >
+                    Bring it in
+                  </button>
+                </div>
+                <p className={styles.hint}>
+                  It has to be a git project whose top folder is the journal. This makes a copy in this app’s own
+                  folder and keeps the journal there from then on: the original is never changed, and nothing is
+                  sent back to it.
+                </p>
+              </div>
+            ) : null}
             {!reading.keeper.canStart ? (
               <p className={styles.hint}>The Keeper is a session, so it needs Claude Code installed and signed in first.</p>
             ) : null}

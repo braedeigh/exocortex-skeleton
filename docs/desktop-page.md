@@ -94,6 +94,12 @@ are listed as buttons that switch which one Terrain draws (`{"id"}`).
    the Keeper's setup; "Wake the Keeper" once set up; "Go to the Keeper" when
    one is open. It calls `POST /api/standalone/keeper` and opens that
    session. It needs Claude Code ready, because the Keeper is a session.
+   While the journal is untouched (`journal.can_import`), a box under the
+   button brings in a journal that already exists: a git address or a folder
+   on this computer, sent to `POST /api/standalone/journal` (`{"url"}` or
+   `{"path"}`). The server copies it into the app's own journal folder; the
+   original is never written to. The card waits while the copy runs and
+   shows the server's sentence if it is refused or fails.
    Under the button is the nightly rollover's switch, "Close the day each
    night" (`{"keeper_rollover"}`), on unless turned off.
 

@@ -57,6 +57,12 @@ export function useProjectActions() {
         void queryClient.invalidateQueries({ queryKey: STATUS_KEY });
         return answer.keeper ?? null;
       }),
+    /** Bring in a journal the person already has, from a git address or a
+     * folder on this computer. The server copies it into the app's own
+     * journal folder; the original is not written to. Only offered while the
+     * journal here is untouched. */
+    importJournal: (from: { url: string } | { path: string }) =>
+      api.post<StandaloneStatus>('/api/standalone/journal', from).then(accept),
     /** Choose whether NEW sessions stop and ask before changing anything. */
     setAsksFirst: (asksFirst: boolean) =>
       api.post<StandaloneStatus>('/api/standalone/settings', { ask_first: asksFirst }).then(accept),

@@ -215,3 +215,36 @@ describe('the switches, which are only drawn for settings the server reports', (
     expect([all.asksFirst, all.checksIdle, all.rollsOver]).toEqual([false, true, true]);
   });
 });
+
+describe('bringing in a journal that already exists', () => {
+  const journal = { folder: '/data/content', setup_done: false, keeper: null };
+
+  it('is offered only while the server says the journal is untouched', () => {
+    expect(readSetup({ journal }).keeper?.canImport).toBe(false);
+    expect(readSetup({ journal: { ...journal, can_import: true } }).keeper?.canImport).toBe(true);
+  });
+
+  it('holds the whole card, and keeps asking the server, while the copy runs', () => {
+    const reading = readSetup({
+      claude: { found: true, signed_in: true },
+      journal: { ...journal, can_import: true, import: { state: 'downloading', detail: 'Copying 40%' } },
+    });
+    expect(reading.keeper?.headline).toBe('Copying 40%');
+    expect(reading.keeper?.canStart).toBe(false);
+    expect(reading.keeper?.canImport).toBe(false);
+    expect(reading.stillWorking).toBe(true);
+  });
+
+  it('says why a copy failed and still offers another try', () => {
+    const reading = readSetup({
+      journal: { ...journal, can_import: true, import: { state: 'failed', error: 'no repository at that address' } },
+    });
+    expect(reading.keeper?.importError).toBe('no repository at that address');
+    expect(reading.keeper?.canImport).toBe(true);
+  });
+
+  it('names where a brought-in journal came from', () => {
+    const reading = readSetup({ journal: { ...journal, setup_done: true, source: 'https://example.com/me/journal' } });
+    expect(reading.keeper?.headline).toContain('https://example.com/me/journal');
+  });
+});
