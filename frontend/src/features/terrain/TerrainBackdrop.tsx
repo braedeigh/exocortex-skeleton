@@ -31,7 +31,7 @@ import styles from './TerrainBackdrop.module.css';
  * few thousand nodes, several times what the map beside it is drawing.
  *
  * HOW THE WORDS WIN, since it isn't by dimming. The canvas used to sit at 0.62
- * opacity; it's at full colour now and carries a 2px blur instead. Reading is
+ * opacity; it's at full colour now and carries a 3px blur instead. Reading is
  * edge detection, so a hard-edged node the size of a letterform competes with
  * that letterform however faint it is — the blur removes the competition
  * rather than the map, and reads as distance while it's at it. The heat ramp's

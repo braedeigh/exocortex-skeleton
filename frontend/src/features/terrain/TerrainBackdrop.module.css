@@ -16,7 +16,8 @@
 
    The two numbers move together by eye — more colour wants more blur.
 
-   Prompt that produced this: "revert the color and blur it barely." */
+   Prompt that produced this: "revert the color and blur it barely", then
+   "a little more blurred" — which took the radius from 2px to 3px. */
 
 .backdrop {
   position: absolute;
@@ -40,15 +41,15 @@
      signal at this distance; they now only have to survive the blur, not a
      dimmer stacked on top of it. */
   opacity: 1;
-  /* Barely — just past where node edges stop competing with 16px body text.
-     A blurred point of light blooms instead of blinking, so the file-flash
+  /* Lightly — 3px, a step past where node edges stop competing with 16px
+     body text. A blurred point of light blooms instead of blinking, so the file-flash
      reads as MORE activity here, not less.
      --step-pull is the Observatory's step-back gesture (useStepBack.ts): 0
      while she's reading, driven up to 1 as she pulls past the end of the
      conversation, and pinned at 1 while the view is up. So the same blur that
      keeps the map out of her reading lifts exactly as far as she asks for it,
      and the peek costs a compositor filter rather than a reflow. */
-  filter: blur(calc(2px * (1 - var(--step-pull, 0))));
+  filter: blur(calc(3px * (1 - var(--step-pull, 0))));
   /* Short: this rides a finger most of the time, and anything slower would
      lag behind the pull instead of following it. It's only doing the smoothing
      on release, where the pull springs back to 0 in one step. */
