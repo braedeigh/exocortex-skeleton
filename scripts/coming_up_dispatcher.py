@@ -162,6 +162,15 @@ def main():
             _log(f"started {ran} swarm helper run(s)")
     except Exception as e:
         _log(f"swarm helper tick failed: {e}")
+    # Message summaries: any recent agent message whose one-line summary was
+    # never started gets its call now (message_summaries.py).
+    try:
+        import message_summaries
+        ran = message_summaries.tick()
+        if ran:
+            _log(f"started {ran} message summary call(s)")
+    except Exception as e:
+        _log(f"message summary tick failed: {e}")
     # The room helper, a layer above: forms, joins, splits and releases
     # swarms when something in its room has happened (room_helper.py).
     try:

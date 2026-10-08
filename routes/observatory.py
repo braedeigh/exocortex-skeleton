@@ -3081,6 +3081,13 @@ def peer_send(from_conv, to_conv, text, mode="inject"):
                 swarm_helper.poke(swarm_id, "formed")
     except Exception as e:
         print(f"swarm update failed after a message: {e}", file=sys.stderr)
+    # Have the message's one-line summary written, in a process of its own
+    # (message_summaries.py). Sending never waits on it or fails because of it.
+    try:
+        import message_summaries
+        message_summaries.spawn(row)
+    except Exception as e:
+        print(f"message summary not started: {e}", file=sys.stderr)
     started = row["status"] == "waiting" and drain_inbox(row["to_conv"])
     return {**row, "started": bool(started)}
 

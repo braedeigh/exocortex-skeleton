@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 52
+_SCHEMA_VERSION = 53
 
 
 def _db_path():
@@ -227,6 +227,8 @@ _EXPECTED_TABLES = (
     "swarm_closings",
     # The topics inside a swarm (rung 52).
     "swarm_topics",
+    # One line per agent message, and one per thread of them (rung 53).
+    "message_summaries", "message_thread_summaries",
     "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs",
     # The journal's prose pages: weekly summaries, diary entries (rung 47).
     "journal_pages",
@@ -3316,6 +3318,41 @@ def _run_ladder(conn):
             conn.execute("ALTER TABLE swarm_members ADD COLUMN topic_id INTEGER")
         except sqlite3.OperationalError:
             pass  # the column is already there
+    if version < 53:
+        # Rung 53: message summaries (message_summaries.py). Every message an
+        # agent sends another gets one plain line saying what it asked, told
+        # or settled, written by a short model call when it is sent; and the
+        # thread it belongs to — everything two sessions have sent each
+        # other — keeps one line saying what they are coordinating on.
+        # RECORDS: the messages stay, but what was written about them can't
+        # be rebuilt without paying for the calls again.
+        #
+        # Prompt: "I click on the message thread and I get some very short
+        # summary of what the message accomplished and what they're
+        # coordinating on between messages"
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS message_summaries ("
+            "  message_id INTEGER PRIMARY KEY REFERENCES agent_messages(id),"
+            "  at TEXT NOT NULL,"
+            # The one line. Empty when the model call failed (see `error`).
+            "  gist TEXT,"
+            "  cost_usd REAL,"
+            "  error TEXT"
+            ")"
+        )
+        # One row per pair of sessions, the two ids in order. `through_id` is
+        # the newest message the summary has read, so a call that finishes
+        # late never overwrites a newer account.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS message_thread_summaries ("
+            "  conv_a TEXT NOT NULL,"
+            "  conv_b TEXT NOT NULL,"
+            "  summary TEXT,"
+            "  summary_at TEXT,"
+            "  through_id INTEGER NOT NULL,"
+            "  PRIMARY KEY (conv_a, conv_b)"
+            ")"
+        )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

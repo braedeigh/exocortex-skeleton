@@ -1408,6 +1408,52 @@
       }
     }
   },
+  "message_summaries": {
+    "holds": "One plain line for each message an agent sent another: what it asked, told or settled. The sheet that opens from a line of the swarm drawing shows it above the message's own text.",
+    "source": "Written by message_summaries.py, one short model call per message, started when the message is sent. A call that failed leaves a row with its error and no line. Not rebuildable without paying for the calls again, and has no file of its own: the hourly backup dumps this table as text.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "message_id": {
+        "holds": "Which message, by its number in agent_messages."
+      },
+      "at": {
+        "holds": "When the line was written."
+      },
+      "gist": {
+        "holds": "The one line. Empty when the model call failed."
+      },
+      "cost_usd": {
+        "holds": "What the model call cost, as the model reported it."
+      },
+      "error": {
+        "holds": "What went wrong, when the call failed."
+      }
+    }
+  },
+  "message_thread_summaries": {
+    "holds": "One short summary per pair of sessions that have messaged each other: what the two are coordinating on and where that stands. It heads the sheet that opens from the line between them in the swarm drawing.",
+    "source": "Written by message_summaries.py in the same model call that writes a message's line; each new summary replaces the old. Not rebuildable without paying for the calls again, and has no file of its own: the hourly backup dumps this table as text.",
+    "kind": "record",
+    "time_column": "summary_at",
+    "columns": {
+      "conv_a": {
+        "holds": "One of the two sessions: the one whose id sorts first."
+      },
+      "conv_b": {
+        "holds": "The other session."
+      },
+      "summary": {
+        "holds": "The summary."
+      },
+      "summary_at": {
+        "holds": "When it was written."
+      },
+      "through_id": {
+        "holds": "The newest message the summary had read, by its number in agent_messages."
+      }
+    }
+  },
   "session_summaries": {
     "holds": "The room helper's summary of each session working alone — what it's doing now and what it's waiting on. Swarm members' summaries live on swarm_members; this is the same thing for everyone else.",
     "source": "Written by the room helper (room_helper.py) each time it runs; each new summary replaces the old. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",

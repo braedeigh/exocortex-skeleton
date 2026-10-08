@@ -217,6 +217,11 @@ def data_dir(tmp_path, monkeypatch, request):
         # is the first store test in the run.
         _template_db()
         monkeypatch.setattr(sqlstore, "_connect", _connect_from_template)
+    # Never start a real model call from a test: sending an agent message
+    # starts a detached summary call (message_summaries.py), and that would
+    # run the real `claude`. A test about the summaries puts its own in.
+    import message_summaries
+    monkeypatch.setattr(message_summaries, "_detach", lambda message_id: None)
     monkeypatch.setattr(store, "DATA_DIR", tmp_path)
     monkeypatch.setattr(store, "UPLOAD_DIR", tmp_path / "uploads")
     # The uploads archive is the one root where a leak would be silent AND

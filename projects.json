@@ -476,7 +476,7 @@
         "procmem.py",
         "activityfeed.py",
         "chatsearch.py",
-        "lanes.py", "fairywall.py", "linear_api.py", "peermail.py", "swarms.py", "swarm_helper.py", "helper_chat.py", "room_helper.py", "watches.py", "linear_feed.py", "edited_files.py", "file_alerts.py", "continuation.py", "sudo_requests.py", "briefstore.py"
+        "lanes.py", "fairywall.py", "linear_api.py", "peermail.py", "swarms.py", "swarm_helper.py", "helper_chat.py", "room_helper.py", "watches.py", "linear_feed.py", "edited_files.py", "file_alerts.py", "continuation.py", "sudo_requests.py", "briefstore.py", "message_summaries.py"
       ],
       "routes": [
         "observatory.py",
@@ -524,7 +524,7 @@
       "tables": [
         "notes",
         "note_judgments",
-        "job_runs", "agent_messages", "swarms", "swarm_members", "swarm_helper_runs",
+        "job_runs", "agent_messages", "message_summaries", "message_thread_summaries", "swarms", "swarm_members", "swarm_helper_runs",
         "chat_lines_fts", "chat_lines_fts_data", "chat_lines_fts_idx",
         "chat_lines_fts_content", "chat_lines_fts_docsize", "chat_lines_fts_config",
         "chat_line_sources",

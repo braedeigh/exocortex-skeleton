@@ -31,7 +31,11 @@ summaries (swarm_helper.py). These routes hand that to the page:
                                   it took over from; the word `helper` means
                                   the swarm's helper, and then only what the
                                   helper SENT is listed, which is what its
-                                  line counts.
+                                  line counts. Each message carries its
+                                  `gist` (one plain line on what it did) and
+                                  the reply carries `thread` (what the two
+                                  ends are coordinating on), when written
+                                  (message_summaries.py).
     POST /api/swarms/<id>/refresh ask the helper to update now.
     GET  /api/swarms/room/<room>  the room seen from above, for the room map:
                                   the room helper's session, the sessions
@@ -63,7 +67,8 @@ session, so the chat's normal mailbox (POST
 /api/observatory/conversation/<helper>/inbox) reaches it.
 
 Touches: swarms.py, swarm_helper.py (the closing summaries), room_helper.py,
-helper_chat.py (the seed and the rules), the agent_messages,
+helper_chat.py (the seed and the rules), message_summaries.py (the one-line
+summaries on a line's messages), the agent_messages,
 swarm_helper_runs, swarm_closings and session_summaries tables, tests/test_swarm_routes.py. Design: docs/swarms.md.
 """
 import json
@@ -73,6 +78,7 @@ from flask import jsonify, request
 import config
 import helper_chat
 import lanes
+import message_summaries
 import room_helper
 import sqlstore
 import store
@@ -169,7 +175,7 @@ def line_messages(swarm_id, side_a, side_b):
                        f" AND to_conv IN ({','.join('?' * len(receivers))}))")
         params += [*sorted(senders), *sorted(receivers)]
     if not clauses:
-        return {"messages": [], "total": 0}
+        return {"messages": [], "total": 0, "thread": None}
 
     def title(conv):
         if conv in helpers:
@@ -185,10 +191,19 @@ def line_messages(swarm_id, side_a, side_b):
             f" WHERE {where} ORDER BY id DESC LIMIT ?", (*params, _MESSAGES_SHOWN)).fetchall()
     finally:
         conn.close()
-    return {"total": total,
+    # Add what was written about them (message_summaries.py): each message's
+    # one line, and the summary of the thread between the two ends. Either
+    # can be missing — a message from before these were written, or one whose
+    # call hasn't finished.
+    gists = message_summaries.gists(row[0] for row in rows)
+    thread = message_summaries.thread_summary(
+        (sender, receiver) for senders, receivers in directions
+        for sender in senders for receiver in receivers)
+    return {"total": total, "thread": thread,
             "messages": [{"id": mid, "at": at, "from": sender, "to": receiver,
                           "from_title": title(sender), "to_title": title(receiver),
-                          "text": text, "mode": mode, "status": status}
+                          "text": text, "mode": mode, "status": status,
+                          "gist": gists.get(mid)}
                          for mid, at, sender, receiver, text, mode, status in rows]}
 
 

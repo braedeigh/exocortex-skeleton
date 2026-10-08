@@ -368,6 +368,34 @@ read by the helper." So the app notices and writes it down
   `told` in `file_alerts`.
 - `EXOCORTEX_FILE_OVERLAPS=0` stops the minute check altogether.
 
+## Message summaries
+
+Her words (2026-10-07): "I click on the message thread and I get some very
+short summary of what the message accomplished and what they're coordinating
+on between messages" — and, asked when they should be written: "i want
+context between every message."
+
+- **A thread is the line between two sessions**: everything either has sent
+  the other. That is the line she clicks in the swarm drawing. Topics that
+  run across several sessions are the swarm's topics, not this.
+- **Every agent message gets one plain line** (its *gist*: what it asked,
+  told or settled), **and its thread one or two sentences** (what the two are
+  coordinating on and where it stands), both from one short Sonnet call
+  started in a process of its own when the message is sent
+  (`message_summaries.py`). The thread's summary is replaced on every message.
+- **What the call reads**: the new message, the thread's last few messages
+  with the gists already written, the thread's current summary, and each
+  session's summary as the helpers wrote it. Not the transcripts: it is told
+  it can't see what a session did afterwards, and to say a message is waiting
+  on an answer when nothing answers it. Her words: "just a brief summary
+  nothing crazy."
+- **Not summarised**: a message to a helper session, and one from a room or
+  Linear helper. Neither is on a line she can click.
+- **Where it shows**: the sheet that opens from a line of the swarm drawing —
+  the thread's summary on top, each message's gist with its own words folded
+  beneath. Not on Terrain, whose message lines can't be clicked.
+- Messages sent before 2026-10-07 have no gist and show their words as before.
+
 ## Stages
 
 1. **Token accounting per model call** — a `model_calls` table: one row per
@@ -399,6 +427,7 @@ read by the helper." So the app notices and writes it down
 | Swarms | `swarms.py` (grouping, `swarms` / `swarm_members` tables); `routes/swarms.py`; `SwarmCard.tsx` in each room via `SessionLane.tsx`, coloured from the roster and ordered with the sessions (orange first, longest wait on top; retired members left off) by `roomOrder.ts`; `SwarmPage.tsx` at `/observatory/swarm/<id>`; the network of rings and talk-lines in `SwarmNetwork.tsx` (on the swarm page and under the Worktrees plots); the outline + name around member orbs on Terrain in `terrain/terrainSwarms.ts` (drawn by `terrainCanvas.ts`) |
 | Helper | `swarm_helper.py` (one tool-less Sonnet call per run, structured answer, every run in `swarm_helper_runs`); runs after member turns (debounced by `config.SWARM_HELPER_MIN_SEC`), on the minute tick, when a swarm forms, and straight away when messaged |
 | Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) her standing rules (`rules`, `add_rule`, `drop_rule`; `scripts/helper_rule.py`, allowed in `tools/helper_gate.py`), the wake-up (`wake_tick`, ticked by `scripts/coming_up_dispatcher.py`; `after_turn`, called by `after_turn`, puts a silent wake-up's card back) and the silent turn's hiding in `frontend/src/features/observatory/events.ts`; `config.HELPER_CHAT_EXCHANGES`, `HELPER_WAKE_*` (including `HELPER_WAKE_STATES`: a helper is also woken when a session it was shown asks the owner something, errors, stalls mid-turn or finishes — `helper_chat.state_changes`); exempt in `continuation.due`. A growing helper (`config.HELPER_GROW_ROLES`, by default all three kinds; reset size `HELPER_RESET_TOKENS`) is the exception to "never resumes": `begin_turn` resumes it while `helper_chat.resumes` says yes, handing it only what changed in the room since it was last shown it, ahead of the message (`write_update`; what it was shown is kept in `bot_chats/helper_seed/<conv>.shown.json`) and leaving its seed untouched so the prompt cache holds, and starts it over from a fresh seed once its context passes the reset size. The context page: `seed_parts`, `last_seed`, `rules_text`, `save_rules`; `GET /api/swarms/helper-context/<conv>` and `PUT …/rules` in `routes/swarms.py`; `HelperContextPage.tsx` |
+| Message summaries | `message_summaries.py` (`spawn` called by `peer_send` in `routes/observatory.py`; `tick`, the safety net, by `scripts/coming_up_dispatcher.py`; `gists`, `thread_summary` read by `line_messages` in `routes/swarms.py`); `message_summaries`, `message_thread_summaries` (sqlstore rung 53); the sheet in `SwarmNetwork.tsx` |
 | Room helper | `room_helper.py` (runs, moves, undo, the room overview); placements in `swarms.py` (`place`, `unplace`, `new_swarm`, `line_of_work`; `links` cuts pre-placement messages); `swarm_pins`, `room_moves`, `session_summaries`, `room_helper_runs` (sqlstore rung 37); `scripts/room_moves.py`; ticked by `scripts/coming_up_dispatcher.py` |
 | Topics | `swarms.set_topic` and `_read_topics` (the `topics` on every card from `overview`); `room_helper.sort_topic`, the `topics` in its prompt, schema and run; the "Topics" section of `swarm_helper.gather` and the `topics` in its schema and run; `swarm_topics` and `swarm_members.topic_id` (sqlstore rung 52); `scripts/room_moves.py topic` / `topics`; `roomOrder.topicGroups`, drawn by `SwarmStack.tsx`, `SwarmCard.tsx` and `SwarmPage.tsx` |
 | Watches | `watches.py` (add, the minute check, the wake-up, the seed section); `helper_watches` (sqlstore rung 40); `scripts/helper_watch.py`; allowed in `tools/helper_gate.py`; ticked by `scripts/coming_up_dispatcher.py`; `config.HELPER_WATCH_*` |

@@ -163,6 +163,35 @@ button.count:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* What the two ends are coordinating on: the sheet's opening lines. */
+.lineThread {
+  margin: 0 0 var(--space-3);
+  font-weight: 600;
+}
+
+/* A message's one-line summary, and the fold that opens its own words. */
+.lineGist {
+  overflow-wrap: anywhere;
+}
+
+.lineFull {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.lineFull::before {
+  content: '▸';
+  margin-right: var(--space-1);
+}
+
+details[open] > .lineFull::before {
+  content: '▾';
+}
+
 /* The helper thread's count: the same chip, in blue. */
 .helperCount {
   border-color: var(--helper-blue);

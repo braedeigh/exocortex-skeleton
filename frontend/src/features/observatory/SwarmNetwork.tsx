@@ -38,7 +38,10 @@
  * sheet opens listing them, newest first, each with who sent it to whom and
  * when (GET /api/swarms/<id>/line). The line has a wide unseen band along it
  * to click on; the numbers are buttons, so a finger or the keyboard can reach
- * the same list.
+ * the same list. The sheet opens with one or two sentences on what the two
+ * are coordinating on, and each message shows a one-line summary with its
+ * own words folded beneath (message_summaries.py writes both when a message
+ * is sent; a message from before that shows its words as it always did).
  *
  * The lines are an SVG underneath; the rings, names and counts are ordinary
  * HTML placed on top by percentage, so they keep real, readable pixel sizes
@@ -72,7 +75,9 @@
  * the number of messages flowed." Then: "if you hover over an agent dot on
  * the swarm view, it highlights that agent and the messages sent between
  * that agent and to other agents and dims all of the others." Then: "click
- * on a line or something and see the messages that were sent in that line."
+ * on a line or something and see the messages that were sent in that line." Then: "I click on the message thread and I get
+ * some very short summary of what the message accomplished and what they're
+ * coordinating on between messages."
  */
 import {
   useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent,
@@ -474,6 +479,11 @@ function LineMessages({ swarmId, line, frozenMessages, onClose }: {
       {total > messages.length ? (
         <p className={styles.lineNote}>Showing the newest {messages.length} of {total}.</p>
       ) : null}
+      {/* What the two ends are coordinating on, in one or two plain
+          sentences (message_summaries.py), when one has been written. */}
+      {query.data?.thread ? <p className={styles.lineThread}>{query.data.thread.summary}</p> : null}
+      {/* Each message: its one-line summary when it has one, with the
+          message's own words folded beneath it; otherwise the words. */}
       <ul className={styles.lineMessages}>
         {messages.map((m) => (
           <li key={m.id} className={styles.lineMessage}>
@@ -481,7 +491,17 @@ function LineMessages({ swarmId, line, frozenMessages, onClose }: {
               {m.at.slice(5, 16).replace('T', ' ')} · {shortTitle(m.from_title)} &rarr; {shortTitle(m.to_title)}
               {m.status === 'held' ? ' · held' : ''}
             </span>
-            <span className={styles.lineText}>{m.text}</span>
+            {m.gist ? (
+              <>
+                <span className={styles.lineGist}>{m.gist}</span>
+                <details>
+                  <summary className={styles.lineFull}>The full message</summary>
+                  <span className={styles.lineText}>{m.text}</span>
+                </details>
+              </>
+            ) : (
+              <span className={styles.lineText}>{m.text}</span>
+            )}
           </li>
         ))}
       </ul>

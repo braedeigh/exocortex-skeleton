@@ -262,14 +262,15 @@ export interface LineMessage {
 /** The messages one line of the swarm drawing stands for, newest first,
  * asked for only once `enabled` (when she opens the line). Each side is the
  * sessions one end of the line stands for, or `['helper']` for the swarm's
- * helper. `total` can be more than the list holds: the newest 200 come back. */
+ * helper. `total` can be more than the list holds: the newest 200 come back.
+ * `thread` is the line's summary, when one has been written. */
 export function useLineMessages(swarmId: number, sideA: string[], sideB: string[], enabled: boolean) {
   const a = sideA.join(',');
   const b = sideB.join(',');
   return useQuery({
     queryKey: ['swarm-line', swarmId, a, b] as const,
     queryFn: async ({ signal }) =>
-      api.get<{ messages: LineMessage[]; total: number }>(
+      api.get<{ messages: LineMessage[]; total: number; thread?: LineThread | null }>(
         `/api/swarms/${swarmId}/line?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`, signal),
     enabled,
   });
@@ -279,6 +280,16 @@ export function useSwarm(id: number) {
   return useQuery({
     queryKey: ['swarm', id] as const,
     queryFn: async ({ signal }) => api.get<SwarmDetail>(`/api/swarms/${id}`, signal),
+  /** One plain line on what the message asked, told or settled
+   * (message_summaries.py); missing until it has been written. */
+  gist?: string | null;
+}
+
+/** What the two ends of a line are coordinating on and where it stands,
+ * rewritten each time one messages the other (message_summaries.py). */
+export interface LineThread {
+  summary: string;
+  at: string;
     refetchInterval: 5_000,
   });
 }
