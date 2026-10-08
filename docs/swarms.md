@@ -14,8 +14,26 @@ lines say what exists *now*.
 - **Only the Coding room continues itself unsupervised.** Other rooms never
   auto-continue.
 - **A swarm is defined by interaction, not assignment.** Two or more sessions
-  where each has messaged at least one other member (a connected group in the
-  `agent_messages` graph). Not everyone has to have talked to everyone.
+  where each has talked with at least one other member (a connected group in
+  the `agent_messages` graph). Not everyone has to have talked to everyone.
+- **Talking means both ways.** Two sessions are linked only when each has
+  written to the other. A message nobody answered — a one-off heads-up about
+  a shared file — links no one. Her call (2026-10-07), asked whether a
+  one-off heads-up should still pull a session into a swarm: "both ways". A
+  session and its continuations are one sender, so an answer from the session
+  that took over counts (`swarms.links`). Members a swarm already had before
+  this rule stay until they are released: membership only grows.
+- **Topics inside a swarm.** Her ask: "Can you make it such that there are
+  sub swarms by topic?" A swarm that holds more than one piece of work is
+  sorted into named topics (`swarm_topics`, and `topic_id` on each member).
+  Everyone stays a member of the one swarm and can still warn each other; a
+  topic only says who reads together. Her choices: the **room helper** does
+  the sorting (not the swarm's helper), and a topic gets **a heading and a
+  short summary, not a helper of its own** — the swarm's one helper writes
+  each topic's summary ("Goal / Where it stands / Waiting on", held to three
+  lines by `TOPIC_SHAPE`) in the call it already makes. A session's
+  continuations share its topic. The swarm's page, its card and its stack in
+  the room map list members under their topic once there are two or more.
 - **A swarm is at least two sessions still working, plus its helper.** Her
   words: "i don't necessarily want a swarm to be just 1 agent and the helper.
   i want a swarm to be a minimum of 2 sessions and a helper." Counted in
@@ -206,6 +224,15 @@ or move solo sessions out of a swarm into the layer above."
   own, **release** sessions to work alone. It acts on its own (her decision,
   2026-09-27), conservatively: never splitting clusters that talked within the
   quiet window, never redoing a move she undid.
+- **It sorts swarms into topics** (`room_helper.sort_topic`). In the same
+  call, it may name topics for a swarm doing more than one piece of work and
+  say who is in each; it lists a topic only when it is new or its members
+  should change. Sorting moves nobody and sends no message, so it is not a
+  move and has no undo: sorting again replaces it. The swarm's helper is
+  woken to write the new topic's summary. By hand:
+  `scripts/room_moves.py topics <swarm id>` lists a swarm's topics, and
+  `topic <swarm id> "<name>" <conv>...` sorts members into one. A whole topic
+  that has stopped talking to the rest is still a **split**.
 - **Placements override messages.** Her words: "look at who's connected in
   the current swarm and you'll see what I mean. Spins could lead to
   disconnected swarms." A move is stored as a placement (`swarm_pins`): the
@@ -373,12 +400,17 @@ read by the helper." So the app notices and writes it down
 | Helper | `swarm_helper.py` (one tool-less Sonnet call per run, structured answer, every run in `swarm_helper_runs`); runs after member turns (debounced by `config.SWARM_HELPER_MIN_SEC`), on the minute tick, when a swarm forms, and straight away when messaged |
 | Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) her standing rules (`rules`, `add_rule`, `drop_rule`; `scripts/helper_rule.py`, allowed in `tools/helper_gate.py`), the wake-up (`wake_tick`, ticked by `scripts/coming_up_dispatcher.py`; `after_turn`, called by `after_turn`, puts a silent wake-up's card back) and the silent turn's hiding in `frontend/src/features/observatory/events.ts`; `config.HELPER_CHAT_EXCHANGES`, `HELPER_WAKE_*` (including `HELPER_WAKE_STATES`: a helper is also woken when a session it was shown asks the owner something, errors, stalls mid-turn or finishes — `helper_chat.state_changes`); exempt in `continuation.due`. A growing helper (`config.HELPER_GROW_ROLES`, by default all three kinds; reset size `HELPER_RESET_TOKENS`) is the exception to "never resumes": `begin_turn` resumes it while `helper_chat.resumes` says yes, handing it only what changed in the room since it was last shown it, ahead of the message (`write_update`; what it was shown is kept in `bot_chats/helper_seed/<conv>.shown.json`) and leaving its seed untouched so the prompt cache holds, and starts it over from a fresh seed once its context passes the reset size. The context page: `seed_parts`, `last_seed`, `rules_text`, `save_rules`; `GET /api/swarms/helper-context/<conv>` and `PUT …/rules` in `routes/swarms.py`; `HelperContextPage.tsx` |
 | Room helper | `room_helper.py` (runs, moves, undo, the room overview); placements in `swarms.py` (`place`, `unplace`, `new_swarm`, `line_of_work`; `links` cuts pre-placement messages); `swarm_pins`, `room_moves`, `session_summaries`, `room_helper_runs` (sqlstore rung 37); `scripts/room_moves.py`; ticked by `scripts/coming_up_dispatcher.py` |
+| Topics | `swarms.set_topic` and `_read_topics` (the `topics` on every card from `overview`); `room_helper.sort_topic`, the `topics` in its prompt, schema and run; the "Topics" section of `swarm_helper.gather` and the `topics` in its schema and run; `swarm_topics` and `swarm_members.topic_id` (sqlstore rung 52); `scripts/room_moves.py topic` / `topics`; `roomOrder.topicGroups`, drawn by `SwarmStack.tsx`, `SwarmCard.tsx` and `SwarmPage.tsx` |
 | Watches | `watches.py` (add, the minute check, the wake-up, the seed section); `helper_watches` (sqlstore rung 40); `scripts/helper_watch.py`; allowed in `tools/helper_gate.py`; ticked by `scripts/coming_up_dispatcher.py`; `config.HELPER_WATCH_*` |
 | Linear feed | `linear_feed.py` (the look, what counts as news, the once-only record, the Linear helper and its wake-up, the phone push); `linear_api.py` (`team`, `changes`); `linear_events` (sqlstore rung 44) and the `linear_feed` state file; the helper's lead, sessions and news section in `helper_chat.py`; `scripts/linear_feed.py`, allowed in `tools/helper_gate.py`; `GET /api/linear-room/feed` in `routes/linear_room.py`; `LinearNews.tsx`, `linearNewsSeen.ts`, `LinearDoor.tsx`; ticked by `scripts/coming_up_dispatcher.py`; `config.LINEAR_FEED*`, `LINEAR_HELPER_DAYS` |
 | File alerts | `file_alerts.py` (finding overlaps, the once-only claim, the helpers' list); `edited_files.py` (`edits`, `reads`, the section that shows the list to the room helper's runs); `helper_chat.py` (the list in every helper chat's seed); `file_alerts` (sqlstore rungs 42–43); ticked by `scripts/coming_up_dispatcher.py`; `config.FILE_OVERLAPS`, `config.FILE_ALERT_ROOMS` / `_HOURS` |
 | Closing summary and check | `swarms.retired`; `swarm_helper.watch_retirement` (run by `swarm_helper.tick` on the minute tick) starts `swarm_helper.py close <id>`; `close_out` (the model call, the record, the post, the room's line), `closing_input`, `closing_report` and `_commits_of` (the facts), `closings` / `closings_text` (the record and how the helper is handed it), `rest_again`; `swarm_closings` (sqlstore rung 45); the "closings" part in `helper_chat.seed_parts`; `closings` in `GET /api/swarms/<id>` and the "What this swarm did" section of `SwarmPage.tsx` |
 
 ## Status
+
+- Topics: built and tested (`tests/test_swarms.py`, `tests/test_room_helper.py`).
+  There is no button to move a session between topics; the room helper sorts,
+  or `scripts/room_moves.py topic` by hand.
 
 - The room helper: built and tested (`tests/test_room_helper.py`, placements
   in `tests/test_swarms.py`), and the room map above the Coding room. Undo is

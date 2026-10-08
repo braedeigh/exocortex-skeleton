@@ -365,6 +365,16 @@ PRESENTABLE_PATHS = (
     # link 404s. Prefixes on purpose: every token is its own path.
     "/share/",
     "/api/share/",
+    # The frozen swarm (routes/swarm_demo.py): one real swarm as it stood at
+    # one moment, with its members' chats, opened 2026-10-07 as the
+    # Observatory's exhibit. It reads only the file the owner froze and read
+    # through (scripts/freeze_swarm.py), never the live swarm routes or a
+    # live transcript, which stay shut. A prefix for the chats on purpose:
+    # each one is its own path, and the handler 404s any session the file
+    # doesn't hold.
+    "/demo/swarm",
+    "/api/demo/swarm",
+    "/api/demo/swarm/chat/",
 )
 
 # The code maps a visitor may read (routes/terrain_map.py), by key

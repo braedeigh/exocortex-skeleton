@@ -120,6 +120,7 @@ def helper(data_dir, monkeypatch):
          "summary": f"Closing {len(calls)}: the pond page was built."}, 0.02))
     _seed(A, B)
     peermail.send(B, "I'm editing pond.py too", from_conv=A)
+    peermail.send(A, "ok", from_conv=B)
     [swarm_id] = swarms.sync()
     return swarm_helper.ensure_helper(swarm_id)
 

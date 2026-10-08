@@ -1,0 +1,157 @@
+/* SwarmDemoPage — the frozen swarm. The stack, its bubble, the member cards
+   and the chat's turns wear the real pages' own styles (SwarmStack,
+   SwarmNetwork, SessionLane, PeerCard, ObservatoryPage); this file holds only
+   what the demo adds: the page's frame, the line that says it is frozen, the
+   folding question cards, and the foot of a chat. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-3) var(--space-6);
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+/* Inside the portfolio's frame: no room wasted round the stack. */
+.embed {
+  padding: var(--space-3) var(--space-2) var(--space-4);
+}
+
+.stack {
+  width: min(620px, 100%);
+}
+
+/* The name is a title here, not a door: there is no swarm page to go to. */
+.name {
+  cursor: default;
+}
+
+.name:hover,
+.name:focus-visible {
+  background: none;
+}
+
+/* The summary before it is asked for: its first few lines. */
+.summaryCut {
+  max-height: calc(1.45em * 4);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
+  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+}
+
+/* The switch under the summary sits at the stack's left edge. */
+.more {
+  align-self: flex-start;
+}
+
+.frozen {
+  width: min(620px, 100%);
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
+.frozenMark {
+  margin-right: var(--space-1);
+  color: var(--accent);
+}
+
+.note {
+  margin: var(--space-4);
+  color: var(--text-secondary);
+}
+
+/* A question card, folded: one orange-edged line, a whole tap target. */
+.question {
+  border: 1px solid color-mix(in srgb, var(--orange) 55%, var(--border));
+  border-left: 3px solid var(--orange);
+  border-radius: var(--radius-md);
+}
+
+.questionHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-target, 40px);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.questionHead:hover,
+.questionHead:focus-visible {
+  background: color-mix(in srgb, var(--orange) 8%, transparent);
+}
+
+.questionTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.questionCount {
+  flex: none;
+  color: var(--orange);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.questionBody {
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.questionList {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-5);
+  line-height: 1.45;
+}
+
+.questionList li + li {
+  margin-top: var(--space-2);
+}
+
+.openChat {
+  min-height: var(--tap-target, 40px);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.openChat:hover,
+.openChat:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* A chat in its sheet: the turns one under the other. */
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.chatEnd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--border);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}

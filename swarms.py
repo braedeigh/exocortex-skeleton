@@ -1,10 +1,14 @@
 """Swarms — groups of agent sessions that have talked to each other.
 
 **What this is, in plain English.** When agents message each other through the
-mailbox (peermail.py), they form groups: any two sessions that have exchanged
-a message are linked, and everything linked together — directly or through
+mailbox (peermail.py), they form groups: any two sessions that have written
+to EACH OTHER are linked, and everything linked together — directly or through
 someone else — is one swarm. Not everyone in a swarm has to have talked to
-everyone; one conversation with one other member is enough to join. A session
+everyone; one conversation with one other member is enough to join. But it
+has to be a conversation: a message one way that was never answered — a
+heads-up about a shared file — links nobody (her call: "both ways"). A
+session and its continuations count as one sender, so a reply from the
+session that took over still answers. A session
 that continued itself (a fresh session taking over when the old one's context
 filled up) stays in its parent's swarm — but a handoff is not a conversation:
 a session and its own continuation, with no message between them and anyone
@@ -42,11 +46,21 @@ She can also start a session straight into a swarm (the '+' on a swarm's
 page): `join` adds it as a member before it has messaged anyone, and
 `seed_text` is what it's told about the swarm it woke up in.
 
+A swarm can be sorted into TOPICS (`swarm_topics`, and `topic_id` on each
+member): named groups of members doing the same piece of work, for a swarm
+that holds more than one. Everyone stays a member of the one swarm; a topic
+only says who reads together. The room helper does the sorting
+(room_helper.sort_topic, through `set_topic` here) and the swarm's helper
+writes each topic a short summary. A continuation is read as in its parent's
+topic until it is sorted itself.
+
+Prompt: "Can you make it such that there are sub swarms by topic?"
+
 This file only works out who belongs where and stores it. Naming the swarm and
 summarising its members is the helper's job (docs/swarms.md, stage 4).
 
-Touches: sqlstore.py (the `swarms`, `swarm_members`, `swarm_helper_runs`,
-`swarm_closings` and `swarm_pins` tables), the `agent_messages` table (peermail.py), room_helper.py
+Touches: sqlstore.py (the `swarms`, `swarm_members`, `swarm_topics`,
+`swarm_helper_runs`, `swarm_closings` and `swarm_pins` tables), the `agent_messages` table (peermail.py), room_helper.py
 (which makes the placements, through `place`), the session index
 (bot_chats/index — lanes and spinoff lineage), tests/test_swarms.py.
 Design and decisions: docs/swarms.md.
@@ -109,12 +123,17 @@ def groups(links):
 
 
 def links(conn, index):
-    """Who is linked to whom, as two lists: every pair that exchanged an
-    agent message (delivered or not — sending is the interaction), and every
+    """Who is linked to whom, as two lists: every pair that has written to
+    each other (delivered or not — sending is the interaction), and every
     session paired with the continuation that took over from it.
 
-    Placements (swarm_pins) bend both lists. A pair is left out when every
-    message between them came at or before either one's placement. And the
+    A pair needs a message EACH way. One that was never answered links
+    nobody: a heads-up about a shared file is not working together. A
+    session and its continuations are one sender here (`line`), so an answer
+    from the session that took over counts.
+
+    Placements (swarm_pins) bend both lists. A message is left out when it
+    came at or before the placement of either end. And the
     sessions placed into the same live swarm are linked to each other, and to
     one of the swarm's other members — that's what holds a swarm the room
     helper made together before its members have said a word."""
@@ -128,11 +147,27 @@ def links(conn, index):
         pin = placed.get(conv)
         return bool(pin) and (last or "") <= pin[1]
 
-    talked = [(a, b) for a, b, last in conn.execute(
+    sent = [(a, b) for a, b, last in conn.execute(
         "SELECT from_conv, to_conv, MAX(at) FROM agent_messages"
         " WHERE kind = 'A' AND status != 'cancelled' AND from_conv IS NOT NULL"
         " GROUP BY from_conv, to_conv")
         if a not in helpers and b not in helpers and not cut(a, last) and not cut(b, last)]
+    # Keep only the pairs that wrote each way, counting a session and its
+    # continuations as one sender: each session is named by the first session
+    # of its line of work, and a pair stays when the other line wrote back.
+    parent = {c: e.get("spawned_from") for c, e in index.items()
+              if isinstance(e, dict) and e.get("spawned_via") == "continue"}
+
+    def line(conv):
+        seen = {conv}
+        while parent.get(conv) and parent[conv] not in seen:
+            conv = parent[conv]
+            seen.add(conv)
+        return conv
+
+    ways = {(line(a), line(b)) for a, b in sent}
+    talked = [(a, b) for a, b in sent
+              if line(a) != line(b) and (line(b), line(a)) in ways]
     # Placed sessions: chained to each other and to one member of their swarm.
     by_swarm = {}
     for conv, (swarm_id, _) in placed.items():
@@ -275,6 +310,7 @@ def _reconcile(conn, found, placed, index, dry):
         write("DELETE FROM swarm_helper_runs WHERE swarm_id = ?", (gone,))
         write("DELETE FROM swarm_closings WHERE swarm_id = ?", (gone,))
         write("DELETE FROM swarm_members WHERE swarm_id = ?", (gone,))
+        write("DELETE FROM swarm_topics WHERE swarm_id = ?", (gone,))
         write("DELETE FROM swarms WHERE id = ?", (gone,))
     return live
 
@@ -448,7 +484,10 @@ def overview():
     line of work going again — a member starting again, or a new one joining
     — opens the swarm again by itself. Closed swarms are still listed; the
     pages and the room helper choose to leave them out, and a closed swarm's
-    one working session then stands in the room as working alone."""
+    one working session then stands in the room as working alone.
+
+    Each card carries its `topics` (the ones with members), and each member
+    the `topic_id` it reads under, or None when it isn't sorted."""
     sync()
     index = store.read("bot_chats/index", {})
     index = index if isinstance(index, dict) else {}
@@ -465,8 +504,8 @@ def overview():
         for sid, name, lane, helper, summary, summary_at, created in swarms:
             members = []
             counts = Counter()
-            for conv, joined, msummary, msummary_at in conn.execute(
-                    "SELECT conv, joined_at, summary, summary_at FROM swarm_members"
+            for conv, joined, msummary, msummary_at, topic_id in conn.execute(
+                    "SELECT conv, joined_at, summary, summary_at, topic_id FROM swarm_members"
                     " WHERE swarm_id = ? ORDER BY joined_at, conv", (sid,)):
                 entry = index.get(conv) if isinstance(index.get(conv), dict) else {}
                 state = _status(entry)
@@ -475,13 +514,14 @@ def overview():
                                 "lane": lanes.derive_lane(entry), "state": state,
                                 "retired": bool(entry.get("archived")) or conv in handed_on,
                                 "joined_at": joined, "summary": msummary,
-                                "summary_at": msummary_at})
+                                "summary_at": msummary_at, "topic_id": topic_id})
             # Leave out a swarm with no members at all. Every one was placed
             # somewhere else (a room helper release or split), and sync can't
             # dissolve what it no longer sees members of, so the row stays;
             # it's kept, with its helper's runs, but there's nothing to draw.
             if not members:
                 continue
+            topics = _read_topics(conn, sid, members, index)
             # Which member took over from which: a continuation remembers
             # its parent (spawned_from), and both are members.
             member_ids = {m["conv"] for m in members}
@@ -518,7 +558,7 @@ def overview():
                 "summary_at": summary_at, "created_at": created,
                 "counts": {"working": counts["working"], "silent": counts["silent"],
                            "needs_input": counts["needs_input"]},
-                "members": members,
+                "members": members, "topics": topics,
                 "closed": is_closed([m["conv"] for m in members], index),
                 "links": [{"from": a, "to": b, "messages": n} for a, b, n in talked],
                 "continues": continues,
@@ -528,6 +568,87 @@ def overview():
         return out
     finally:
         conn.close()
+
+
+def _read_topics(conn, swarm_id, members, index):
+    """A swarm's topics as a card needs them, and each member's `topic_id`
+    settled in place. A member that isn't sorted reads as in the topic of its
+    own line of work (a continuation joins after the sorting was done); one
+    whose topic is gone reads as unsorted. Topics with nobody in them are
+    left out. Returns [{id, name, summary, summary_at, convs}], oldest first."""
+    rows = conn.execute("SELECT id, name, summary, summary_at FROM swarm_topics"
+                        " WHERE swarm_id = ? ORDER BY id", (swarm_id,)).fetchall()
+    if not rows:
+        for m in members:
+            m["topic_id"] = None
+        return []
+    known = {row[0] for row in rows}
+    sorted_into = {m["conv"]: m["topic_id"] for m in members if m["topic_id"] in known}
+    for m in members:
+        if m["conv"] in sorted_into:
+            continue
+        m["topic_id"] = next((sorted_into[c] for c in sorted(line_of_work(m["conv"], index))
+                              if c in sorted_into), None)
+    return [{"id": tid, "name": name, "summary": summary, "summary_at": summary_at,
+             "convs": [m["conv"] for m in members if m["topic_id"] == tid]}
+            for tid, name, summary, summary_at in rows
+            if any(m["topic_id"] == tid for m in members)]
+
+
+def set_topic(swarm_id, name, convs):
+    """Sort these members of a live swarm into the topic with this name,
+    making the topic if the swarm has none by that name (capitals aside). A
+    session's continuations go with it. Topics left with nobody are deleted.
+    Returns {"id", "name", "convs": who is in it now, "changed": whether
+    anything was written}. Raises ValueError when the swarm isn't live, the
+    name is empty, or none of the sessions is a member."""
+    name = " ".join(str(name or "").split())[:80]
+    if not name:
+        raise ValueError("a topic needs a name")
+    if not is_live(swarm_id):
+        raise ValueError(f"swarm {swarm_id} isn't a live swarm")
+    index = store.read("bot_chats/index", {})
+    index = index if isinstance(index, dict) else {}
+    members = set(overview_members(swarm_id))
+    wanted = set()
+    for conv in convs:
+        wanted |= line_of_work(conv, index) & members
+    if not wanted:
+        raise ValueError(f"none of those sessions is a member of swarm {swarm_id}")
+    now = _now()
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        row = conn.execute("SELECT id, name FROM swarm_topics WHERE swarm_id = ?"
+                           " AND lower(name) = lower(?)", (swarm_id, name)).fetchone()
+        changed = row is None
+        if row is None:
+            topic_id = conn.execute(
+                "INSERT INTO swarm_topics (swarm_id, name, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?)", (swarm_id, name, now, now)).lastrowid
+        else:
+            topic_id, name = row
+        marks = ",".join("?" * len(wanted))
+        moved = conn.execute(
+            f"UPDATE swarm_members SET topic_id = ? WHERE swarm_id = ? AND conv IN ({marks})"
+            " AND topic_id IS NOT ?", (topic_id, swarm_id, *sorted(wanted), topic_id)).rowcount
+        if moved:
+            changed = True
+            conn.execute("UPDATE swarm_topics SET updated_at = ? WHERE id = ?", (now, topic_id))
+        # Delete the topics nobody is in any more.
+        conn.execute("DELETE FROM swarm_topics WHERE swarm_id = ? AND id NOT IN"
+                     " (SELECT topic_id FROM swarm_members WHERE swarm_id = ?"
+                     "  AND topic_id IS NOT NULL)", (swarm_id, swarm_id))
+        inside = [r[0] for r in conn.execute(
+            "SELECT conv FROM swarm_members WHERE swarm_id = ? AND topic_id = ? ORDER BY conv",
+            (swarm_id, topic_id))]
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+    return {"id": topic_id, "name": name, "convs": inside, "changed": changed}
 
 
 def swarm_of(conv_id):

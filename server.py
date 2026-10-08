@@ -30,7 +30,7 @@ from routes import (
     entities, threads, person, shell, cards, journal_search, journal_days, chat_search, photos, archivals, research,
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, tags, wiki, travel, profile, usage, streaks, spinoff,
-    observatory, swarms, terrain, terrain_builds, terrain_map, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
+    observatory, swarms, swarm_demo, terrain, terrain_builds, terrain_map, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
     branches, worktree_map, sudo, recordings, research_room, linear_room,
     sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
     exposure, nutrition, georegions, transcripts, recipe_nutrition, recipe_share,
@@ -134,7 +134,9 @@ app.after_request(add_conditional_cache)
 # forwards it to /terrain/files, the heatmap's own address since 2026-10-02,
 # inside the same framed document. Both are listed so a direct link to either
 # frames.
-_FRAMEABLE_PATHS = ("/terrain/files", "/terrain/map", "/food-map")
+# /demo/swarm is the frozen swarm (routes/swarm_demo.py), the Observatory's
+# exhibit on the same page.
+_FRAMEABLE_PATHS = ("/terrain/files", "/terrain/map", "/food-map", "/demo/swarm")
 
 
 @app.after_request
@@ -1293,6 +1295,7 @@ tabsets.register(app)
 creek.register(app)
 terrain_mirror.register(app)
 swarms.register(app)
+swarm_demo.register(app)
 exposure.register(app)
 nutrition.register(app)
 recipe_nutrition.register(app)

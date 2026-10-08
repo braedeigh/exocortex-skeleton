@@ -268,11 +268,23 @@ def cmd_swarm(args, me):
         print(f"helper: {card['helper_conv']} (message it with peers.py send)")
     if card.get("summary"):
         print(f"summary: {card['summary']}")
-    for m in card["members"]:
-        mark = "  (you)" if m["conv"] == me else ""
-        print(f"- {m['conv']}  {m['state']}  {_trim(m['title'], 80)}{mark}")
-        if m.get("summary"):
-            print(f"    {_trim(m['summary'], 400)}")
+    # The members, under their topic when the swarm is sorted into topics
+    # (the room helper sorts them; unsorted members come last).
+    topics = card.get("topics") or []
+    groups = [(t, [m for m in card["members"] if m.get("topic_id") == t["id"]]) for t in topics]
+    loose = [m for m in card["members"] if m.get("topic_id") is None]
+    if topics and loose:
+        groups.append(({"name": "not sorted into a topic"}, loose))
+    for topic, inside in groups or [(None, card["members"])]:
+        if topic:
+            print(f"topic: {topic['name']}")
+            if topic.get("summary"):
+                print(f"    {_trim(topic['summary'], 400)}")
+        for m in inside:
+            mark = "  (you)" if m["conv"] == me else ""
+            print(f"- {m['conv']}  {m['state']}  {_trim(m['title'], 80)}{mark}")
+            if m.get("summary"):
+                print(f"    {_trim(m['summary'], 400)}")
     for link in card["links"]:
         print(f"  {link['from']} → {link['to']}: {link['messages']} message(s)")
     return 0

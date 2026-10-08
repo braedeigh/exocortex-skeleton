@@ -72,8 +72,11 @@ def _bridged_swarm():
     """a-b and x-y, glued into one swarm by one message b→x."""
     _seed("a", "b", "x", "y")
     peermail.send("b", "hi", from_conv="a")
+    peermail.send("a", "ok", from_conv="b")
     peermail.send("y", "hi", from_conv="x")
+    peermail.send("x", "ok", from_conv="y")
     peermail.send("x", "bridge", from_conv="b")
+    peermail.send("b", "ok", from_conv="x")
     [swarm_id] = swarms.sync()
     return swarm_id
 
@@ -136,7 +139,9 @@ def test_a_continuation_moves_with_its_session(room):
     _seed("a", "b", "c")
     _seed("c2", spawned_from="c", spawned_via="continue")
     peermail.send("b", "hi", from_conv="a")
+    peermail.send("a", "ok", from_conv="b")
     peermail.send("c2", "hi", from_conv="b")
+    peermail.send("b", "ok", from_conv="c2")
     [swarm_id] = swarms.sync()
     move = room_helper.execute("coding", "release", ["c2"], None, "separate work")
     assert move["convs"] == ["c", "c2"]
@@ -204,6 +209,7 @@ def _closed_swarm():
     """a and b talked, and both have finished."""
     _seed("a", "b", done_at="2026-09-28T09:00:00")
     peermail.send("b", "hi", from_conv="a")
+    peermail.send("a", "ok", from_conv="b")
     [swarm_id] = swarms.sync()
     return swarm_id
 
@@ -241,6 +247,7 @@ def test_a_swarm_down_to_one_working_session_closes_and_it_works_alone(room):
     A second session messaging it opens the same swarm again."""
     _seed("a", "b")
     peermail.send("b", "hi", from_conv="a")
+    peermail.send("a", "ok", from_conv="b")
     [swarm_id] = swarms.sync()
     helper = swarm_helper.ensure_helper(swarm_id)
     with store.mutate("bot_chats/index", {}) as index:
@@ -253,6 +260,7 @@ def test_a_swarm_down_to_one_working_session_closes_and_it_works_alone(room):
     assert "Closing check" in report and "still working, on its own now" in report
     _seed("c")
     peermail.send("a", "can I use your parser?", from_conv="c")
+    peermail.send("c", "ok", from_conv="a")
     [card] = room_helper.open_swarms("coding")
     assert card["id"] == swarm_id and {m["conv"] for m in card["members"]} == {"a", "b", "c"}
 
@@ -260,6 +268,7 @@ def test_a_swarm_down_to_one_working_session_closes_and_it_works_alone(room):
 def test_a_release_that_leaves_one_session_closes_the_swarm(room):
     _seed("a", "b")
     peermail.send("b", "hi", from_conv="a")
+    peermail.send("a", "ok", from_conv="b")
     swarms.sync()
     move = room_helper.execute("coding", "release", ["b"], None, "separate work", by="cli")
     assert move["left_alone"] == ["a"]
@@ -278,6 +287,7 @@ def test_a_handoff_is_not_a_second_session(room):
     swarm stays open. When b finishes, a and a2 are one line — it closes."""
     _seed("a", "b")
     peermail.send("b", "hi", from_conv="a")
+    peermail.send("a", "ok", from_conv="b")
     [swarm_id] = swarms.sync()
     with store.mutate("bot_chats/index", {}) as index:
         index["a"].update(continued_by="a2", archived="2026-09-30T10:00:00")
@@ -295,8 +305,50 @@ def test_a_swarm_whose_members_were_all_released_is_gone_from_the_room(room):
     0 sessions for good: sync never dissolved a swarm it saw no members of."""
     _seed("a", "b")
     peermail.send("b", "hi", from_conv="a")
+    peermail.send("a", "ok", from_conv="b")
     swarms.sync()
     room_helper.execute("coding", "release", ["a", "b"], None, "both done with it", by="cli")
     assert swarms.overview() == []
     assert sorted(room_helper.solo_sessions("coding", store.read("bot_chats/index", {}), [])) \
         == ["a", "b"]
+
+
+def test_a_run_sorts_a_swarm_into_topics_and_its_helper_summarises_each(room, monkeypatch):
+    """Her ask: "sub swarms by topic". The room helper names the topics and
+    who is in each; nobody leaves the swarm and nobody is messaged; its next
+    run is shown the sorting; and the swarm's own helper then writes every
+    topic a short summary of its own, held to a few labelled lines."""
+    swarm_id = _bridged_swarm()
+    seen = []
+    _fake_model(monkeypatch, {"overview": "One swarm, two pieces of work.", "moves": [],
+                              "topics": [{"swarm": swarm_id, "name": "Pond page", "convs": ["a", "b"]},
+                                         {"swarm": swarm_id, "name": "Search", "convs": ["x", "y"]},
+                                         {"swarm": 999, "name": "Nowhere", "convs": ["a"]}]}, seen)
+    room_helper.run("coding")
+    [card] = swarms.overview()
+    assert {t["name"]: t["convs"] for t in card["topics"]} == {
+        "Pond page": ["a", "b"], "Search": ["x", "y"]}
+    assert swarms.sync() == {swarm_id: {"a", "b", "x", "y"}}
+    helper = room_helper.find_helper("coding")
+    post = (store.DATA_DIR / "bot_chats" / f"{helper}.jsonl").read_text()
+    assert "Pond page" in post and "Nowhere" in post and "not made" in post
+    room_helper.run("coding")
+    assert '"Search": x, y' in seen[1]
+    # The swarm's helper is handed the topics and writes each one's summary.
+    handed = []
+    pond, search = (t["id"] for t in card["topics"])
+
+    def swarm_call(text):
+        handed.append(text)
+        return {"name": "Pond and search", "summary": "Goal: both.", "messages": [], "topics": [
+            {"id": pond, "summary": "- **Goal:** the pond page.\nWhere it stands: built.\n"
+                                    "Waiting on: her look.\nExtra: a fourth line."},
+            {"id": search, "summary": "Goal: chat search."},
+            {"id": 424242, "summary": "Goal: not this swarm's topic."}]}, 0.01
+    monkeypatch.setattr(swarm_helper, "_call_model", swarm_call)
+    swarm_helper.run(swarm_id)
+    assert f"### Topic {search}: Search" in handed[0] and "Members: x, y" in handed[0]
+    [card] = swarms.overview()
+    assert {t["name"]: t["summary"] for t in card["topics"]} == {
+        "Pond page": "Goal: the pond page.\nWhere it stands: built.\nWaiting on: her look.",
+        "Search": "Goal: chat search."}

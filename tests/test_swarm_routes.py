@@ -35,6 +35,7 @@ def client(data_dir, monkeypatch):
         index["a"] = {"title": "A", "lane": "coding", "running": True}
         index["b"] = {"title": "B", "lane": "coding"}
     peermail.send("b", "hello", from_conv="a")
+    peermail.send("a", "ok", from_conv="b")
     app = Flask(__name__)
     swarm_routes.register(app)
     return app.test_client()
@@ -59,7 +60,7 @@ def test_the_detail_shows_what_the_helper_used(client):
     got = client.get(f"/api/swarms/{swarm_id}").get_json()
     assert got["runs"][0]["input"] == "the input"
     assert got["differences"] == ["both edit x.py"]
-    assert [m["text"] for m in got["messages"]] == ["hello"]
+    assert [m["text"] for m in got["messages"]] == ["ok", "hello"]
 
 
 def test_the_detail_shows_what_a_closed_swarm_did(client, monkeypatch):
@@ -246,6 +247,7 @@ def test_a_line_opens_into_the_messages_it_counts(client):
     peermail.send("a", "hello back", from_conv="b")
     peermail.send("c", "over to you", from_conv="b")
     peermail.send("a", "c here", from_conv="c")
+    peermail.send("b", "back to you", from_conv="c")
     [card] = client.get("/api/swarms").get_json()["swarms"]
     with store.mutate("bot_chats/index", {}) as index:
         index["h"]["swarm_id"] = card["id"]
@@ -255,14 +257,14 @@ def test_a_line_opens_into_the_messages_it_counts(client):
 
     got = client.get(f"{line}?a=a&b=b").get_json()
     assert [(m["from_title"], m["to_title"], m["text"]) for m in got["messages"]] == [
-        ("B", "A", "hello back"), ("A", "B", "hello")]
+        ("B", "A", "hello back"), ("B", "A", "ok"), ("A", "B", "hello")]
     # The list adds up to the numbers the drawing puts on that line.
     counted = sum(l["messages"] for l in card["links"] if {l["from"], l["to"]} == {"a", "b"})
-    assert got["total"] == counted == 2
+    assert got["total"] == counted == 3
 
     # One ring standing for two sessions (b, and c which it took over from).
     both = client.get(f"{line}?a=a&b=b,c").get_json()
-    assert {m["text"] for m in both["messages"]} == {"hello", "hello back", "c here"}
+    assert {m["text"] for m in both["messages"]} == {"hello", "ok", "hello back", "c here"}
 
     # The helper's line: what the helper sent, not what was sent to it.
     helper = client.get(f"{line}?a=helper&b=a").get_json()

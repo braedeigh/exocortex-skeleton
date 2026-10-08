@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 51
+_SCHEMA_VERSION = 52
 
 
 def _db_path():
@@ -225,6 +225,8 @@ _EXPECTED_TABLES = (
     "linear_events",
     # What each swarm did, written when it closed (rung 45).
     "swarm_closings",
+    # The topics inside a swarm (rung 52).
+    "swarm_topics",
     "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs",
     # The journal's prose pages: weekly summaries, diary entries (rung 47).
     "journal_pages",
@@ -3288,6 +3290,32 @@ def _run_ladder(conn):
             "  lines INTEGER NOT NULL DEFAULT 0,"
             "  scanned_at TEXT NOT NULL)"
         )
+    if version < 52:
+        # Rung 52: topics inside a swarm (swarms.py). A swarm can hold several
+        # unrelated pieces of work; the room helper sorts its members into
+        # named topics, and the swarm's helper keeps a short summary of each.
+        # A RECORD: the names and the sorting can't be rebuilt.
+        #
+        # Prompt: "Can you make it such that there are sub swarms by topic?"
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarm_topics ("
+            "  id INTEGER PRIMARY KEY,"
+            "  swarm_id INTEGER NOT NULL REFERENCES swarms(id),"
+            "  name TEXT NOT NULL,"
+            # The swarm helper's current summary of this topic, replaced each time.
+            "  summary TEXT,"
+            "  summary_at TEXT,"
+            "  created_at TEXT NOT NULL,"
+            "  updated_at TEXT NOT NULL"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS swarm_topics_by_swarm"
+                     " ON swarm_topics (swarm_id)")
+        # Which topic a member is in; NULL until the room helper sorts it.
+        try:
+            conn.execute("ALTER TABLE swarm_members ADD COLUMN topic_id INTEGER")
+        except sqlite3.OperationalError:
+            pass  # the column is already there
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

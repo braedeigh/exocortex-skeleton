@@ -82,7 +82,9 @@ import { makeStickyToggle } from '../terrain/codeHeatPref';
 import { headSize, messageArrow, type MessageArrow, type Point } from './messageArrows';
 import { Sheet } from '../../ui/Sheet';
 import styles from './SwarmNetwork.module.css';
-import { setClosedSwarmsShown, useClosedSwarmsShown, useLineMessages, type Swarm } from './swarmApi';
+import {
+  setClosedSwarmsShown, useClosedSwarmsShown, useLineMessages, type LineMessage, type Swarm,
+} from './swarmApi';
 import {
   directionCounts, layoutSwarm, lineWidth, nodeBoxes, placeCounts, shortTitle, spotlightOn, standIns, type Box,
   type CountLine, withoutRetired,
@@ -119,6 +121,7 @@ export function SwarmNetwork({
   onOpen,
   helperWorking = false,
   round = false,
+  frozenMessages,
 }: {
   swarm: Pick<Swarm, 'id' | 'members' | 'links' | 'continues' | 'helper_conv' | 'helper_links'>;
   onOpen: (conv: string) => void;
@@ -127,6 +130,10 @@ export function SwarmNetwork({
   /** Whether it sits inside a circle as wide as itself (a swarm stack's
    * bubble): the layout then keeps everything inside that circle. */
   round?: boolean;
+  /** Every message between this swarm's agents, already in hand: a line then
+   * opens into these and the server is never asked. The frozen demo
+   * (SwarmDemoPage.tsx) passes them; a helper's end is the word 'helper'. */
+  frozenMessages?: LineMessage[];
 }) {
   // Leave retired members out when the switch is on. Their lines move onto
   // the live session that took over from them (withoutRetired), so a
@@ -420,7 +427,7 @@ export function SwarmNetwork({
         </button>
       ) : null}
 
-      <LineMessages swarmId={swarm.id} line={openLine} onClose={() => setOpenLine(null)} />
+      <LineMessages swarmId={swarm.id} line={openLine} frozenMessages={frozenMessages} onClose={() => setOpenLine(null)} />
     </div>
   );
 }
@@ -433,18 +440,37 @@ interface OpenLine {
   title: string;
 }
 
+/** The messages one line stands for, picked out of a list already in hand,
+ * newest first. The same rule as the server's (routes/swarms.py
+ * `line_messages`): both ways between two members, and for the helper's line
+ * only what the helper sent. */
+export function frozenLineMessages(all: LineMessage[], sideA: string[], sideB: string[]): LineMessage[] {
+  const between = (senders: string[], receivers: string[]) => (m: LineMessage) =>
+    senders.includes(m.from) && receivers.includes(m.to);
+  const helperAt = sideA[0] === 'helper' ? 'a' : sideB[0] === 'helper' ? 'b' : null;
+  const counts = helperAt === 'a' ? [between(sideA, sideB)]
+    : helperAt === 'b' ? [between(sideB, sideA)]
+    : [between(sideA, sideB), between(sideB, sideA)];
+  return all.filter((m) => counts.some((test) => test(m))).sort((x, y) => y.id - x.id);
+}
+
 /** The sheet a line opens into: the messages it stands for, newest first.
  * It asks the server only while open, and keeps showing the last line's
- * title while it closes. */
-function LineMessages({ swarmId, line, onClose }: { swarmId: number; line: OpenLine | null; onClose: () => void }) {
-  const query = useLineMessages(swarmId, line?.sideA ?? [], line?.sideB ?? [], line !== null);
-  const messages = query.data?.messages ?? [];
-  const total = query.data?.total ?? 0;
+ * title while it closes. Given `frozenMessages`, it reads those instead and
+ * asks nothing. */
+function LineMessages({ swarmId, line, frozenMessages, onClose }: {
+  swarmId: number; line: OpenLine | null; frozenMessages?: LineMessage[]; onClose: () => void;
+}) {
+  const query = useLineMessages(swarmId, line?.sideA ?? [], line?.sideB ?? [], line !== null && !frozenMessages);
+  const frozen = frozenMessages && line ? frozenLineMessages(frozenMessages, line.sideA, line.sideB) : null;
+  const messages = frozen ?? query.data?.messages ?? [];
+  const total = frozen ? frozen.length : query.data?.total ?? 0;
+  const loaded = frozen !== null || query.isSuccess;
   return (
     <Sheet open={line !== null} title={line ? `Messages: ${line.title}` : undefined} onClose={onClose}>
-      {query.isPending ? <p className={styles.lineNote}>Loading…</p> : null}
-      {query.isError ? <p className={styles.lineNote}>Couldn&rsquo;t load these messages.</p> : null}
-      {query.isSuccess && messages.length === 0 ? <p className={styles.lineNote}>No messages on this line.</p> : null}
+      {!frozenMessages && query.isPending ? <p className={styles.lineNote}>Loading…</p> : null}
+      {!frozenMessages && query.isError ? <p className={styles.lineNote}>Couldn&rsquo;t load these messages.</p> : null}
+      {loaded && messages.length === 0 ? <p className={styles.lineNote}>No messages on this line.</p> : null}
       {total > messages.length ? (
         <p className={styles.lineNote}>Showing the newest {messages.length} of {total}.</p>
       ) : null}

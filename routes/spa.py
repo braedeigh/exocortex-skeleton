@@ -149,6 +149,8 @@ def register(app):
     @app.route("/scratchpad")
     @app.route("/vscode")
     @app.route("/food-map")
+    # The frozen swarm, the Observatory's exhibit (routes/swarm_demo.py).
+    @app.route("/demo/swarm")
     @app.route("/about")
     # Session-visualization surfaces (born native, no Flask ancestor):
     @app.route("/terrain")

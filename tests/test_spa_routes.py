@@ -107,7 +107,7 @@ def test_root_injects_app_meta():
     "/map", "/kitchen", "/inventory", "/money", "/car", "/meditation", "/media",
     "/movement", "/body", "/ideas", "/ecosystem", "/housing", "/people", "/travel",
     # native standalone pages (ported from their Flask templates)
-    "/person/some-slug", "/personality", "/scratchpad", "/vscode", "/food-map", "/about",
+    "/person/some-slug", "/personality", "/scratchpad", "/vscode", "/food-map", "/about", "/demo/swarm",
     # the Food area: the map, every food, one food's page, the review list
     "/food", "/food/foods", "/food/foods/green%20beans", "/food/review",
     # session-visualization surfaces (born native)

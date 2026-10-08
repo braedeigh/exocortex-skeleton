@@ -482,6 +482,7 @@
         "observatory.py",
         "chat_search.py",
         "swarms.py",
+        "swarm_demo.py",
         "spinoff.py",
         "nightcrew.py",
         "branches.py",
@@ -518,7 +519,7 @@
         "spinoff_runner.py",
         "backfill_spawned_from.py",
         "spark_morning.py",
-        "sort_bot_chats.py", "peers.py", "sudo_request.py", "room_moves.py", "helper_watch.py", "helper_rule.py", "linear_feed.py", "spinoff_brief.py", "import_spinoff_briefs.py"
+        "sort_bot_chats.py", "peers.py", "sudo_request.py", "room_moves.py", "freeze_swarm.py", "helper_watch.py", "helper_rule.py", "linear_feed.py", "spinoff_brief.py", "import_spinoff_briefs.py"
       ],
       "tables": [
         "notes",
@@ -527,7 +528,7 @@
         "chat_lines_fts", "chat_lines_fts_data", "chat_lines_fts_idx",
         "chat_lines_fts_content", "chat_lines_fts_docsize", "chat_lines_fts_config",
         "chat_line_sources",
-        "session_summaries", "swarm_pins", "room_moves", "room_helper_runs", "helper_watches", "file_alerts", "linear_events", "swarm_closings", "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs"
+        "session_summaries", "swarm_pins", "room_moves", "room_helper_runs", "helper_watches", "file_alerts", "linear_events", "swarm_closings", "swarm_topics", "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs"
       ],
       "collections": [
         "dev_notes",
