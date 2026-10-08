@@ -38,6 +38,7 @@ def standalone(data_dir, monkeypatch):
     monkeypatch.setattr(run_detached, "JOBS_DIR", data_dir / "jobs")
     standalone_app._history_loads.clear()
     standalone_app._version_cache.clear()
+    standalone_journal._import.update(state=None, detail="", error="")
     return data_dir
 
 
@@ -329,7 +330,8 @@ def test_waking_the_keeper_opens_one_journaling_session_that_starts_with_setup(
     content = Path(store.CONTENT_DIR)
     wake_command = content / ".claude" / "commands" / "journalstart.md"
     before = client.get("/api/standalone/keeper", headers=LOCAL).get_json()
-    assert before == {"folder": str(content), "setup_done": False, "keeper": None}
+    assert (before["folder"], before["setup_done"], before["keeper"]) == (
+        str(content), False, None)
 
     woken = client.post("/api/standalone/keeper", headers=LOCAL).get_json()
     assert woken["created"] is True and sent == [(woken["keeper"], "/journalstart")]
@@ -391,6 +393,89 @@ def test_the_keepers_day_rolls_over_once_a_night_unless_switched_off(
         str(ROOT / "scripts" / "keeper_rollover.py"), "roll"]
     # And the script's own Keeper would stand in the journal's folder.
     assert observatory._default_bots()[0]["cwd"] == str(store.CONTENT_DIR)
+
+
+def wait_for_import(client, seconds=30):
+    began = time.time()
+    while time.time() - began < seconds:
+        journal = client.get("/api/standalone", headers=LOCAL).get_json()["journal"]
+        if journal["import"]["state"] != "downloading":
+            return journal
+        time.sleep(0.05)
+    raise AssertionError("the import never finished")
+
+
+def test_an_existing_journal_repository_is_copied_in_and_the_original_left_alone(
+        client, standalone, code, monkeypatch):
+    # Someone's journal as they already keep it: a filled-in manifest, a day,
+    # and an engine file that is really a link to a program somewhere else.
+    theirs = make_repo(code / "my-journal", ["notes.md"])
+    program = code / "their-engine.py"
+    program.write_text("their engine")
+    (theirs / "CLAUDE.md").write_text("# Keeper\n\n## Who you're keeping for\n\nSam.\n")
+    (theirs / "Journal" / "Daily").mkdir(parents=True)
+    (theirs / "Journal" / "Daily" / "2026-01-02.md").write_text("garlic\n")
+    (theirs / "_system").mkdir()
+    (theirs / "_system" / "stream.py").symlink_to(program)
+    git = ["git", "-C", str(theirs), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "a journal"], check=True)
+    content = standalone / "content"
+
+    assert client.get("/api/standalone", headers=LOCAL).get_json()["journal"]["can_import"] is True
+    # Things that aren't a repository to copy come back as a sentence, and
+    # nothing that git could read as an option gets as far as git.
+    for body in ({"url": "--upload-pack=touch /tmp/x"}, {"url": "-x"}, {"url": "ftp://x/y"},
+                 {"path": str(code)}, {"path": "relative/folder"}, {}):
+        refused = client.post("/api/standalone/journal", json=body, headers=LOCAL)
+        assert refused.status_code == 400 and refused.get_json()["error"], body
+
+    started = client.post("/api/standalone/journal", json={"path": str(theirs)}, headers=LOCAL)
+    assert started.status_code == 200
+    journal = wait_for_import(client)
+    assert (journal["import"]["state"], journal["source"]) == (None, str(theirs))
+    # Their words are in the app's own folder, and their manifest — already
+    # filled in — means there is no setup conversation to have.
+    assert (content / "Journal" / "Daily" / "2026-01-02.md").read_text() == "garlic\n"
+    assert journal["setup_done"] is True and "Sam." in (content / "CLAUDE.md").read_text()
+    assert client.get("/api/journal/dates", headers=LOCAL).get_json()["dates"] == ["2026-01-02"]
+    # The app's launcher replaced the link rather than writing through it,
+    # and the original repository has nothing changed in it.
+    launcher = content / "_system" / "stream.py"
+    assert not launcher.is_symlink() and "their engine" not in launcher.read_text()
+    assert program.read_text() == "their engine"
+    assert subprocess.run(["git", "-C", str(theirs), "status", "--porcelain"],
+                          capture_output=True, text=True).stdout == ""
+    # A journal that has been started can't be replaced by another import.
+    assert journal["can_import"] is False
+    again = client.post("/api/standalone/journal", json={"path": str(theirs)}, headers=LOCAL)
+    assert again.status_code == 400 and "already been started" in again.get_json()["error"]
+
+
+def test_an_import_that_cannot_be_used_leaves_the_empty_journal_as_it_was(
+        client, standalone, code, monkeypatch):
+    # A repository whose Journal folder is a link to somewhere else: making
+    # day pages "inside" it would write outside the app's folder.
+    elsewhere = code / "elsewhere"
+    elsewhere.mkdir()
+    linked = make_repo(code / "linked-journal", ["notes.md"])
+    (linked / "Journal").symlink_to(elsewhere)
+    git = ["git", "-C", str(linked), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "a link"], check=True)
+    client.post("/api/standalone/journal", json={"path": str(linked)}, headers=LOCAL)
+    journal = wait_for_import(client)
+    assert journal["import"]["state"] == "failed" and "Journal" in journal["import"]["error"]
+    assert list(elsewhere.iterdir()) == [] and journal["source"] is None
+    assert not (standalone / "content" / "notes.md").exists()
+    assert not (standalone / "content.importing").exists()
+    # It can be tried again — until a Keeper has been opened, which is the
+    # journal being used.
+    assert journal["can_import"] is True
+    monkeypatch.setattr(observatory, "begin_turn", lambda *a, **k: {"ok": True})
+    client.post("/api/standalone/keeper", headers=LOCAL)
+    refused = client.post("/api/standalone/journal", json={"path": str(linked)}, headers=LOCAL)
+    assert refused.status_code == 400
 
 
 # --- the timed jobs ------------------------------------------------------------

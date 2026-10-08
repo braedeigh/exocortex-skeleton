@@ -706,6 +706,21 @@ def create_app():
                 return jsonify({"error": str(problem)}), 500
         return jsonify({**standalone_journal.status(), **woken})
 
+    @app.route("/api/standalone/journal", methods=["POST"])
+    def standalone_journal_import():
+        """Bring in a git repository to be the journal, instead of starting
+        an empty one: {"url": "<git address>"} to download it, or {"path":
+        "/abs/folder"} for one on this computer. It is copied into the app's
+        own journal folder; the original is never written to. Only while the
+        journal is untouched. Answers the same payload as GET /api/standalone
+        (the copy runs on; `journal.import` reports it), or 400 and a sentence."""
+        data = request.get_json(silent=True) or {}
+        try:
+            standalone_journal.start_import(url=data.get("url"), path=data.get("path"))
+        except ValueError as refusal:
+            return jsonify({"error": str(refusal)}), 400
+        return jsonify(status())
+
     @app.route("/api/data")
     def journal_clock():
         # The Journal page asks the live site's big /api/data only for

@@ -91,6 +91,21 @@ under it, and the Keeper — the agent that keeps it.
   is filled in, the wake command carries a setup section — the Keeper explains
   itself, asks who it is keeping for, and writes the answers into `CLAUDE.md`
   and `context/about.md`. After that the section is gone.
+- **Bringing one in:** `POST /api/standalone/journal` with `{"url"}` (https,
+  ssh or `git@`) or `{"path"}` (the top of a git repo on this computer)
+  clones that repository into the journal's folder in the background;
+  `journal.import` on `GET /api/standalone` reports `downloading` / `failed`,
+  `journal.source` where it came from, `journal.can_import` whether it is
+  still allowed. Only while the journal is untouched (no Keeper ever opened,
+  setup not done, no cards). The original is never written to, and nothing
+  is ever pushed back to it — the copy is the journal from then on. The
+  untouched folder that was there is kept as `content.before-import-<time>`.
+  A filled-in `CLAUDE.md` in the repository means no setup conversation;
+  without one the seed manifest is added and setup runs as usual. Limits:
+  the repository's top folder has to be the journal (not a subfolder of a
+  bigger repo); the app's launchers and its two commands are written over
+  the copy's `_system/*.py` and `.claude/commands/`; a repository whose
+  journal folders are links to elsewhere is refused.
 - **Capture** needs no hook: the server records every message sent in a
   journaling session before the model sees it.
 - **Doors:** `routes/journal_days.py`, `cards`, `journal_search`, `entities`,
