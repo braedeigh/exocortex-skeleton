@@ -263,7 +263,16 @@ def test_every_table_in_the_schema_has_a_note():
     """Adding a table to sqlstore.py without describing it fails here — the
     card would otherwise show a table with no explanation, silently."""
     root = Path(store.BUILD_DIR)
-    created = set(re.findall(r"CREATE TABLE(?: IF NOT EXISTS)? (\w+)", (root / "sqlstore.py").read_text()))
+    # Read the ladder top to bottom, keeping the tables it leaves standing: a
+    # CREATE adds one, a later DROP takes it out again (a table a later rung
+    # removed has no card, so it needs no note), and a CREATE after that DROP
+    # puts it back.
+    created = set()
+    for dropped, made in re.findall(r"DROP TABLE(?: IF EXISTS)? (\w+)|CREATE TABLE(?: IF NOT EXISTS)? (\w+)",
+                                    (root / "sqlstore.py").read_text()):
+        created.discard(dropped)
+        if made:
+            created.add(made)
     notes = json.loads((root / "table_notes.json").read_text())
     described = {name for name in notes if not name.startswith("_")}
     assert created - described == set()
