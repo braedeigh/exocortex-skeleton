@@ -44,6 +44,10 @@ def room(data_dir, monkeypatch):
     monkeypatch.setattr(message_summaries, "_call", model)
     monkeypatch.setattr(message_summaries, "_detach", message_summaries.summarise)
     monkeypatch.setattr(observatory, "drain_inbox", lambda conv: False)
+    # Let a message and its answer make the swarm these tests open a line of.
+    # The real rule wants a third message (swarms.LINK_MESSAGES); that rule is
+    # test_swarms.py's to pin, and a third message here would be a third call.
+    monkeypatch.setattr(swarms, "LINK_MESSAGES", 2)
     return handed
 
 
