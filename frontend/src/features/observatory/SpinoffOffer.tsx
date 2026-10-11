@@ -13,8 +13,11 @@
  * A spinoff plans before it builds, so the card has two shapes. In an
  * ordinary chat, Go starts a PLANNING session (it can read but not edit) and
  * "Skip the plan" starts a session that builds straight away. In a planning
- * session, the card is the plan's approval: "Approve plan — start building"
- * starts a fresh build session on the plan and closes the planning one.
+ * session, the card is the plan's approval, with two buttons: "Plan mode" on
+ * the left tucks the card away so she can keep correcting the plan (it comes
+ * back after the agent's next reply), and "Approve plan and start building"
+ * on the right starts a fresh build session on the plan and closes the
+ * planning one. "View the plan" opens the exact text the builder would get.
  * `PlanSessionLink` sits at the top of that build session's chat and opens
  * the planning session it came from.
  *
@@ -35,6 +38,10 @@
  * default but with a skip the plan button. the plan session closes itself,
  * but you can click back into it at the top of the build session chat from a
  * button in the UI."
+ *
+ * Prompt (the approval card): "I want there to be 2 buttons: one on the left
+ * with "plan mode" and one on the right with "approve plan and start
+ * building" and maybe an option to view the plan"
  */
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
@@ -65,6 +72,7 @@ export function SpinoffOffer({
   const [offer, setOffer] = useState<Offer | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [planOpen, setPlanOpen] = useState(false);
 
   // Read the offer when the chat opens and again whenever a turn finishes.
   useEffect(() => {
@@ -113,6 +121,14 @@ export function SpinoffOffer({
     void dismissSpinoffOffer(convId).catch(() => {});
   };
 
+  // Stay in plan mode: hide the card here without withdrawing the offer. The
+  // effect above reads it again when the next turn ends, so the card returns
+  // after the agent's reply, carrying whatever plan is then saved.
+  const keepPlanning = () => {
+    setPlanOpen(false);
+    setOffer(null);
+  };
+
   const many = offer.sessions.length > 1;
   // A planning session's offer is the plan's approval card.
   const approving = offer.kind === 'build';
@@ -131,22 +147,42 @@ export function SpinoffOffer({
           </li>
         ))}
       </ul>
+      {/* The plan itself, as the build session would receive it. */}
+      {approving && offer.plan ? (
+        <>
+          <button
+            type="button"
+            className={styles.viewPlan}
+            aria-expanded={planOpen}
+            onClick={() => setPlanOpen((open) => !open)}
+            data-track="spinoff-view-plan"
+          >
+            {planOpen ? '▾ Hide the plan' : '▸ View the plan'}
+          </button>
+          {planOpen ? <pre className={styles.plan}>{offer.plan}</pre> : null}
+        </>
+      ) : null}
       {/* After a failed Go the offer is already spent server-side, so the
           card keeps only the message and its × — a second Go would find
           nothing to start. */}
       {error ? (
         <p className={styles.error}>{error}</p>
       ) : (
-        <div className={styles.actions}>
-          <span className={styles.hint}>
-            {approving
-              ? 'Starts a fresh session that builds this plan, and closes this one. Or keep talking to change it.'
-              : 'Each session plans first and builds nothing until you approve. Or just keep talking.'}
-          </span>
+        <div className={approving ? styles.approval : styles.actions}>
+          {approving ? null : (
+            <span className={styles.hint}>
+              Each session plans first and builds nothing until you approve. Or just keep talking.
+            </span>
+          )}
           {approving ? (
-            <Button onClick={() => go()} disabled={busy} data-track="spinoff-approve-plan">
-              {busy ? 'Starting…' : 'Approve plan — start building'}
-            </Button>
+            <>
+              <Button variant="secondary" onClick={keepPlanning} disabled={busy} data-track="spinoff-plan-mode">
+                Plan mode
+              </Button>
+              <Button onClick={() => go()} disabled={busy} data-track="spinoff-approve-plan">
+                {busy ? 'Starting…' : 'Approve plan and start building'}
+              </Button>
+            </>
           ) : (
             <>
               <Button variant="secondary" onClick={() => go(true)} disabled={busy} data-track="spinoff-skip-plan">

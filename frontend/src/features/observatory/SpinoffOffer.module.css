@@ -76,3 +76,41 @@
   justify-content: space-between;
   gap: var(--space-3);
 }
+
+/* The approval card's two buttons: stay planning on the left, approve on the
+   right. */
+.approval {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* "View the plan": a text toggle with a full-height tap target. */
+.viewPlan {
+  align-self: flex-start;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* The plan's text, as written: wrapped, and scrolled inside the card when it
+   is long. */
+.plan {
+  margin: 0;
+  padding: var(--space-3);
+  max-height: 50vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}

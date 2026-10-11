@@ -1095,6 +1095,9 @@ export interface SpinoffOffer {
   offered: string;
   lane?: string;
   kind?: 'build';
+  /** With `kind: 'build'`: the plan's text, exactly what the build session
+   * would start on. The card's "View the plan" shows it. */
+  plan?: string | null;
   sessions: { slug: string; title: string }[];
 }
 

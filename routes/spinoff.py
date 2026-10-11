@@ -680,13 +680,21 @@ def offer_spinoff(conv_id, slugs, lane=None):
 
 
 def read_offer(conv_id):
-    """The staged offer on `conv_id` with each slug's title, or None."""
+    """The staged offer on `conv_id` with each slug's title, or None.
+
+    A planning session's offer (`kind: "build"`) also carries `plan`: the text
+    of the brief the builder would start on, so the card can show her exactly
+    what she is approving."""
     entry = store.read("bot_chats/index", {}).get(conv_id)
     offer = entry.get("spinoff_offer") if isinstance(entry, dict) else None
     if not isinstance(offer, dict) or not offer.get("slugs"):
         return None
-    return dict(offer, sessions=[{"slug": slug, "title": _brief_title(slug)}
-                                 for slug in offer["slugs"]])
+    found = dict(offer, sessions=[{"slug": slug, "title": _brief_title(slug)}
+                                  for slug in offer["slugs"]])
+    if offer.get("kind") == "build":
+        plan = briefstore.latest(offer["slugs"][0])
+        found["plan"] = plan["body"] if plan else None
+    return found
 
 
 def go_offer(conv_id, skip_plan=False):

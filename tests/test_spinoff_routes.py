@@ -930,3 +930,19 @@ def test_a_helpers_spinoff_plans_first_and_nobody_elses_does(spinoff_client, mon
     plain = _post(spinoff_client, "from-session").get_json()["conversation_id"]
     plain = _index()[plain]
     assert "spinoff_stage" not in plain
+
+
+def test_the_approval_card_shows_the_plan_she_is_approving(spinoff_client, monkeypatch):
+    """The card carries the builder's brief word for word; an ordinary Go
+    card carries no plan."""
+    planner = _planned(spinoff_client, monkeypatch)
+    plan = "# Spinoff: paint the pond\n\n## The approved plan\nBlue.\n"
+    briefstore.save("pond-colour", plan, written_by=planner)
+    spinoff.offer_spinoff(planner, ["pond-colour"])
+    offer = spinoff_client.get(f"/api/spinoff/offer/{planner}").get_json()["offer"]
+    assert offer["kind"] == "build" and offer["plan"] == plan
+    monkeypatch.delenv("EXOCORTEX_CONV_ID", raising=False)
+    plain = _sender(monkeypatch, conv_id="2026-07-30.303030")
+    _write_brief(store.SPINOFF_DIR, "other-job")
+    spinoff.offer_spinoff(plain, ["other-job"])
+    assert "plan" not in spinoff_client.get(f"/api/spinoff/offer/{plain}").get_json()["offer"]
