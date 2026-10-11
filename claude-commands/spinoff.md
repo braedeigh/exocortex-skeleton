@@ -199,8 +199,8 @@ come back true on a fresh spawn, and they describe the kickoff still sitting on
 the entry as `draft` in case the runner never started (a bad interpreter path, a
 box under memory pressure) — then opening the session fires it the old way. Do
 not report them as a bug or a conflict, and do not read them as "it's waiting
-for her". They can't double-fire: whichever send lands first pops both fields,
-and a second send into a running conversation is refused with a 409. A
+for her". They don't double-fire: whichever send lands first pops both fields,
+the second is refused as busy, and a refused kickoff is dropped, not retried. A
 `started: false` is the one case where she really does have to open it.
 
 When YOU spawned (the terminal path, or she said "go" in words), tell the owner

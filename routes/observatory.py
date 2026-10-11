@@ -2439,6 +2439,31 @@ def save_for_later(conv_id, saved=True):
     return {"ok": True, "saved_at": entry.get("saved_at")}, 200
 
 
+def _is_repeated_kickoff(conv_id, text):
+    """True when `text` is a spun-off session's own kickoff, sent again after
+    the session already started on it.
+
+    A spinoff's kickoff is fired twice by design: scripts/spinoff_runner.py
+    posts it, and the page fires the staged copy when she opens the session
+    (the fallback for a runner that never started). When Go takes her into
+    the session within a second or two, the page loads before the runner's
+    send lands, fires its copy, is refused as busy, and — like any message of
+    hers refused that way — retries through the mailbox. Without this check
+    the brief was handed to the agent a second time mid-turn and shown twice
+    in the chat, which read as two jobs in one session.
+
+    The kickoff is the brief's text, then an optional footer, so a message
+    that begins with the whole brief is that kickoff. Only once the staged
+    copy is gone from the entry: until then nothing has been sent."""
+    entry = store.read("bot_chats/index", {}).get(conv_id)
+    if not (isinstance(entry, dict) and entry.get("spinoff_brief")) or "draft" in entry:
+        return False
+    import briefstore
+    brief = briefstore.get(entry["spinoff_brief"])
+    body = (brief or {}).get("body", "").strip()
+    return bool(body) and (text or "").strip().startswith(body)
+
+
 def close_conversation(conv_id):
     """Close a session: stop any live turn, take it off the roster, clean up.
     Nothing is deleted — the jsonl log and index entry stay. The pinned Keeper
@@ -4125,6 +4150,9 @@ def register(app):
         if not _CONV_ID_RE.match(conv_id):
             return jsonify({"error": "invalid conversation id"}), 400
         data = request.json or {}
+        # Drop a spun-off session's kickoff arriving a second time.
+        if _is_repeated_kickoff(conv_id, data.get("text")):
+            return jsonify({"ok": True, "duplicate": True, "started": False})
         try:
             row = peermail.send(conv_id, data.get("text"), kind="B",
                                 record=data.get("record") is not False)

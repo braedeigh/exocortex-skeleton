@@ -59,8 +59,10 @@ are unchanged.
 
 The entry keeps `draft`+`autostart` anyway, as the fallback for a runner that
 never starts: opening the session then fires the kickoff the old way. The two
-can't both land — whichever send arrives first pops both fields, and a second
-send into a running conversation is refused with a 409.
+must not both land: whichever send arrives first pops both fields, the second
+is refused as busy, and the page drops a refused kickoff instead of retrying
+it through the mailbox (routes/observatory.py _is_repeated_kickoff refuses it
+there too).
 """
 import os
 import re

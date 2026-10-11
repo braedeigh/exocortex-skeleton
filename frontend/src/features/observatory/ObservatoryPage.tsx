@@ -545,7 +545,7 @@ export function ObservatoryPage({
   const messageQueue = useMessageQueue({ botId, convId });
 
   const sendMessage = useCallback(
-    async (text: string, sendOffRecord: boolean) => {
+    async (text: string, sendOffRecord: boolean, kickoff = false) => {
       // One send at a time. Claimed before the first await (the headroom
       // check), so a second tap or the auto-start inside that gap can't slip
       // a duplicate through.
@@ -665,7 +665,15 @@ export function ObservatoryPage({
             setSendError(why);
           };
           const failure = sendFailureKind(e);
-          if (failure === 'busy' && conv) {
+          if (failure === 'busy' && conv && kickoff) {
+            // Drop a spun-off session's kickoff arriving a second time. The
+            // spinoff's own runner got its copy in first and that turn is
+            // already working on it, so this copy must NOT go to the mailbox:
+            // it would be handed to the agent again and show in the chat as a
+            // second brief. Just watch the turn that is running.
+            setTurns(withoutHers());
+            await reattachApi.reattach(conv);
+          } else if (failure === 'busy' && conv) {
             // A turn she didn't start is running here — a watch firing, a
             // job's wake, a room notice, an agent's mail — and this page
             // hadn't seen it yet. Her message goes to the mailbox, which
@@ -733,7 +741,7 @@ export function ObservatoryPage({
     autoStartFiredRef.current = true;
     const kickoff = pendingAutostart;
     setPendingAutostart(null);
-    void sendMessage(kickoff, false);
+    void sendMessage(kickoff, false, true);
   }, [pendingAutostart, canFire, sendMessage]);
 
   const send = () => {

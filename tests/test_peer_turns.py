@@ -453,3 +453,23 @@ def test_peers_cli_says_a_busy_database_only_delayed_a_stored_message(
     monkeypatch.setattr(observatory, "peer_send", locked_before_storing)
     assert peers.main(["send", b, "another"]) == 1
     assert "not sent" in capsys.readouterr().err
+
+
+def test_a_spinoffs_kickoff_sent_again_is_dropped_but_her_own_words_are_not(
+        bot_client, monkeypatch):
+    """Go takes her into a new spinoff while its runner is still starting, so
+    her page fires the staged kickoff too; refused as busy, it retries by
+    mailbox. That second copy must not reach the agent or the chat — it read
+    as two jobs in one session — while anything else she sends still does."""
+    import briefstore
+    monkeypatch.setattr(observatory, "_effective_running", lambda c, e: True)
+    _, b = _seed_two()
+    brief = "# Spinoff: paint the pond\n\n## The task\nBlue.\n"
+    brief_id = briefstore.save("pond-colour", brief)
+    with store.mutate("bot_chats/index", {}) as index:
+        index[b]["spinoff_brief"] = brief_id   # started: no `draft` left on it
+    inbox = f"/api/observatory/conversation/{b}/inbox"
+    kickoff = brief + "\n---\nPreloaded into your instructions: routes/pond.py\n"
+    assert bot_client.post(inbox, json={"text": kickoff}).get_json()["duplicate"] is True
+    bot_client.post(inbox, json={"text": "make it green instead"})
+    assert [r["text"] for r in peermail.waiting(b)] == ["make it green instead"]
