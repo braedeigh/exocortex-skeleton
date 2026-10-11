@@ -1,12 +1,16 @@
+import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { IconButton } from '../../ui';
+import { Button, IconButton } from '../../ui';
 import { isSolo } from '../../shell/solo';
+import { isStandalone } from '../../shell/standalone';
+import { FileEditor } from '../fileedit/FileEditor';
 import { FileCodeBody } from './FileCodeBody';
 import { mentionsFromSearch } from './codeMentions';
 import styles from './FileCodePage.module.css';
 
 /**
- * /code?repo=…&path=…&lines=… — one file, read-only, as a whole page.
+ * /code?repo=…&path=…&lines=… — one file as a whole page: read-only, with an
+ * Edit button for the owner.
  *
  * WHY IT EXISTS (her 07-27 ask): "make it such that I can click a file in my
  * observatory in the files listed under the session and it opens that file on
@@ -31,6 +35,14 @@ import styles from './FileCodePage.module.css';
  * all, lands on the first, and puts arrows above the code to step between them
  * (codeMentions.ts spells the params; FileCodeBody does the stepping).
  *
+ * EDIT: the header's Edit button swaps the code for a text box she can change
+ * and save (features/fileedit/FileEditor.tsx); `edit` in the address opens it
+ * that way from the start, which is how a session's "file to edit" card hands
+ * her a file. The editor also opens settings files the read-only view refuses
+ * (`.env` and the like): for those the read-only view still shows its "couldn't
+ * load", and Edit is how she sees them. Not for visitors, and not in the
+ * desktop app, whose server has no save door.
+ *
  * In a SOLO tab (a file popped out of the Terrain map — shell/solo.ts) the
  * header also wears an ×. A popped-out tab starts with no history, so there
  * is nowhere to go "back" to; the × goes to the Terrain map instead, still
@@ -51,6 +63,7 @@ export function FileCodePage({
   lines,
   mentions,
   of,
+  edit,
 }: {
   repo?: string;
   path?: string;
@@ -59,7 +72,16 @@ export function FileCodePage({
   mentions?: string;
   /** What those lines name — a SQL table's name. */
   of?: string;
+  /** Open with the editor up — the "file to edit" card's link. */
+  edit?: boolean;
 }) {
+  const navigate = useNavigate();
+  const solo = isSolo();
+  // Editing is the owner's: a visitor's page and the desktop app never offer it.
+  const canEdit =
+    typeof window !== 'undefined' && window.VIEW_MODE !== 'public' && !isStandalone();
+  const [editing, setEditing] = useState(Boolean(edit) && canEdit);
+
   // Nothing asked for yet — a bare /code, or a link that lost its search.
   if (!repo || !path) {
     return (
@@ -72,8 +94,6 @@ export function FileCodePage({
   }
 
   const name = path.split('/').filter(Boolean).slice(-1)[0] ?? path;
-  const navigate = useNavigate();
-  const solo = isSolo();
 
   return (
     <div className={styles.page}>
@@ -98,6 +118,17 @@ export function FileCodePage({
             A push, so the browser's back button returns to this file.
             Her ask: "when I open the new window, and there is no x button,
             it takes me to a terrain view." */}
+        {canEdit && !editing ? (
+          <Button
+            type="button"
+            variant="secondary"
+            className={styles.headerEdit}
+            data-track="code-edit"
+            onClick={() => setEditing(true)}
+          >
+            Edit
+          </Button>
+        ) : null}
         {solo ? (
           <IconButton
             className={styles.headerClose}
@@ -116,14 +147,18 @@ export function FileCodePage({
           never fire again for the second. The mentions are in the key for the
           same reason: a second table's card pointing at this same file should
           land on ITS first mention, not stay where the last one left her. */}
-      <FileCodeBody
-        key={`${repo}:${path}:${lines ?? ''}:${mentions ?? ''}`}
-        repo={repo}
-        path={path}
-        fill
-        highlight={parseLineRange(lines)}
-        mentions={mentionsFromSearch(mentions, of)}
-      />
+      {editing ? (
+        <FileEditor key={`${repo}:${path}`} repo={repo} path={path} onDone={() => setEditing(false)} />
+      ) : (
+        <FileCodeBody
+          key={`${repo}:${path}:${lines ?? ''}:${mentions ?? ''}`}
+          repo={repo}
+          path={path}
+          fill
+          highlight={parseLineRange(lines)}
+          mentions={mentionsFromSearch(mentions, of)}
+        />
+      )}
     </div>
   );
 }

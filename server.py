@@ -31,7 +31,7 @@ from routes import (
     research_search, research_sources, research_import, research_text,
     annotations, spa, fronts, tags, profile, usage, streaks, spinoff,
     observatory, swarms, swarm_demo, terrain, terrain_builds, terrain_map, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
-    branches, worktree_map, sudo, research_room, linear_room,
+    branches, worktree_map, sudo, file_edit, research_room, linear_room,
     sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
     exposure, nutrition, georegions, recipe_nutrition, recipe_share,
     token_burn,
@@ -1200,6 +1200,7 @@ pond.register(app)
 branches.register(app)
 worktree_map.register(app)
 sudo.register(app)
+file_edit.register(app)
 sandbox.register(app)
 tabsets.register(app)
 creek.register(app)

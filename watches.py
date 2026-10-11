@@ -20,8 +20,8 @@ ships", nothing ever woke it to do so. A WATCH is that promise written down:
 What a watch can wait for (`--on`, any of them):
 
   - done       — the session marks itself done (session_done.py), or is closed;
-  - asked      — it files questions for her (request_input.py) or a sudo card
-                 (sudo_request.py);
+  - asked      — it files questions for her (request_input.py), a sudo card
+                 (sudo_request.py) or a file for her to edit (open_file.py);
   - committed  — a `git commit` it runs succeeds;
   - error      — a turn of it fails or its turn process dies;
   - stalled    — it writes nothing for config.HELPER_WATCH_STALLED_MINUTES,
@@ -41,7 +41,7 @@ watcher is a session — but only the helpers are told about them
 (helper_chat.CHAT_PROMPT), and their seed lists the ones they have open.
 
 Touches: sqlstore.py (the `helper_watches` table, rung 40), the session index
-and transcripts under data/bot_chats/, sudo_requests.py (its requests file),
+and transcripts under data/bot_chats/, sudo_requests.py and file_edits.py (their requests files),
 continuation.py (successor), routes/observatory.py (queue_followup,
 _effective_running, _unfinished_jobs), config.py (HELPER_WATCH_*),
 scripts/helper_watch.py (the helpers' door), helper_chat.py (the seed's list),
@@ -326,6 +326,18 @@ def _sudo_events(convs, since):
     return events
 
 
+def _file_request_events(convs, since):
+    """File cards (scripts/open_file.py) any of these sessions filed after `since`."""
+    data = store.read("file_requests", {"requests": []}) or {}
+    events = []
+    for req in data.get("requests") or []:
+        for asker in req.get("askers") or []:
+            if asker.get("conv") in convs and str(asker.get("at") or "") >= since:
+                reason = f" — {_trim(asker['reason'], 150)}" if asker.get("reason") else ""
+                events.append(f"asked her to edit a file: {req.get('repo')}:{req.get('path')}{reason}")
+    return events
+
+
 def _state_events(watch, conv, entry, now):
     """Events read from the session's entry as it is now: done or closed, or
     gone silent."""
@@ -384,6 +396,7 @@ def check(watch, index, now=None):
         events += _transcript_events(conv, offset, watch["kinds"])
     if "asked" in watch["kinds"]:
         events += _sudo_events({c for c, _ in chain}, watch["created_at"])
+        events += _file_request_events({c for c, _ in chain}, watch["created_at"])
     now_conv = chain[-1][0]
     entry = index.get(now_conv)
     if not isinstance(entry, dict):

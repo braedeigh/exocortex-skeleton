@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createRootRoute, Outlet, redirect, useRouterState } from '@tanstack/react-router';
 import { SudoHost } from '../features/sudo/SudoHost';
+import { FileRequestHost } from '../features/fileedit/FileRequestHost';
 import { ApprovalsHost } from '../features/approvals';
 import { TopTabs } from '../shell/TopTabs';
 import { SplitLayout } from '../shell/SplitLayout';
@@ -142,6 +143,10 @@ function WindowRoot() {
           {/* Agents' sudo requests — the bottom popup with a password box.
               Polls /api/sudo/requests, renders nothing when none are open. */}
           {!isPublic ? <SudoHost /> : null}
+          {/* Sessions asking her to open a file and edit it — the same bottom
+              popup, taking turns with sudo. Polls /api/file-edit/requests.
+              Not in the desktop app: its server has no such door. */}
+          {!isPublic && !standalone ? <FileRequestHost /> : null}
         </SplitLayout>
       </SessionsProvider>
     </main>

@@ -43,6 +43,7 @@ import { RoomsDialog } from './RoomsDialog';
 import { useRooms } from './roomsApi';
 import { WorktreeMapDoor } from './WorktreeMapDoor';
 import { SudoRequests } from '../sudo/SudoRequests';
+import { FileRequests } from '../fileedit/FileRequests';
 import { MemoryMeter } from '../runqueue/MemoryMeter';
 import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
@@ -464,6 +465,9 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
           <ChatFinder onOpen={open} />
           {/* Agents waiting on her sudo password — orange, first thing in the room. */}
           <SudoRequests />
+          {/* Sessions waiting on her to edit a file — the same orange. Not in
+              the desktop app: its server has no such door. */}
+          {isStandalone() ? null : <FileRequests />}
           {failed ? <div className={styles.pageError}>Couldn&rsquo;t load sessions.</div> : null}
 
           {keeper.length > 0 ? (

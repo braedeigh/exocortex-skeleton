@@ -9,6 +9,7 @@ links:
   - calls engine.closing: The agent marks its own session done with session_done.py.
   - calls swarms.mail: The agent lists, reads and messages other sessions with peers.py.
   - calls sudo: The agent asks for a root command with sudo_request.py.
+  - calls file-edit: The agent asks the owner to edit a file with open_file.py.
   - calls spinoffs.door: The agent offers or opens new sessions through the spinoff scripts.
   - calls detached: A long command runs as a detached job that wakes the session later.
   - calls helpers.watches: A helper sets a watch on a session with helper_watch.py.

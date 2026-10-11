@@ -37,6 +37,7 @@ links:
   - composes page.chat: The roster opens a session's chat in the session dialog.
   - composes run-queue.window: The roster shows the memory meter, each card's memory chip, and the queue prompt.
   - composes sudo: The roster shows the open sudo requests in orange.
+  - composes file-edit: The roster shows the files sessions want edited in orange.
   - composes helpers.jobs: The Helpers door sits at the bottom of the roster.
   - composes linear.room: The Linear door sits on the roster.
   - composes spinoffs.tree: The spinoff tree door sits at the bottom of the roster.

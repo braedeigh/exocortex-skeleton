@@ -28,6 +28,10 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * `lines`: a malformed list collapses to undefined (see
  * features/terrain/codeMentions.ts, which spells both ends of this param).
  *
+ * `edit` opens the file straight into the editor instead of the read-only
+ * view — what the "file to edit" card's button sends (features/fileedit/).
+ * The owner only: the page ignores it for a visitor.
+ *
  * Open to public visitors since 2026-09-22, like the map's own file pane: the
  * file endpoint behind it refuses anything but tracked app code to a stranger,
  * so the page itself needs no guard.
@@ -49,6 +53,8 @@ export interface CodeSearch {
    * bar on load, which would drop the window back into the full workspace on
    * the next render. */
   solo?: boolean;
+  /** Open with the editor up rather than the read-only view. */
+  edit?: boolean;
 }
 
 const LINES_PATTERN = /^\d+(-\d+)?$/;
@@ -67,12 +73,13 @@ export const Route = createFileRoute('/code')({
         : undefined,
     of: typeof search.of === 'string' && search.of !== '' ? search.of : undefined,
     ...(search.solo === '1' || search.solo === 1 || search.solo === true ? { solo: true } : {}),
+    ...(search.edit === '1' || search.edit === 1 || search.edit === true ? { edit: true } : {}),
   }),
   component: CodeRoute,
 });
 
 function CodeRoute() {
   useDeactivateFrames();
-  const { repo, path, lines, mentions, of } = Route.useSearch();
-  return <FileCodePage repo={repo} path={path} lines={lines} mentions={mentions} of={of} />;
+  const { repo, path, lines, mentions, of, edit } = Route.useSearch();
+  return <FileCodePage repo={repo} path={path} lines={lines} mentions={mentions} of={of} edit={edit} />;
 }

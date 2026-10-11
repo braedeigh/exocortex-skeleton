@@ -461,7 +461,7 @@
         "procmem.py",
         "activityfeed.py",
         "chatsearch.py",
-        "lanes.py", "fairywall.py", "linear_api.py", "peermail.py", "swarms.py", "swarm_helper.py", "helper_chat.py", "room_helper.py", "watches.py", "linear_feed.py", "edited_files.py", "file_alerts.py", "continuation.py", "sudo_requests.py", "briefstore.py", "message_summaries.py"
+        "lanes.py", "fairywall.py", "linear_api.py", "peermail.py", "swarms.py", "swarm_helper.py", "helper_chat.py", "room_helper.py", "watches.py", "linear_feed.py", "edited_files.py", "file_alerts.py", "continuation.py", "sudo_requests.py", "file_edits.py", "briefstore.py", "message_summaries.py"
       ],
       "routes": [
         "observatory.py",
@@ -473,6 +473,7 @@
         "branches.py",
         "worktree_map.py",
         "sudo.py",
+        "file_edit.py",
         "run_queue.py",
         "automations.py",
         "devnotes.py",
@@ -483,6 +484,7 @@
       "frontend": [
         "observatory",
         "sudo",
+        "fileedit",
         "nightcrew",
         "runqueue",
         "automations",
@@ -499,7 +501,7 @@
         "spinoff_runner.py",
         "backfill_spawned_from.py",
         "spark_morning.py",
-        "sort_bot_chats.py", "peers.py", "sudo_request.py", "room_moves.py", "freeze_swarm.py", "helper_watch.py", "helper_rule.py", "linear_feed.py", "spinoff_brief.py", "import_spinoff_briefs.py"
+        "sort_bot_chats.py", "peers.py", "sudo_request.py", "open_file.py", "room_moves.py", "freeze_swarm.py", "helper_watch.py", "helper_rule.py", "linear_feed.py", "spinoff_brief.py", "import_spinoff_briefs.py"
       ],
       "tables": [
         "notes",

@@ -76,3 +76,10 @@
   align-self: center;
   margin-left: auto;
 }
+
+/* The Edit button, centred on the header line for the same reason as the ×.
+   When both are there, Edit comes first and the × keeps the far right. */
+.headerEdit {
+  flex: none;
+  align-self: center;
+}
