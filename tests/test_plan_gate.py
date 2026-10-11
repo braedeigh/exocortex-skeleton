@@ -1,9 +1,9 @@
 """The planning session's plan-only gate (tools/plan_gate.py).
 
 What these pin: a spinoff's planning session can do everything planning needs
-— read, search, ask the owner, save the plan as a brief and put up the Go
-button — and nothing that builds: no edit, no rewrite through the shell, no
-commit, no test run or build, no sub-agent, and no starting the builder
+— read, search, run the existing tests, ask the owner, save the plan as a
+brief and put up the Go button — and nothing that builds: no edit, no rewrite
+through the shell, no commit, no build, no sub-agent, and no starting the builder
 itself. The wiring (which sessions get the gate) is pinned in
 tests/test_spinoff_routes.py, beside the door that sets it.
 """
@@ -25,6 +25,11 @@ PLANNING = [
     ("Bash", {"command": "git log --oneline -8 && git status --short"}),
     ("Bash", {"command": "grep -rn plan_gate routes | head -20"}),
     ("Bash", {"command": "sed -n 20,80p routes/spinoff.py"}),
+    # Running the tests that exist, to check its reading of the code.
+    ("Bash", {"command": "./venv/bin/python3 -m pytest tests/test_spinoff_routes.py -q 2>&1 | tail -20"}),
+    ("Bash", {"command": "pytest -k offer"}),
+    ("Bash", {"command": "cd frontend && npx vitest run src/features/observatory"}),
+    ("Bash", {"command": "cd frontend && npm test"}),
     ("Bash", {"command": "./venv/bin/python3 scripts/request_input.py \"blue or green?\""}),
     ("Bash", {"command": "./venv/bin/python3 scripts/exo_query.py schema spinoff_briefs"}),
     ("Bash", {"command": "EXOCORTEX_DATA_DIR=/x/data ./venv/bin/python3 "
@@ -47,8 +52,10 @@ BUILDING = [
     ("Bash", {"command": "sed -i s/a/b/ routes/spinoff.py"}),
     ("Bash", {"command": "echo x > routes/spinoff.py"}),
     ("Bash", {"command": "cat > new.py <<'EOF'\nprint(1)\nEOF"}),
-    ("Bash", {"command": "./venv/bin/python3 -m pytest tests/test_spinoff_routes.py"}),
     ("Bash", {"command": "cd frontend && npm run build"}),
+    ("Bash", {"command": "npm install left-pad"}),
+    ("Bash", {"command": "npx prettier --write src"}),
+    ("Bash", {"command": "./venv/bin/python3 -m pytest tests/x.py > tests/x.py"}),
     ("Bash", {"command": "sudo systemctl reload exocortex.service"}),
     ("Bash", {"command": "./venv/bin/python3 -c \"open('x','w').write('y')\""}),
     # Starting the builder is the owner's Go, never the planner's.

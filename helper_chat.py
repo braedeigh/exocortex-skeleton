@@ -262,8 +262,10 @@ path per line, relative to {repo} — each must exist, or the session isn't star
 reply lists any path that doesn't exist under `missing`; fix it and save again (the same \
 slug replaces the brief). `spinoff_brief.py <slug> --show` prints what is saved.
 3. Start it: `./venv/bin/python3 scripts/spinoff_open.py <slug>`. It starts working at \
-once; `conversation_id` in the reply is the new session.
-4. Tell her its id and what it's building, and keep tracking it (`peers.py show <id>`); \
+once, but as a PLANNING session: it reads the code and writes a plan, and builds nothing. \
+She approves the plan in that session's own chat, which starts a second session that \
+builds it. `conversation_id` in the reply is the planning session.
+4. Tell her its id, that it is planning and waits for her approval there, and keep tracking it (`peers.py show <id>`); \
 pass her later words about that work on with `peers.py send <id> "…"`.
 Build only what she asked for. An idea of your own, you put to her here first.
 

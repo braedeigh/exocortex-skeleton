@@ -52,8 +52,10 @@ and works a plan out with her. When she says the plan is right it saves the
 plan as a new brief under its own slug and offers that; her second Go starts a
 fresh build session on that brief alone and closes the planning session. The
 Go card's "Skip the plan" button starts a single session that builds straight
-away, as every spinoff used to. The app's own spawns (helpers, triage, forks,
-stewards, the nightly fixer, continuations) name no stage and are unchanged.
+away, as every spinoff used to. A session a helper starts (the room helper, a
+swarm's helper) always plans first. The app's own spawns (helper buttons,
+triage, forks, stewards, the nightly fixer, continuations) name no stage and
+are unchanged.
 
 The entry keeps `draft`+`autostart` anyway, as the fallback for a runner that
 never starts: opening the session then fires the kickoff the old way. The two
@@ -74,7 +76,8 @@ import briefstore
 import lanes
 import store
 import worktrees
-from routes.observatory import (_BUILDER_TOOLS, _CONV_ID_RE, _DEFAULT_LANE, _LANES,
+from routes.observatory import (_BUILDER_TOOLS, _CONV_ID_RE, _DEFAULT_LANE,
+                                _HELPER_ROLES, _LANES,
                                 _MODEL_CHOICES, _chats_dir, _conv_lane,
                                 _lane_profile, _new_conv_id, _now,
                                 close_conversation)
@@ -441,6 +444,15 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
     # it's a fact about the birth.
     parent = parent or _sender_conv(snapshot)
     via = via or ("skill" if parent else "app")
+    # A helper's spinoff always plans first. A helper has no Go card to offer,
+    # so the session it starts through the script door would otherwise build
+    # with nobody having approved anything; the planning session's own Go card
+    # is where she approves.
+    # Prompt: "Should a helper's spinoff also start as a planning session that
+    # waits for your approval?" — "yes"
+    if (stage is None and via == "skill" and parent
+            and snapshot[parent].get("role") in _HELPER_ROLES):
+        stage = "plan"
     if branch is not None and room != "orchestra":
         # Adoption is steward work, which runs in the gated room — nobody is
         # watching it. Any other room here is a caller bug, refused loudly.

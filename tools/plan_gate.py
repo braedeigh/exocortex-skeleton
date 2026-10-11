@@ -17,7 +17,11 @@ only:
     the command reader — this file borrows both), plus a planning session's
     own doors: peers.py, exo_query.py, request_input.py (ask the owner),
     spinoff_brief.py (save the plan as the builder's brief) and
-    spinoff_offer.py (put up the Go button).
+    spinoff_offer.py (put up the Go button);
+  - Bash, to run the tests: pytest, and the frontend's `npm test` / `npx
+    vitest run`. A test run checks the planner's reading of the code. It
+    changes no source file (it does write its own caches), and the planner
+    can't write a test of its own to run.
 
 Everything else — Write, Edit, a sub-agent, an outside service, any other
 command, and spinoff_open.py (which would start a builder without the owner's
@@ -32,6 +36,7 @@ Tests: tests/test_plan_gate.py.
 
 Prompt that produced this: "i want my /spinoff functionality to stop just
 building without my permission. i want it to make a plan first that i approve."
+And, on whether a planner may run tests: "let them run test suite I guess".
 """
 import json
 import re
@@ -49,9 +54,14 @@ _ALLOWED_TOOLS = helper_gate._LOOK_TOOLS + helper_gate._WEB_TOOLS + ("Skill",)
 # The app's own doors for a planning session, run with the checkout's python.
 # Not spinoff_open.py: the builder is started by the owner's Go, never by the
 # planner.
+# Beside them, the test runners: pytest (bare, or through a python), and the
+# frontend's two. Nothing else `npm` or `npx` can do passes.
 _SCRIPTS = re.compile(
-    r"^\S*python3? (?:\S*/)?scripts/"
-    r"(peers|exo_query|request_input|spinoff_brief|spinoff_offer)\.py\b")
+    r"^(?:\S*python3? (?:\S*/)?scripts/"
+    r"(peers|exo_query|request_input|spinoff_brief|spinoff_offer)\.py\b"
+    r"|(?:\S*python3? -m )?pytest\b"
+    r"|npm (?:run )?test\b"
+    r"|npx vitest run\b)")
 
 _HAND_OVER = (
     " You're a planning session: you read, explain, ask and plan; a fresh "
@@ -59,8 +69,8 @@ _HAND_OVER = (
     "as the builder's brief with `./venv/bin/python3 scripts/spinoff_brief.py "
     "<your slug> <<'BRIEF'` … `BRIEF`, then put up the Go button with "
     "`./venv/bin/python3 scripts/spinoff_offer.py <your slug>` and end your turn.")
-_REASON_BASH = ("PLAN GATE — this command isn't a lookup (it could change "
-                "files, build, commit or run code)." + _HAND_OVER)
+_REASON_BASH = ("PLAN GATE — this command isn't a lookup or a test run (it "
+                "could change files, build, commit or run code)." + _HAND_OVER)
 _REASON_TOOL = "PLAN GATE — a planning session can't use this tool." + _HAND_OVER
 
 

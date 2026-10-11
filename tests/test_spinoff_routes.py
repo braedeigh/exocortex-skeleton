@@ -913,3 +913,20 @@ def test_a_changed_plan_replaces_the_one_on_offer(spinoff_client, monkeypatch):
                     plan="# Spinoff: second\n\nBlue.\n")
     assert "Blue." in _index()[body["spawned"][0]["conversation_id"]]["draft"]
     assert len(spinoff_client._launches) == 2   # one planner, one builder
+
+
+def test_a_helpers_spinoff_plans_first_and_nobody_elses_does(spinoff_client, monkeypatch):
+    """A helper has no Go card, so the session it starts through the script
+    door must not build unapproved; an ordinary session's direct open (her
+    "go" in words with the plan skipped) still builds."""
+    _sender(monkeypatch, role="room_helper", lane="coding")
+    _write_brief(store.SPINOFF_DIR, "from-helper")
+    helped = _post(spinoff_client, "from-helper").get_json()["conversation_id"]
+    helped = _index()[helped]
+    assert helped["spinoff_stage"] == "plan"
+    assert observatory._conv_config(helped)["plan_gate"] is True
+    _sender(monkeypatch, conv_id="2026-07-30.202020", lane="coding")
+    _write_brief(store.SPINOFF_DIR, "from-session")
+    plain = _post(spinoff_client, "from-session").get_json()["conversation_id"]
+    plain = _index()[plain]
+    assert "spinoff_stage" not in plain
