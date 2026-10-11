@@ -135,6 +135,8 @@ def locate(path):
     """Which repo an absolute path sits in, and its path inside it: the form
     the editor's address takes. The deepest matching folder wins, so a build
     inside another folder is named as itself."""
+    if not path or not os.path.isabs(os.path.expanduser(path)):
+        raise Refused("a full path is required")
     try:
         target = Path(path).expanduser().resolve()
     except (OSError, RuntimeError, ValueError):

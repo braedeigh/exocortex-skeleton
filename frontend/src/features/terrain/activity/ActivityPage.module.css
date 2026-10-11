@@ -426,3 +426,71 @@
   font-weight: 600;
   cursor: pointer;
 }
+
+/* The files drawer: a toggle, then one tappable row per file. The list has
+   its own cap and scroll so a session that touched fifty files doesn't push
+   the steps off the page. */
+.files {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.fileList {
+  align-self: stretch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 40vh;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+
+.fileRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-bottom: 1px solid var(--border-soft);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fileList li:last-child .fileRow {
+  border-bottom: none;
+}
+
+.fileName {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 600;
+}
+
+.fileWhat {
+  flex: none;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* Where the file sits. Set right-to-left so a long path loses its start, not
+   the folders nearest the file (the same trick as the map's file pane). */
+.filePath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}

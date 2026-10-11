@@ -124,6 +124,15 @@ def test_a_request_for_a_file_the_editor_cant_open_is_refused_before_it_is_filed
     assert file_edits.listing()["open"] == []
 
 
+def test_a_sessions_full_path_is_turned_into_the_file_pages_address(client, build):
+    def locate(path):
+        return client.get("/api/file-edit/locate", query_string={"path": str(path)})
+    assert locate(build / ".env").get_json() == {"repo": "side", "path": ".env"}
+    assert locate("/etc/hostname").status_code == 404
+    assert locate(build / "gone.txt").status_code == 404
+    assert locate("relative/path.txt").status_code == 400
+
+
 def test_dismissing_a_request_wakes_the_session_and_changes_nothing(client, build, woken):
     req = file_edits.file_request(str(build / ".env"), "c1")
     assert client.post(f"/api/file-edit/requests/{req['id']}/dismiss").status_code == 200
@@ -143,5 +152,6 @@ def test_a_visitor_reaches_none_of_it(build):
     assert _open(visitor).status_code == 401
     assert _save(visitor, "x", "any").status_code == 401
     assert visitor.get("/api/file-edit/requests").status_code == 401
+    assert visitor.get("/api/file-edit/locate", query_string={"path": str(build / ".env")}).status_code == 401
     assert visitor.post("/api/file-edit/requests/x/dismiss").status_code == 401
     assert (build / ".env").read_text().startswith("AUTH_SECRET=keep-me")

@@ -63,6 +63,16 @@ export function saveFile(repo: string, path: string, content: string, version: s
   return api.post<SaveResult>('/api/file-edit', { repo, path, content, version });
 }
 
+/** GET /api/file-edit/locate — a full path on this machine, as the repo and
+ * path the file page opens it by. Rejects with the reason when the file is
+ * outside every folder the page can read, or is gone. */
+export function locateFile(path: string, signal?: AbortSignal) {
+  return api.get<{ repo: string; path: string }>(
+    `/api/file-edit/locate?path=${encodeURIComponent(path)}`,
+    signal,
+  );
+}
+
 /** Poll the queue every few seconds; paused while the tab is hidden. */
 export function useFileRequests() {
   return useQuery({

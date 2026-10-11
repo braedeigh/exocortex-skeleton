@@ -7,6 +7,7 @@ card and let her turn one down.
 
     GET  /api/file-edit?repo=&path=            the whole file + its version
     POST /api/file-edit                        {"repo","path","content","version"} — saves it
+    GET  /api/file-edit/locate?path=           an absolute path -> its repo + path
     GET  /api/file-edit/requests               open requests from sessions
     POST /api/file-edit/requests/<id>/dismiss  close one without saving
 
@@ -55,6 +56,20 @@ def register(app):
                                            body.get("content"), body.get("version")))
         except file_edits.Refused as refusal:
             return jsonify({"error": str(refusal)}), refusal.status
+
+    # Turn an absolute path into the file page's address.
+    # A session's tool calls name files by their full path on this machine; the
+    # page opens a file by repo + path inside it. Answers 404 with the reason
+    # for a file outside every readable folder, or one that is gone.
+    @app.route("/api/file-edit/locate", methods=["GET"])
+    def file_edit_locate():
+        if not _authed():
+            return jsonify({"error": "unauthorized"}), 401
+        try:
+            repo_id, relpath = file_edits.locate((request.args.get("path") or "").strip())
+        except file_edits.Refused as refusal:
+            return jsonify({"error": str(refusal)}), refusal.status
+        return jsonify({"repo": repo_id, "path": relpath})
 
     @app.route("/api/file-edit/requests", methods=["GET"])
     def file_edit_requests():

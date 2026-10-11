@@ -5,7 +5,9 @@ import {
   emptyActivity,
   foldEvents,
   formatDuration,
+  callFilePath,
   readableInput,
+  sessionFiles,
   stallWarning,
   tally,
   type CallStep,
@@ -109,5 +111,34 @@ describe('readableInput', () => {
 
   it('shows a cut input as it came', () => {
     expect(readableInput({ name: 'Edit', input: '{"file_path": "a.py", "old' })).toBe('{"file_path": "a.py", "old');
+  });
+});
+
+describe('the files a session touched', () => {
+  const fileCall = (id: string, name: string, input: string): ActivityEvent => ({
+    kind: 'call', at: '2026-09-24T12:00:00.000', parent: null, id, name, target: null,
+    input, input_cut: false,
+  });
+
+  it('lists each file once, newest first, counting reads and edits apart', () => {
+    const state = foldEvents(emptyActivity(), [
+      fileCall('1', 'Read', '{"file_path": "/repo/a.py"}'),
+      fileCall('2', 'Read', '{"file_path": "/repo/b.py"}'),
+      call('3'),
+      fileCall('4', 'Edit', '{"file_path": "/repo/a.py", "old_string": "x", "new_string": "y"}'),
+    ]);
+    expect(sessionFiles(state.steps)).toEqual([
+      { path: '/repo/a.py', reads: 1, edits: 1 },
+      { path: '/repo/b.py', reads: 1, edits: 0 },
+    ]);
+  });
+
+  it('still finds the file when a long input was cut short', () => {
+    expect(callFilePath({ name: 'Write', input: '{"file_path": "/repo/big.md", "content": "# Ti' })).toBe('/repo/big.md');
+  });
+
+  it('names no file for a call that is not about one', () => {
+    expect(callFilePath({ name: 'Bash', input: '{"command": "cat /repo/a.py"}' })).toBeNull();
+    expect(callFilePath({ name: 'Read', input: '{"file_path": "relative.py"}' })).toBeNull();
   });
 });

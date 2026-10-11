@@ -259,3 +259,62 @@ export function readableInput(call: Pick<CallStep, 'name' | 'input'>): string {
     return call.input;
   }
 }
+
+/** The tools that act on one named file, and whether the call changes it. */
+const FILE_TOOLS: Record<string, 'read' | 'edit'> = {
+  Read: 'read',
+  Edit: 'edit',
+  MultiEdit: 'edit',
+  Write: 'edit',
+  NotebookEdit: 'edit',
+};
+
+/**
+ * The file a call acts on, as the full path the tool was given, or null when
+ * the call isn't about one file (a Bash command, a search). A cut input isn't
+ * valid JSON, but the path is its first field, so it is picked out by pattern.
+ */
+export function callFilePath(call: Pick<CallStep, 'name' | 'input'>): string | null {
+  if (!call.input || !(call.name in FILE_TOOLS)) return null;
+  let path: unknown;
+  try {
+    const parsed = JSON.parse(call.input) as Record<string, unknown> | null;
+    path = parsed?.file_path ?? parsed?.notebook_path;
+  } catch {
+    const found = /"(?:file_path|notebook_path)"\s*:\s*"((?:[^"\\]|\\.)+)"/.exec(call.input);
+    try {
+      path = found ? (JSON.parse(`"${found[1]}"`) as string) : null;
+    } catch {
+      path = null;
+    }
+  }
+  return typeof path === 'string' && path.startsWith('/') ? path : null;
+}
+
+export interface SessionFile {
+  /** The full path, as the tools were given it. */
+  path: string;
+  reads: number;
+  edits: number;
+}
+
+/**
+ * Every file the session's calls named, each once, most recently touched
+ * first — the Activity page's files list. Only calls that name a file count:
+ * what a Bash command touched isn't known here.
+ */
+export function sessionFiles(steps: Step[]): SessionFile[] {
+  const byPath = new Map<string, SessionFile>();
+  for (const step of steps) {
+    if (step.kind !== 'call') continue;
+    const path = callFilePath(step);
+    if (!path) continue;
+    const file = byPath.get(path) ?? { path, reads: 0, edits: 0 };
+    if (FILE_TOOLS[step.name] === 'edit') file.edits += 1;
+    else file.reads += 1;
+    // Re-insert so the map's order is "last touched last".
+    byPath.delete(path);
+    byPath.set(path, file);
+  }
+  return [...byPath.values()].reverse();
+}

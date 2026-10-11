@@ -2,13 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useRouter } from '@tanstack/react-router';
 import { useSessionRoster } from '../../observatory/api';
 import { sessionLocation } from '../../observatory/sessionLocation';
+import { locateFile } from '../../fileedit/fileEditApi';
+import { dispatchIntent } from '../../../shell/panels/windowBus';
 import { getFullOutput } from './api';
 import {
+  callFilePath,
   callStatus,
   formatDuration,
   isProblem,
   msBetween,
   readableInput,
+  sessionFiles,
   stallWarning,
   tally,
   type CallStatus,
@@ -38,6 +42,11 @@ import styles from './ActivityPage.module.css';
  * - a status strip: running or idle, the counts (calls, failures, retries),
  *   and a stall warning when a running session has gone quiet;
  * - filter chips: everything, only tool calls, or only the problems;
+ * - the files drawer: every file the session's calls read or edited, each
+ *   once, shut until she opens it. Tap one and it opens on the file page
+ *   (/code), where it can be read and edited. A call's own row has the same
+ *   "Open file" button. Only calls that name a file are counted — a file a
+ *   shell command touched isn't known here;
  * - the steps. A tool call is one row: a status mark, the tool, what it
  *   acted on, how long it took. Tap it to fold or unfold its input and
  *   output. Outputs start unfolded, because watching them is the point.
@@ -54,7 +63,8 @@ import styles from './ActivityPage.module.css';
  * of the session on the right hand side of the split screen or a page i can x
  * out of/go back on mobile … i want for all of the outputs to be visible as
  * it's working so that i can visualize what's going on and why things might
- * drop or fail."
+ * drop or fail." And for the files: "I want to be able to see the file from
+ * the session somehow and click into it".
  */
 
 type Filter = 'all' | 'tools' | 'problems';
@@ -86,6 +96,7 @@ function CallRow({
   now,
   open,
   onToggle,
+  onOpenFile,
 }: {
   call: CallStep;
   convId: string;
@@ -93,8 +104,10 @@ function CallRow({
   now: number;
   open: boolean;
   onToggle: () => void;
+  onOpenFile: (path: string) => void;
 }) {
   const status = callStatus(call, running);
+  const filePath = callFilePath(call);
   const [full, setFull] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
 
@@ -139,6 +152,11 @@ function CallRow({
             {call.parent ? <span>inside a subagent</span> : null}
             {status === 'cut off' ? <span>no output was ever written — the turn ended first</span> : null}
           </div>
+          {filePath ? (
+            <button type="button" className={styles.smallBtn} data-track="activity-open-file" onClick={() => onOpenFile(filePath)}>
+              Open file
+            </button>
+          ) : null}
           {call.denied ? (
             <p className={styles.problemText}>
               Refused{call.denied.reason ? ` — ${call.denied.reason}` : ''}
@@ -305,6 +323,32 @@ export function ActivityPage({ agent }: { agent?: string }) {
   const quietMs = feed.lastGrowth === null ? null : Math.max(0, now - feed.lastGrowth);
   const stall = stallWarning(steps, feed.running, quietMs);
 
+  // The files drawer: what the session's calls read or edited. Shut by
+  // default, like the roster card's own file list.
+  const files = useMemo(() => sessionFiles(steps), [steps]);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [fileMessage, setFileMessage] = useState('');
+
+  // Tap a file to open it on the file page. The calls name a file by its
+  // full path on this machine, so the server is asked which repo it sits in
+  // first. Then the same move as a roster card's file list: a code tile if
+  // one is open, otherwise a plain navigation. A file outside every readable
+  // folder, or one since deleted, says so instead.
+  const openFile = (path: string) => {
+    setFileMessage('');
+    locateFile(path)
+      .then((found) => {
+        if (dispatchIntent({ kind: 'code', repo: found.repo, path: found.path }) !== 'none') return;
+        void navigate({ to: '/code', search: { repo: found.repo, path: found.path } });
+      })
+      .catch((err: unknown) => {
+        const name = path.split('/').slice(-1)[0];
+        setFileMessage(
+          `Can’t open ${name}: ${err instanceof Error ? err.message : 'the server didn’t answer'}`,
+        );
+      });
+  };
+
   // Folding: outputs start open. A row she tapped keeps her choice; the
   // fold-all switch clears those choices and sets the default.
   const [openByDefault, setOpenByDefault] = useState(true);
@@ -402,6 +446,42 @@ export function ActivityPage({ agent }: { agent?: string }) {
             </button>
           </div>
 
+          {files.length > 0 ? (
+            <div className={styles.files}>
+              <button
+                type="button"
+                className={styles.chip}
+                aria-expanded={filesOpen}
+                data-track="activity-files-toggle"
+                onClick={() => setFilesOpen((cur) => !cur)}
+              >
+                {filesOpen ? '▾' : '▸'} {files.length === 1 ? '1 file' : `${files.length} files`}
+              </button>
+              {filesOpen ? (
+                <ul className={styles.fileList}>
+                  {files.map((file) => (
+                    <li key={file.path}>
+                      <button
+                        type="button"
+                        className={styles.fileRow}
+                        title={file.path}
+                        data-track="activity-files-open"
+                        onClick={() => openFile(file.path)}
+                      >
+                        <span className={styles.fileName}>{file.path.split('/').slice(-1)[0]}</span>
+                        <span className={styles.fileWhat}>
+                          {file.edits > 0 ? `edited ${file.edits}×` : `read ${file.reads}×`}
+                        </span>
+                        <span className={styles.filePath}>&lrm;{file.path}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+          {fileMessage ? <p className={styles.stall}>{fileMessage}</p> : null}
+
           <div className={styles.listWrap}>
             <div ref={listRef} className={styles.list} onScroll={onScroll}>
               {feed.clipped ? (
@@ -417,6 +497,7 @@ export function ActivityPage({ agent }: { agent?: string }) {
                       key={step.key}
                       call={step}
                       convId={agent}
+                      onOpenFile={openFile}
                       running={feed.running}
                       now={now}
                       open={isOpen(step.id)}
