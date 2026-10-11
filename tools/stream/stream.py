@@ -52,11 +52,11 @@ One addition beyond fish: tags, not reply-subtrees, are the collection primitive
 — a person or a worry threads through months of unrelated conversation rather than
 living under one root card.
 
-THE VERBS. `record` (the primitive: stdin body + flags -> mint a card, re-render its
-day + month, echo the id), `render` (rebuild `--day`, `--view NAME`, or `--all` from
+THE VERBS. `record` (the primitive: body from `--body-file PATH` or stdin, plus flags
+-> mint a card, re-render its day + month, echo the id), `render` (rebuild `--day`, `--view NAME`, or `--all` from
 the pool), `tag` / `untag` (edit a card's tags, re-render what depends on them),
-`edit` (replace a card's body from stdin, re-render its day + month + any manifest
-selecting its tags — echoes the id), `delete` (write the card to the append-only
+`edit` (replace a card's body from `--body-file` or stdin, re-render its day + month +
+any manifest selecting its tags — echoes the id), `delete` (write the card to the append-only
 deletion log, THEN remove it from the pool, re-render what's left — and clean up a
 day/month view that just lost its last card, since render never touches a zero-card
 day/month on its own), `validate` (structural checks on the whole pool + a drift
@@ -80,7 +80,10 @@ from typing import Dict, List, Optional, Tuple
 # has passed since the previous line card — mirrors keeper_capture.py's GAP_SECONDS.
 GAP_SECONDS = 10 * 60
 
-VALID_WHO = ("B", "K")
+# Who a card is from: B = the owner, K = the keeper, S = the system — text
+# neither of them wrote, such as a Coming up reminder the app sent into the
+# Keeper's chat at its set time (routes/observatory.py begin_turn).
+VALID_WHO = ("B", "K", "S")
 VALID_KIND = ("line", "context", "ref")
 
 
@@ -134,6 +137,13 @@ def deleted_log_path() -> Path:
     return pool_dir().parent / "deleted_cards.jsonl"
 
 
+def edited_log_path() -> Path:
+    """The edit history: one JSON line per change to a card's text, holding the
+    text before and after. Beside the pool, never inside it — same rule as the
+    deletion log above."""
+    return pool_dir().parent / "edited_cards.jsonl"
+
+
 def day_legend() -> str:
     """The speaker legend under a day view's title. The owner's name is PERSONAL
     data, so it never lives in this shareable file: resolution is env
@@ -178,6 +188,13 @@ class Card:
     # Prompt: "I want to be able to annotate it and I want it to track which
     # session it came from."
     session: Optional[str] = None
+    # When the card's text was last changed, 'YYYY-MM-DD HH:MM:SS', or None for
+    # a card never edited (nearly all of them). Set by `edit_card`; the full
+    # history, old text included, is in the edit log (edited_log_path).
+    #
+    # Prompt: "any changes i want to be marked as edits on the date they were
+    # made" — and keep the old text.
+    edited: Optional[str] = None
     body: str = ""
 
 
@@ -234,6 +251,7 @@ def parse_card_text(text: str) -> Card:
     # identically to "this card doesn't have one".
     refs = _parse_refs(fields_["refs"]) if "refs" in fields_ else []
     session = fields_.get("session", "null")
+    edited = fields_.get("edited", "null")
     return Card(
         id=fields_["id"],
         who=fields_["who"],
@@ -243,6 +261,7 @@ def parse_card_text(text: str) -> Card:
         kind=fields_["kind"],
         refs=refs,
         session=None if session in ("null", "") else session,
+        edited=None if edited in ("null", "") else edited,
         body=body.rstrip("\n"),
     )
 
@@ -263,8 +282,13 @@ def render_card_text(card: Card) -> str:
         f"kind: {card.kind}",
         f"refs: [{', '.join(card.refs)}]",
         f"session: {card.session if card.session is not None else 'null'}",
-        "---",
     ])
+    # `edited` is written only once a card has been edited, unlike the fields
+    # above — so every card that was never edited keeps exactly the bytes it
+    # always had, rather than every file on disk growing an `edited: null`.
+    if card.edited:
+        header += f"\nedited: {card.edited}"
+    header += "\n---"
     # Exactly one trailing newline, regardless of how many the body carries.
     return header + "\n" + card.body.rstrip("\n") + "\n"
 
@@ -403,7 +427,7 @@ def record(
 ) -> str:
     who = (who or "").upper()
     if who not in VALID_WHO:
-        raise StreamError(f"--who must be B or K, got {who!r}")
+        raise StreamError(f"--who must be B, K or S, got {who!r}")
     if kind not in VALID_KIND:
         raise StreamError(f"--kind must be one of {VALID_KIND}, got {kind!r}")
     if not body.strip():
@@ -487,21 +511,80 @@ def _check_cid_safe(cid: str) -> None:
 
 
 # --------------------------------------------------------------------------------
-# edit — replace a card's body in place. Frontmatter (id/who/ts/reply_to/tags/kind/refs)
-# is untouched; only the body changes, so re-render is exactly what a tag change
-# re-renders, keyed off the card's own tags rather than a delta.
+# edit — replace a card's body in place, and keep what it said before.
+#
+# The card keeps its own time — an edit never moves an entry — but it's stamped
+# `edited: <when>`, and the change is written to the edit log FIRST: one JSON line
+# with the text before and after, when, and who asked. Same discipline as the
+# deletion log below: if the log line can't be written the edit is refused, so a
+# change can never land without its record. Saving identical text is not an edit
+# and leaves no trace.
+#
+# The day the edit was MADE gets a marker too ("✎ edited an entry from …"), woven
+# into that day's timeline like a finished to-do (see `edit_markers`), so a change
+# shows up on the date it happened, not only on the entry it changed.
+#
+# Prompt: "any changes i want to be marked as edits on the date they were made" —
+# both marked on the entry and recorded on the edit's own day, keeping the old text.
 # --------------------------------------------------------------------------------
 
-def edit_card(cid: str, body: str) -> Card:
+def _log_edit(card: Card, new_body: str, edited_at: str, by: str) -> None:
+    """Append one JSON line recording a change to a card's text. Same atomic
+    O_APPEND single-write shape as `_log_deletion`."""
+    entry = {
+        "edited_at": edited_at,
+        "by": by,
+        "id": card.id,
+        "day": card.ts[:10],
+        "who": card.who,
+        "before": card.body,
+        "after": new_body.rstrip("\n"),
+    }
+    path = edited_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def edit_card(cid: str, body: str, by: str = "unknown", now: Optional[datetime] = None) -> Card:
+    """Change a card's text. `now` pins the edit's time (tests); default is the
+    real clock."""
     _check_cid_safe(cid)
     if not body.strip():
         raise StreamError("empty (or whitespace-only) body — card not edited")
     with pool_lock():
         card = read_card(cid)
+        if body.rstrip("\n") == card.body:
+            return card  # nothing changed — not an edit, nothing to record
+        edited_at = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+        # Log before write. If this raises, the card is untouched.
+        _log_edit(card, body, edited_at, by)
         card.body = body
+        card.edited = edited_at
         write_card(card)
     _rerender_after_tag_change(card, card.tags)
+    # The day the edit was made shows it too, when that's a different day.
+    if edited_at[:10] != card.ts[:10]:
+        render_day(edited_at[:10])
     return card
+
+
+def load_edit_log() -> List[dict]:
+    """Every line of the edit log, oldest first. MUST NEVER RAISE: a missing
+    file is no edits, and a torn or garbled line is skipped, not fatal."""
+    try:
+        lines = edited_log_path().read_text(encoding="utf-8").splitlines()
+    except (OSError, StreamError):
+        return []
+    entries = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict) and isinstance(entry.get("edited_at"), str) and entry.get("id"):
+            entries.append(entry)
+    return entries
 
 
 # --------------------------------------------------------------------------------
@@ -616,14 +699,25 @@ def _italicize(body: str) -> str:
     return "\n".join(lines)
 
 
-def _render_card_block(card: Card) -> str:
-    """`\\nB: <body>\\n` or `\\nK: *<body>*\\n` — multi-line bodies get the prefix
-    (and, for K, the asterisks) only at the outer edges."""
+def _short_id(card: Card) -> str:
+    """The part of a card id after the day: `1010b` for `2026-10-04.1010b`.
+    Under a day's heading the day is already known, so this is enough to name
+    the card."""
+    return card.id.split(".", 1)[-1]
+
+
+def _render_card_block(card: Card, with_id: bool = False) -> str:
+    """`\\nB: <body>\\n`, `\\nS: <body>\\n`, or `\\nK: *<body>*\\n` — multi-line
+    bodies get the prefix (and, for K, the asterisks) only at the outer edges.
+    S (the system) is plain like B, set apart by its own letter. With
+    `with_id` the speaker letter is followed by the card's short id in
+    brackets: `B [1010b]: <body>`."""
     lines = card.body.split("\n")
-    if card.who == "B":
-        lines[0] = "B: " + lines[0]
+    label = f"{card.who} [{_short_id(card)}]" if with_id else card.who
+    if card.who in ("B", "S"):
+        lines[0] = f"{label}: " + lines[0]
     else:
-        lines[0] = "K: *" + lines[0]
+        lines[0] = f"{label}: *" + lines[0]
         lines[-1] = lines[-1] + "*"
     return "\n" + "\n".join(lines) + "\n"
 
@@ -854,10 +948,61 @@ def _render_streak_marker_block(marker: StreakMarker, ts_dt: datetime) -> str:
 
 
 # --------------------------------------------------------------------------------
+# Edit markers — "✎ edited an entry from <day>" on the day an edit was MADE. Same
+# live-weave model as the to-do and counter markers above: read from the edit log
+# at render time, never copied into the pool. An edit to a card from the same day
+# gets no marker (the card itself already says "edited", right there), and several
+# edits to one card on one day show once, at the last of them.
+# --------------------------------------------------------------------------------
+
+@dataclass
+class EditMarker:
+    card_id: str
+    card_day: str                  # the edited card's own day
+    edited_at: str                 # 'YYYY-MM-DD HH:MM:SS', the last edit that day
+    snippet: str                   # the start of the card's new text
+
+
+def _snippet(text: str, words: int = 12) -> str:
+    parts = text.split()
+    return " ".join(parts[:words]) + ("…" if len(parts) > words else "")
+
+
+def edit_markers(day: str) -> List[EditMarker]:
+    """Every edit made on `day` to a card from another day, one per card, in
+    the order they were made."""
+    latest: Dict[str, dict] = {}
+    for entry in load_edit_log():
+        if entry["edited_at"][:10] != day or entry.get("day") == day:
+            continue
+        latest.pop(entry["id"], None)  # re-insert, so order follows the last edit
+        latest[entry["id"]] = entry
+    return [
+        EditMarker(card_id=e["id"], card_day=str(e.get("day") or e["id"][:10]),
+                   edited_at=e["edited_at"], snippet=_snippet(str(e.get("after") or "")))
+        for e in latest.values()
+    ]
+
+
+def _edit_marker_line(marker: EditMarker, clock: Optional[str]) -> str:
+    """`✎ edited an entry from <day>: “<snippet>” — <clock>` — the edit sibling
+    of `_marker_line`."""
+    line = f"✎ edited an entry from {marker.card_day}: “{marker.snippet}”"
+    if clock:
+        line += f" — {clock}"
+    return line
+
+
+def _render_edit_marker_block(marker: EditMarker, ts_dt: datetime) -> str:
+    return "\n" + _edit_marker_line(marker, _clock(ts_dt)) + "\n"
+
+
+# --------------------------------------------------------------------------------
 # Day view
 # --------------------------------------------------------------------------------
 
-def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[str]:
+def render_day_text(day: str, cards: Optional[List[Card]] = None,
+                    with_ids: bool = False) -> Optional[str]:
     """The rendered `Journal/Daily/<day>.md` body, or None if no card exists for
     that day (a day with zero cards is never touched — see `render_day`). This
     holds even when to-do completion markers land on that day: markers alone
@@ -872,6 +1017,10 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
     day-only finished_on claim, or a legacy date-only done_at) can't be placed
     on the timeline at all, so it renders in a tail block after the timeline,
     one line per marker, under a single blank line.
+
+    `with_ids` puts each card's short id beside its speaker letter
+    (`B [1010b]: …`). The day files never use it; the Keeper's boot package
+    does (scripts/boot_context.py), so every line it loads can be named.
     """
     all_cards = load_all_cards() if cards is None else cards
     day_cards = [c for c in all_cards if c.ts.startswith(day)]
@@ -891,6 +1040,7 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
     streak_markers = streak_retirement_markers(day)
     timed_streaks = [m for m in streak_markers if m.time]
     untimed_streaks = [m for m in streak_markers if not m.time]
+    edits = edit_markers(day)
 
     text = f"# {day}\n\n`{day_legend()}`\n\n"
     if context_cards:
@@ -914,6 +1064,11 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
         ts_dt = _streak_marker_datetime(m)
         if ts_dt is not None:
             events.append((ts_dt, 0, f"s{i:04d}", m))
+    # Edit markers always carry a full timestamp; "e" sorts them after the
+    # other markers on a same-minute tie.
+    for i, m in enumerate(edits):
+        if _valid_ts(m.edited_at):
+            events.append((_parse_ts(m.edited_at), 0, f"e{i:04d}", m))
     events.sort(key=lambda e: (e[0], e[1], e[2]))
 
     prev_ts: Optional[datetime] = None
@@ -921,9 +1076,12 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None) -> Optional[st
         if prev_ts is None or (ts_dt - prev_ts).total_seconds() > GAP_SECONDS:
             text += f"\n*[{_clock(ts_dt)}]*\n"
         if isinstance(payload, Card):
-            text += _render_ref_block(payload) if payload.kind == "ref" else _render_card_block(payload)
+            text += (_render_ref_block(payload) if payload.kind == "ref"
+                     else _render_card_block(payload, with_ids))
         elif isinstance(payload, StreakMarker):
             text += _render_streak_marker_block(payload, ts_dt)
+        elif isinstance(payload, EditMarker):
+            text += _render_edit_marker_block(payload, ts_dt)
         else:
             text += _render_marker_block(payload, ts_dt)
         prev_ts = ts_dt
@@ -1142,8 +1300,28 @@ def validate() -> Tuple[bool, List[str]]:
 # CLI
 # --------------------------------------------------------------------------------
 
+# Where a card's body comes from. `--body-file` exists for gated sessions: the
+# act-vs-ask gate (tools/act_ask_gate.py) refuses any Bash line carrying a pipe,
+# a redirect, a backtick, `$(` or a literal newline, and a keeper's context
+# paragraph nearly always contains one of those — so `echo "<body>" | stream.py
+# record` could never mint it. With the body in a file (written by the ungated
+# Write tool) the whole call is one bare command and passes. Absent the flag,
+# stdin still works exactly as before.
+# Prompt: "give record a --body-file flag so a card can be minted as one bare
+# command with no shell metacharacters."
+def _read_body(args: argparse.Namespace) -> str:
+    path = getattr(args, "body_file", None)
+    if path:
+        return Path(path).read_text(encoding="utf-8")
+    return sys.stdin.read()
+
+
 def _cmd_record(args: argparse.Namespace) -> int:
-    raw = sys.stdin.read()
+    try:
+        raw = _read_body(args)
+    except OSError as e:
+        print(f"error: --body-file: {e}", file=sys.stderr)
+        return 1
     tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else []
     refs = [t.strip() for t in args.refs.split(",") if t.strip()] if args.refs else []
     ts_dt = None
@@ -1208,9 +1386,15 @@ def _cmd_untag(args: argparse.Namespace) -> int:
 
 
 def _cmd_edit(args: argparse.Namespace) -> int:
-    raw = sys.stdin.read()
     try:
-        card = edit_card(args.id, raw)
+        raw = _read_body(args)
+    except OSError as e:
+        print(f"error: --body-file: {e}", file=sys.stderr)
+        return 1
+    # Who asked, recorded in the edit log. Same resolution as delete's --by.
+    by = args.by or os.environ.get("STREAM_EDIT_BY") or "cli"
+    try:
+        card = edit_card(args.id, raw, by=by)
     except StreamError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -1248,8 +1432,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="verb", required=True)
 
-    rec = sub.add_parser("record", help="mint a card from stdin, re-render its day + month")
-    rec.add_argument("--who", required=True, help="B or K")
+    rec = sub.add_parser("record", help="mint a card from --body-file or stdin, re-render its day + month")
+    rec.add_argument("--who", required=True, help="B (owner), K (keeper) or S (system)")
+    rec.add_argument(
+        "--body-file", default=None,
+        help="read the card body from this file instead of stdin (lets a gated "
+             "session mint a card as one bare command, no pipe)")
     rec.add_argument("--reply-to", default=None, help="id of the card this one replies to")
     rec.add_argument("--tags", default=None, help="comma-separated tags, e.g. a,b,c")
     rec.add_argument("--ts", default=None, help="'YYYY-MM-DD HH:MM:SS' (default: now)")
@@ -1280,8 +1468,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     untagp.add_argument("tags", nargs="+")
     untagp.set_defaults(func=_cmd_untag)
 
-    editp = sub.add_parser("edit", help="replace a card's body from stdin, re-render what depends on it")
+    editp = sub.add_parser("edit", help="replace a card's body from --body-file or stdin, re-render what depends on it")
     editp.add_argument("id")
+    editp.add_argument("--body-file", default=None, help="read the new body from this file instead of stdin")
+    editp.add_argument("--by", help="who is asking (recorded in the edit log)")
     editp.set_defaults(func=_cmd_edit)
 
     delp = sub.add_parser("delete", help="remove a card from the pool, re-render what's left")

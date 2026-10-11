@@ -11,14 +11,41 @@ describe('which section a page belongs to', () => {
   it('gives Pond to Pond even though Terrain also claims /terrain', () => {
     // Longest claim wins — first-match would make the Pond tab unreachable.
     expect(sectionForUrl('/terrain/pond')?.id).toBe('pond');
-    expect(sectionForUrl('/terrain/map')?.id).toBe('terrain');
+    expect(sectionForUrl('/terrain/files')?.id).toBe('terrain');
     expect(sectionForUrl('/terrain/usage')?.id).toBe('terrain');
   });
 
   it('treats every dashboard route as the one Dashboard section', () => {
     expect(sectionForUrl('/todos')?.id).toBe('dashboard');
-    expect(sectionForUrl('/kitchen')?.id).toBe('dashboard');
-    expect(sectionForUrl('/money')?.id).toBe('dashboard');
+    expect(sectionForUrl('/inventory')?.id).toBe('dashboard');
+  });
+
+  it('gives /food to Food even though Dashboard claims the same path', () => {
+    // Equal-length claims tie, and the first listed wins — so Food must
+    // stay above Dashboard in SECTIONS or its tab could never light up.
+    expect(sectionForUrl('/food')?.id).toBe('ecosystem');
+    expect(sectionForUrl('/food?recipe=abc')?.id).toBe('ecosystem');
+    expect(pageLabel('/food')).toBe('Food');
+  });
+
+  it('keeps every Food page, and the old /ecosystem address, in the Food section', () => {
+    expect(sectionForUrl('/food/foods/kale')?.id).toBe('ecosystem');
+    expect(sectionForUrl('/food/review')?.id).toBe('ecosystem');
+    expect(sectionForUrl('/ecosystem')?.id).toBe('ecosystem');
+  });
+
+  it('leaves the public /food-map out of the Food section', () => {
+    expect(sectionForUrl('/food-map')?.id).not.toBe('ecosystem');
+  });
+
+  it('gives /kitchen to Kitchen even though Dashboard claims the same path', () => {
+    expect(sectionForUrl('/kitchen')?.id).toBe('kitchen');
+    expect(pageLabel('/kitchen')).toBe('Kitchen');
+  });
+
+  it('gives /money to Money even though Dashboard claims the same path', () => {
+    expect(sectionForUrl('/money')?.id).toBe('money');
+    expect(pageLabel('/money')).toBe('Money');
   });
 
   it('is not fooled by a path that merely starts the same way', () => {
@@ -56,7 +83,7 @@ describe('shortcut sections', () => {
 describe('what the active tab is called', () => {
   it('wears the section name on its own front page', () => {
     expect(pageLabel('/observatory')).toBe('Observatory');
-    expect(pageLabel('/terrain/map')).toBe('Terrain');
+    expect(pageLabel('/terrain/files')).toBe('Terrain');
     expect(pageLabel('/todos')).toBe('Dashboard');
   });
 

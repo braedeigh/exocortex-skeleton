@@ -1,0 +1,171 @@
+/* TerrainGuide — a reading column docked down the right edge of the map page.
+   The page (TerrainPage.module.css `.guideOpen`) moves the map and its bars
+   over by the same width, so this is a split, not a lid. Opaque on purpose:
+   it's the subject while it's open, and text over terrain is unreadable. */
+
+.panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--guide-width, min(440px, 46%));
+  /* Above the file pane (10), the table window (12) and the pond landmark
+     (60): a docked column nothing on the map should paint over. Those three
+     yield to it by stopping at --guide-width in their own stylesheets. Only
+     the agent hovercard (90) stays above, and it is never up while this is. */
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border-left: 1px solid var(--border-soft);
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.25);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--tap-target, 44px);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+}
+
+/* The × is a real 40px target, clearly visible — the UI rule for every
+   close button on the site. */
+.close {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-3) calc(var(--space-4, 24px) + env(safe-area-inset-bottom, 0px));
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.lead {
+  margin: 0 0 var(--space-3);
+}
+
+.heading {
+  margin: var(--space-4, 24px) 0 var(--space-2);
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.list,
+.plain,
+.swatches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* One legend row: the drawing on the left, at a fixed width so the text
+   column lines up down the whole list. */
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.mark {
+  flex: none;
+  width: 40px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.rowText {
+  flex: 1;
+  min-width: 0;
+}
+
+.plain li {
+  padding-left: var(--space-3);
+  position: relative;
+}
+
+.plain li::before {
+  content: '·';
+  position: absolute;
+  left: 2px;
+  color: var(--text-secondary);
+}
+
+.note {
+  margin: var(--space-2) 0;
+  color: var(--text-secondary);
+}
+
+/* The file-type key: two columns of swatch + name. */
+.swatches {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-1) var(--space-3);
+}
+
+.swatchRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm); /* 12px floor */
+}
+
+.swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--border-soft);
+}
+
+kbd {
+  font: inherit;
+  padding: 0 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+/* On a phone the column IS the page: the map waits underneath, × brings it
+   back (TerrainPage.module.css sets --guide-width to 0 there, so the map
+   doesn't try to shrink to nothing). */
+@media (max-width: 768px) {
+  .panel {
+    width: 100%;
+    border-left: none;
+    box-shadow: none;
+  }
+}

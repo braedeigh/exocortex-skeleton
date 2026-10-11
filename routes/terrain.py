@@ -3,10 +3,30 @@ happened, fed by code history (coverage of everything) and bot_chats
 footprints (attribution of which session touched which file). Serves the
 endpoints the map and its rooms read: GET /api/observatory/terrain (the
 payload), GET /api/observatory/terrain/file (one file's text for the
-tap-a-node code modal), and GET /api/observatory/flow (the live stream of
+tap-a-node code modal), GET /api/observatory/terrain/file/edits (when each
+of its lines was last edited, from git blame, for the pane's red-edits
+toggle), GET /api/observatory/terrain/file/runs (when each of its functions
+last ran, from runtime_sensor.py, for the pane's gold "ran" toggle), and
+GET /api/observatory/flow (the live stream of
 code being written, for the Flow lane at /terrain/flow). See
 scripts/extract_footprints.py for the footprints sidecar and the flow
 harvest.
+
+Also the trace doors (runtime_trace.py): arm one request or a whole journey
+(POST .../trace/arm), list and read captures (GET .../trace[/<id>]), and take
+in the browser's half of a journey (POST .../trace/<id>/browser — taps and
+fetches with the React component chain, resolved to files through the code
+graph). A turn part of a trace is joined to the agent's own tool calls from
+the transcript (`_agent_calls_for`), so one capture reaches from the tap to
+what the agent read and edited.
+
+BUILDS. The map above covers the two folders this system is made of.
+`?build=<id>` on the payload endpoint draws ONE of the owner's other git
+folders instead (buildlist.py — a project built elsewhere on this machine, or a
+repo cloned from GitHub), built by the same `_build_terrain` over that one
+folder. A build's map is the owner's alone: a visitor asking for one gets a
+404, the plain payload never includes a build, and so nothing about one reaches
+the published mirror. The Builds room's own doors are routes/terrain_builds.py.
 
 Git heat comes from the code-history tables in exo.db (codestore.py), not
 from running `git log` per request. On every cache miss this module first
@@ -29,20 +49,34 @@ routes.observatory reach this module too. One-directional: observatory never
 imports terrain.
 """
 from flask import request, jsonify
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from fnmatch import fnmatch
 from pathlib import Path
+import ast
 import contextlib
+import fcntl
+import hashlib
+import math
 import os
 import re
+import secrets
 import sqlite3
+import subprocess
 import time
 
+import buildlist
+import codegraph
 import codestore
+import config
+import runtime_sensor
+import runtime_trace
 import store
+import swarms
 from routes import observatory
+from routes import terrain_mirror
 from routes.tags import _SLUG_RE as _GROWTH_TAG_SLUG_RE
-from scripts.extract_footprints import harvest_conversation, harvest_flow_events
+from scripts.extract_footprints import (_load_events, _parse_ts, _tool_path,
+                                        harvest_conversation, harvest_flow_events)
 
 _TERRAIN_FILE_CAP = 350           # DEFAULT hottest files kept per repo (a phone
                                   # canvas force-sim drowns past the low
@@ -63,6 +97,27 @@ _TERRAIN_LIVE_TTL_SEC = 5         # ...but a mid-turn session must read fresh:
 _TERRAIN_LIVE_WINDOW_SEC = 15 * 60   # how recently-active a conversation must
                                      # be for a live jsonl re-parse (the batch
                                      # sidecar may lag it)
+_TERRAIN_GRAPH_TTL_SEC = 300      # how long a parsed code graph stays warm.
+                                  # The parse is ~1.5s over ~1300 files, so
+                                  # this is a miss-cost, not a tap-cost.
+
+# When the code graph was last parsed. A dict rather than a module global so a
+# test can reset it the way the payload caches above are reset.
+_graph_cache = {"built_at": 0.0}
+
+
+def _graph_relpath(abspath, roots):
+    """An absolute path from the runtime sensor to the (repo, repo-relative)
+    pair the code graph is keyed by, or None if it belongs to neither repo.
+    The one place the two stores' path vocabularies are reconciled."""
+    for repo_id, root in roots:
+        try:
+            rel = os.path.relpath(abspath, root)
+        except ValueError:
+            continue
+        if rel != os.curdir and not rel.startswith(os.pardir):
+            return (repo_id, rel.replace(os.sep, "/"))
+    return None
 
 # Machine-churn denylist: the vault gets hourly auto-backup commits, so
 # app-state files (databases, logs, session sidecars, build output) would
@@ -100,8 +155,19 @@ _TERRAIN_DENYLIST = (
 
 # One cache slot per distinct ?limit= the client asks for (the Files slider
 # snaps to a handful of steps, so this stays small). Keyed by the resolved
-# file cap; None means "no cap — every file". Evicts the oldest slot past
+# file cap; None means "no cap — every file". A build's map (`_build_view`)
+# keeps its slots here too, keyed (build id, file cap). Evicts the oldest slot past
 # _TERRAIN_CACHE_SLOTS so a hostile/looping caller can't grow it without bound.
+#
+# A SLOT HOLDS TWO VIEWS OF ONE BUILD. The payload is view-dependent now —
+# a stranger's copy has its non-Coding sessions anonymized (_redact_sessions)
+# — and the cache is the place that would get that wrong: one payload keyed by
+# file cap alone, handed to owner and visitor alike, means whichever request
+# arrives first decides what the other one sees. So the slot keeps the built
+# payload AND its redacted derivative ("public", computed on first need), and
+# the handler picks by view instead of by arrival. Building is the expensive
+# half and still happens once; redacting is a walk over a list and is memoized
+# beside it.
 _terrain_cache = {}
 
 
@@ -138,6 +204,265 @@ _TERRAIN_READ_DENYLIST = (
 
 _TERRAIN_FILE_READ_MAX = 256 * 1024   # bytes returned to the code modal
 
+# --- what a VISITOR may read ---------------------------------------------------
+#
+# The map is public (public_config.PUBLIC_PATHS): a logged-out visitor — on the
+# private site's public view or on the public-only mirror — sees every dot from
+# both repos, the session orbs and their titles. The owner's call (2026-09-17):
+# "i am ok with personal stuff showing on the map, just make all personal
+# files unreadable to visitors, but the code can be interactive for visitors."
+#
+# So the lock is on file TEXT, and it lives here on the server, not in the
+# page: a visitor may open a file only when it is (a) in the app-code repo,
+# (b) tracked by git there — the working tree also holds logs, a local
+# CLAUDE.local.md and other untracked things that are nobody's business —
+# and (c) resolves inside that repo, so a symlink into the vault (which the
+# owner's own read deliberately follows) stays shut for strangers. Anything
+# else answers 403 with `private: true`, which the code window renders as a
+# plain "private" state rather than an error.
+_VISITOR_REPO = "skeleton"
+_TRACKED_TTL_SEC = 60
+_tracked_cache = {"at": 0.0, "root": None, "paths": frozenset()}
+
+
+def _visitor():
+    """True when this request is a stranger's (server.gate sets view_mode)."""
+    return getattr(request, "view_mode", "authed") == "public"
+
+
+def _tracked_paths(root):
+    """The repo's git-tracked paths, refreshed at most once a minute. A git
+    failure yields the empty set — a visitor then reads nothing, which is the
+    safe way to fail."""
+    now = time.monotonic()
+    if (_tracked_cache["root"] == str(root)
+            and now - _tracked_cache["at"] < _TRACKED_TTL_SEC):
+        return _tracked_cache["paths"]
+    try:
+        out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
+                             capture_output=True, timeout=10, check=True).stdout
+        paths = frozenset(p.decode("utf-8", "replace") for p in out.split(b"\0") if p)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        paths = frozenset()
+    _tracked_cache.update(at=now, root=str(root), paths=paths)
+    return paths
+
+
+def _visitor_may_read(repo, relpath, resolved):
+    """Rules (a)–(c) above, for an already-resolved candidate file."""
+    if repo["id"] != _VISITOR_REPO:
+        return False
+    try:
+        root = Path(repo["root"]).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    if root not in resolved.parents:
+        return False
+    rel = relpath.replace("\\", "/").lstrip("/")
+    return os.path.normpath(rel) in _tracked_paths(root)
+
+
+def _private_file(repo_id, relpath):
+    return jsonify({"error": "private", "private": True,
+                    "repo": repo_id, "path": relpath}), 403
+
+
+# --- what a VISITOR may know about a SESSION -----------------------------------
+#
+# The map keeps every orb for a stranger, and all but the Coding ones lose
+# their name. The owner's call: "i want to pull the personal agents from the
+# public display, or maybe make them private and unclickable, and they can say
+# 'personal' as their title" — and, asked where the line falls, "everything
+# that isn't coding should be opaque. activity is fine to show. anonymized orbs
+# keep their lane."
+#
+# So an anonymized session keeps everything that says WORK HAPPENED — its
+# footprint files, its write/read counts, when it last moved, which room it
+# lives in — and loses everything that says WHOSE and WHAT: the title becomes
+# the room's name, the id becomes an opaque handle, and the bot goes. The map
+# doesn't understate its own activity; it just stops narrating her life.
+#
+# WHY THE LANE IS THE RULE. observatory._conv_lane assigns at creation and
+# DERIVES for older entries, and nothing ever derives to Coding — a session
+# only lands there because she put it there. Every other lane can be reached by
+# a guess, and a guess is a bad thing to rest a privacy line on. So Coding is
+# the allowlist, and anything this function can't place — a file-card session
+# the roster has never heard of — is redacted too. Fail toward opaque.
+#
+# IDENTITY TRAVELS TWICE and both copies must go. The top-level sessions[]
+# roster is a few hundred entries; every file ALSO carries its own sessions[]
+# list with the same ids and titles, and there are thousands of those. The file
+# cards are where a visitor lands after tapping a dot, so redacting only the
+# roster would leave every title readable one tap in. One function, both lists.
+#
+# THE HANDLE IS SALTED, and that is not decoration. A session id IS a timestamp
+# ("2026-08-19.030356"), so a bare hash is a lock with the key taped to it: a
+# year of candidate ids is ~31 million hashes, which is seconds of work, and
+# recovering the id republishes to the minute when she was journaling. The salt
+# is a real secret on disk. It's also PERSISTENT rather than per-process,
+# because two gunicorn workers minting different handles for one session would
+# make the same orb two orbs from one poll to the next.
+_PUBLIC_LANE = "coding"           # the one room that keeps its name
+_ANON_ID_PREFIX = "anon-"
+_ANON_ID_HEX = 12                 # 6 bytes of handle — collision-free at this scale
+
+# The room's own name, worn as a title. An unplaceable session reads as
+# Personal: it's the honest generic, and it's what almost all of them are.
+_ANON_TITLES = {"personal": "Personal", "orchestra": "Orchestra",
+                "research": "Research"}
+_ANON_TITLE_DEFAULT = "Personal"
+
+
+# Held in memory once read: one redaction hashes every session in the payload —
+# a few thousand of them — and re-reading the file per hash would be that many
+# syscalls for a value that never changes. Keyed by the data dir, not just
+# cached, so a test that re-points store.DATA_DIR gets its own salt rather than
+# the previous test's.
+_anon_salt_cache = {"dir": None, "salt": None}
+
+
+def _anon_salt():
+    """The secret the opaque handles are keyed with, minted on first need.
+    Same lock pattern as terrain_mirror.secret(): the common path (the file is
+    already there) never takes the lock at all.
+
+    NEVER GITIGNORE-ABLE AND NEVER OPTIONAL. It is kept out of the vault repo
+    (its .gitignore, beside the mirror secret) because a salt that travels in a
+    repo is a salt anyone with the repo can undo the handles with.
+
+    A host that can't keep one — a read-only data dir on a mirror — falls back
+    to a salt that lives as long as the process. The handles then stop being
+    stable across a restart, so an orb regroups; that is cosmetic. What it must
+    never do is fail open (a predictable salt) or fail loud (a 500 that takes
+    the whole map down over a file permission). Degrade the cosmetics, keep the
+    privacy."""
+    if _anon_salt_cache["dir"] == str(store.DATA_DIR):
+        return _anon_salt_cache["salt"]
+    path = store.DATA_DIR / "terrain_anon_salt"
+    try:
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path = path.with_suffix(".lock")
+            with open(lock_path, "w") as lock_file:
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
+                if not path.exists():
+                    path.write_bytes(secrets.token_hex(32).encode())
+                    path.chmod(0o600)
+        salt = path.read_bytes().strip()
+    except OSError:
+        salt = secrets.token_hex(32).encode()
+    _anon_salt_cache.update(dir=str(store.DATA_DIR), salt=salt)
+    return salt
+
+
+def _opaque_session_id(conv_id):
+    """One session's public handle — stable for as long as the salt is, and
+    not reversible without it. Stable is the whole requirement: the handle is
+    what groups an orb with its footprint files, so it has to come out the
+    same in the roster and on every file card in the same payload."""
+    digest = hashlib.blake2b(str(conv_id).encode("utf-8"),
+                             key=_anon_salt(), digest_size=_ANON_ID_HEX // 2)
+    return _ANON_ID_PREFIX + digest.hexdigest()
+
+
+def _redact_sessions(payload):
+    """The payload as a stranger gets it: every non-Coding session anonymized
+    in BOTH places it appears. Pure — it returns a new payload and never
+    touches the one it was given, because the cached owner copy is the same
+    object.
+
+    Idempotent by the `sessions_redacted` flag, so a mirror can safely redact
+    an artifact that was already redacted on the way out of the private box."""
+    if not isinstance(payload, dict) or payload.get("sessions_redacted"):
+        return payload
+
+    # The roster is the only place a lane is recorded, so it has to be read
+    # before the file cards can be judged.
+    roster = payload.get("sessions")
+    roster = roster if isinstance(roster, list) else []
+    lanes = {s.get("id"): s.get("lane") for s in roster if isinstance(s, dict)}
+
+    def _public(conv_id):
+        return lanes.get(conv_id) == _PUBLIC_LANE
+
+    def _anon_title(conv_id):
+        return _ANON_TITLES.get(lanes.get(conv_id), _ANON_TITLE_DEFAULT)
+
+    # The roster: a Coding session passes through whole; every other one keeps
+    # its lane, its running/open state and its `last` — the activity she said
+    # was fine to show — and loses its name, its id and its bot.
+    sessions_out = []
+    for entry in roster:
+        if not isinstance(entry, dict):
+            continue
+        # The parent link: a non-Coding parent is swapped for its opaque
+        # handle, the same one it gets in the roster, so the arrow still joins
+        # without the real id getting out.
+        parent = entry.get("spawned_from")
+        if parent and not _public(parent):
+            entry = {**entry, "spawned_from": _opaque_session_id(parent)}
+        if _public(entry.get("id")):
+            sessions_out.append(entry)
+            continue
+        anonymized = {k: v for k, v in entry.items() if k != "bot"}
+        anonymized.update(id=_opaque_session_id(entry.get("id")),
+                          title=_anon_title(entry.get("id")),
+                          anon=True)
+        sessions_out.append(anonymized)
+
+    # The file cards: the same two substitutions, on the copy of identity that
+    # rides along with every file. Counts and `last` are untouched — they say
+    # that work happened here, which is the thing the map is for.
+    repos_out = []
+    for repo in payload.get("repos") or []:
+        if not isinstance(repo, dict):
+            repos_out.append(repo)
+            continue
+        files_out = []
+        for entry in repo.get("files") or []:
+            if not isinstance(entry, dict):
+                files_out.append(entry)
+                continue
+            sessions = entry.get("sessions")
+            if not isinstance(sessions, list) or not sessions:
+                files_out.append(entry)
+                continue
+            files_out.append({**entry, "sessions": [
+                session if (isinstance(session, dict) and _public(session.get("id")))
+                else {**session,
+                      "id": _opaque_session_id(session.get("id")),
+                      "title": _anon_title(session.get("id")),
+                      "anon": True}
+                for session in sessions
+                if isinstance(session, dict)]})
+        repos_out.append({**repo, "files": files_out})
+
+    return {**payload, "repos": repos_out, "sessions": sessions_out,
+            "sessions_redacted": True}
+
+
+def _terrain_view(slot):
+    """The right view of a cached slot for THIS request. The owner gets the
+    built payload; a stranger gets its redacted derivative, computed on first
+    need and kept beside it for the rest of the slot's life.
+
+    The choice is made HERE, from request.view_mode, rather than baked into
+    what got built — which is what stops one view being served to the other
+    just because it asked first."""
+    if not _visitor():
+        return slot["payload"]
+    if slot.get("public") is None:
+        slot["public"] = _redact_sessions(slot["payload"])
+    return slot["public"]
+
+
+def _readable_repos():
+    """Every folder the file doors may read from: the main map's two repos,
+    then the owner's builds. The doors need the builds so a dot on a build's
+    map opens like any other; the visitor lock (`_visitor_may_read`) still
+    allows only tracked app code, so a build's files stay the owner's."""
+    return (*observatory._terrain_repos(), *buildlist.repos())
+
 
 def _terrain_safe_path(root, relpath):
     """Resolve `relpath` under `root`, or None if it escapes, doesn't exist,
@@ -150,9 +475,10 @@ def _terrain_safe_path(root, relpath):
          they LAND. This is what lets the skeleton's CLAUDE.local.md (a real
          symlink into the vault, and a file the map does show) open, while a
          symlink pointing at /etc/shadow still doesn't.
-    Both repos are readable through this endpoint by design, so allowing a
-    symlink to land in the sibling root grants nothing the caller couldn't
-    already ask for directly — but a path that *escapes both* is refused."""
+    Every root here is readable through this endpoint by design, so allowing
+    a symlink to land in a sibling root grants nothing the caller couldn't
+    already ask for directly — but a path that *escapes all of them* is
+    refused."""
     if "\0" in relpath:
         return None
     rel = relpath.replace("\\", "/").lstrip("/")
@@ -168,7 +494,7 @@ def _terrain_safe_path(root, relpath):
         candidate = Path(lexical).resolve()
     except (OSError, RuntimeError, ValueError):
         return None
-    for repo in observatory._terrain_repos():
+    for repo in _readable_repos():
         try:
             allowed = Path(repo["root"]).resolve()
         except (OSError, RuntimeError, ValueError):
@@ -180,6 +506,144 @@ def _terrain_safe_path(root, relpath):
     if not candidate.is_file():
         return None
     return candidate
+
+
+def _terrain_file_target(repo_id, relpath):
+    """Shared front door: resolve `repo` + `path` to a readable file, or refuse.
+
+    Both file endpoints (/terrain/file and /terrain/file/edits) come through
+    here, so the traversal check and the visitor lock can never drift apart
+    between the file's text and the file's edit history. Returns
+    (resolved_path, None) on success, or (None, response) carrying the
+    400/404/403 the caller should return as-is."""
+    if not repo_id or not relpath:
+        return None, (jsonify({"error": "repo and path are required"}), 400)
+    repo = next((r for r in _readable_repos() if r["id"] == repo_id), None)
+    if repo is None:
+        return None, (jsonify({"error": "unknown repo"}), 404)
+    resolved = _terrain_safe_path(repo["root"], relpath)
+    if resolved is None:
+        return None, (jsonify({"error": "not found"}), 404)
+    # Visitor lock: a visitor gets a 403 "private" unless _visitor_may_read
+    # allows the file. It runs after the path resolves, because the rule
+    # judges where the file really lands; a path that doesn't resolve is
+    # already a 404 above, for owner and visitor alike.
+    if _visitor() and not _visitor_may_read(repo, relpath, resolved):
+        return None, _private_file(repo_id, relpath)
+    return resolved, None
+
+
+# The longest one `git blame` may run, in seconds. Past it,
+# _terrain_line_edits gives up and answers None.
+_BLAME_TIMEOUT_SEC = 15
+
+
+def _terrain_line_edits(resolved):
+    """When each line of a file was last edited, read from `git blame`.
+
+    Returns a list of unix seconds, one per line in file order, from
+    whichever Terrain repo the file actually lives in (a symlink is judged on
+    where it lands, same as the read). None when git can't say — an untracked
+    file, a file outside every repo, a missing binary, a timeout — so the
+    client shows nothing rather than guessing.
+
+    A line changed on disk but not yet committed comes back from blame as
+    "Not Committed Yet" stamped with the time of the call, which is honest:
+    it IS the most recent edit. The pane paints it hottest.
+
+    Prompt that produced it: "can those displays show when the most recent
+    code was edited by a toggleable red color like on the terrain map"."""
+    # Find the repo this file really lives in; skip any root it isn't under.
+    for repo in _readable_repos():
+        try:
+            root = Path(repo["root"]).resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if root == resolved or root not in resolved.parents:
+            continue
+        rel = resolved.relative_to(root).as_posix()
+        # Ask git. Any failure — no git, a timeout, a file git doesn't
+        # track — means "no answer", never a guess.
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(root), "blame", "--line-porcelain", "--", rel],
+                capture_output=True, text=True, timeout=_BLAME_TIMEOUT_SEC,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if proc.returncode != 0:
+            return None
+        # Pick out one timestamp per line. --line-porcelain repeats the full
+        # header for every line, so there is one author-time per line, in
+        # file order — no need to track the sha. A stamp that isn't a number
+        # becomes 0.
+        edits = []
+        for line in proc.stdout.splitlines():
+            if line.startswith("author-time "):
+                try:
+                    edits.append(int(line[12:]))
+                except ValueError:
+                    edits.append(0)
+        return edits
+    return None
+
+
+def _terrain_line_runs(resolved):
+    """When each line of a Python file last RAN, one function at a time.
+
+    Returns a list of unix seconds, one per line in file order — 0 for a line
+    that is in no function, or in one the sensor hasn't seen run — or None
+    when there is nothing to say: not a Python file, a file that won't parse,
+    or one the sensor has never seen anything in.
+
+    The sensor (runtime_sensor.py) records function NAMES, not line numbers,
+    so this reads the file as it is on disk now, finds where each `def` starts
+    and ends (Python's own parser, `ast`), and gives every line inside a
+    function that function's last-ran time. A line belongs to the INNERMOST
+    function around it: a route handler nested inside `register(app)` is lit
+    by its own runs, not by `register` having run once at startup.
+
+    What it can't say, and the pane repeats it: it is per function, never per
+    line. A function that was entered lights whole, including a branch it
+    didn't take. And the stamp is the sensor's five-minute bucket, not the
+    second.
+
+    Prompt that produced it: "see which function in a file ran, not just that
+    the file ran"."""
+    if resolved.suffix.lower() != ".py":
+        return None
+    ran = runtime_sensor.functions_ran(resolved)
+    if not ran:
+        return None
+    try:
+        text = resolved.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(text)
+    except (OSError, SyntaxError, ValueError, RecursionError):
+        return None
+    runs = [0] * (text.count("\n") + 1)
+
+    # Walk the file outermost-first, building each function's dotted name the
+    # way Python builds `co_qualname`: a class adds its name, a function adds
+    # its name and then "<locals>" for anything defined inside it. Painting
+    # outer before inner is what lets the inner function overwrite its own
+    # lines.
+    def walk(node, prefix):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                name = prefix + child.name
+                last = ran.get(name)
+                stamp = int(last) if isinstance(last, (int, float)) else 0
+                end = getattr(child, "end_lineno", None) or child.lineno
+                for line_number in range(child.lineno, min(end, len(runs)) + 1):
+                    runs[line_number - 1] = stamp
+                walk(child, name + ".<locals>.")
+            elif isinstance(child, ast.ClassDef):
+                walk(child, prefix + child.name + ".")
+            else:
+                walk(child, prefix)
+
+    walk(tree, "")
+    return runs
 
 
 def _terrain_file_summary(relpath, text):
@@ -262,19 +726,149 @@ def _terrain_git_touches(repo_id):
         return {}
 
 
-def _terrain_refresh_history():
+def _terrain_refresh_history(repos=None):
     """Catch the code-history tables up to both repos before building a
     payload. codestore.update() costs one `git rev-list` per repo when
     nothing is new, so eager-on-cache-miss keeps the map at most one cache
     TTL stale without any cron in the loop. Failure is swallowed for the
-    same reason as above: yesterday's heat beats a 500."""
+    same reason as above: yesterday's heat beats a 500.
+
+    `repos` narrows it to the ones given — a build's map catches up only its
+    own folder, and the main map never pays for a `git rev-list` over a build
+    it isn't drawing."""
     try:
-        codestore.update(observatory._terrain_repos())
+        codestore.update(observatory._terrain_repos() if repos is None else repos)
     except Exception:
         pass
 
 
+# --- the pond tile's month, read from the journal itself ---------------------
+#
+# The map draws the card pool as ONE body: a little square of water holding the
+# last month, a bar per day (frontend: pondNodes.ts, terrainCanvas.drawPondTile).
+# Those bars used to be counted from the card FILES in this payload — which is
+# wrong, and visibly so, because `files` is cut to the hottest N per repo. On
+# this vault that cut left 265 of 2,240 cards standing: every day drew short,
+# the day-to-day ranking scrambled (the heaviest day in the month drew as a
+# stub), and three days she had written on drew as bare water. A picture of the
+# journal that loses two thirds of it isn't a thumbnail, it's a different shape.
+#
+# So the counts come from the journal instead. `cards` in exo.db is cardstore's
+# one-way mirror of the pool — the same table routes/pond.py draws the real
+# pond from — and one GROUP-BY-shaped read over a month is cheap enough to ride
+# along with a payload that's already cached for five minutes. Sending one
+# timestamp per card (rather than a count) is what keeps the tile BREATHING:
+# terrainGraph runs those through the live heat lens, so each day's colour is
+# its own heat on the map's clock, exactly as a real file's is.
+#
+# Prompt that produced it: "look at the bars on my pond UI that's a collapse of
+# my journal. it's buggy. it doesn't show the full month on the small view and
+# the bars aren't spaced properly."
+
+# Keep in step with POND_TILE_DAYS in frontend/src/features/terrain/pondNodes.ts
+# — the client draws whatever window this sends, so the two only have to agree
+# on the story ("a month"), not on the number.
+_POND_TILE_DAYS = 31
+
+
+def _card_epoch(day, ts):
+    """A card's "2026-08-21" + "22:32" as unix seconds, on the LOCAL clock.
+
+    The pool stamps a card with the wall time she wrote it, and the rest of
+    this payload is git's unix seconds, so the two have to be put on one clock
+    before the heat lens can compare them. A card with no usable time lands at
+    midday rather than at midnight — the day is what's being drawn, and
+    midnight would hand it to the wrong day the moment anything rounds."""
+    for clock, fmt in ((ts or "", "%Y-%m-%d %H:%M:%S"),
+                       ((ts or "")[:5], "%Y-%m-%d %H:%M")):
+        try:
+            return int(datetime.strptime(f"{day} {clock}", fmt).timestamp())
+        except ValueError:
+            continue
+    try:
+        return int(datetime.strptime(f"{day} 12:00", "%Y-%m-%d %H:%M").timestamp())
+    except ValueError:
+        return 0
+
+
+def _pond_days(days=_POND_TILE_DAYS, today=None):
+    """The journal's last month: one DENSE row per day, oldest first, each
+    carrying the times of the cards written that day.
+
+    Dense on purpose — a day she wrote nothing comes back as an empty list
+    rather than being missing, so the client can't confuse "quiet" with "not
+    in the payload" and draw the month with a hole in it.
+
+    Deleted cards are excluded, matching routes/pond.py: the pool keeps its
+    tombstones so a card can never be silently lost, but a drawing of where her
+    writing SITS shouldn't be drawing what she removed.
+
+    Every failure path returns [] rather than raising. The journal mirror is an
+    optional thing for this map (an install may have no vault, no exo.db, or a
+    schema that predates the `cards` table), and the client falls back to
+    counting card files when this is empty — worse, but never a 500."""
+    end = today or date.today()
+    window = [(end - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+    buckets = {day: [] for day in window}
+
+    path = store.DATA_DIR / "exo.db"
+    if not path.is_file():
+        return []
+    conn = None
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        conn.execute("PRAGMA query_only = ON")
+        rows = conn.execute(
+            """SELECT day, ts FROM cards
+                WHERE deleted_at IS NULL AND day >= ? AND day <= ?""",
+            (window[0], window[-1]),
+        ).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        if conn is not None:
+            with contextlib.suppress(sqlite3.Error):
+                conn.close()
+
+    for day, ts in rows:
+        bucket = buckets.get(day)
+        if bucket is not None:
+            bucket.append(_card_epoch(day, ts))
+    # Newest first inside a day, matching what the payload guarantees for a
+    # real file's touches.
+    return [{"day": day, "touches": sorted(buckets[day], reverse=True)} for day in window]
+
+
+def _helper_title(conv_id, index):
+    """What the map calls a helper session, or None when it isn't one. The
+    room helper is "Room helper"; a swarm's helper is "Swarm helper: <the
+    swarm's name>", the name read from its index title ("Swarm helper ·
+    <name>", kept current by swarm_helper.run); any other helper keeps its
+    index title."""
+    if not isinstance(index, dict):
+        return None
+    role = swarms.helper_role(conv_id, index)
+    if role is None:
+        return None
+    if role == "room_helper":
+        return "Room helper"
+    title = str((index.get(conv_id) or {}).get("title") or "").strip()
+    if role == "swarm_helper":
+        name = title.partition("·")[2].strip()
+        return f"Swarm helper: {name}" if name else "Swarm helper"
+    return title or None
+
+
 def _terrain_session_title(conv_id, gists, index):
+    """The name a session wears on the map: a helper is named for its role
+    (_helper_title); any other session by its gist title — the one written
+    from what it actually did — then its index title.
+
+    Prompt: "i want the room helper named Room helper and then swarm helper:
+    title"."""
+    helper = _helper_title(conv_id, index)
+    if helper:
+        return helper
     gist = gists.get(conv_id) if isinstance(gists, dict) else None
     if isinstance(gist, dict) and gist.get("title"):
         return gist["title"]
@@ -308,7 +902,250 @@ def _terrain_live_ids(index, running_ids):
     return live
 
 
-def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
+# --- the coils: folders listed whole, to be drawn as spirals ----------------
+#
+# Some folders are one file per near-identical, time-stamped thing — uploads,
+# chat logs, daily journal pages, diary entries. On a map that draws a dot per
+# file each of those arrives as the biggest structure in its repo and says
+# nothing except "there are a lot of these". The map winds them into spirals
+# instead (frontend: coilFolders.ts, spiralLayout.ts): the last month or so
+# around the folder node, widening a step each time she pulls the curve at
+# its tip and collapsing when she taps the middle. Its steps can be set from
+# the coil's hover card (`_set_coil_windows`, POST .../coils/windows).
+#
+# WHICH FOLDERS IS HERS, not the app's. It comes from `terrain_coils.json` in
+# the data dir, so adding a coil is editing a data file and reloading — no
+# code change, and nothing about her vault's layout baked into a shareable
+# repo. With no such file, the uploads archive is the one default, resolved
+# from store.UPLOAD_ARCHIVE_DIR (which EXOCORTEX_UPLOAD_ARCHIVE_DIR can move).
+#
+#   {"coils": [
+#      {"path": "data/uploads-archive", "time": "stamp"},
+#      {"path": "tulku/people", "time": "git", "windows": [92, null]},
+#      {"path": "data/write_log", "ignore": ["*.db-shm", "*.db-wal"]}
+#   ]}
+#
+# `time` is the one thing about a folder that can't be inferred by looking at
+# it. 'stamp' reads each file's moment out of its FILENAME and throws the git
+# history away; it is the default and is right for a folder git only ever
+# bulk-moves — measured on the uploads archive, 633 files carry 20 distinct
+# touch-sets between them, 346 of them sharing a single commit, so a coil lit
+# by that history would show three flat bands meaning "a commit swept through
+# here".
+#
+# 'git' means WHEN SHE LAST EDITED IT, which takes more than reading the last
+# touch: the vault's backup cron commits whatever it finds each hour, so an
+# import or a migration lands as one commit across dozens of pages. So a
+# commit that moved ten or more files OF THE SAME FOLDER doesn't count as an
+# edit, and a file whose every touch was a sweep falls back to the commit
+# that created it — codestore.folder_edit_times, which owns that rule and
+# explains it. Measured on the vault, that reading is the difference between
+# 33 and 44 distinct days across tulku/people.
+#
+# LISTED UNCAPPED, and that is not a preference. `files` is cut to the hottest
+# N per repo, and for a bulk-moved folder that ranking is built on a lie to
+# begin with: measured, the hottest-350 cut leaves exactly ZERO of those 633
+# uploads standing. A coil built from `files` would have drawn nothing at all
+# and looked like an empty month.
+#
+# FILENAMES ONLY, no times. A stamped moment is in the name, and the client
+# already has to parse it for the payload fallback — sending a time as well
+# would be a second clock, free to disagree with the first. One parser, on one
+# side.
+#
+# Prompt that produced it: "can you make this into a modular file that I can
+# apply to different folders? i have a few other candidates i want to assign
+# this".
+
+_COIL_LIST_MAX = 5000   # ceiling per folder — well past any real one here
+_COIL_WINDOWS = [31, 92, 183, None]   # default steps; keep with DEFAULT_COIL_WINDOWS
+_COIL_MAX_STEPS = 8
+_COIL_MAX_DAYS = 3650
+
+
+def _clean_windows(raw):
+    """A coil's step list if it's a sensible one, else None.
+
+    Sensible means what the map can walk: one to eight steps, each a whole
+    number of days (1 to ten years), smallest first with no repeats, and
+    `null` ("everything") allowed only as the last and widest. The map's pull
+    only ever widens and its centre collapses to the first step, so a list out
+    of order or with "everything" in the middle would make a pull go nowhere.
+    """
+    if not isinstance(raw, list) or not 1 <= len(raw) <= _COIL_MAX_STEPS:
+        return None
+    days = raw[:-1] if raw[-1] is None else raw
+    for d in days:
+        # bool is an int in Python; `true` is not a number of days.
+        if isinstance(d, bool) or not isinstance(d, int) or not 1 <= d <= _COIL_MAX_DAYS:
+            return None
+    if any(b <= a for a, b in zip(days, days[1:])):
+        return None
+    return list(raw)
+
+
+def _coil_specs():
+    """What to wind into a coil: a list of {path, repo, time, windows, ignore}.
+
+    Her file when there is one, else the uploads archive alone — which keeps
+    an install that has never heard of this file behaving exactly as it did.
+    Anything malformed is skipped rather than raised on: a typo in a data file
+    should cost one coil, not the whole map.
+    """
+    configured = store.read("terrain_coils", {}) or {}
+    specs = []
+    for raw in (configured.get("coils") or []):
+        if not isinstance(raw, dict) or not raw.get("path"):
+            continue
+        time = raw.get("time") if raw.get("time") in ("stamp", "git") else "stamp"
+        windows = _clean_windows(raw.get("windows")) or _COIL_WINDOWS
+        specs.append({"path": str(raw["path"]).strip("/"),
+                      "repo": raw.get("repo"),
+                      "time": time,
+                      "windows": windows,
+                      "ignore": [g for g in (raw.get("ignore") or []) if isinstance(g, str)]})
+    if specs:
+        return specs
+    # The default, and the only one this repo knows by name. Stated as an
+    # absolute path so it follows EXOCORTEX_UPLOAD_ARCHIVE_DIR wherever it is.
+    return [{"path": Path(store.UPLOAD_ARCHIVE_DIR), "repo": None, "time": "stamp",
+             "windows": _COIL_WINDOWS, "ignore": []}]
+
+
+def _coil_folder(spec):
+    """Resolve one spec to (repo_id, prefix, folder) — or None if it isn't a
+    readable directory inside a terrain repo.
+
+    Refuse any path that escapes its repo. `relative_to` is what enforces it:
+    a `path` of "../../etc" resolves outside every repo root and matches none
+    of them, so it falls off the end rather than being listed."""
+    repos = observatory._terrain_repos()
+    if spec["repo"]:
+        repos = [r for r in repos if r["id"] == spec["repo"]]
+    for repo in repos:
+        try:
+            root = Path(repo["root"]).resolve()
+            folder = (Path(spec["path"]) if Path(spec["path"]).is_absolute()
+                      else root / spec["path"]).resolve()
+            rel = folder.relative_to(root)
+        except (ValueError, OSError):
+            continue
+        if not folder.is_dir():
+            continue
+        return repo["id"], f"{rel.as_posix()}/", folder
+    return None
+
+
+def _coil_listings():
+    """Every configured folder, listed whole, for the map's spirals.
+
+    Newest first, cut to `_COIL_LIST_MAX`. Sorting by name is sorting by time
+    for a stamped filename, and the client re-sorts on the parsed moment
+    anyway — this ordering only decides which get dropped at the ceiling.
+    """
+    out = []
+    for spec in _coil_specs():
+        found = _coil_folder(spec)
+        if found is None:
+            continue
+        repo_id, prefix, folder = found
+        try:
+            names = sorted((f.name for f in folder.iterdir() if f.is_file()),
+                           reverse=True)
+        except OSError:
+            # Unreadable mid-scan — never break the whole map over one coil.
+            continue
+        if spec["ignore"]:
+            names = [n for n in names
+                     if not any(fnmatch(n, g) for g in spec["ignore"])]
+        paths = [f"{prefix}{n}" for n in names[:_COIL_LIST_MAX]]
+        # A git coil's times ride ALONG THE LISTING, for exactly the reason
+        # the listing itself exists: `files` is cut to the hottest N per repo,
+        # and a coil folder loses that cut badly — measured, 7 of tulku/people's
+        # 75 survive it. A git coil reading its times out of the payload could
+        # only date those 7 and would strand the other 68 undated on its tip.
+        # One array, aligned with `paths`, uncapped like them.
+        edits = (codestore.folder_edit_times(repo_id, prefix)
+                 if spec["time"] == "git" else {})
+        listing = {"repo": repo_id,
+                   "prefix": prefix,
+                   "time": spec["time"],
+                   "windows": spec["windows"],
+                   "paths": paths}
+        if spec["time"] == "git":
+            listing["times"] = [edits.get(p) for p in paths]
+        out.append(listing)
+    return out
+
+
+def _set_coil_windows(repo_id, prefix, windows):
+    """Save the steps for the coil at (repo_id, prefix) into her
+    terrain_coils.json. Returns True when it found that coil.
+
+    Matched the way the listing names it — each entry resolved through
+    _coil_folder to its repo and repo-relative prefix — because that's the
+    only name the map knows it by; the file's own `path` may be spelled with
+    or without a trailing slash, and with or without its repo. Only `windows` is
+    touched: every other entry, every other field, and her `_what`/`_fields`
+    notes are written back exactly as they were.
+
+    With no config file yet, the one default coil (the uploads archive) is
+    written out as the file's first entry, so her steps have somewhere to
+    live and the map goes on showing the same coil.
+    """
+    with store.mutate("terrain_coils", {}) as configured:
+        entries = configured.get("coils")
+        if not isinstance(entries, list) or not entries:
+            spec = _coil_specs()[0]
+            found = _coil_folder(spec)
+            if found is None or found[:2] != (repo_id, prefix):
+                return False
+            configured["coils"] = [{"path": prefix.rstrip("/"), "repo": repo_id,
+                                    "time": spec["time"], "windows": windows}]
+            return True
+        for raw in entries:
+            if not isinstance(raw, dict) or not raw.get("path"):
+                continue
+            # Spelled exactly as _coil_specs reads it, so both resolve alike.
+            spec = {"path": str(raw["path"]).strip("/"), "repo": raw.get("repo")}
+            found = _coil_folder(spec)
+            if found is not None and found[:2] == (repo_id, prefix):
+                raw["windows"] = windows
+                return True
+        return False
+
+
+def _cap_files(files_out, file_cap):
+    """Cut one repo's file list down to the hottest `file_cap` of them, so the
+    client's force-sim stays tractable. Session-attributed files and anything
+    that RAN in the last day always survive the cut; everything else is ranked
+    by week-half-life-decayed git heat. `None` means no cut at all.
+
+    Its own function because two callers cut the same way: the live build
+    below, and a public mirror re-cutting the one full payload it was
+    published (routes/terrain_mirror.py). Sharing the ranking is what makes a
+    mirror's Files slider land on the same files the private box would have
+    sent for that tier.
+    """
+    if file_cap is None or len(files_out) <= file_cap:
+        return files_out
+    now_ts = time.time()
+
+    def _cap_heat(f):
+        return sum(2 ** (-(now_ts - ts) / _TERRAIN_CAP_HALF_LIFE_SEC)
+                   for ts in (f.get("touches") or []))
+
+    def _ran_today(f):
+        return any(now_ts - ts <= 86400 for ts in (f.get("ran") or []))
+
+    attributed = [f for f in files_out if f.get("sessions") or _ran_today(f)]
+    rest = sorted((f for f in files_out if not (f.get("sessions") or _ran_today(f))),
+                  key=_cap_heat, reverse=True)
+    keep = attributed + rest[:max(0, file_cap - len(attributed))]
+    return sorted(keep, key=lambda f: f["path"])
+
+
+def _build_terrain(file_cap=_TERRAIN_FILE_CAP, repos=None):
     """The terrain payload: per repo, per file, git touch history merged
     with which bot_chats sessions wrote/read it. Reads footprints.json (see
     scripts/extract_footprints.py) + gists.json/index.json defensively —
@@ -316,7 +1153,16 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
 
     `file_cap` is the hottest-N-per-repo cut; None means no cut at all (the
     Files slider's "All"). Either way each repo reports `files_total`, the
-    uncapped count, so the map can say how much it isn't showing."""
+    uncapped count, so the map can say how much it isn't showing.
+
+    `repos` is which folders to draw. None is the main map's two. A build's
+    map passes its one folder, and then the payload is about that folder
+    alone: the session roster holds only the sessions that touched a file in
+    it, and the journal's month and the coil folders — both the vault's —
+    are left empty."""
+    one_build = repos is not None
+    if repos is None:
+        repos = observatory._terrain_repos()
     footprints = store.read("bot_chats/footprints", {})
     if not isinstance(footprints, dict):
         footprints = {}
@@ -349,7 +1195,7 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
             footprints[cid] = {"files": live_files}
 
     repos_out = []
-    for repo in observatory._terrain_repos():
+    for repo in repos:
         root = repo["root"]
         files = {}   # repo-relative path -> {"touches": [...], "sessions": {conv_id: {...}}}
 
@@ -384,7 +1230,16 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
                 rel = rel.replace(os.sep, "/")
                 if _terrain_denylisted(rel):
                     continue
-                entry = files.setdefault(rel, {"touches": [], "sessions": {}})
+                # Leave a file that no longer exists off the map. Git's own
+                # list above is living files only; a footprint on a path
+                # that is neither in it nor on disk is a file a session once
+                # read or wrote and that has since been deleted or moved —
+                # drawing it kept whole deleted folders on the map.
+                entry = files.get(rel)
+                if entry is None:
+                    if not os.path.exists(abspath):
+                        continue
+                    entry = files[rel] = {"touches": [], "sessions": {}}
                 sess = entry["sessions"].setdefault(
                     conv_id, {"id": conv_id, "title": _terrain_session_title(conv_id, gists, index),
                               "writes": 0, "reads": 0, "creates": 0, "last": None})
@@ -395,28 +1250,54 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
                 if last and (sess["last"] is None or last > sess["last"]):
                     sess["last"] = last
 
+        # Run attribution — the GOLD channel. runtime_sensor.py's sidecar says
+        # which Python files actually executed, as 5-minute buckets (unix
+        # seconds, oldest first, at most the last 50). Mapped into this repo
+        # the same way the footprints are. A file that ran surfaces even if
+        # git never touched it in the window and no agent opened it. The map
+        # decides the window (24h, terrainGraph.ts RUN_WINDOW_SECONDS); this
+        # just carries the buckets. Python only — the sensor can't see the
+        # browser, so no .tsx ever gets a `ran`.
+        for abspath, entry in (runtime_sensor.snapshot().get("files") or {}).items():
+            if not isinstance(entry, dict):
+                continue
+            try:
+                rel = os.path.relpath(abspath, root)
+            except ValueError:
+                continue
+            if rel == os.curdir or rel.startswith(os.pardir):
+                continue
+            rel = rel.replace(os.sep, "/")
+            if _terrain_denylisted(rel):
+                continue
+            ran = [int(ts) for ts in (entry.get("touches") or [])
+                   if isinstance(ts, (int, float))]
+            if not ran:
+                continue
+            files.setdefault(rel, {"touches": [], "sessions": {}})["ran"] = ran
+
         files_out = []
         for relpath, data in sorted(files.items()):
             sessions = sorted(data["sessions"].values(),
                               key=lambda s: s.get("last") or "", reverse=True)
-            files_out.append({"path": relpath, "touches": data["touches"], "sessions": sessions})
+            files_out.append({"path": relpath, "touches": data["touches"],
+                              "sessions": sessions, "ran": data.get("ran", [])})
 
-        # Cap to the hottest files so the client's force-sim stays tractable.
-        # Session-attributed files always survive; the rest are ranked by
-        # week-half-life-decayed git heat. files_total keeps the cap honest.
+        # Cap to the hottest files, keeping the uncapped count beside it —
+        # files_total is what keeps the cap honest.
         files_total = len(files_out)
-        if file_cap is not None and files_total > file_cap:
-            now_ts = time.time()
+        files_out = _cap_files(files_out, file_cap)
 
-            def _cap_heat(f):
-                return sum(2 ** (-(now_ts - ts) / _TERRAIN_CAP_HALF_LIFE_SEC)
-                           for ts in f["touches"])
-
-            attributed = [f for f in files_out if f["sessions"]]
-            rest = sorted((f for f in files_out if not f["sessions"]),
-                          key=_cap_heat, reverse=True)
-            keep = attributed + rest[:max(0, file_cap - len(attributed))]
-            files_out = sorted(keep, key=lambda f: f["path"])
+        # Each file's size on disk, in bytes — what the map sizes a file dot
+        # by (terrainCanvas.ts fileRadius). Stat'd after the cap so only files
+        # actually sent pay for it. None for a file git remembers but the disk
+        # no longer has (deleted or moved), so the map can draw it at its
+        # smallest rather than guess.
+        for f in files_out:
+            try:
+                f["bytes"] = os.path.getsize(os.path.join(root, f["path"]))
+            except OSError:
+                f["bytes"] = None
 
         repos_out.append({"id": repo["id"], "name": repo["name"], "root": str(root),
                           "files": files_out, "files_total": files_total})
@@ -432,24 +1313,44 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
                 if isinstance(meta, dict) and not meta.get("archived")}
     session_ids = {cid for cid, conv in footprints.items()
                    if isinstance(conv, dict) and conv.get("files")} | running_ids | open_ids
+    # A build's roster is only the sessions that touched it. The main map's
+    # roster is everyone, because that map is also where she watches agents;
+    # a build's map is a record of one folder, and an orb with no tether to
+    # any of its files would be saying nothing about it.
+    if one_build:
+        session_ids = {session["id"] for repo_out in repos_out
+                       for file_out in repo_out["files"]
+                       for session in file_out["sessions"]}
     sessions_out = []
     for cid in session_ids:
         meta = index.get(cid) if isinstance(index.get(cid), dict) else {}
-        sessions_out.append({"id": cid,
-                             "title": _terrain_session_title(cid, gists, index),
-                             "bot": meta.get("bot"),
-                             "running": cid in running_ids,
-                             # Open = not archived. A real, server-side state
-                             # she controls, unlike the browser-local heartbeat
-                             # the map used to call "active".
-                             "open": cid in open_ids,
-                             # Which room it lives in. Derived for entries that
-                             # predate the field, so nothing needs migrating.
-                             "lane": observatory._conv_lane(meta),
-                             "last": meta.get("last_at")})
+        session_out = {"id": cid,
+                       "title": _terrain_session_title(cid, gists, index),
+                       "bot": meta.get("bot"),
+                       "running": cid in running_ids,
+                       # Open = not archived. A real, server-side state
+                       # she controls, unlike the browser-local heartbeat
+                       # the map used to call "active".
+                       "open": cid in open_ids,
+                       # Which room it lives in. Derived for entries that
+                       # predate the field, so nothing needs migrating.
+                       "lane": observatory._conv_lane(meta),
+                       "last": meta.get("last_at")}
+        # Who it was spun off from (routes/spinoff.py), so the map can draw an
+        # arrow parent → child. Only on a spinoff — a session nothing spawned
+        # carries no key at all.
+        if meta.get("spawned_from"):
+            session_out["spawned_from"] = meta["spawned_from"]
+        sessions_out.append(session_out)
     sessions_out.sort(key=lambda s: s.get("last") or "", reverse=True)
 
     return {"generated_at": datetime.now().isoformat(timespec="seconds"),
+            # The same moment as a unix second. generated_at is local wall
+            # time with no zone on it, which is fine for the owner reading her
+            # own map and useless to anyone else: a public mirror's visitor may
+            # be in another timezone, and "how old is this map" has to come out
+            # the same for both of them.
+            "generated_ts": int(time.time()),
             # No window anymore — the payload carries the whole history. null
             # tells the client "don't assume a horizon"; terrainGraph's
             # earliest-touch scan finds the real one.
@@ -457,6 +1358,12 @@ def _build_terrain(file_cap=_TERRAIN_FILE_CAP):
             # What this payload was cut to, so the client's Files slider knows
             # whether it already holds every file or must refetch to grow.
             "file_cap": file_cap,
+            # The pond tile's month, counted in the journal rather than in
+            # this payload's (capped) card files. See _pond_days.
+            "pond_days": [] if one_build else _pond_days(),
+            # Her coil folders, each listed whole. Uncapped on purpose, and
+            # which folders is hers to say — see _coil_listings.
+            "coils": [] if one_build else _coil_listings(),
             "repos": repos_out,
             "sessions": sessions_out}
 
@@ -785,7 +1692,546 @@ def _growth_front_tags_by_subject(conn):
     return out
 
 
+def _trace_tree(spans):
+    """The flat span list rebuilt into the call tree it came from.
+
+    `depth` is the shadow-stack depth at the moment the hop was recorded, so
+    the tree is reconstructible without storing parent ids: walk in order,
+    keeping the last span seen at each depth, and a span's parent is the last
+    one strictly shallower than it. Anything at depth 0 — or orphaned because
+    its parent fell off a truncated trace — becomes a root rather than being
+    dropped."""
+    roots, by_depth = [], {}
+    for span in spans:
+        node = {**span, "children": []}
+        parent = None
+        for d in range(node["depth"] - 1, -1, -1):
+            if d in by_depth:
+                parent = by_depth[d]
+                break
+        (parent["children"] if parent else roots).append(node)
+        by_depth[node["depth"]] = node
+        # Nothing deeper than this span can be its sibling's child, so the
+        # deeper entries are stale the moment we descend past them.
+        for d in [d for d in by_depth if d > node["depth"]]:
+            del by_depth[d]
+    return roots
+
+
+def _graph_refresh():
+    """Keep the code-graph tables warm, on the same lazy-TTL shape the map's
+    own payload uses: parse on a cache miss, serve from the tables otherwise.
+
+    The whole parse is ~1300 files in about 1.5s, which is too slow for a tap
+    and fine for a five-minute miss — the same trade `_terrain_refresh_history`
+    already makes for git. A failure here degrades to whatever the tables
+    already hold (an empty graph on a cold install), never to a 500."""
+    now_ts = time.time()
+    if now_ts - _graph_cache["built_at"] < _TERRAIN_GRAPH_TTL_SEC:
+        return
+    try:
+        # The repos come from observatory._terrain_repos(), NOT from
+        # codegraph's own default. Every other endpoint in this module resolves
+        # its roots that way, and a graph built over a different pair of roots
+        # than the map beside it would disagree with that map about which files
+        # exist — the two are meant to be read together.
+        codegraph.rebuild(observatory._terrain_repos())
+        _graph_cache["built_at"] = now_ts
+    except Exception:
+        _graph_cache["built_at"] = now_ts - _TERRAIN_GRAPH_TTL_SEC / 2   # retry sooner
+
+
+_JOURNEY_GRACE_SEC = 30
+
+
+def _valid_int(raw, default, upper):
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(n, upper))
+
+
+def _component_resolver():
+    """name -> (repo, path) for a React component, via the code graph: the
+    file some other file imports that name FROM, restricted to ts/tsx so a
+    Python symbol of the same name can't win. Built once per request and
+    memoised inside. A name found in two different files is ambiguous and
+    resolves to None — the browser part then says `browser` rather than
+    picking one."""
+    by_name = {}
+    try:
+        edges = codegraph.graph(internal_only=True)["edges"]
+    except Exception:
+        return lambda name: None
+    for e in edges:
+        if not e["dst"].endswith((".tsx", ".ts", ".jsx", ".js")):
+            continue
+        for sym in e.get("symbols") or ():
+            hit = (e["dst_repo"], e["dst"])
+            prev = by_name.get(sym)
+            if prev is None:
+                by_name[sym] = hit
+            elif prev != hit:
+                by_name[sym] = False        # ambiguous
+    # A route component is imported by nobody (the router plugin wires it), so
+    # fall back to a file whose basename IS the component name, if unique.
+    try:
+        files = codegraph.graph(internal_only=True)["files"]
+    except Exception:
+        files = []
+    by_base = {}
+    for f in files:
+        base = f["path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        if f["path"].endswith((".tsx", ".ts")):
+            by_base[base] = False if base in by_base else (f["repo"], f["path"])
+
+    def resolve(name):
+        hit = by_name.get(name)
+        if hit is None:
+            hit = by_base.get(name)
+        return hit or None
+    return resolve
+
+
+def _agent_calls_for(part):
+    """The agent's tool calls inside one turn part, from the conversation's
+    transcript: [{seq, name, path, ts, t0_us}]. `entry` is "turn <conv_id>",
+    and the window is the part's start plus its duration.
+
+    Read-only, and honest about its edges: a transcript line carries the
+    agent's own clock, which is not the part's perf_counter, so `t0_us` here
+    is the wall-clock offset from the part's `started_at` — close enough to
+    place a beat on a timeline, and labelled as an estimate by being the only
+    field named that way."""
+    entry = str(part.get("entry") or "")
+    if not entry.startswith("turn "):
+        return []
+    conv_id = entry[5:].strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", conv_id):
+        return []
+    path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    try:
+        t_start = datetime.fromisoformat(part["started_at"]).timestamp()
+    except (ValueError, TypeError, KeyError):
+        return []
+    t_end = t_start + (part.get("duration_us") or 0) / 1e6 + 1.0
+    try:
+        events = _load_events(path)
+    except OSError:
+        return []
+    roots = [(r["id"], str(Path(r["root"]).resolve())) for r in observatory._terrain_repos()]
+
+    def _where(p):
+        for rid, root in roots:
+            if p.startswith(root + "/"):
+                return rid, p[len(root) + 1:]
+        return None, None
+
+    out = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        ts = _parse_ts(ev.get("ts") or ev.get("timestamp"))
+        if ts is None or ts < t_start - 1.0 or ts > t_end:
+            continue
+        msg = ev.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "tool_use":
+                continue
+            name = str(item.get("name") or "")
+            inp = item.get("input") if isinstance(item.get("input"), dict) else {}
+            tpath = _tool_path(name, inp)
+            if not tpath and name == "Bash":
+                tpath = str(inp.get("command") or "")[:120]
+            repo, rel = _where(str(tpath or ""))
+            out.append({"seq": len(out), "name": name,
+                        "path": str(tpath or "")[:300], "repo": repo, "rel": rel,
+                        "ts": ts, "t0_us": int(max(0.0, ts - t_start) * 1e6)})
+    return out
+
+
+def _trace_window(trace):
+    """(t_start, t_end) epoch seconds covering the root and every part —
+    a journey root's duration is its window, but a one-shot trace's turn
+    part can run long past the request that spawned it."""
+    try:
+        t0 = datetime.fromisoformat(trace["started_at"]).timestamp()
+    except (ValueError, TypeError, KeyError):
+        return None
+    t1 = t0 + (trace.get("duration_us") or 0) / 1e6
+    for part in trace.get("parts", ()):
+        try:
+            p0 = datetime.fromisoformat(part["started_at"]).timestamp()
+        except (ValueError, TypeError, KeyError):
+            continue
+        t1 = max(t1, p0 + (part.get("duration_us") or 0) / 1e6)
+    return t0, t1
+
+
+def _writes_in_window(trace, limit=500):
+    """Write-journal events (writelog.py) whose timestamp falls inside the
+    trace's window, oldest first, without their patches (the creek's own
+    Writes section shows those per collection). Imported lazily and
+    fail-open, same as routes/creek.py — no writelog, no events."""
+    window = _trace_window(trace)
+    if window is None:
+        return []
+    t0, t1 = window
+    try:
+        import writelog
+        events = writelog.recent(limit=limit)
+    except Exception:
+        return []
+    out = []
+    for ev in events:
+        ts = _parse_ts(ev.get("ts"))
+        # Same host clock on both sides, but the journal stamps to the
+        # SECOND while the trace starts on the millisecond — so the window
+        # opens at the start of the trace's second, and closes a little
+        # after its end for a write that lands as the request tears down.
+        if ts is None or ts < math.floor(t0) or ts > t1 + 0.25:
+            continue
+        out.append({"ts": ev["ts"], "caller": ev.get("caller"),
+                    "collection": ev.get("collection"), "verb": ev.get("verb"),
+                    "t0_us": int(max(0.0, ts - t0) * 1e6)})
+    out.reverse()
+    return out
+
+
+def _build_cache_clear(build_id):
+    """Drop every cached map of one build — after it was refreshed from
+    GitHub or taken off the list, so the next look is built fresh."""
+    for key in [key for key in _terrain_cache
+                if isinstance(key, tuple) and key[0] == build_id]:
+        _terrain_cache.pop(key, None)
+
+
+def _build_view(build_id, file_cap):
+    """One build's map: the same payload as the main map, drawn over that one
+    folder, with `build` naming it.
+
+    Refuse a visitor, and refuse on a public mirror — a 404, the same answer
+    an unknown build gets, so the door doesn't say which builds exist. The
+    main map is public; a build is the owner's unless she says otherwise, and
+    this is the only door a build's file names could leave by.
+
+    A cache that expires: one slot per (build, file cap), sharing the main
+    map's slots and their timing — five minutes at rest, five seconds while
+    any session is running, so a build being worked on right now shows it."""
+    if _visitor() or config.public_only():
+        return jsonify({"error": "not found"}), 404
+    build = buildlist.find(build_id)
+    if build is None:
+        return jsonify({"error": "not found"}), 404
+    repo = {"id": build["id"], "name": build["name"], "root": build["root"]}
+    index = store.read("bot_chats/index", {})
+    anything_running = isinstance(index, dict) and bool(_terrain_running_ids(index))
+    ttl = _TERRAIN_LIVE_TTL_SEC if anything_running else _TERRAIN_CACHE_TTL_SEC
+    now = time.monotonic()
+    key = (build["id"], file_cap)
+    slot = _terrain_cache.get(key)
+    if slot is None or now - slot["computed_at"] >= ttl:
+        _terrain_refresh_history([repo])
+        while len(_terrain_cache) >= _TERRAIN_CACHE_SLOTS:
+            oldest = min(_terrain_cache, key=lambda k: _terrain_cache[k]["computed_at"])
+            _terrain_cache.pop(oldest, None)
+        payload = _build_terrain(file_cap, repos=[repo])
+        payload["build"] = {"id": build["id"], "name": build["name"]}
+        slot = {"payload": payload, "public": None, "computed_at": now}
+        _terrain_cache[key] = slot
+    return jsonify(slot["payload"])
+
+
 def register(app):
+    @app.route("/api/observatory/terrain/coils/windows", methods=["POST"])
+    def terrain_coil_windows():
+        """Set the steps one coil opens to — from the coil's hover card.
+
+        Body: {repo, prefix, windows}. `prefix` is the listing's own (repo-
+        relative, trailing slash). Writes her terrain_coils.json; the next
+        payload carries the new steps. Owner only: this path isn't in
+        public_config.PUBLIC_PATHS, so a visitor never reaches it.
+
+        Prompt that produced it: "i want the hover popup to show both read
+        only details and setting the coil steps."
+        """
+        body = request.get_json(silent=True) or {}
+        repo_id = body.get("repo")
+        prefix = body.get("prefix")
+        windows = _clean_windows(body.get("windows"))
+        if not isinstance(repo_id, str) or not isinstance(prefix, str):
+            return jsonify({"error": "repo and prefix are required"}), 400
+        if windows is None:
+            return jsonify({"error": "windows must be 1-8 whole days, smallest "
+                                     "first, with null (everything) only last"}), 400
+        if not _set_coil_windows(repo_id, prefix, windows):
+            return jsonify({"error": "no such coil"}), 404
+        return jsonify({"ok": True, "windows": windows})
+
+    @app.route("/api/observatory/terrain/trace/arm", methods=["POST"])
+    def observatory_trace_arm():
+        """Arm the tracer: the NEXT request through the app is followed all the
+        way, in order, and saved. Returns the id it will carry so the caller can
+        go looking for it without polling a list.
+
+        One at a time, deliberately. Tracing is the expensive mode (no
+        de-instrumentation, every function in the process), so this is a
+        deliberate act with a deliberate scope, not a setting to leave on."""
+        body = request.get_json(silent=True) or {}
+        label = str(body.get("label") or "")
+        # `journey: true` opens a WINDOW rather than taking one shot: the
+        # browser carries the returned id on every request until `until`, and
+        # posts its own clicks and fetches to .../trace/<id>/browser. See the
+        # journey section of runtime_trace.py.
+        if body.get("journey"):
+            rec = runtime_trace.arm_journey(label=label, seconds=body.get("seconds"))
+            return jsonify({"armed": True, "journey": rec, "id": rec["id"]})
+        trace_id = runtime_trace.arm(label=label)
+        return jsonify({"armed": True, "id": trace_id})
+
+    @app.route("/api/observatory/terrain/trace/arm", methods=["DELETE"])
+    def observatory_trace_disarm():
+        """Clear the one-shot arm, and close a journey — the one named in the
+        body's `id`, or the newest when there's none."""
+        body = request.get_json(silent=True) or {}
+        ended = runtime_trace.end_journey(body.get("id") or None)
+        return jsonify({"armed": False, "cleared": runtime_trace.disarm() or ended})
+
+    @app.route("/api/observatory/terrain/trace/<trace_id>/close", methods=["POST"])
+    def observatory_trace_close(trace_id):
+        """Close one journey. A POST rather than the DELETE above because the
+        browser closes its journey from `pagehide`/hidden with sendBeacon,
+        which can only POST."""
+        return jsonify({"closed": runtime_trace.end_journey(trace_id)})
+
+    @app.route("/api/observatory/terrain/trace")
+    def observatory_trace_list():
+        """The captured traces, newest first (`?limit=`, up to 1000), plus
+        whether anything is live — a one-shot arm in `armed`, the newest open
+        journey in `journey`, and every open one in `journeys`."""
+        limit = _valid_int(request.args.get("limit"), 200, 1000)
+        runtime_trace.prune_empty()
+        opened = runtime_trace.open_journeys()
+        return jsonify({"traces": runtime_trace.recent(limit=limit),
+                        "armed": runtime_trace.armed(),
+                        "journey": opened[0] if opened else None,
+                        "journeys": opened,
+                        "keep": runtime_trace.KEEP_TRACES,
+                        "keep_days": runtime_trace.KEEP_DAYS})
+
+    @app.route("/api/observatory/terrain/trace/<trace_id>/browser", methods=["POST"])
+    def observatory_trace_browser(trace_id):
+        """The browser's half of a journey: {events: [{kind, components,
+        path, label, t0_ms, t1_ms}]}. Accepted only for the OPEN journey (or
+        within a grace period after it closed, so the last flush lands) — a
+        stale id is refused rather than grafted onto an old record.
+
+        Component names are resolved to files through the code graph: a
+        `.tsx`/`.ts` file that some sibling imports under that exact name.
+        Ambiguous or unknown names stay unresolved, labelled `browser`, rather
+        than being guessed at."""
+        body = request.get_json(silent=True) or {}
+        events = body.get("events")
+        if not isinstance(events, list):
+            return jsonify({"error": "events must be a list"}), 400
+        rec = runtime_trace.open_journey(trace_id)
+        head = runtime_trace.read_trace(trace_id)
+        if head is None or head.get("kind") != "journey":
+            return jsonify({"error": "no such journey"}), 404
+        if rec is None:
+            # Closed. Allow the trailing flush for a short while after.
+            try:
+                closed_at = datetime.fromisoformat(head["started_at"]).timestamp() \
+                    + head["duration_us"] / 1e6
+            except (ValueError, TypeError, KeyError):
+                closed_at = 0
+            if time.time() - closed_at > _JOURNEY_GRACE_SEC:
+                return jsonify({"error": "journey is closed"}), 409
+        _graph_refresh()
+        resolver = _component_resolver()
+        n = runtime_trace.save_browser_part(
+            trace_id, events, started_at=head["started_at"], resolve=resolver)
+        return jsonify({"ok": True, "span_count": n})
+
+    @app.route("/api/observatory/terrain/trace/<trace_id>")
+    def observatory_trace_get(trace_id):
+        """One trace: the ordered hops, as a flat list AND as a tree.
+
+        Both shapes ship because they answer different questions and building
+        the tree twice on two clients is how they drift. Flat is the waterfall
+        ("what happened, in what order, for how long"); nested is the call tree
+        ("what did this hop turn into").
+
+        Each span also carries `static`: whether codegraph.py knows about this
+        edge. A hop with `static: false` is a real call the import graph cannot
+        explain — dynamic dispatch, or a gap in the parser — and those are worth
+        seeing rather than smoothing over."""
+        trace = runtime_trace.read_trace(trace_id)
+        if trace is None:
+            return jsonify({"error": "no such trace"}), 404
+        _graph_refresh()
+        known = {((e["repo"], e["src"]), (e["dst_repo"], e["dst"]))
+                 for e in codegraph.graph(internal_only=False)["edges"]}
+        # The parent and each continuation are annotated and shaped the same
+        # way — a caller shouldn't need to know which process a part came from
+        # to render it.
+        for part in (trace, *trace.get("parts", [])):
+            for span in part["spans"]:
+                span["static"] = span["src"] is not None and (
+                    ((span["src_repo"], span["src"]),
+                     (span["dst_repo"], span["dst"])) in known)
+            part["tree"] = _trace_tree(part["spans"])
+            # A turn part is the agent's process, and the tracer only sees the
+            # Python around it. What the agent itself did — every Read, Edit,
+            # Bash — is in the conversation transcript, so it's joined here by
+            # time: tool calls stamped inside this part's window.
+            if part.get("kind") == "turn":
+                part["agent_calls"] = _agent_calls_for(part)
+        # What the journey did to the DATA: every store write the journal saw
+        # inside this trace's window, whoever made it. This is the creek's
+        # half of a journey — the hops say which code ran, this says which
+        # collections actually changed while it ran.
+        trace["writes"] = _writes_in_window(trace)
+        return jsonify(trace)
+
+    @app.route("/api/observatory/terrain/graph")
+    def observatory_terrain_graph():
+        """THE WIRING: every code file in both repos, and every dependency
+        between them — with the runtime sensor's observed calls laid over the
+        top.
+
+        Two layers, deliberately distinguishable in the payload rather than
+        merged into one number, because they mean different things and one of
+        them is complete while the other is not:
+
+          - `edges[].symbols` — the static import graph (codegraph.py). Complete
+            for both languages. Says A CAN reach B, and which names it pulled
+            across.
+          - `edges[].observed` — the runtime sensor saw this exact call happen,
+            with `windows` for how many five-minute buckets it happened in.
+            Evidence, not coverage: no `observed` flag does NOT mean the call
+            never happens (see runtime_sensor's own note on framework-mediated
+            calls, which leave no edge at all).
+
+        `?external=1` includes edges to third-party packages, which are most of
+        the edge count and none of the app's own flow, so they are off by
+        default. `?repo=` narrows to one repo's files."""
+        _graph_refresh()
+        data = codegraph.graph(internal_only=request.args.get("external") != "1")
+        repo_filter = request.args.get("repo")
+        files = data["files"]
+        edges = data["edges"]
+        if repo_filter:
+            files = [f for f in files if f["repo"] == repo_filter]
+            edges = [e for e in edges if e["repo"] == repo_filter]
+
+        # The overlay. The sensor keys by ABSOLUTE path (footprints' convention)
+        # and the graph by repo-relative, so this is where the two vocabularies
+        # are reconciled — once, here, rather than in every consumer.
+        roots = [(r["id"], str(r["root"])) for r in observatory._terrain_repos()]
+        observed = {}
+        for src, dst, entry in runtime_sensor.observed_edges():
+            src_rel, dst_rel = _graph_relpath(src, roots), _graph_relpath(dst, roots)
+            if src_rel and dst_rel:
+                observed[(src_rel, dst_rel)] = entry
+        for edge in edges:
+            hit = observed.get(((edge["repo"], edge["src"]),
+                                (edge["dst_repo"], edge["dst"])))
+            if hit:
+                edge["observed"] = {"last": hit.get("last"),
+                                    "windows": hit.get("windows") or 0}
+
+        # Calls the sensor saw that the static graph does NOT explain. These are
+        # worth surfacing rather than dropping: each one is either a dynamic
+        # reach the parser can't see, or a gap in the parser — and both are
+        # things she should be able to find.
+        static_keys = {((e["repo"], e["src"]), (e["dst_repo"], e["dst"]))
+                       for e in data["edges"]}
+        unexplained = [
+            {"src_repo": s[0], "src": s[1], "dst_repo": d[0], "dst": d[1],
+             "windows": entry.get("windows") or 0, "last": entry.get("last")}
+            for (s, d), entry in observed.items() if (s, d) not in static_keys]
+
+        return jsonify({
+            "files": files,
+            "edges": edges,
+            "observed_only": sorted(unexplained,
+                                    key=lambda e: (e["src_repo"], e["src"], e["dst"])),
+            "counts": {"files": len(files), "edges": len(edges),
+                       "observed": sum(1 for e in edges if e.get("observed")),
+                       "observed_only": len(unexplained)},
+            "watching": runtime_sensor.running(),
+        })
+
+    @app.route("/api/observatory/terrain/graph/file")
+    def observatory_terrain_graph_file():
+        """One file's immediate flow, both directions — "show me everything
+        that touches this". `?repo=&path=`."""
+        repo = request.args.get("repo") or ""
+        path = (request.args.get("path") or "").strip().lstrip("/")
+        if not repo or not path:
+            return jsonify({"error": "repo and path are required"}), 400
+        _graph_refresh()
+        return jsonify({"repo": repo, "path": path, **codegraph.neighbors(repo, path)})
+
+    @app.route("/api/observatory/terrain/runtime")
+    def observatory_terrain_runtime():
+        """What the app has actually RUN — runtime_sensor.py's sidecar, mapped
+        out of absolute paths into the same per-repo, repo-relative shape every
+        other terrain endpoint speaks.
+
+        A THIRD channel, beside git history and agent footprints, and it is the
+        only one of the three that answers "was this code used". Files are
+        sorted most-recently-run first; `age` is seconds since, so a reader
+        doesn't have to know what clock the timestamps are on. `sampled` is the
+        sensor's window length — the honest resolution of every timestamp here,
+        and the reason two files can share one.
+
+        Python only, and the payload says so rather than leaving a caller to
+        infer it from the absence of .tsx files: the browser half of any click
+        runs where this sensor cannot see."""
+        snap = runtime_sensor.snapshot()
+        files = snap.get("files")
+        if not isinstance(files, dict):
+            files = {}
+        now_ts = time.time()
+        repos_out = []
+        for repo in observatory._terrain_repos():
+            root = str(repo["root"])
+            out = []
+            for abspath, entry in files.items():
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    rel = os.path.relpath(abspath, root)
+                except ValueError:
+                    continue
+                if rel == os.curdir or rel.startswith(os.pardir):
+                    continue        # not under this repo — same test the payload uses
+                rel = rel.replace(os.sep, "/")
+                if _terrain_denylisted(rel):
+                    continue
+                last = entry.get("last")
+                if not isinstance(last, (int, float)):
+                    continue
+                touches = entry.get("touches")
+                out.append({"path": rel, "last": last,
+                            "age": max(0, int(now_ts - last)),
+                            "windows": int(entry.get("windows") or 0),
+                            "touches": touches if isinstance(touches, list) else []})
+            out.sort(key=lambda f: (-f["last"], f["path"]))
+            repos_out.append({"id": repo["id"], "name": repo["name"],
+                              "files": out, "files_total": len(out)})
+        return jsonify({"repos": repos_out,
+                        "sampled": runtime_sensor.CYCLE_SEC,
+                        "watching": runtime_sensor.running(),
+                        "language": "python",
+                        "updated": snap.get("updated")})
+
     @app.route("/api/observatory/terrain/growth/facets")
     def observatory_terrain_growth_facets():
         """The chip row's contents: every place and front with at least one
@@ -798,6 +2244,7 @@ def register(app):
         instead of one poll's events. Any database trouble degrades to an
         empty chip row, never a 500 — the room still draws without it."""
         _terrain_refresh_history()
+        core_repo_ids = {repo["id"] for repo in observatory._terrain_repos()}
         place_counts = {}
         front_counts = {}
         try:
@@ -807,6 +2254,10 @@ def register(app):
                 for repo, path in conn.execute(
                     "SELECT repo, path FROM files WHERE deleted_at IS NULL"
                 ):
+                    # The tables also hold the owner's builds; this room is
+                    # about the app and the vault.
+                    if repo not in core_repo_ids:
+                        continue
                     place = _flow_place(repo, path)
                     place_counts[place] = place_counts.get(place, 0) + 1
                     subject = f"file:{repo}/{path}"
@@ -848,6 +2299,7 @@ def register(app):
             return jsonify({"error": "bad tag"}), 400
 
         _terrain_refresh_history()
+        core_repo_ids = {repo["id"] for repo in observatory._terrain_repos()}
         days = {}
 
         def _day(d):
@@ -861,6 +2313,10 @@ def register(app):
                 for repo, path, born, died in conn.execute(
                     "SELECT repo, path, date(first_seen), date(deleted_at) FROM files"
                 ):
+                    # The tables also hold the owner's builds; this room is
+                    # about the app and the vault.
+                    if repo not in core_repo_ids:
+                        continue
                     if ns == "place":
                         match = _flow_place(repo, path) == tag
                     else:
@@ -894,24 +2350,41 @@ def register(app):
         slider); `?limit=0` or `?limit=all` means no cut. Each distinct limit
         gets its own cache slot, since they're genuinely different payloads.
         The date controls are NOT server-side: the client slices the touch
-        timestamps it already has, so dragging them costs no request."""
+        timestamps it already has, so dragging them costs no request.
+
+        `?build=<id>` draws one of the owner's builds instead of the main map
+        (see `_build_view`)."""
         file_cap = _terrain_file_cap_arg(request.args.get("limit"))
+        build_id = (request.args.get("build") or "").strip()
+        if build_id:
+            return _build_view(build_id, file_cap)
+        # A PUSH MIRROR draws the map the private box published to it
+        # (routes/terrain_mirror.py), re-cut to this request's tier — it holds
+        # no repos of its own to build one from. Falling through when nothing
+        # has been published keeps the older PULL mirror working unchanged: a
+        # public host with its own copy of the data, refreshed by git or
+        # rsync, still builds its own map below. First one wins, so a box
+        # that has both serves the live one.
+        if config.public_only():
+            payload = terrain_mirror.published(file_cap)
+            if payload is not None:
+                return jsonify(payload)
         index = store.read("bot_chats/index", {})
         anything_running = isinstance(index, dict) and bool(_terrain_running_ids(index))
         ttl = _TERRAIN_LIVE_TTL_SEC if anything_running else _TERRAIN_CACHE_TTL_SEC
         now = time.monotonic()
         slot = _terrain_cache.get(file_cap)
-        if slot is not None and now - slot["computed_at"] < ttl:
-            return jsonify(slot["payload"])
-        _terrain_refresh_history()
-        payload = _build_terrain(file_cap)
-        # Evict oldest-computed slots first — bounded memory even if something
-        # walks every possible ?limit= value.
-        while len(_terrain_cache) >= _TERRAIN_CACHE_SLOTS:
-            oldest = min(_terrain_cache, key=lambda k: _terrain_cache[k]["computed_at"])
-            _terrain_cache.pop(oldest, None)
-        _terrain_cache[file_cap] = {"payload": payload, "computed_at": now}
-        return jsonify(payload)
+        if slot is None or now - slot["computed_at"] >= ttl:
+            _terrain_refresh_history()
+            # Evict oldest-computed slots first — bounded memory even if
+            # something walks every possible ?limit= value.
+            while len(_terrain_cache) >= _TERRAIN_CACHE_SLOTS:
+                oldest = min(_terrain_cache, key=lambda k: _terrain_cache[k]["computed_at"])
+                _terrain_cache.pop(oldest, None)
+            slot = {"payload": _build_terrain(file_cap), "public": None,
+                    "computed_at": now}
+            _terrain_cache[file_cap] = slot
+        return jsonify(_terrain_view(slot))
 
     @app.route("/api/observatory/flow")
     def observatory_flow():
@@ -959,40 +2432,81 @@ def register(app):
     def observatory_terrain_file():
         """One file's own text, for the map's tap-a-node code modal.
 
-        Scoped hard to the two Terrain repos: the path is resolved with
-        symlinks followed (the vault keeps real ones) and must still land
-        inside a repo root, so neither '../' nor a symlink pointing out of
-        the tree can read anything else. Secrets are refused by name even
-        inside those roots — this is an HTTP door onto the filesystem, and it
-        should stay boring."""
+        Comes in through the shared front door (`_terrain_file_target`), so
+        reads are scoped hard to the two Terrain repos: neither '../' nor a
+        symlink pointing out of the tree can read anything else. Secrets are
+        refused by name even inside those roots, and the visitor lock
+        applies. This is an HTTP door onto the filesystem, and it should stay
+        boring."""
         repo_id = (request.args.get("repo") or "").strip()
         relpath = (request.args.get("path") or "").strip()
-        if not repo_id or not relpath:
-            return jsonify({"error": "repo and path are required"}), 400
-        repo = next((r for r in observatory._terrain_repos() if r["id"] == repo_id), None)
-        if repo is None:
-            return jsonify({"error": "unknown repo"}), 404
-        resolved = _terrain_safe_path(repo["root"], relpath)
-        if resolved is None:
-            return jsonify({"error": "not found"}), 404
+        # Shared front door: a readable file, or the refusal to send back as-is.
+        resolved, refusal = _terrain_file_target(repo_id, relpath)
+        if refusal is not None:
+            return refusal
         try:
             raw = resolved.read_bytes()
         except OSError:
             return jsonify({"error": "not found"}), 404
         size = len(raw)
+        # Binary check: a zero byte in the first 8000 bytes means this isn't
+        # text. Answer its size and `binary: true`, with no content.
         if b"\0" in raw[:8000]:
             return jsonify({"repo": repo_id, "path": relpath, "size": size,
                             "binary": True, "truncated": False,
                             "summary": None, "content": None, "lines": 0})
+        # Size cap: send at most _TERRAIN_FILE_READ_MAX bytes and mark the
+        # answer `truncated`. The cut text ends at its last complete line, so
+        # no half-line goes out — unless it has no line break at all.
         truncated = size > _TERRAIN_FILE_READ_MAX
         try:
             text = raw[:_TERRAIN_FILE_READ_MAX].decode("utf-8", errors="replace")
         except Exception:
             return jsonify({"error": "not readable"}), 404
         if truncated:
-            # Never hand back a half-line — cut at the last complete one.
             text = text[:text.rfind("\n") + 1] if "\n" in text else text
         return jsonify({"repo": repo_id, "path": relpath, "size": size,
                         "binary": False, "truncated": truncated,
                         "summary": _terrain_file_summary(relpath, text),
                         "content": text, "lines": text.count("\n") + 1})
+
+    @app.route("/api/observatory/terrain/file/edits")
+    def observatory_terrain_file_edits():
+        """Per-line last-edit times of one file, for the pane's "edits" toggle.
+
+        Comes in through the shared front door (`_terrain_file_target`), so
+        it has the same resolution, same traversal refusal and same visitor
+        lock as /terrain/file. This is the red channel of the map, brought
+        down to the line, fetched only when that toggle is on. `edits` is one
+        unix-second stamp per line in file order, or null when git can't say
+        (an untracked file, for one — see `_terrain_line_edits`)."""
+        repo_id = (request.args.get("repo") or "").strip()
+        relpath = (request.args.get("path") or "").strip()
+        # Shared front door: a readable file, or the refusal to send back as-is.
+        resolved, refusal = _terrain_file_target(repo_id, relpath)
+        if refusal is not None:
+            return refusal
+        return jsonify({"repo": repo_id, "path": relpath,
+                        "edits": _terrain_line_edits(resolved)})
+
+    @app.route("/api/observatory/terrain/file/runs")
+    def observatory_terrain_file_runs():
+        """Per-line last-ran times of one file, for the pane's "ran" toggle.
+
+        Comes in through the shared front door (`_terrain_file_target`), so
+        it has the same resolution, same traversal refusal and same visitor
+        lock as /terrain/file. This is the gold channel of the map, brought
+        down to the function, fetched only when that toggle is on. `runs` is
+        one unix-second stamp per line in file order (0 = not seen running),
+        or null when the sensor can't say (anything that isn't Python, for
+        one — see `_terrain_line_runs`). `sampled` is the sensor's bucket:
+        the honest resolution of every stamp here."""
+        repo_id = (request.args.get("repo") or "").strip()
+        relpath = (request.args.get("path") or "").strip()
+        # Shared front door: a readable file, or the refusal to send back as-is.
+        resolved, refusal = _terrain_file_target(repo_id, relpath)
+        if refusal is not None:
+            return refusal
+        return jsonify({"repo": repo_id, "path": relpath,
+                        "runs": _terrain_line_runs(resolved),
+                        "sampled": runtime_sensor.BUCKET_SEC})

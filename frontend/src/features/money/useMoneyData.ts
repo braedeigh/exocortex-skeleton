@@ -20,12 +20,14 @@ import {
   listCsvFiles,
   logTaxSetaside,
   parseCsv,
+  uploadCsv,
   removeCategory,
   removeExpense,
   removeSubscription,
   removeTaxSetaside,
   toggleTabTodo,
   updateBudget,
+  updateCategoryKind,
   updateExpense,
   updateSubscription,
   uploadReceipt,
@@ -38,7 +40,7 @@ import type {
   UpdateExpensePayload,
 } from './api';
 import { isFrosted } from './types';
-import type { CsvSelection, Expense, LearnRule, MoneyData, Subscription, TaxSetasideEntry } from './types';
+import type { CategoryKind, CsvSelection, Expense, LabelRule, LearnRule, MoneyData, Subscription, TaxSetasideEntry } from './types';
 
 export const MONEY_QUERY_KEY = ['data', 'money'] as const;
 
@@ -173,6 +175,7 @@ export function useExpenseActions(onError: (message: string) => void) {
                 ...e,
                 ...(vars.category !== undefined ? { category: vars.category } : {}),
                 ...(vars.title !== undefined ? { title: vars.title } : {}),
+                ...(vars.one_time !== undefined ? { one_time: !!vars.one_time } : {}),
               }
             : e,
         ),
@@ -269,11 +272,28 @@ export function useBudgetActions(onError: (message: string) => void) {
     "Couldn't remove the category — it's back in the list",
   );
 
+  const setKind = useOptimisticMutation(
+    (vars: { name: string; kind: CategoryKind }) => updateCategoryKind(vars.name, vars.kind),
+    (data, vars) => {
+      if (!data.budget || isFrosted(data.budget)) return data;
+      return {
+        ...data,
+        budget: {
+          ...data.budget,
+          categories: data.budget.categories.map((c) => (c.name === vars.name ? { ...c, kind: vars.kind } : c)),
+        },
+      };
+    },
+    onError,
+    "Couldn't change the category's kind",
+  );
+
   return {
     saveIncome: (income_monthly: string | number) => save.mutateAsync({ income_monthly }),
     saveBankUrl: (bank_csv_url: string) => save.mutateAsync({ bank_csv_url }),
     addCategory: (payload: AddCategoryPayload) => addCat.mutateAsync(payload),
     removeCategory: (name: string) => removeCat.mutate(name),
+    setCategoryKind: (name: string, kind: CategoryKind) => setKind.mutate({ name, kind }),
   };
 }
 
@@ -338,9 +358,19 @@ export function useCsvActions(onError: (message: string) => void) {
     onError: () => onError('Parse failed'),
   });
 
+  // Upload a CSV, then refresh the file list so it shows up there too. The
+  // server's own reason is toasted, because a wrong-bank file needs saying why.
+  const upload = useMutation({
+    mutationFn: (file: File) => uploadCsv(file),
+    onError: (error) => onError(error instanceof Error && error.message ? error.message : 'Upload failed'),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CSV_FILES_QUERY_KEY });
+    },
+  });
+
   const doImport = useMutation({
-    mutationFn: (vars: { selections: CsvSelection[]; learnRules: LearnRule[] }) =>
-      importCsv(vars.selections, vars.learnRules),
+    mutationFn: (vars: { selections: CsvSelection[]; learnRules: LearnRule[]; learnLabels: LabelRule[] }) =>
+      importCsv(vars.selections, vars.learnRules, vars.learnLabels),
     onError: () => onError('Import failed'),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: CSV_FILES_QUERY_KEY });
@@ -350,7 +380,9 @@ export function useCsvActions(onError: (message: string) => void) {
 
   return {
     parse: (filename: string) => parse.mutateAsync(filename),
-    import: (selections: CsvSelection[], learnRules: LearnRule[]) =>
-      doImport.mutateAsync({ selections, learnRules }),
+    upload: (file: File) => upload.mutateAsync(file),
+    uploading: upload.isPending,
+    import: (selections: CsvSelection[], learnRules: LearnRule[], learnLabels: LabelRule[]) =>
+      doImport.mutateAsync({ selections, learnRules, learnLabels }),
   };
 }

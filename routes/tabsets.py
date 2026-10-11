@@ -31,6 +31,7 @@ when the bar renders.
 """
 from flask import request, jsonify
 
+import config
 import store
 
 FILE = "tab_sets.json"
@@ -47,6 +48,22 @@ DEFAULT = {
         {"id": "spare", "name": "Spare", "sections": []},
     ]
 }
+
+
+# What the desktop app's fresh install gets instead (config.standalone): it has
+# only the Observatory and Terrain, so the sets name only their sections. The
+# ids stay "work" and "life" — the workspace's default layout names them.
+STANDALONE_DEFAULT = {
+    "sets": [
+        {"id": "work", "name": "Work", "sections": ["observatory"]},
+        {"id": "life", "name": "Life", "sections": ["terrain", "activity"]},
+    ]
+}
+
+
+def _default():
+    """The built-in sets for this install: the desktop app's, or the site's."""
+    return STANDALONE_DEFAULT if config.standalone() else DEFAULT
 
 
 def load():
@@ -70,11 +87,11 @@ def load():
     """
     stored = store.read(FILE, None)
     if not stored or not isinstance(stored.get("sets"), list):
-        return DEFAULT
+        return _default()
     sets = list(stored["sets"])
     have = {s.get("id") for s in sets if isinstance(s, dict)}
     removed = _clean_removed(stored, have)
-    for built_in in DEFAULT["sets"]:
+    for built_in in _default()["sets"]:
         if built_in["id"] not in have and built_in["id"] not in removed:
             sets.append(dict(built_in))
     return {"sets": sets, "removed": removed}

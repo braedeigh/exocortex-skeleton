@@ -1,0 +1,37 @@
+# Publish this box's Terrain map to a public mirror, continuously.
+#
+# The private box builds the map; the mirror holds none of the data behind it
+# and serves what it is sent (routes/terrain_mirror.py). The connection is
+# outbound only — nothing on the public internet reaches this machine.
+#
+# Install: fill the PLUG-IN values, then
+#   sudo cp exocortex-terrain-publish.service /etc/systemd/system/
+#   sudo systemctl enable --now exocortex-terrain-publish.service
+#
+# The shared secret lives at <DATA_DIR>/terrain_mirror_secret on BOTH machines
+# (0600, never committed — it authenticates the ingest door). Whichever side
+# runs first mints it; copy it to the other once.
+[Unit]
+Description=Publish the Terrain map to the public mirror
+After=network-online.target exocortex.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<APP_USER>
+WorkingDirectory=<APP_DIR>
+Environment=EXOCORTEX_DATA_DIR=<DATA_DIR>
+Environment=EXOCORTEX_CONTENT_DIR=<CONTENT_DIR>
+Environment=EXOCORTEX_TERRAIN_MIRROR_URL=https://<PUBLIC_DOMAIN>
+# ~15s is the cadence; an unchanged map costs one local request and no push,
+# so an idle afternoon sends nothing at all.
+ExecStart=<APP_DIR>/venv/bin/python3 <APP_DIR>/scripts/publish_terrain.py --interval 15
+# The publisher is a nice-to-have beside the site itself: it retries its own
+# failures, and if it dies entirely the mirror keeps serving the last map it
+# got — with the refresh chip honestly ageing, so a visitor can see it froze.
+Restart=always
+RestartSec=30
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,9 @@
 """Behavioral tests for routes/research_text.py — the fetch-text strategy
-route + the texts-listing endpoint. paperclients' network fns are always
-monkeypatched; nothing here ever touches the network or a real file outside
-the per-test tmp DATA_DIR (see conftest.data_dir).
+route + the texts-listing endpoint. paperclients' network fns
+(`fetch_pmc_fulltext`, `lookup_pmcid`, `fetch_pdf_text`, `fetch_url_text`) are
+always monkeypatched; nothing here ever touches the network or a real file
+outside the per-test tmp DATA_DIR (see conftest.data_dir). The PDF layer's own
+behaviour (real pdftotext over a hand-built PDF) is in tests/test_pdf_text.py.
 """
 import json
 
@@ -56,7 +58,7 @@ def test_pmc_url_beats_page_fetch(client, monkeypatch):
         lambda pmcid: (calls.append(("pmc", pmcid)), {"ok": True, "text": "pmc full text"})[1],
     )
     monkeypatch.setattr(
-        research_text.paperclients, "fetch_page_text",
+        research_text.paperclients, "fetch_url_text",
         lambda url: (calls.append(("page", url)), {"ok": True, "title": "", "text": "page text"})[1],
     )
 
@@ -81,7 +83,7 @@ def test_doi_fallback_used_when_no_pmcid_in_url(client, monkeypatch):
         lambda pmcid: (calls.append(("pmc", pmcid)), {"ok": True, "text": "doi-resolved text"})[1],
     )
     monkeypatch.setattr(
-        research_text.paperclients, "fetch_page_text",
+        research_text.paperclients, "fetch_url_text",
         lambda url: (calls.append(("page", url)), {"ok": True, "title": "", "text": "should not be used"})[1],
     )
 
@@ -97,7 +99,7 @@ def test_page_fallback_when_no_pmcid_and_no_doi(client, monkeypatch):
     _seed_entry(url="https://blog.example.com/post")
 
     monkeypatch.setattr(
-        research_text.paperclients, "fetch_page_text",
+        research_text.paperclients, "fetch_url_text",
         lambda url: {"ok": True, "title": "A Post", "text": "blog text"},
     )
 
@@ -115,7 +117,7 @@ def test_fetched_text_saved_and_resolvable_via_docstore(client, monkeypatch, dat
     import docstore
     _seed_entry(url="https://blog.example.com/post")
     monkeypatch.setattr(
-        research_text.paperclients, "fetch_page_text",
+        research_text.paperclients, "fetch_url_text",
         lambda url: {"ok": True, "title": "", "text": "saved text"},
     )
 
@@ -153,7 +155,7 @@ def test_all_strategies_fail_502_and_nothing_saved(client, monkeypatch, data_dir
     from routes import research_text
     _seed_entry(url="https://blog.example.com/post")
     monkeypatch.setattr(
-        research_text.paperclients, "fetch_page_text",
+        research_text.paperclients, "fetch_url_text",
         lambda url: {"ok": False, "error": "network"},
     )
 
@@ -163,17 +165,92 @@ def test_all_strategies_fail_502_and_nothing_saved(client, monkeypatch, data_dir
     assert not (data_dir / "doc_texts").exists()
 
 
-def test_pdf_only_candidate_maps_not_html_to_pdf_extraction_unavailable(client, monkeypatch):
+@pytest.mark.parametrize("code", ["pdftotext_missing", "pdf_too_large", "pdf_extract_failed", "not_html"])
+def test_fetcher_error_codes_pass_through_unmapped(client, monkeypatch, code):
+    """The PDF path's real failure reasons reach the client as-is — nothing
+    is folded into a vaguer catch-all."""
     from routes import research_text
     _seed_entry(url="https://example.com/paper.pdf")
     monkeypatch.setattr(
-        research_text.paperclients, "fetch_page_text",
-        lambda url: {"ok": False, "error": "not_html"},
+        research_text.paperclients, "fetch_url_text",
+        lambda url: {"ok": False, "error": code},
     )
 
     r = _post(client, "/api/research/entry/fetch-text", {"id": "2026-07-06.2151"})
     assert r.status_code == 502
-    assert r.get_json()["error"] == "pdf_extraction_unavailable"
+    assert r.get_json()["error"] == code
+
+
+# --- the annotator's pdf_url ------------------------------------------------------
+
+def test_meta_pdf_url_tried_before_entry_url(client, monkeypatch):
+    from routes import research_text
+    _seed_entry(
+        url="https://journal.example.com/landing",
+        meta={"doi": "10.1/xyz", "pdf_url": "https://oa.example.org/paper.pdf"},
+    )
+
+    calls = []
+    monkeypatch.setattr(
+        research_text.paperclients, "lookup_pmcid",
+        lambda doi: (calls.append(("lookup", doi)), {"ok": False, "error": "not_found"})[1],
+    )
+    monkeypatch.setattr(
+        research_text.paperclients, "fetch_pdf_text",
+        lambda url, **kw: (calls.append(("pdf", url)), ("Hello research", None))[1],
+    )
+    monkeypatch.setattr(
+        research_text.paperclients, "fetch_url_text",
+        lambda url: (calls.append(("url", url)), {"ok": True, "title": "", "text": "landing page", "kind": "page"})[1],
+    )
+
+    r = _post(client, "/api/research/entry/fetch-text", {"id": "2026-07-06.2151"})
+    body = r.get_json()
+    assert body["strategy"] == "pdf"
+    assert body["chars"] == len("Hello research")
+    assert calls == [("lookup", "10.1/xyz"), ("pdf", "https://oa.example.org/paper.pdf")]
+
+
+def test_meta_pdf_url_failure_falls_through_to_entry_url(client, monkeypatch):
+    from routes import research_text
+    _seed_entry(
+        url="https://journal.example.com/landing",
+        meta={"pdf_url": "https://oa.example.org/paper.pdf"},
+    )
+    monkeypatch.setattr(
+        research_text.paperclients, "fetch_pdf_text",
+        lambda url, **kw: (None, "not_pdf"),
+    )
+    monkeypatch.setattr(
+        research_text.paperclients, "fetch_url_text",
+        lambda url: {"ok": True, "title": "", "text": "landing page", "kind": "page"},
+    )
+
+    r = _post(client, "/api/research/entry/fetch-text", {"id": "2026-07-06.2151"})
+    body = r.get_json()
+    assert body["strategy"] == "page"
+    assert body["chars"] == len("landing page")
+
+
+def test_meta_pdf_url_same_as_entry_url_is_fetched_once(client, monkeypatch):
+    from routes import research_text
+    _seed_entry(
+        url="https://oa.example.org/paper.pdf",
+        meta={"pdf_url": "https://oa.example.org/paper.pdf"},
+    )
+    calls = []
+    monkeypatch.setattr(
+        research_text.paperclients, "fetch_pdf_text",
+        lambda url, **kw: (calls.append(("pdf", url)), (None, "network"))[1],
+    )
+    monkeypatch.setattr(
+        research_text.paperclients, "fetch_url_text",
+        lambda url: (calls.append(("url", url)), {"ok": True, "title": "", "text": "from the pdf", "kind": "pdf"})[1],
+    )
+
+    r = _post(client, "/api/research/entry/fetch-text", {"id": "2026-07-06.2151"})
+    assert r.get_json()["strategy"] == "pdf"
+    assert calls == [("url", "https://oa.example.org/paper.pdf")]
 
 
 # --- texts listing -----------------------------------------------------------------
@@ -198,7 +275,7 @@ def test_texts_listing_reflects_fetched_entries(client, monkeypatch):
     assert r0.get_json() == {"ok": True, "docs": []}
 
     monkeypatch.setattr(
-        research_text.paperclients, "fetch_page_text",
+        research_text.paperclients, "fetch_url_text",
         lambda url: {"ok": True, "title": "", "text": "fetched"},
     )
     _post(client, "/api/research/entry/fetch-text", {"id": "a"})

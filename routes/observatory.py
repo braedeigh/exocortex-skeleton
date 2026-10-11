@@ -32,13 +32,14 @@ Guarantees carried over from the terminal send door (routes/terminal.py):
   are the app's own operator cues (`operator: true` — the red card's "Resume
   session?"), which she never typed. The surface must never promise more
   privacy than the machinery gives (Terra, 07-23), so the composer's own note
-  says the same thing.
+  says the same thing. One message can be put back afterwards, by her own tap
+  only: the journal-restore route mints its B card at the original send time.
 
 Headless mode authenticates exactly like interactive Claude Code (the owner's
 subscription login, or an API key on a fresh install) — no separate billing.
 """
-from flask import request, jsonify, Response
-from datetime import datetime
+from flask import request, jsonify, Response, has_request_context
+from datetime import datetime, timedelta
 from pathlib import Path
 import fcntl
 import json
@@ -50,8 +51,15 @@ import tempfile
 import threading
 import time
 
+import activityfeed
+import config as app_config
+import fairywall
+import lanes
+import peermail
 import recap_summary
+import sqlstore
 import store
+import toolcallstore
 import worktrees
 from routes import terminal
 from routes.kitchen.shared import _mem_available_mb, MIN_SPAWN_MB
@@ -66,7 +74,7 @@ _CONV_ID_RE = re.compile(r"^[A-Za-z0-9.\-]{1,60}$")
 # A journal card id, same shape routes/cards.py validates — the highlight door
 # hangs her annotation off the quote card by id, so it checks the parent is a
 # real one before asking stream.py to resolve it.
-_CARD_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d{4}[bk]\d*$")
+_CARD_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d{4}[bks]\d*$")
 
 # LEGACY fallback only: the ~20 existing keeper conversations predate
 # per-conversation config and have no `allowed_tools` field of their own —
@@ -114,6 +122,24 @@ _MIN_PROMPT_CHARS = 12
 # jsonl if anything ever needs it.
 _MAX_PROMPT_CHARS = 500
 
+# Machine text wearing her voice. An upload reaches the agent as a bracketed
+# filesystem path, which on the card read as her typing
+# "[uploaded: /opt/.../20260809_191053_IMG_2926.png]". Each one is swapped for
+# a short word for what it was; a send that was ONLY an upload then falls under
+# the length floor and leaves the previous real ask up.
+_UPLOAD_RE = re.compile(r"\[uploaded: (\S+?)\]")
+_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif")
+
+
+def _upload_word(match):
+    """What one `[uploaded: path]` marker says on the card."""
+    path = match.group(1).lower()
+    if path.endswith(_IMAGE_SUFFIXES):
+        return "📷 image"
+    if path.endswith("_paste.txt"):
+        return "📋 pasted text"
+    return "📎 file"
+
 
 def _card_prompt(text):
     """Her ask, trimmed to one line for the session card — or None when this
@@ -127,9 +153,14 @@ def _card_prompt(text):
     / "i want more of my last message to show on the card, at least 2-3 lines,
     and then it will drop off into ellipses... and then allow me to expand it
     if i want. for all times, not just when it's running"]"""
-    one_line = " ".join((text or "").split())
+    one_line = " ".join(_UPLOAD_RE.sub(_upload_word, text or "").split())
     if not one_line or one_line.startswith("/"):
         return None            # slash commands are operator control, not an ask
+    # Refuse a send that opens with a markdown heading: that's a machine brief
+    # (a handoff's "# Continuing ..." kickoff), not her. She doesn't open a
+    # message with an H1; every generated brief does. The previous ask stays up.
+    if re.match(r"#{1,6} ", one_line):
+        return None
     if len(one_line) < _MIN_PROMPT_CHARS or _CONTINUATION_RE.match(one_line):
         return None
     return one_line[:_MAX_PROMPT_CHARS]
@@ -202,15 +233,48 @@ def _cli_default_model():
 # frontend/src/features/observatory/api.ts is the list with a room, ALL_LANES is
 # the list that exists. Bringing the room back is a one-line change there.
 #
+# RESEARCH is the fourth lane (09-24): her research desk, and the ground every
+# dispatched research worker stands on now that they've left tmux. Rooted in
+# store.RESEARCH_ROOM_DIR — a folder whose CLAUDE.md teaches the room how to
+# read her tables and how to write research back (scripts/research_ctl.py) —
+# so a session there knows the research pipeline the way a Coding session
+# knows the checkout. Gates OFF: she runs these herself, and a worker's every
+# write already lands `reviewed: false` for her to check, so the act-gate has
+# nothing to add. It is a DOOR on the roster, not a room block (like Helpers):
+# routes/research_room.py lists it, frontend sessionFilters.roomRoster hides
+# it from the rooms.
+#
+# LINEAR is the fifth (09-30): sessions that work in Linear, the outside
+# issue tracker, with her — through the `linear` MCP server, installed at
+# user scope so every session has its tools. Rooted in store.LINEAR_ROOM_DIR,
+# whose CLAUDE.md (in the vault) names the team, the plan, and what must
+# never be written to an outside service. It HAS to be watched: the act gate
+# (tools/act_ask_gate.py) stops on every `mcp__` call, so a gated Linear
+# session would ask before every read. Another door like Research's
+# (routes/linear_room.py, frontend LinearDoor / sessionFilters.roomRoster).
+#
+# FAIRY is the sixth: the one room whose sessions can't write outside their
+# own folder. Rooted in store.FAIRY_ROOM_DIR, and decided by that folder alone
+# (lanes.derive_lane), never by a field on the session. Its limit is not a
+# gate that reads tool calls: every turn is started behind the operating
+# system's wall (fairywall.py), with its own login, no hooks, no web tools
+# and no door to the other agents. No gates, because the wall does their job.
+#
 # Per-session overrides (`act_gate` / `guard_docs` written explicitly) still
-# win over the lane default — see _conv_config.
-_LANES = ("orchestra", "personal", "coding")
+# win over the lane default — see _conv_config. The Fairy room takes none.
+_LANES = lanes.LANES
 _DEFAULT_LANE = "orchestra"
 
 # The rooms she watches — no act-gate, no doc-guard, because she's sitting
-# right there. Named once so a fourth room can't quietly inherit autonomy by
+# right there (or, for Research, because every write is already hers to
+# review; for Linear, because the gate would stop on every Linear call). Named once so a fifth room can't quietly inherit autonomy by
 # being spelled into a condition somewhere; anything not on this list asks.
-_WATCHED_LANES = ("personal", "coding")
+_WATCHED_LANES = ("personal", "coding", "research", "linear")
+
+# The helper sessions — a swarm's own, the room's and the Linear helper
+# (swarms.HELPER_ROLES). Whatever room they sit in, they only look things up
+# (tools/helper_gate.py).
+_HELPER_ROLES = ("swarm_helper", "room_helper", "linear_helper")
 
 
 def _root_dir():
@@ -234,43 +298,47 @@ def _lane_profile(lane):
     `--resume` from elsewhere fails), which is why the lane is chosen up front
     rather than inferred later.
 
-    Two switches, three rooms: Personal stands at the shared root, Coding and
-    Orchestra stand in the app checkout; Personal and Coding just act, only
-    Orchestra asks."""
+    Two switches, five rooms: Personal stands at the shared root, Research and
+    Linear in their own room folders, Coding and Orchestra in the app
+    checkout; only Orchestra asks."""
     watched = lane in _WATCHED_LANES
-    return {"cwd": _root_dir() if lane == "personal" else str(store.BUILD_DIR),
+    # The desktop app: rooms there are the person's own list, and none of
+    # them stands in this app's code. Personal stands in the journal's folder
+    # (where the Keeper lives); every other room stands in the current
+    # project (standalone_app.project_cwd). Its sessions just act unless the
+    # person switched "ask first" on.
+    if app_config.standalone():
+        import standalone_app
+        watched = not standalone_app.ask_first()
+        cwd = (standalone_app.journal_cwd() if lane == "personal"
+               else standalone_app.project_cwd())
+        return {"cwd": cwd, "allowed_tools": list(_BUILDER_TOOLS),
+                "act_gate": not watched, "guard_docs": not watched}
+    # Where each lane stands. Anything not named here is the app checkout.
+    if lane == "personal":
+        cwd = _root_dir()
+    elif lane == "research":
+        cwd = str(store.RESEARCH_ROOM_DIR)
+    elif lane == "linear":
+        cwd = str(store.LINEAR_ROOM_DIR)
+    elif lane == "fairy":
+        # The Fairy room: its own folder, its own short tool list, and
+        # neither gate. The gates refuse a tool call by reading it; this
+        # room's turns run behind the operating system's wall instead
+        # (fairywall.py), which refuses the write itself.
+        return {"cwd": str(store.FAIRY_ROOM_DIR), "allowed_tools": list(fairywall.TOOLS),
+                "act_gate": False, "guard_docs": False}
+    else:
+        cwd = str(store.BUILD_DIR)
+    return {"cwd": cwd,
             "allowed_tools": list(_BUILDER_TOOLS),
             "act_gate": not watched, "guard_docs": not watched}
 
 
 def _conv_lane(entry):
-    """Which room a session lives in. Assigned at creation; DERIVED for every
-    entry that predates lanes, so nothing needs migrating: a session rooted
-    somewhere OTHER than the app checkout (the vault, the shared root) is
-    Personal. That matches how the two kinds were actually created — builder
-    sessions got store.BUILD_DIR, the ~20 legacy Keeper ones got the vault.
-
-    Nothing derives to CODING, and that's deliberate: Coding shares its ground
-    with Orchestra, so a cwd can't tell the two apart, and guessing wrong
-    would hand an unwatched session Coding's ungated autonomy. A session only
-    lands there because she put it there — the ✎ picker, or a fresh create.
-
-    An entry we can't place — no cwd, or a path that won't resolve — derives
-    to ORCHESTRA, the gated lane. The lane now carries act_gate/guard_docs
-    defaults, so an unknown-derives-to-personal would quietly *widen* a
-    session's autonomy; the whole gate exists on the principle that a wrong
-    guess should cost a tap, not a mistake. Fail toward ask."""
-    lane = entry.get("lane")
-    if lane in _LANES:
-        return lane
-    cwd = entry.get("cwd")
-    if not cwd:
-        return "orchestra"
-    try:
-        return ("orchestra" if Path(cwd).resolve() == Path(store.BUILD_DIR).resolve()
-                else "personal")
-    except (OSError, ValueError, RuntimeError):
-        return "orchestra"
+    """Which room a session lives in — the rule lives in lanes.py so the SQL
+    sessions table (codestore.py) derives it the same way."""
+    return lanes.derive_lane(entry)
 
 
 # --- Doc-protection guard --------------------------------------------------
@@ -361,10 +429,16 @@ def _act_gate_hook_command():
 
 def _session_settings(config, tools):
     """The combined `--settings` dict for one turn: the doc-guard's
-    permissions.deny (guard_docs) AND the act-vs-ask PreToolUse hook (act_gate).
+    permissions.deny (guard_docs), the act-vs-ask PreToolUse hook (act_gate)
+    and, for a helper, the lookups-only hook (helper_gate).
     One payload, since Claude Code takes a single --settings. Each half binds to
     the session type (a write tool / Bash present) and defaults on with its own
     opt-out. A read-only legacy session triggers neither → {} → no --settings."""
+    # A walled session gets the wall's own settings and none of the hooks
+    # below: each of them writes to the data folder, which the wall makes
+    # read-only.
+    if config.get("wall"):
+        return fairywall.settings()
     settings = {}
     if config.get("guard_docs", True) and any(t in _GUARD_WRITE_TOOLS for t in tools):
         settings.update(json.loads(_guard_settings_json(config.get("cwd"))))
@@ -373,6 +447,43 @@ def _session_settings(config, tools):
             "matcher": "Bash|Task|mcp__.*",
             "hooks": [{"type": "command", "command": _act_gate_hook_command()}],
         }]}
+    # Keep a helper to lookups: every tool call it makes goes through
+    # tools/helper_gate.py, which lets through reading, git's reading verbs
+    # and the helper's own scripts (one of which saves a spinoff brief), and
+    # denies the rest — so
+    # when something needs building it starts a session instead. Its matcher
+    # is every tool: `allowed_tools` only pre-approves, it forbids nothing.
+    if config.get("helper_gate"):
+        gate = Path(store.BUILD_DIR) / "tools" / "helper_gate.py"
+        settings.setdefault("hooks", {}).setdefault("PreToolUse", []).append({
+            "matcher": "*",
+            "hooks": [{"type": "command", "command":
+                       f"{sys.executable} {gate}"}],
+        })
+    # Turn background Bash into a detached job that wakes this conversation.
+    # The harness's own background mode dies when the turn ends, and nothing is
+    # left to be told the result; scripts/run_detached.py --hook rewrites the
+    # call instead. Only for a turn with a conversation id — that's who it wakes.
+    if config.get("conv_id") and "Bash" in tools:
+        detach = Path(store.BUILD_DIR) / "scripts" / "run_detached.py"
+        settings.setdefault("hooks", {}).setdefault("PreToolUse", []).append({
+            "matcher": "Bash",
+            "hooks": [{"type": "command", "command": f"{sys.executable} {detach} --hook"}],
+        })
+    # Hand the agent her journal cards about a person or thread the first time
+    # she names them (tools/mention_context.py). A UserPromptSubmit hook: it
+    # runs on each message she sends, and what it prints lands in the agent's
+    # context. For a journaling session and for sessions in the rooms named in
+    # config.MENTION_CONTEXT_ROOMS; never a helper, whose chat starts fresh
+    # every turn and would lose the pack.
+    if (app_config.MENTION_CONTEXT and config.get("conv_id") and not config.get("helper_gate")
+            and (config.get("journal")
+                 or config.get("lane") in app_config.MENTION_CONTEXT_ROOMS)):
+        mention = Path(store.BUILD_DIR) / "tools" / "mention_context.py"
+        settings.setdefault("hooks", {}).setdefault("UserPromptSubmit", []).append({
+            "hooks": [{"type": "command", "command": f"{sys.executable} {mention}",
+                       "timeout": 15}],
+        })
     return settings
 
 
@@ -386,7 +497,10 @@ def _default_bots():
         "name": "Keeper",
         # The vault root: personas live beside the content dir, and running
         # there lets Claude Code pick up the vault's own CLAUDE.md protocol.
-        "cwd": str(store.CONTENT_DIR.parent),
+        # The desktop app's Keeper stands in the journal's own folder instead
+        # (standalone_app.journal_cwd) — its manifest and commands are there.
+        "cwd": (str(store.CONTENT_DIR) if app_config.standalone()
+                else str(store.CONTENT_DIR.parent)),
         "journal": True,
         "allowed_tools": list(_DEFAULT_ALLOWED_TOOLS),
     }]
@@ -412,6 +526,13 @@ def _conv_config(entry):
     tools = entry.get("allowed_tools")
     if not (isinstance(tools, list) and tools):
         tools = _DEFAULT_ALLOWED_TOOLS
+    # A helper's tools come from its role, not its stored list: every helper
+    # runs with swarm_helper.HELPER_TOOLS, so one made before a tool joined the
+    # list gets it on its next turn. tools/helper_gate.py still decides what
+    # each call may actually do.
+    if entry.get("role") in _HELPER_ROLES:
+        import swarm_helper
+        tools = swarm_helper.HELPER_TOOLS
     model = entry.get("model")
     # The LANE supplies the defaults for both safety nets; an explicitly
     # written field still wins, so the ✎ dialog's per-session "asks first"
@@ -421,8 +542,19 @@ def _conv_config(entry):
     defaults = _lane_profile(lane)
     guard_docs = entry.get("guard_docs")
     act_gate = entry.get("act_gate")
+    # A session standing in the Fairy room is walled, with the room's own
+    # tool list and nothing a stored field can widen: no journaling, no
+    # gates to switch, no per-session tools.
+    if lane == "fairy":
+        return {"lane": lane, "wall": True, "journal": False,
+                "allowed_tools": list(fairywall.TOOLS), "cwd": entry["cwd"],
+                "system_prompt_file": entry.get("system_prompt_file"),
+                "model": model if model in _MODEL_CHOICES else None,
+                "guard_docs": False, "act_gate": False, "helper_gate": False}
     return {
         "lane": lane,
+        # A journaling session (the Keeper). Read by _session_settings.
+        "journal": entry.get("journal") is True,
         "allowed_tools": list(tools),
         "cwd": entry.get("cwd") or str(store.CONTENT_DIR.parent),
         "system_prompt_file": entry.get("system_prompt_file"),
@@ -435,6 +567,9 @@ def _conv_config(entry):
         # Act-vs-ask autonomy gate: on for Orchestra (nobody's watching), off
         # for Personal (she is). See _session_settings() / tools/act_ask_gate.py.
         "act_gate": defaults["act_gate"] if act_gate is None else act_gate is True,
+        # A helper only looks things up; it never builds. Bound to the role,
+        # with no per-session opt-out. See _session_settings() / tools/helper_gate.py.
+        "helper_gate": entry.get("role") in _HELPER_ROLES,
     }
 
 
@@ -442,6 +577,53 @@ def _chats_dir():
     d = store.DATA_DIR / "bot_chats"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _is_journalstart(text):
+    """True when a send is the Keeper's wake command (`/journalstart`, with or
+    without arguments after it)."""
+    first = (text or "").strip().split(None, 1)
+    return bool(first) and first[0] == "/journalstart"
+
+
+def attach_boot_package(conv_id):
+    """Build the Keeper's boot package and save it as this conversation's
+    snapshot. Returns the file's path (for `system_prompt_file`), or None if it
+    couldn't be written.
+
+    Built ONCE, at the wake, and frozen: every later turn that day appends the
+    same file to the system prompt, so the Keeper's picture of its morning
+    never shifts under it mid-conversation, and an unchanging prefix is what
+    prompt caching rewards. Why a system prompt at all: a slash command's
+    `!` output is swapped for a "too large, saved to <file>" note well below
+    the package's ~214 KB (measured 2026-09-25), so the command itself can't
+    carry it. See scripts/boot_context.py for what goes in."""
+    try:
+        from scripts import boot_context
+        text, cards = boot_context.build_package()
+        folder = _chats_dir() / "boot"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{conv_id}.md"
+        path.write_text(text, encoding="utf-8")
+        # Put the package's journal cards on this conversation's record, so
+        # the context-on-mention hook (tools/mention_context.py) skips them
+        # and a pack holds only what the Keeper doesn't already have. Her own
+        # cards are also recorded by their words: two cards can say the same
+        # thing under different ids. A failure here costs only the skipping.
+        try:
+            import loadrecord
+            loadrecord.add(conv_id, cards=[card["id"] for card in cards],
+                           texts=[card["body"] for card in cards if card["who"] == "B"])
+            loadrecord.log(conv_id, "boot", "loaded",
+                           card_ids=[card["id"] for card in cards])
+        except Exception:
+            pass
+        return str(path)
+    except Exception:
+        # A failed build must not cost the wake: /journalstart's own text
+        # tells a Keeper with no package in its system prompt to read the
+        # boot files by hand.
+        return None
 
 
 def _new_conv_id(index):
@@ -493,12 +675,35 @@ def _build_cmd(config, resume_sid):
     settings = _session_settings(config, tools)
     if settings:
         cmd += ["--settings", json.dumps(settings)]
+    # Add the session's extra system prompt by PATH, not by contents. Claude
+    # reads the file itself, so there's no size limit — the contents used to go
+    # in as one argv string, and Linux refuses any single argument over 128 KB,
+    # which a Keeper's ~214 KB boot package is. A missing file is skipped: a
+    # broken persona ref shouldn't kill the turn; the session just runs bare.
     prompt_file = config.get("system_prompt_file")
-    if prompt_file:
-        try:
-            cmd += ["--append-system-prompt", Path(prompt_file).read_text()]
-        except OSError:
-            pass  # a broken persona ref shouldn't kill the turn; the session just runs bare
+    if prompt_file and Path(prompt_file).is_file():
+        cmd += ["--append-system-prompt-file", str(prompt_file)]
+    # Tell every Observatory session that the other agents exist and how to
+    # reach them (peermail.prompt). Only a turn that knows its own
+    # conversation id gets it: that id is its return address. The same turns
+    # are told when to stop for her (_QUESTIONS_PROMPT) — they're the ones
+    # whose conversation a question can be filed against.
+    # A walled session is told about the wall instead (fairywall.prompt): it
+    # can't reach the other agents or file a question, since both write
+    # outside its folder. It also starts with no outside services attached,
+    # whatever the account or the machine has set up.
+    if config.get("wall"):
+        cmd += ["--append-system-prompt", fairywall.prompt(),
+                "--strict-mcp-config", "--mcp-config", '{"mcpServers": {}}']
+    elif config.get("conv_id"):
+        cmd += ["--append-system-prompt",
+                peermail.prompt(config["conv_id"]) + "\n" + _QUESTIONS_PROMPT]
+    # Keep the input open for the life of the turn, so messages can be handed
+    # in mid-turn (see _TurnInput). `--replay-user-messages` makes the agent
+    # echo each message back as it reads it, which is how the turn knows when
+    # every handed-in message has been picked up and it's safe to close.
+    if config.get("stream_input"):
+        cmd += ["--input-format", "stream-json", "--replay-user-messages"]
     return cmd
 
 
@@ -521,15 +726,37 @@ def _spawn(config, text, resume_sid, cwd_override=None):
     # stderr goes to a spooled temp file, NOT a pipe: nobody reads stderr
     # until the process ends, and an unread pipe blocks claude cold once it
     # writes ~64KB of warnings (verbose mode makes that a real number).
+    command = _build_cmd(config, resume_sid)
+    # Start a walled session behind the wall: the command is wrapped so the
+    # operating system makes everything but its room read-only, and it gets
+    # the room's own login and a bare environment (fairywall.py). With no
+    # wall or no login this raises, and the turn is refused, not run open.
+    if config.get("wall"):
+        command, env = fairywall.spawn_parts(command, config["cwd"], CLAUDE_BIN)
+        cwd = config["cwd"]
     stderr_f = tempfile.TemporaryFile()
     proc = subprocess.Popen(
-        _build_cmd(config, resume_sid),
+        command,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_f,
         cwd=cwd, text=True, bufsize=1, env=env,
     )
-    proc.stdin.write(text)
-    proc.stdin.close()
+    # Hand over the prompt. A streaming-input turn gets it as one JSON message
+    # and its input stays open (_TurnInput closes it when the turn is done);
+    # otherwise it's plain text and the input closes now, which is what tells
+    # the agent that's everything.
+    if config.get("stream_input"):
+        proc.stdin.write(_stream_message(text))
+        proc.stdin.flush()
+    else:
+        proc.stdin.write(text)
+        proc.stdin.close()
     return proc, stderr_f
+
+
+def _stream_message(text):
+    """One user message in Claude Code's streaming-input format."""
+    return json.dumps({"type": "user",
+                       "message": {"role": "user", "content": text}}) + "\n"
 
 
 # --- where a turn lives, and why it isn't here anymore -----------------------
@@ -585,6 +812,16 @@ def _turn_job_path(conv_id):
     return _chats_dir() / ".turns" / f"{conv_id}.json"
 
 
+def _current_trace_id():
+    """This request's trace id, or None. Guarded on has_request_context because
+    the run dispatcher and the spinoff runner reach _spawn_host from a plain
+    process with no request at all, where touching the `request` proxy raises
+    rather than returning a default."""
+    if not has_request_context():
+        return None
+    return getattr(request, "trace_id", None)
+
+
 def _spawn_host(config, text, resume_sid, conv_id, log_path):
     """Start this turn in its own process. True if it's away, False to fall back.
 
@@ -621,6 +858,12 @@ def _spawn_host(config, text, resume_sid, conv_id, log_path):
             # Same reasoning one line up, and it's what lets a test drive the
             # real host against a stub agent instead of the installed one.
             "claude_bin": CLAUDE_BIN,
+            # If this send is being traced, the turn host picks the SAME trace
+            # id up and records its half under it. A send is the one action in
+            # this app that genuinely spans two processes, and a trace that
+            # stopped at the spawn would stop exactly where the interesting
+            # part starts. See runtime_trace.
+            "trace_id": _current_trace_id(),
         }), encoding="utf-8")
     except (OSError, TypeError, ValueError):
         return False
@@ -657,8 +900,9 @@ _running_procs = {}
 _stop_requested = set()
 
 # How stale a `running` flag can be before it's presumed dead (a worker that
-# crashed mid-turn never cleared it). Only consulted when the proc isn't in
-# THIS worker's registry — cross-worker we can't see it, so time decides.
+# crashed mid-turn never cleared it). The last resort: consulted only when the
+# proc isn't in THIS worker's registry and the turn carries no process record
+# (see "Which processes a turn is" below) that could say so outright.
 _RUNNING_STALE_SEC = 600
 
 # How often a live turn re-stamps `last_at` while it works (see the heartbeat
@@ -673,12 +917,180 @@ _HEARTBEAT_SEC = 30
 _LIVE_FLUSH_SEC = 0.1
 
 
+# --- Which processes a turn is, and killing all of them ----------------------
+# A running turn records the processes it is made of in its index entry, as
+# `turn_proc`: the machine's boot id, plus pid and kernel start time for the
+# turn host (scripts/turn_host.py writes that before it starts the agent) and
+# for `claude` itself (_run_turn writes that as the turn begins). It is cleared
+# in the same write that clears `running`.
+#
+# A pid alone can't be trusted — the kernel hands a dead one out again — so
+# a process only counts as "the same one" when its start time (field 22 of
+# /proc/<pid>/stat, in clock ticks since boot) matches what was written down
+# AND the boot id hasn't changed. That's a stricter version of the reuse check
+# scripts/run_detached.py makes with the command line.
+#
+# What the record buys:
+#   - A dead host is noticed at once, instead of after ten minutes of stale
+#     heartbeat: _effective_running stops calling it running, and
+#     mark_dead_turns turns the card red and says so in the transcript.
+#   - Close can kill the agent from whichever worker took the request, and
+#     wait until it's truly gone before removing the folder it stands in.
+#
+# Killing is by process TREE, not process group. Claude Code starts every
+# Bash command in a session of its own (setsid — visible in `ps -o sid`), so
+# a group kill of `claude` misses exactly the test run or dev server it
+# started; and `claude` shares the host's group, so it would take the host
+# with it. Instead the tree is walked through the kernel's child lists,
+# freezing each process with SIGSTOP before reading its children (so nothing
+# in it can start one the walk would miss), and then SIGKILLed. A run_detached watcher is left alone with everything under
+# it: it was put outside the turn on purpose, to outlive it.
+#
+# Prompt that produced it: "Stop and Close kill only claude, not what it
+# started ... A turn host that crashes still dies silently."
+
+def _boot_id():
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    except OSError:
+        return None
+
+
+def _proc_stat(pid):
+    """(state, parent pid, start time) from /proc/<pid>/stat, or None if the
+    process doesn't exist. Parsed from after the LAST ')': the command name
+    in parentheses may itself contain spaces and parentheses."""
+    try:
+        raw = Path(f"/proc/{int(pid)}/stat").read_text()
+    except (OSError, TypeError, ValueError):
+        return None
+    fields = raw[raw.rfind(")") + 2:].split()
+    try:
+        return fields[0], int(fields[1]), int(fields[19])
+    except (IndexError, ValueError):
+        return None
+
+
+def _proc_stamp(pid):
+    """What to write down about a live process so it can be recognised later."""
+    stat = _proc_stat(pid)
+    return {"pid": int(pid), "start": stat[2] if stat else None}
+
+
+def _same_proc(stamp, boot):
+    """Is the process in `stamp` still alive, and still the one recorded?
+    A zombie counts as dead: it has exited and is only waiting to be reaped."""
+    if not isinstance(stamp, dict) or not stamp.get("pid"):
+        return False
+    if boot and boot != _boot_id():
+        return False
+    stat = _proc_stat(stamp["pid"])
+    if stat is None or stat[0] == "Z":
+        return False
+    return stamp.get("start") is None or stat[2] == stamp["start"]
+
+
+def _record_turn_proc(conv_id, role, pid):
+    """Write `role` ("host" or "agent") into the turn's process record — only
+    while the index still calls the turn running, so a late write can never
+    pin a record onto a turn that has already ended."""
+    stamp = _proc_stamp(pid)
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if isinstance(entry, dict) and entry.get("running"):
+            record = entry.get("turn_proc")
+            if not isinstance(record, dict):
+                record = entry["turn_proc"] = {}
+            record["boot"] = _boot_id()
+            record[role] = stamp
+
+
+def _host_gone(entry):
+    """True when a turn's host is recorded and is verifiably no longer alive.
+    A turn with no host on record (the in-worker fallback, an older entry, a
+    helper run) is never judged by this — it falls to the heartbeat."""
+    record = entry.get("turn_proc")
+    if not (isinstance(record, dict) and isinstance(record.get("host"), dict)):
+        return False
+    return not _same_proc(record["host"], record.get("boot"))
+
+
+def _is_detached_watcher(pid):
+    try:
+        cmdline = Path(f"/proc/{int(pid)}/cmdline").read_bytes()
+    except (OSError, TypeError, ValueError):
+        return False
+    return b"run_detached.py" in cmdline and b"--watch" in cmdline
+
+
+def _children(pid):
+    """The processes `pid` started, from the kernel's own list of them
+    (/proc/<pid>/task/<thread>/children) — a handful of reads for a turn's
+    small tree, where scanning all of /proc is hundreds. That list is only
+    promised accurate while the process is stopped, which is why _kill_tree
+    freezes each process before asking. A kernel built without it falls back
+    to the full scan."""
+    try:
+        threads = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return []
+    found = []
+    for thread in threads:
+        try:
+            with open(f"/proc/{pid}/task/{thread}/children", "rb") as f:
+                found.extend(int(c) for c in f.read().split())
+        except FileNotFoundError:
+            return [int(e.name) for e in os.scandir("/proc") if e.name.isdigit()
+                    and (_proc_stat(e.name) or (None, None))[1] == pid]
+        except (OSError, ValueError):
+            continue
+    return found
+
+
+def _kill_tree(root):
+    """Freeze, then kill, `root` and everything under it. Each process is
+    stopped BEFORE its children are listed, so nothing can start a child the
+    walk would miss; then the whole frozen tree is killed at once. A
+    run_detached watcher and everything under it are skipped."""
+    import signal
+    frozen, stack = [], [root]
+    while stack:
+        pid = stack.pop()
+        if pid in frozen:
+            continue
+        try:
+            os.kill(pid, signal.SIGSTOP)
+        except OSError:
+            continue            # already gone
+        frozen.append(pid)
+        stack.extend(c for c in _children(pid) if not _is_detached_watcher(c))
+    for pid in frozen:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+def _kill_turn(proc):
+    """Kill a turn's agent and everything it started. The one kill every stop
+    path uses — Stop, Close, an interrupting message, the host's stop poll."""
+    pid = getattr(proc, "pid", None)
+    if isinstance(pid, int) and pid > 0:
+        _kill_tree(pid)
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
 def _effective_running(conv_id, entry):
     if not entry.get("running"):
         return False
     proc = _running_procs.get(conv_id)
     if proc is not None:
         return proc.poll() is None
+    if _host_gone(entry):
+        return False
     try:
         last = datetime.fromisoformat(entry.get("last_at", ""))
     except (TypeError, ValueError):
@@ -695,9 +1107,96 @@ def _kill_local_proc(conv_id):
     proc = _running_procs.get(conv_id)
     if proc is not None and proc.poll() is None:
         _stop_requested.add(conv_id)
-        proc.kill()
+        _kill_turn(proc)
         return True
     return False
+
+
+def _kill_recorded_agent(entry):
+    """Kill a turn's agent tree from its process record — from any process,
+    not just the one that started it. Returns the agent's stamp if it was
+    alive and killed, else None. The caller must already have marked the turn
+    stop_requested in the index, so the host reads the death as deliberate."""
+    record = entry.get("turn_proc") if isinstance(entry, dict) else None
+    if not isinstance(record, dict):
+        return None
+    agent = record.get("agent")
+    if not _same_proc(agent, record.get("boot")):
+        return None
+    _kill_tree(agent["pid"])
+    return agent
+
+
+# How long Close waits for a killed turn to be gone before removing its
+# worktree. A direct kill lands in milliseconds; without a process record the
+# host's stop poll (turn_host._STOP_POLL_SEC, 2s) has to notice first.
+_CLOSE_WAIT_SEC = 10.0
+
+
+def _wait_turn_gone(conv_id, agent, boot, timeout=_CLOSE_WAIT_SEC):
+    """Wait until a stopped turn has actually ended. True if it did in time.
+    With the agent's stamp in hand, waits on the process itself; without one,
+    on the index's `running` flag, which the host clears as the turn ends."""
+    deadline = time.monotonic() + timeout
+    while True:
+        if agent is not None:
+            if not _same_proc(agent, boot):
+                return True
+        else:
+            entry = store.read("bot_chats/index", {}).get(conv_id)
+            if not (isinstance(entry, dict) and _effective_running(conv_id, entry)):
+                return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
+
+
+def mark_dead_turns(index=None):
+    """Put down every turn whose host has died mid-reply. Returns their ids.
+
+    A host that dies unexpectedly (OOM, a stray kill, a crash) never reaches
+    the end of _run_turn, so nothing clears `running` or writes an error — the
+    card read "running" for ten minutes and then went grey, as if the reply
+    had finished. This does the host's last job for it: clears the flag,
+    records the error so the card goes red, writes the error into the
+    transcript so the chat says where it stopped, and kills an agent the dead
+    host left orphaned (still thinking, still costing money, nobody reading).
+
+    Called from the roster read and the once-a-minute dispatcher tick. Reads
+    /proc only for turns with a host on record, so it costs nothing when no
+    turn is running."""
+    if index is None:
+        index = store.read("bot_chats/index", {})
+    suspects = [cid for cid, e in index.items()
+                if isinstance(e, dict) and e.get("running") and _host_gone(e)]
+    dead = []
+    for conv_id in suspects:
+        with store.mutate("bot_chats/index", {}) as live_index:
+            entry = live_index.get(conv_id)
+            # Re-checked under the lock: the host may have finished cleanly
+            # between the read above and here.
+            if not (isinstance(entry, dict) and entry.get("running") and _host_gone(entry)):
+                continue
+            record = entry.pop("turn_proc")
+            host_pid = (record.get("host") or {}).get("pid")
+            error = (f"the turn's host process (pid {host_pid}) died unexpectedly — "
+                     "the reply stopped here, and nothing after this point was recorded")
+            entry["running"] = False
+            entry["last_at"] = _now()
+            entry["last_error"] = error
+            entry.pop("stop_requested", None)
+        dead.append(conv_id)
+        _kill_recorded_agent({"turn_proc": record})
+        try:
+            with open(_chats_dir() / f"{conv_id}.jsonl", "a", encoding="utf-8") as log:
+                log.write(json.dumps({"type": "error", "error": error, "ts": _now()}) + "\n")
+        except OSError:
+            pass
+        try:
+            os.unlink(_live_path(conv_id))
+        except OSError:
+            pass
+    return dead
 
 
 def _stderr_tail(stderr_f):
@@ -706,6 +1205,319 @@ def _stderr_tail(stderr_f):
         return stderr_f.read().decode("utf-8", "replace").strip()[-500:]
     except (OSError, ValueError):
         return ""
+
+
+# --- Handing messages to a running agent -------------------------------------
+# A turn used to take one prompt and close its input. Now (when
+# config.TURN_STREAM_INPUT is on) the input stays open for the whole turn, and
+# a companion thread checks the session's mailbox (peermail.py) about once a
+# second. A message waiting there is written straight into the running agent,
+# which reads it after whatever step it's on and decides what to do with it.
+# Tested against the real CLI: a message handed in during a slow Bash step was
+# read the moment the step finished, acted on, and the agent went back to its
+# own work in the same turn.
+#
+# The same thread also does the two other jobs that need doing WHILE a turn
+# runs: it stops the turn when a message asks to interrupt it, and it folds the
+# turn's new tool calls into exo.db every few seconds (toolcallstore.
+# live_ingest), so other agents see this one's work as it happens.
+#
+# Prompt that produced it: "keep the agents input open. change them to queue
+# messages to the server so they can inject whenever it's ready."
+
+# How often the companion checks the mailbox, and how often it folds tool
+# calls into SQL. The mailbox check is one indexed query.
+_INBOX_POLL_SEC = 1.0
+_LIVE_INGEST_SEC = 3.0
+# A turn whose final result is in, but which is still waiting on the echo of a
+# handed-in message, closes anyway after this long with nothing happening —
+# the backstop if an echo is ever missed, so a turn can't hang open forever.
+_ECHO_WAIT_SEC = 30.0
+
+
+class _TurnInput:
+    """The running agent's open input, shared by the loop that reads its
+    output and the thread that hands messages in. One lock around every write
+    and the close, so a message can never be written into an input that's
+    being shut."""
+
+    def __init__(self, proc):
+        stdin = getattr(proc, "stdin", None)
+        self.stdin = stdin
+        self.open = stdin is not None and not getattr(stdin, "closed", True)
+        self.lock = threading.Lock()
+        # What's been handed in that the agent hasn't echoed back yet: each
+        # entry is the text written and the mailbox rows it carried. The turn
+        # may only close once this is empty — closing earlier would drop a
+        # message the agent was about to start on — and whatever is still in
+        # it when the turn ends goes back to the mailbox (_run_turn's finally).
+        self.unread = []
+        self.result_at = None       # monotonic time of the last final result
+        self.last_event_at = time.monotonic()
+        # How many steps (top-level tool calls) this turn has taken, so a
+        # message read mid-turn can say where it landed ("after step 14").
+        self.steps = 0
+
+    def hand_in(self, text, rows=()):
+        """Write one message into the agent. Caller holds the lock. False if
+        the input is already shut."""
+        if not self.open:
+            return False
+        try:
+            self.stdin.write(_stream_message(text))
+            self.stdin.flush()
+        except (OSError, ValueError):
+            self.open = False
+            return False
+        self.unread.append({"text": text, "rows": list(rows)})
+        return True
+
+    def saw_echo(self, text):
+        """The agent read one handed-in message. Returns the mailbox rows it
+        carried (empty for a text this turn didn't hand in)."""
+        with self.lock:
+            for i, item in enumerate(self.unread):
+                if item["text"] == text:
+                    return self.unread.pop(i)["rows"]
+        return []
+
+    def leftover(self):
+        """Every row handed in and never read — the turn is ending."""
+        with self.lock:
+            rows = [r for item in self.unread for r in item["rows"]]
+            self.unread = []
+        return rows
+
+    def saw_result(self):
+        """The agent finished answering everything it had. Close its input
+        unless a handed-in message is still unread — then it will answer that
+        too, in the same turn, and emit another result."""
+        with self.lock:
+            self.result_at = time.monotonic()
+            if not self.unread:
+                self._close()
+
+    def close(self):
+        with self.lock:
+            self._close()
+
+    def _close(self):
+        if self.open:
+            self.open = False
+            try:
+                self.stdin.close()
+            except (OSError, ValueError):
+                pass
+
+
+# A message of hers that started a turn within this long of being sent never
+# really waited, so it gets no "started a new turn" note — that covers an
+# answer sent from a roster card into an idle session.
+_WAITED_SEC = 5
+
+
+def _arrival(row, after_step=None):
+    """Where one of her mailbox messages landed, for the note under it in the
+    chat: read mid-turn after a given step, started a new turn after she
+    pressed "send now", or started the next turn after waiting for one to
+    end. None when it didn't wait at all."""
+    if after_step is not None:
+        return {"how": "injected", "after_step": after_step}
+    if row["mode"] == "interrupt":
+        return {"how": "interrupt"}
+    try:
+        waited = (datetime.now() - datetime.fromisoformat(row["at"])).total_seconds()
+    except (TypeError, ValueError):
+        return None
+    return {"how": "next-turn"} if waited >= _WAITED_SEC else None
+
+
+def _deliver_lines(conv_id, log_path, rows, conv_journals, after_step=None):
+    """Write delivered messages into the recipient's transcript and journal,
+    and return the text the agent is handed.
+
+    The owner's messages are written exactly as a normal send writes them —
+    a `user` line, journaled if the session journals and she's on the record —
+    so they look the same in the chat however they got there, plus an
+    `arrived` note saying where it landed (_arrival). An agent's message is a
+    `peer` line, which the chat draws as a colored card, and is never
+    journaled: the journal is what she and the Keeper said.
+
+    Called when the agent actually has the message: as a mailbox turn starts,
+    or mid-turn when its echo shows it was read (`after_step` = the steps the
+    turn had taken by then)."""
+    text = peermail.compose(rows)
+    for r in rows:
+        if r["kind"] == "B":
+            journaled = False
+            slash = r["text"].lstrip().startswith("/")
+            if r["record"] and conv_journals and not slash:
+                journaled = bool(terminal._capture_journal(r["text"], r["text"]))
+            elif conv_journals and not slash:
+                terminal._note_off_record(r["text"])
+            line = {"type": "user", "text": r["text"], "ts": _now(),
+                    "journaled": journaled}
+            if not r["record"]:
+                line["off_record"] = True
+            arrived = _arrival(r, after_step)
+            if arrived:
+                line["arrived"] = arrived
+            peermail.append_line(log_path, line)
+        else:
+            peermail.append_line(log_path, peermail.peer_line(r, "in"))
+    # When what the agent receives isn't simply her words, tell the journal's
+    # fallback capture doors it's not a journal line — otherwise they'd find
+    # it in Claude Code's transcript and mint it as if she'd typed it.
+    if conv_journals and text != (rows[0]["text"] if len(rows) == 1 else None):
+        terminal._note_off_record(text)
+    return text
+
+
+def _journals(conv_id):
+    entry = store.read("bot_chats/index", {}).get(conv_id)
+    return isinstance(entry, dict) and entry.get("journal") is True
+
+
+def _deliver_midturn(proc, conv_id, log_path, turn_input):
+    """Hand the running agent whatever is waiting for it. Returns True if the
+    turn was stopped for an interrupt.
+
+    Handing in isn't reading: the agent reads a handed-in message when its
+    current step ends. So the rows are claimed as 'handed', and only land in
+    the transcript when the echo comes back (_run_turn's read loop)."""
+    rows = peermail.waiting(conv_id)
+    # Her "send now" on a message already handed in but still unread: that
+    # message is sitting in the agent's input behind a long step, so the only
+    # way to get it read sooner is the interrupt below.
+    rushed = any(r["kind"] == "B" and r["mode"] == "interrupt"
+                 for r in peermail.handed(conv_id, kind="B"))
+    if not rows and not rushed:
+        return False
+    policy = peermail.policy_of(conv_id)
+    modes = {r["id"]: peermail.effective_mode(r["mode"], policy, r["kind"])
+             for r in rows}
+    # Stop the turn for an interrupt. The messages stay waiting (and the
+    # unread handed-in ones go back to waiting as the turn ends): the moment
+    # the turn is down, the end-of-turn drain starts a new one with all of
+    # them together. Marked in _stop_requested first, so the death reads as
+    # deliberate rather than a crash (the same belt the Stop button uses).
+    if rushed or "interrupt" in modes.values():
+        _stop_requested.add(conv_id)
+        turn_input.close()
+        _kill_turn(proc)
+        return True
+    handable = [r for r in rows if modes[r["id"]] == "inject"]
+    if not handable:
+        return False            # all 'queue' — they wait for the turn to end
+    with turn_input.lock:
+        if not turn_input.open:
+            return False        # the turn is closing; the end-of-turn drain has them
+        won = peermail.claim(handable, "handed")
+        if not won:
+            return False
+        # Her message clears what was waiting on her, exactly as when it
+        # starts a turn (_her_message_arrived), and the agent reads what it
+        # cleared (_reopen_note). An agent's message alone clears nothing.
+        # It looks first and clears only once the hand-in lands, so a failed
+        # write leaves the questions up for the end-of-turn drain to clear
+        # (with its own note) — and it clears only the set it listed, so a
+        # set the agent re-filed in the meantime stays.
+        hers = any(r["kind"] == "B" for r in won)
+        open_now = (_open_questions(store.read("bot_chats/index", {}).get(conv_id))
+                    if hers else [])
+        text = peermail.compose(won) + _reopen_note(open_now)
+        if not turn_input.hand_in(text, won):
+            # The input shut between the check and the write. Put them back so
+            # the end-of-turn drain delivers them rather than losing them.
+            peermail.unclaim(won)
+            return False
+        if hers:
+            with store.mutate("bot_chats/index", {}) as index:
+                entry = index.get(conv_id)
+                if isinstance(entry, dict):
+                    _her_message_arrived(conv_id, entry, expected=open_now)
+    peermail.note_delivered(conv_id, won)
+    return False
+
+
+def _record_read(conv_id, log_path, turn_input, echoed):
+    """The agent echoed a handed-in message back, which means it has read it:
+    mark its mailbox rows read and write them into the transcript, noting the
+    step they landed after. Never lets its own error touch the turn."""
+    read = turn_input.saw_echo(echoed)
+    if not read:
+        return
+    try:
+        peermail.mark_read(read)
+        _deliver_lines(conv_id, log_path, read, _journals(conv_id),
+                       after_step=turn_input.steps)
+    except Exception as e:
+        print(f"recording a read message failed for {conv_id}: {e}", file=sys.stderr)
+
+
+def _note_model_call(event, open_calls, log, conv_id):
+    """Keep the record of each model call as it streams by (docs/swarms.md,
+    stage 1).
+
+    Two moments matter. When a call STARTS, its usage says how much the model
+    is reading — the session's context size right now — so a top-level call
+    stores that on the session (`context_tokens`, `context_model`); the
+    self-continuing cap reads it. When a call FINISHES, its final output
+    count (thinking included) exists only here in the live stream, so it's
+    written into the transcript as a `call-usage` line, which
+    toolcallstore.py folds into `model_calls`. Subagent calls are tracked by
+    the tool call that started them, so a subagent's numbers never overwrite
+    the main conversation's."""
+    inner = event.get("event") or {}
+    parent = event.get("parent_tool_use_id")
+    kind = inner.get("type")
+    if kind == "message_start":
+        message = inner.get("message") or {}
+        open_calls[parent] = message.get("id")
+        usage = message.get("usage") or {}
+        if parent is None and usage:
+            context = sum(int(usage.get(k) or 0) for k in (
+                "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+            with store.mutate("bot_chats/index", {}) as index:
+                entry = index.get(conv_id)
+                if isinstance(entry, dict):
+                    entry["context_tokens"] = context
+                    if message.get("model"):
+                        entry["context_model"] = message["model"]
+    elif kind == "message_delta" and open_calls.get(parent):
+        usage = inner.get("usage") or {}
+        details = usage.get("output_tokens_details") or {}
+        log.write(json.dumps({
+            "type": "call-usage", "message_id": open_calls[parent],
+            "parent_tool_use_id": parent,
+            "output_tokens": usage.get("output_tokens"),
+            "thinking_tokens": details.get("thinking_tokens"),
+            "ts": _now()}) + "\n")
+        log.flush()
+
+
+def _turn_companion(proc, conv_id, log_path, turn_input, done):
+    """The thread that runs beside a turn: mailbox, interrupts, live SQL,
+    and the echo backstop. Never lets an error of its own touch the turn."""
+    last_ingest = 0.0
+    while not done.wait(_INBOX_POLL_SEC):
+        if proc.poll() is not None:
+            return
+        try:
+            if _deliver_midturn(proc, conv_id, log_path, turn_input):
+                return
+        except Exception as e:
+            print(f"mailbox check failed for {conv_id}: {e}", file=sys.stderr)
+        if time.monotonic() - last_ingest > _LIVE_INGEST_SEC:
+            last_ingest = time.monotonic()
+            try:
+                toolcallstore.live_ingest(log_path, conv_id)
+            except Exception as e:
+                print(f"live tool-call ingest failed for {conv_id}: {e}",
+                      file=sys.stderr)
+        if (turn_input.open and turn_input.result_at is not None
+                and time.monotonic() - turn_input.last_event_at > _ECHO_WAIT_SEC):
+            turn_input.close()
 
 
 def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
@@ -769,6 +1581,24 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                 continue                # a contended write is not a dead turn
 
     threading.Thread(target=_heartbeat, daemon=True).start()
+    # Write down which process the agent is, so any process can recognise it
+    # later — to kill it on Close, or to find it orphaned if the host dies
+    # (see "Which processes a turn is" above).
+    if isinstance(getattr(proc, "pid", None), int):
+        try:
+            _record_turn_proc(conv_id, "agent", proc.pid)
+        except Exception:
+            pass    # bookkeeping must never cost the turn
+    # Stamp when this turn began, so the mailbox can say which step its
+    # waiting messages are stuck behind without mistaking a step an earlier,
+    # killed turn left open for this one's (_inbox_status).
+    try:
+        with store.mutate("bot_chats/index", {}) as index:
+            entry = index.get(conv_id)
+            if isinstance(entry, dict) and entry.get("running"):
+                entry["turn_started"] = _now()
+    except Exception:
+        pass
     # What killed this turn, if anything — hoisted out of the log-writing block
     # so the index update in `finally` can persist it. That's what puts a red
     # card on the roster: an error used to exist only as an event in the live
@@ -780,6 +1610,16 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
     # left behind is not this turn's typing.
     live_f = None
     last_flush = 0.0      # so the first delta flushes on sight — see below
+    # The agent's open input and the thread that hands it messages (see the
+    # "Handing messages to a running agent" block above).
+    turn_input = _TurnInput(proc)
+    # The model call in flight, per subagent (None = the main conversation) —
+    # see _note_model_call.
+    open_calls = {}
+    companion_done = threading.Event()
+    threading.Thread(target=_turn_companion,
+                     args=(proc, conv_id, log_path, turn_input, companion_done),
+                     daemon=True).start()
     if live_path:
         try:
             live_f = open(live_path, "w", encoding="utf-8")
@@ -795,6 +1635,29 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                     event = json.loads(line)
                 except ValueError:
                     continue  # non-JSON noise on stdout — skip, don't die
+                if not isinstance(event, dict):
+                    continue
+                turn_input.last_event_at = time.monotonic()
+                # The agent echoing a message it has just read. The echo
+                # itself isn't logged; what it means is: the handed-in
+                # messages it carried are read now, so they go into the
+                # transcript here, in the words she or the sending agent used,
+                # at the spot in the turn where the agent actually took them.
+                if event.get("type") == "user" and event.get("isReplay"):
+                    content = (event.get("message") or {}).get("content")
+                    if isinstance(content, str):
+                        _record_read(conv_id, log_path, turn_input, content)
+                    continue
+                # Count the turn's steps: each top-level tool call the agent
+                # makes (a subagent's calls belong to the step that started it).
+                if event.get("type") == "assistant" and not event.get("parent_tool_use_id"):
+                    content = (event.get("message") or {}).get("content")
+                    if isinstance(content, list):
+                        turn_input.steps += sum(
+                            1 for block in content
+                            if isinstance(block, dict) and block.get("type") == "tool_use")
+                if event.get("type") == "result":
+                    turn_input.saw_result()
                 if isinstance(event, dict):
                     if event.get("session_id") and event["session_id"] != session_id:
                         # `--resume` forks a NEW session id each turn. Save it
@@ -812,7 +1675,23 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                         cost = event["total_cost_usd"]
                 # Token deltas (stream_event) are transport, not record — the
                 # assistant message events they build carry the same text.
+                if event.get("type") == "stream_event":
+                    try:
+                        _note_model_call(event, open_calls, log, conv_id)
+                    except Exception:
+                        pass    # accounting must never cost the turn
                 if event.get("type") != "stream_event":
+                    # The typing first, then the message it built. The deltas
+                    # are flushed on a timer (below), so the last few are
+                    # usually still in memory when their finished message
+                    # arrives. Writing the message out ahead of them hands a
+                    # watcher a reply whose typing stops short, and then the
+                    # missing words a moment later, after the message that
+                    # already held them. _stream_events reads on the strength
+                    # of this order.
+                    if live_f is not None:
+                        live_f.flush()
+                        last_flush = time.monotonic()
                     log.write(json.dumps(event) + "\n")
                     log.flush()   # the log is what a re-attaching client reads
                 elif live_f is not None:
@@ -839,9 +1718,16 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                     idx_entry = store.read("bot_chats/index", {}).get(conv_id)
                     if isinstance(idx_entry, dict) and idx_entry.get("stop_requested"):
                         _stop_requested.add(conv_id)
-                        proc.kill()
+                        _kill_turn(proc)
             proc.wait()
+            # Deliberate, not a crash, if this process asked for the kill —
+            # or if another one did: Close kills the agent directly from
+            # whichever worker took the request (_kill_recorded_agent), so
+            # the only sign of intent this process gets is the index flag.
             stopped = conv_id in _stop_requested
+            if not stopped and proc.returncode != 0:
+                idx_entry = store.read("bot_chats/index", {}).get(conv_id)
+                stopped = isinstance(idx_entry, dict) and bool(idx_entry.get("stop_requested"))
             if proc.returncode != 0 and not stopped:
                 err = _stderr_tail(stderr_f)
                 turn_error = err or f"claude exited {proc.returncode}"
@@ -851,6 +1737,23 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                     live_q.put(ev)
     finally:
         beat_stop.set()   # before the index write below, so the two can't race
+        companion_done.set()
+        turn_input.close()
+        # Put back whatever was handed in and never read (a stop, an
+        # interrupt, the echo backstop): the agent never saw it, so it goes
+        # back to waiting and the end-of-turn drain delivers it. Done before
+        # `running` clears below, so no drain can start a turn without it.
+        try:
+            peermail.unclaim(turn_input.leftover())
+        except Exception as e:
+            print(f"putting unread messages back failed for {conv_id}: {e}",
+                  file=sys.stderr)
+        # One last fold into SQL, so the turn's final tool calls don't wait
+        # for the hourly pass.
+        try:
+            toolcallstore.live_ingest(log_path, conv_id)
+        except Exception:
+            pass
         _running_procs.pop(conv_id, None)
         _stop_requested.discard(conv_id)
         try:
@@ -877,6 +1780,8 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                 entry["last_at"] = _now()
                 entry["running"] = False
                 entry.pop("stop_requested", None)
+                entry.pop("turn_proc", None)
+                _end_turn_done(conv_id, entry)
                 # How the turn ended, so the roster can show it. A clean turn
                 # clears any error the PREVIOUS one left — the flag means "the
                 # last thing this session did was fail", not "it failed once".
@@ -904,7 +1809,13 @@ def _terrain_repos():
     """(id, name, root) for the two repos Terrain covers. Roots follow the
     same conventions as elsewhere in this module: the skeleton's own dir
     (store.BUILD_DIR — the app code) and the vault root (store.CONTENT_DIR's
-    parent, same as _default_bots()'s keeper cwd)."""
+    parent, same as _default_bots()'s keeper cwd).
+
+    The desktop app draws one folder instead: the project the person chose
+    (standalone_app.project_repos), and nothing until they have."""
+    if app_config.standalone():
+        import standalone_app
+        return standalone_app.project_repos()
     return (
         {"id": "skeleton", "name": "App code", "root": Path(store.BUILD_DIR)},
         {"id": "vault", "name": "Personal vault", "root": Path(store.CONTENT_DIR).parent},
@@ -969,10 +1880,11 @@ def _stream_events(conv_id, skip_events=0, start_offset=0, first_frame=None,
 
     Two files, tailed together. The transcript is the spine (every committed
     event, durable, flushed per write) and the `.live` sidecar carries token
-    deltas. Interleaving between the two is best-effort on purpose: deltas only
-    ever paint a preview that the next authoritative `assistant` message
-    overwrites, so a delta arriving a beat late costs nothing, and paying for
-    strict ordering between two files would buy nothing back.
+    deltas. One ordering between the two is guaranteed: a message is never
+    sent ahead of the typing that built it (see the loop below). The other
+    direction is left loose — typing for the NEXT message may go out a beat
+    before the message in front of it — because the client handles that and
+    strict ordering between two files would cost a lock for nothing.
 
     Where to start is asked two ways, because the two callers know two
     different things. `skip_events` is a COUNT, for a client reconnecting with
@@ -1008,14 +1920,27 @@ def _stream_events(conv_id, skip_events=0, start_offset=0, first_frame=None,
         started = last_spoke = time.monotonic()
         ticks = 0
         running = True
+        cut_short = False
         while True:
-            # DELTAS BEFORE THE TRANSCRIPT, every cycle, and the order is
-            # load-bearing. A delta appends to the client's in-flight buffer;
-            # the `assistant` message that follows replaces it authoritatively.
-            # Read the other way round, a cycle that picks up both at once
-            # hands over the finished message FIRST and then the deltas that
-            # built it — which re-fills a buffer the message had just settled,
-            # and paints the tail of the reply twice on screen.
+            # Never hand over a message ahead of the typing that built it. A
+            # delta appends to the client's in-flight buffer and the
+            # `assistant` message that follows settles it; a delta arriving
+            # AFTER its message re-fills a buffer that was just settled, and
+            # paints the tail of the reply twice on screen.
+            #
+            # Two orders make that hold, and both are load-bearing. The
+            # transcript is READ first and the sidecar second: the writer
+            # flushes the sidecar before it writes each transcript line
+            # (_run_turn), so by the time a message can be read here, all its
+            # typing is already on disk and the sidecar read that follows picks
+            # it up. Read the other way round, the message can land between the
+            # two reads with typing this cycle never saw. Then the deltas are
+            # SENT first and the transcript lines second.
+            #
+            # What can still happen is the harmless direction: the sidecar read
+            # reaches a little past the message, into the typing of the next
+            # one. The client keeps that typing (events.ts, `assistant`).
+            lines, offset = _read_whole_lines(path, offset)
             # The sidecar is truncated at the start of every turn. A watcher
             # still holding an offset from the last one would be seeking past
             # the end of the new file and would sit there reading nothing for
@@ -1033,7 +1958,6 @@ def _stream_events(conv_id, skip_events=0, start_offset=0, first_frame=None,
                 except ValueError:
                     continue
                 last_spoke = time.monotonic()
-            lines, offset = _read_whole_lines(path, offset)
             for raw in lines:
                 sent += 1
                 if sent <= skip_events:
@@ -1046,7 +1970,10 @@ def _stream_events(conv_id, skip_events=0, start_offset=0, first_frame=None,
             # `running` is only ever set False after a read, so the events
             # written between the last read and the flag clearing are always
             # sent before this loop leaves.
-            if not running or time.monotonic() - started > _FOLLOW_MAX_SEC:
+            if not running:
+                break
+            if time.monotonic() - started > _FOLLOW_MAX_SEC:
+                cut_short = True
                 break
             # Checked on the very first pass, not after the first interval:
             # watching a turn that has already finished is the common case (a
@@ -1065,14 +1992,22 @@ def _stream_events(conv_id, skip_events=0, start_offset=0, first_frame=None,
                 yield ": keepalive\n\n"
                 last_spoke = time.monotonic()
             time.sleep(_FOLLOW_POLL_SEC)
-        # `done` closes the turn for the send client (which used to get it off
-        # the in-process queue); `follow_end` tells a reconnecting one that the
-        # reply ENDED rather than that its connection died — the two are
-        # indistinguishable to an SSE reader otherwise. Both go to everyone:
-        # the reducer treats a second closer as a no-op, and one shape for all
-        # watchers is worth more than saving a frame.
-        yield _sse({"type": "done", "conversation_id": conv_id})
-        yield _sse({"type": "follow_end", "count": sent})
+        # Say how the stream ended. `done` means the TURN is over, and is what
+        # the chat closes the reply on — so it is only sent when the turn
+        # really is over. A stream that ran into its time limit while the
+        # agent was still working ends with `follow_end` alone, marked
+        # `running`, and the client goes back to watching (the chat page
+        # re-attaches when a stream ends with no `done`). Sending `done` there
+        # told the page a reply had finished half an hour into a turn that
+        # was still writing.
+        # `follow_end` goes to everyone: it tells a reconnecting client that
+        # the stream ENDED rather than that its connection died — the two are
+        # indistinguishable to an SSE reader otherwise.
+        if not cut_short:
+            yield _sse({"type": "done", "conversation_id": conv_id})
+            yield _sse({"type": "follow_end", "count": sent})
+        else:
+            yield _sse({"type": "follow_end", "count": sent, "running": True})
 
     return generate
 
@@ -1128,27 +2063,526 @@ def rollover_running():
 # the owner's next send clears it (_send_to_conversation, above). Pure
 # augmentation — nothing wakes the session; her answer IS the next --resume
 # turn. She is the transport (no timer/liveness machinery — that's the trap).
+#
+# SEVERAL QUESTIONS AT ONCE. A session files every open question in one call,
+# and the set REPLACES whatever it filed before — the list is "what's open
+# now", not a log. They're kept as a list (`awaiting_questions`, what the
+# roster card and the in-chat card number) and joined into `awaiting_input`,
+# which everything older reads as a yes/no plus one line of text.
+#
+# THE CHAT KEEPS EVERY SET. Each filing also writes a `questions` line into the
+# transcript, so the chat draws the block where it was asked and it stays there,
+# above her answer, after the index flag comes off — marked answered once she
+# replies, or replaced when a newer set was filed after it. Prompt: "when an
+# agent sends up a question block, for it to persist in the chat above what i
+# send."
+#
+# HER ANSWER CAN COME BY ANOTHER ROUTE. The flag comes off by itself only when
+# a message of HERS reaches this session (_her_message_arrived). When she
+# answers somewhere else — in another session's chat, and a peer relays her
+# words — nothing of hers arrives here, so the session that filed the questions
+# takes them down itself (withdraw_questions, `request_input.py --answered`),
+# saying where her answer came from. No agent message ever clears them
+# automatically: most agent mail isn't her answer. Prompt: "Agent symbol stayed
+# orange when it got the answer from another chat and not me".
+#
+# Prompt: "i don't have to approve anything if there are no questions. if
+# there are questions, i want them all summarized into a card at the bottom of
+# the session ... and on the front page, i want the orange sessions to have
+# these questions printed out with an input box beneath it".
+
+# What every Observatory turn is told about stopping (see _build_cmd). The rule
+# is that there is no approval without a question: a session doesn't end its
+# turn on "say go and I'll…"; it either keeps working or files real questions.
+# The last paragraph covers the end of a job: a session that is unsure about
+# anything asks instead of closing itself.
+# Prompt: "If there are things that you're unsure about, i don't want you to
+# close yourself, i want you to ask me questions about it."
+_QUESTIONS_PROMPT = (
+    "## When to stop for the owner\n"
+    "Don't stop to ask for approval. If nothing is genuinely undecided, keep"
+    " going: don't end a turn with \"say go and I'll…\", \"shall I?\" or"
+    " \"want me to…?\" — do the thing. Stop only for a real question that she"
+    " alone can answer and that changes what you'd build. Then file ALL your"
+    " open questions in one call, one argument each, and end your turn:\n"
+    "`./venv/bin/python3 scripts/request_input.py \"question 1\" \"question 2\"`"
+    " (from the app checkout). That turns your card orange and prints the"
+    " questions on the roster and at the bottom of your chat, with a box she"
+    " answers in; her answer arrives as your next message. Each question must"
+    " stand on its own — she reads them on a card, away from the chat — so"
+    " name the choice and your recommendation in it. Filing again replaces the"
+    " earlier set.\n"
+    "If her answer reaches you some other way (she answered in another"
+    " session's chat and a peer passed her words on), take your questions down"
+    " yourself: `./venv/bin/python3 scripts/request_input.py --answered"
+    " \"<who relayed it, and her words quoted>\"`. Only when it really is HER"
+    " answer, quoted — never a peer's opinion or guess; a peer's message alone"
+    " clears nothing.\n"
+    "Finished the job but unsure about something — a choice you made for her"
+    " so the work could go on, a thing you couldn't check, a risk you'd flag?"
+    " Don't close yourself. File each doubt as a question the same way, with"
+    " what you picked and what you'd recommend, and end your turn."
+    " `session_done.py` is only for a job that is finished AND leaves you"
+    " unsure of nothing.\n"
+)
 
 _REQUEST_INPUT_MAX = 1000   # a question, not an essay
+_REQUEST_INPUT_MAX_COUNT = 12   # a handful she can answer in one reply, not a survey
+_WITHDRAW_SOURCE_MAX = 300   # where her answer came from: a line, not the answer's story
 
 
-def request_input(conv_id, question):
-    """Set `awaiting_input` (the question) on a conversation — the one validated
-    entry point the agent CLI (and any future HTTP door) share, so agents never
-    write session state directly. Returns (payload, status): 200 on success,
-    400 on a bad id / empty question, 404 on an unknown conversation. Loud,
-    precise failures — same narrow-door doctrine as open_spinoff()."""
+def request_input(conv_id, questions):
+    """Set the open questions on a conversation — the one validated entry point
+    the agent CLI (and any future HTTP door) share, so agents never write
+    session state directly. `questions` is one string or a list of them.
+    Returns (payload, status): 200 on success, 400 on a bad id / no question,
+    404 on an unknown conversation. Loud, precise failures — same narrow-door
+    doctrine as open_spinoff()."""
     if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
         return {"error": "invalid conversation id"}, 400
-    question = (question or "").strip()[:_REQUEST_INPUT_MAX]
-    if not question:
+    # Tidy the questions: trim each, cap each, drop blanks, cap the count.
+    if isinstance(questions, str) or questions is None:
+        questions = [questions]
+    cleaned = [str(q or "").strip()[:_REQUEST_INPUT_MAX] for q in questions]
+    cleaned = [q for q in cleaned if q][:_REQUEST_INPUT_MAX_COUNT]
+    if not cleaned:
         return {"error": "empty question"}, 400
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
             return {"error": "not found"}, 404
-        entry["awaiting_input"] = question
-    return {"ok": True, "awaiting_input": question}, 200
+        entry["awaiting_questions"] = cleaned
+        entry["awaiting_input"] = "\n".join(cleaned)
+    # Keep the set in the transcript too, where it was asked. The index field
+    # above is "what's open now" and comes off when she replies; this line is
+    # the record, so the chat can draw the block in its place above her answer
+    # for good (events.ts, case 'questions'). One O_APPEND write, the same as a
+    # peer card, because the turn that filed it is writing this log right now.
+    peermail.append_line(_chats_dir() / f"{conv_id}.jsonl",
+                         {"type": "questions", "questions": cleaned, "ts": _now()})
+    return {"ok": True, "awaiting_input": entry["awaiting_input"],
+            "awaiting_questions": cleaned}, 200
+
+
+def withdraw_questions(conv_id, source):
+    """Take down the open questions on a conversation because her answer
+    reached it by another route — the one validated entry point for a session
+    withdrawing its OWN questions (scripts/request_input.py --answered).
+    `source` says where her answer came from, and is required: the chat shows
+    it, so a set never just vanishes. Returns (payload, status): 200 with the
+    questions it withdrew, 400 on a bad id / no source, 404 on an unknown
+    conversation, 409 when nothing is open. Loud, precise failures — same
+    narrow-door doctrine as open_spinoff()."""
+    if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
+        return {"error": "invalid conversation id"}, 400
+    source = str(source or "").strip()[:_WITHDRAW_SOURCE_MAX]
+    if not source:
+        return {"error": "say where her answer came from"}, 400
+    # Only the questions and the orange flag come off. Unlike a message of
+    # hers (_her_message_arrived), this leaves a gated-command card, a done
+    # countdown and "saved for later" alone: she hasn't spoken HERE.
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        withdrawn = _open_questions(entry)
+        if not withdrawn:
+            return {"error": "no open questions to withdraw"}, 409
+        entry.pop("awaiting_questions", None)
+        entry.pop("awaiting_input", None)
+    # Keep the withdrawal in the transcript too, where it happened. The chat
+    # marks the block above it "answered elsewhere" and prints the source
+    # (events.ts, case 'questions-withdrawn'). One O_APPEND write, the same as
+    # a peer card, because the turn that withdrew it is writing this log now.
+    peermail.append_line(_chats_dir() / f"{conv_id}.jsonl",
+                         {"type": "questions-withdrawn", "questions": withdrawn,
+                          "source": source, "ts": _now()})
+    return {"ok": True, "withdrawn": withdrawn, "source": source}, 200
+
+
+def _reopen_note(questions):
+    """The questions her send just took off the card, handed back to the
+    agent. Her next message clears them whether or not it answers them —
+    she may be asking about something else entirely — so the agent is told
+    what was open and re-files whatever is still unanswered. Empty when
+    nothing was open."""
+    questions = [q for q in questions if q and q.strip()]
+    if not questions:
+        return ""
+    listed = "\n".join(f"{n}. {q}" for n, q in enumerate(questions, 1))
+    return ("\n\n[System: this message cleared the open questions you had filed"
+            " for the owner:\n" + listed + "\nIf it doesn't answer one of them,"
+            " re-file every one still open with scripts/request_input.py before"
+            " you end your turn, or it is gone from her card.]")
+
+
+def _open_questions(entry):
+    """The questions a session entry has open, as a list — empty when none.
+    Falls back to the single `awaiting_input` line for an older flag."""
+    if not isinstance(entry, dict):
+        return []
+    listed = [q for q in (entry.get("awaiting_questions") or []) if q and q.strip()]
+    if listed:
+        return listed
+    return [entry["awaiting_input"]] if entry.get("awaiting_input") else []
+
+
+def _her_message_arrived(conv_id, entry, expected=None):
+    """Take down everything that was waiting on her, because a message of hers
+    just reached the session. Returns the questions it cleared, for
+    _reopen_note. Caller holds the index mutate and passes the entry.
+    `expected` = clear the questions only if they're still this set (the
+    caller already told the agent about exactly these); a set filed since
+    stays up.
+
+    The same moment has two doors, and both come here: a message that starts
+    a turn (begin_turn) and one handed into a turn already running
+    (_deliver_midturn) — her answer from the roster's orange card takes the
+    second whenever the session is still working.
+      - The open questions and the orange flag come off, so the card stops
+        glowing the moment she replies (request_input). Clearing isn't
+        forgetting: the caller hands them back to the agent (_reopen_note),
+        since her message may be about something else.
+      - Any unresolved gated-command card is dropped (_dismiss_pending).
+      - A done countdown stops: she's still talking to it, so it isn't done;
+        it marks itself done again when it really is (the Done section).
+      - A session she saved for later is picked back up: talking to it is
+        coming back to it (the Save for later section).
+
+    Prompt: "Answered the question but the popup stuck. Please make it such
+    that if I answer from the front page it marks it answered and continues."
+    """
+    cleared = _open_questions(entry)
+    if expected is None or cleared == expected:
+        entry.pop("awaiting_questions", None)
+        entry.pop("awaiting_input", None)
+    else:
+        cleared = []
+    _dismiss_pending(conv_id)
+    _clear_done(entry)
+    entry.pop("saved_at", None)
+    return cleared
+
+
+# --- Done: a finished session closes itself, unless she keeps it -------------
+# A session whose job is finished says so through scripts/session_done.py. That
+# stamps `done_at` and `closes_at` on its entry; the card shows "done — closes
+# at …" with a Keep open button, and the minute tick
+# (scripts/coming_up_dispatcher.py) closes it once `closes_at` has passed,
+# DONE_GRACE_MINUTES after the stamp. Only HER turn clears the stamp — her
+# reply is "not done after all" without a separate gesture. A turn someone else
+# starts (a peer's message, a finished job waking it, a sudo answer) leaves it
+# standing: a done session answering "nothing more to do" is still done, and
+# wiping the stamp there is what left finished sessions with no Done notice.
+# If that turn leaves the session unable to close (it asked her, launched a
+# job), the stamp comes off when the turn ends (_end_turn_done).
+#
+# `final_at` is when its final output finished: the end of the turn that
+# stamped it done. The roster's unread dot on a done session keys on that, not
+# on last_at, so later housekeeping turns don't light the dot again. Closing is the same close her
+# × does (close_conversation), and sending into a closed session reopens it.
+#
+# Prompt: "also need to make sure that sessions that are completely done get
+# auto closed."
+
+DONE_GRACE_MINUTES = 120
+_DONE_NOTE_MAX = 300
+# Where scripts/run_detached.py keeps its jobs — the same env override and
+# default as that script's JOBS_DIR, read here so a session with a job still
+# running is never closed under it.
+_JOBS_DIR = Path(os.environ.get("EXOCORTEX_JOBS_DIR") or "/var/tmp/exo-jobs")
+
+
+def _unfinished_jobs(conv_id):
+    """Detached jobs this conversation launched that haven't finished yet."""
+    jobs = []
+    try:
+        for meta_path in _JOBS_DIR.glob("*/meta.json"):
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if meta.get("conv_id") == conv_id and not meta.get("finished_at"):
+                jobs.append(meta.get("label") or meta.get("id"))
+    except OSError:
+        pass
+    return jobs
+
+
+def _why_not_done(conv_id, entry):
+    """The reason a session can't be marked done or closed yet, or None."""
+    if entry.get("pinned"):
+        return "the pinned Keeper session stays open"
+    if entry.get("saved_at"):
+        return "the owner saved it for later, to pick back up herself"
+    if entry.get("awaiting_input"):
+        return "it is still waiting on an answer from the owner"
+    if entry.get("spinoff_offer"):
+        return "it has a Go button waiting for the owner"
+    if _read_approvals(conv_id).get("pending"):
+        return "it has a command waiting for the owner's approval"
+    jobs = _unfinished_jobs(conv_id)
+    if jobs:
+        return "a detached job is still running: " + ", ".join(jobs)
+    return None
+
+
+def mark_done(conv_id, note=""):
+    """Stamp a session done, starting its countdown to closing. The one door
+    scripts/session_done.py uses. Returns (payload, status): 400 on a bad id
+    or a reason it can't be done yet, 404 on an unknown conversation."""
+    if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
+        return {"error": "invalid conversation id"}, 400
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        reason = _why_not_done(conv_id, entry)
+        if reason:
+            return {"error": f"not done: {reason}"}, 400
+        entry["done_at"] = _now()
+        entry["closes_at"] = (datetime.now() + timedelta(minutes=DONE_GRACE_MINUTES)
+                              ).isoformat(timespec="seconds")
+        # Its final output is the rest of this turn (the closing report comes
+        # after the stamp), so final_at is written when the turn ends.
+        entry.pop("final_at", None)
+        if entry.get("running"):
+            entry["final_pending"] = True
+        else:
+            entry["final_at"] = entry["done_at"]
+        note = (note or "").strip()[:_DONE_NOTE_MAX]
+        if note:
+            entry["done_note"] = note
+        else:
+            entry.pop("done_note", None)
+    return {"ok": True, "done_at": entry["done_at"],
+            "closes_at": entry["closes_at"]}, 200
+
+
+_DONE_FIELDS = ("done_at", "done_note", "closes_at", "final_at", "final_pending")
+
+
+def _clear_done(entry):
+    """Take a session's done stamp off, countdown and all."""
+    for field in _DONE_FIELDS:
+        entry.pop(field, None)
+
+
+def _end_turn_done(conv_id, entry):
+    """At a turn's end, settle a done stamp: the turn that stamped it records
+    when its final output finished; a later turn that left the session unable
+    to close (asking her, a job running) takes the stamp off."""
+    if not entry.get("done_at"):
+        return
+    if entry.pop("final_pending", None):
+        entry["final_at"] = _now()
+    elif _why_not_done(conv_id, entry):
+        _clear_done(entry)
+
+
+def keep_open(conv_id):
+    """Cancel a done countdown — her Keep open button. Returns (payload, status)."""
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        _clear_done(entry)
+    return {"ok": True}, 200
+
+
+# --- Save for later: park a session she'll come back to --------------------
+# Her "not now, but keep it" for a session: `saved_at` on its entry. A saved
+# session stays open and holds everything it had, open questions included, but
+# asks nothing of her until she picks it back up: the idle check never wakes
+# it, it can't be marked done or auto-closed (_why_not_done names it), the room
+# helper won't move it (room_helper.py), and the roster lifts it out of the
+# rooms into a shut "Saved for later" section (frontend SavedLane.tsx). Her own
+# message into it picks it back up (_clear_waiting_on_her), as does the Pick
+# back up button.
+#
+# Prompt: "i'm also wanting to be able to save projects for later that the
+# system check doesn't send checks to ... i want to do it later and keep that
+# open but i don't want to look at it right now and i don't want it to be
+# checking if it's still open every day."
+
+def save_for_later(conv_id, saved=True):
+    """Save a session for later, or pick it back up (saved=False). Saving
+    also stops a done countdown, since a saved session stays open. The Keeper
+    can't be saved: it's the door to her day. Returns (payload, status)."""
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict) or entry.get("archived"):
+            return {"error": "not found"}, 404
+        if saved and entry.get("pinned"):
+            return {"error": "the pinned Keeper session can't be saved for later"}, 400
+        if saved:
+            entry["saved_at"] = entry.get("saved_at") or _now()
+            _clear_done(entry)
+        else:
+            entry.pop("saved_at", None)
+    return {"ok": True, "saved_at": entry.get("saved_at")}, 200
+
+
+def close_conversation(conv_id):
+    """Close a session: stop any live turn, take it off the roster, clean up.
+    Nothing is deleted — the jsonl log and index entry stay. The pinned Keeper
+    session always stays open. Returns (payload, status).
+
+    Closing STOPS a running turn, the agent and everything it started: killed
+    here if this worker owns the process, else killed from the turn's process
+    record (any worker can), with stop_requested set either way so the host
+    reads the death as deliberate. Pinned is checked FIRST, so refusing to
+    close the Keeper never kills its turn."""
+    _chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        if entry.get("pinned"):
+            return {"error": "the pinned Keeper session stays open"}, 400
+        killed_here = _kill_local_proc(conv_id)
+        was_running = killed_here or _effective_running(conv_id, entry)
+        if not killed_here and entry.get("running"):
+            entry["stop_requested"] = _now()
+        record = dict(entry.get("turn_proc") or {})
+        entry["archived"] = _now()
+        _clear_done(entry)
+        reap = entry.get("worktree")
+        filed = entry.get("spinoff_slug")
+    # Kill the agent directly rather than wait for its host's stop poll —
+    # AFTER the lock is released, so stop_requested is already on disk when
+    # the host sees its agent die.
+    agent = _kill_recorded_agent({"turn_proc": record}) if was_running else None
+    # Outside the lock (git is slow, every send wants this lock). Closing is
+    # the ONE moment a worktree can be removed safely: it's the session's
+    # cwd, and a conversation can only ever be resumed from the directory it
+    # was born in — so while the session is open, deleting the copy would
+    # silently make it unresumable forever. The BRANCH survives; that's
+    # where the work is until it's merged.
+    # Not while anything still stands in it: a turn being closed is waited
+    # out first, or an agent a few steps from noticing the stop would go on
+    # writing into a folder that's gone. One that won't die in time keeps its
+    # worktree — a leftover folder costs disk, a pulled one costs the work.
+    if reap and was_running and not _wait_turn_gone(conv_id, agent, record.get("boot")):
+        print(f"close {conv_id}: turn still alive after {_CLOSE_WAIT_SEC}s — "
+              f"leaving its worktree {reap}", file=sys.stderr)
+        reap = None
+    if reap:
+        worktrees.remove(reap)
+    # File the brief folder of a session born before briefs moved to the
+    # database (briefstore.py): it is MOVED to the archive, never deleted. A
+    # session born since has no folder and this does nothing. Import here, not
+    # at module top: spinoff imports this module.
+    if filed:
+        from routes.spinoff import archive_spinoff
+        archive_spinoff(filed)
+    return {"ok": True}, 200
+
+
+def close_done_sessions(now=None):
+    """Close every session whose done countdown has run out. Returns the ids
+    closed. Called once a minute by scripts/coming_up_dispatcher.py.
+
+    Re-checks at close time what mark_done checked, plus that no turn is
+    running: something may have started since the stamp (a turn clears it
+    anyway, but a job or an approval can appear without one)."""
+    now = now or datetime.now()
+    due = []
+    for conv_id, entry in store.read("bot_chats/index", {}).items():
+        if not isinstance(entry, dict) or entry.get("archived"):
+            continue
+        try:
+            closes_at = datetime.fromisoformat(str(entry.get("closes_at")))
+        except ValueError:
+            continue
+        if closes_at <= now and not _effective_running(conv_id, entry) \
+                and not _why_not_done(conv_id, entry):
+            due.append(conv_id)
+    closed = []
+    for conv_id in due:
+        _, status = close_conversation(conv_id)
+        if status == 200:
+            closed.append(conv_id)
+    return closed
+
+
+# --- Idle check: a session quiet for a day asks itself whether it's done ------
+# The backstop for sessions that finished without running session_done.py.
+# Once a session has sat idle IDLE_CHECK_HOURS, the minute tick wakes it with
+# one System message asking it to look at its own job: finished → it runs
+# session_done.py (the usual countdown and Keep open button follow); not
+# finished → it says in a line what's left, and stays. `idle_check_at` marks
+# the ask, so each quiet spell is asked about once; the woken turn moves
+# `last_at`, so a session that stays gets asked again a day later. Sessions
+# that can't be done anyway (_why_not_done) — saved-for-later ones among
+# them — and ones already counting down are skipped. At most IDLE_CHECKS_PER_TICK wake per minute, oldest first, so
+# a backlog of old sessions trickles in instead of starting all at once.
+#
+# Prompt: "1 day i think it will check itself and see if it should still be
+# running and if not close itself"
+
+IDLE_CHECK_HOURS = 24
+IDLE_CHECKS_PER_TICK = 2
+IDLE_CHECK_SOURCE = "idle-check"
+
+
+def idle_check_message(idle_hours):
+    """What the woken session is told, and how the chat and journal show it.
+    Returns (text, system) — the follow-up queue's pair, as in
+    scripts/run_detached.py wake_message."""
+    done_script = Path(__file__).resolve().parents[1] / "scripts" / "session_done.py"
+    python = Path(__file__).resolve().parents[1] / "venv" / "bin" / "python3"
+    summary = f"Idle check — no activity for {idle_hours} hours; is this session done?"
+    text = (
+        f"[Idle check — this session has had no activity for {idle_hours} hours]\n"
+        "Look at what this session was started for and where it stands. "
+        "Don't start new work.\n"
+        "- If the job is completely finished (work committed, result reported, "
+        "nothing waiting on the owner), close it: "
+        f'`{python} {done_script} "<one line: what was finished>"`.\n'
+        "- If it isn't, say in one or two lines what's left and why this "
+        "session should stay open, then end the turn."
+    )
+    system = {"display": summary, "journal": summary, "source": IDLE_CHECK_SOURCE,
+              "item_id": None}
+    return text, system
+
+
+def idle_check_sessions(now=None):
+    """Wake sessions idle past IDLE_CHECK_HOURS with the idle-check question.
+    Returns the ids woken. Called once a minute by
+    scripts/coming_up_dispatcher.py."""
+    now = now or datetime.now()
+    cutoff = now - timedelta(hours=IDLE_CHECK_HOURS)
+    # Pick the sessions that are idle, unasked since, and could be done.
+    candidates = []
+    for conv_id, entry in store.read("bot_chats/index", {}).items():
+        if not isinstance(entry, dict) or entry.get("archived") or entry.get("done_at"):
+            continue
+        last_seen = str(entry.get("last_at") or entry.get("started") or "")
+        try:
+            last = datetime.fromisoformat(last_seen)
+        except ValueError:
+            continue
+        if last > cutoff or str(entry.get("idle_check_at") or "") >= last_seen:
+            continue
+        if _effective_running(conv_id, entry) or _why_not_done(conv_id, entry):
+            continue
+        candidates.append((last, conv_id))
+    # Stamp the ask BEFORE queueing, so a crash between the two costs one
+    # check rather than a check every minute.
+    woken = []
+    for last, conv_id in sorted(candidates)[:IDLE_CHECKS_PER_TICK]:
+        with store.mutate("bot_chats/index", {}) as index:
+            entry = index.get(conv_id)
+            if not isinstance(entry, dict):
+                continue
+            entry["idle_check_at"] = _now()
+        idle_hours = int((now - last).total_seconds() // 3600)
+        text, system = idle_check_message(idle_hours)
+        queue_followup(conv_id, text, system=system)
+        woken.append(conv_id)
+    return woken
 
 
 # --- Act-vs-ask APPROVALS: the inline Approve/Deny for a gated command -------
@@ -1311,6 +2745,367 @@ def _dismiss_pending(conv_id):
             pass
 
 
+# --- Follow-ups: turns the SERVER starts once a conversation is free ---------
+# Some messages aren't typed by her in the moment: the "Approved — retry"
+# cue after an Approve/Deny tap, and a Coming up reminder at its set time.
+# Each has to wait for the conversation's current turn to end (one turn at a
+# time), and the waiting used to live in her browser — which gave up after 30
+# seconds, and stopped entirely when her phone locked. Approvals were being
+# recorded but never resumed that way.
+#
+# So the waiting lives here. A follow-up goes into a per-conversation queue
+# file; `drain_followups` starts the first one whenever the conversation is
+# idle, and it's called at the three moments that can make it idle or matter:
+# right after queueing, the instant a turn ends (scripts/turn_host.py, and the
+# in-worker fallback), and once a minute from scripts/coming_up_dispatcher.py
+# as a safety net for a turn process killed mid-turn.
+#
+# Prompt that produced it: "I also need some kind of fix to things like this
+# dropping. Usually when you send off a worker, it drops and you don't run
+# when you come back ... Maybe install a poller ... Otherwise just fix it."
+
+# What the agent is told after her tap — the same words the page used to send.
+APPROVE_CUE = "Approved — go ahead and retry that exact command now."
+DENY_CUE = ("I've denied that command — don't run it. Find another way, or stop "
+            "and tell me why.")
+
+# How long a server-sent decision counts as "already resumed" when an older
+# cached page fires its own resume for it too.
+_RESUMED_MEMORY_SEC = 600
+
+
+def _followups_path(conv_id):
+    return _chats_dir() / "followups" / f"{conv_id}.json"
+
+
+class _FollowupFile:
+    """The queue file, locked for the whole read-modify-write. Shape:
+    {"items": [<follow-up>...], "resumed": [{"kind", "command", "at"}...]}."""
+
+    def __init__(self, conv_id):
+        self.path = _followups_path(conv_id)
+
+    def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = open(self.path.with_suffix(".lock"), "w")
+        fcntl.flock(self._lock, fcntl.LOCK_EX)
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        data.setdefault("items", [])
+        data.setdefault("resumed", [])
+        self.data = data
+        return data
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc_type is None:
+                tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
+                tmp.write_text(json.dumps(self.data), encoding="utf-8")
+                os.replace(tmp, self.path)
+        finally:
+            fcntl.flock(self._lock, fcntl.LOCK_UN)
+            self._lock.close()
+        return False
+
+
+def queue_followup(conv_id, text, record=False, decision=None, system=None):
+    """Put a follow-up in this conversation's queue, then try to start it.
+    Returns "sent" if it started now, "queued" if it's waiting for the
+    current turn to end."""
+    # Send it to whoever is doing this session's work now. A session that
+    # handed off is retired: a follow-up queued there later (a detached job
+    # finishing, a reminder) would start a turn on it, and starting a turn
+    # un-archives it. The same forwarding peermail.send does for mail.
+    import continuation
+    conv_id = continuation.successor(conv_id)
+    with _FollowupFile(conv_id) as data:
+        data["items"].append({"text": text, "record": bool(record),
+                              "decision": decision, "system": system,
+                              "queued_at": _now()})
+        if isinstance(decision, dict):
+            # Remember it so a cached page's own resume for the same tap is
+            # ignored (see _already_resumed) — kept even while still queued.
+            data["resumed"].append({"kind": decision.get("kind"),
+                                    "command": decision.get("command"),
+                                    "at": time.time()})
+            data["resumed"] = data["resumed"][-20:]
+    return "sent" if drain_followups(conv_id) else "queued"
+
+
+def _already_resumed(conv_id, decision):
+    """Has the server already queued the resume for this exact decision?"""
+    if not _followups_path(conv_id).exists():
+        return False
+    cutoff = time.time() - _RESUMED_MEMORY_SEC
+    with _FollowupFile(conv_id) as data:
+        return any(r.get("kind") == decision.get("kind")
+                   and r.get("command") == decision.get("command")
+                   and (r.get("at") or 0) >= cutoff
+                   for r in data["resumed"])
+
+
+def drain_followups(conv_id):
+    """Start the next queued follow-up if the conversation is free. Returns
+    True if a turn was started. Never starts more than one: when that turn
+    ends, its own end-of-turn drain starts the next."""
+    if not _followups_path(conv_id).exists():
+        return False
+    with _FollowupFile(conv_id) as data:
+        if not data["items"]:
+            return False
+        item = data["items"][0]
+        result = begin_turn(conv_id, item["text"], item.get("record", False),
+                            decision=item.get("decision"),
+                            system=item.get("system"), fallback=False)
+        if result["ok"] or result["status"] == 404:
+            # Started — or the conversation is gone, and nothing will ever run
+            # it. Either way this item is done.
+            data["items"].pop(0)
+            return bool(result["ok"])
+        # Busy, low on memory, or the turn process wouldn't launch: leave it
+        # at the head of the queue for the next end-of-turn or minute tick.
+        return False
+
+
+def move_system_followups(from_conv, to_conv):
+    """Move waiting system reminders from one conversation's queue to
+    another's — the nightly rollover hands them from the retiring Keeper to
+    the new one. Approval cues stay put: they belong to the session that
+    asked. Returns how many moved."""
+    if not _followups_path(from_conv).exists():
+        return 0
+    with _FollowupFile(from_conv) as old:
+        moving = [it for it in old["items"] if it.get("system")]
+        old["items"] = [it for it in old["items"] if not it.get("system")]
+    if moving:
+        with _FollowupFile(to_conv) as new:
+            new["items"].extend(moving)
+    return len(moving)
+
+
+def drain_all_followups():
+    """The once-a-minute safety net: try every conversation with a waiting
+    follow-up. Returns how many turns were started."""
+    folder = _chats_dir() / "followups"
+    if not folder.is_dir():
+        return 0
+    started = 0
+    for path in sorted(folder.glob("*.json")):
+        if _CONV_ID_RE.match(path.stem) and drain_followups(path.stem):
+            started += 1
+    return started
+
+
+# --- The mailbox: messages that start a turn of their own ---------------------
+# peermail.py keeps the messages; the running turn's companion hands in what
+# it can mid-turn (_deliver_midturn). Whatever is still waiting when the
+# session is idle — a message sent to an idle agent, anything marked `queue`,
+# or everything left when a turn ends or is interrupted — goes out HERE, all
+# of it together in one turn, each message labelled with who sent it.
+# Called at the same moments as drain_followups: right after a message is
+# sent, when a turn ends, and once a minute as the safety net.
+
+def after_turn(conv_id):
+    """What happens the moment a turn ends, before anything queued starts.
+
+    A session that handed off to a continuation is archived now that its last
+    reply is written (continuation.hand_off flags it). Otherwise, a Coding
+    session past its context cap is asked for its handoff (continuation.check),
+    which queues a System follow-up — so it has to run BEFORE the drains below
+    it in the turn host, or a waiting message would take the turn first. And
+    if the session is in a swarm, its helper is nudged to update."""
+    import continuation
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if isinstance(entry, dict) and entry.pop("archive_after_turn", None):
+            entry["archived"] = True
+            successor = entry.get("continued_by")
+        else:
+            successor = None
+    # Pass the retired session's unread mail and reminders to its successor.
+    # Otherwise the drains that run next would start a turn here, and
+    # starting a turn un-archives — the old session would come back to life.
+    if successor:
+        peermail.readdress(conv_id, successor)
+        move_system_followups(conv_id, successor)
+        drain_inbox(successor)
+        return
+    # A helper's chat (a swarm's, a room's, the Linear helper's) is never
+    # continued and belongs to no swarm as a member. Its end-of-turn jobs make no
+    # model call: a wake-up it answered with silence leaves no trace on its
+    # card (helper_chat.after_turn), and the helper of a closed swarm, having
+    # answered her, starts its countdown to closing again (swarm_helper.rest_again).
+    if isinstance(entry, dict) and entry.get("role") in _HELPER_ROLES:
+        try:
+            import helper_chat
+            helper_chat.after_turn(conv_id)
+            if entry.get("role") == "swarm_helper":
+                import swarm_helper
+                swarm_helper.rest_again(conv_id)
+        except Exception as e:
+            print(f"helper after-turn failed for {conv_id}: {e}", file=sys.stderr)
+        return
+    continuation.check(conv_id)
+    # A member of a swarm just did something: its helper updates its
+    # summaries (debounced — see swarm_helper.poke).
+    try:
+        import swarm_helper
+        import swarms
+        swarm_id = swarms.swarm_of(conv_id)
+        if swarm_id is not None:
+            swarm_helper.poke(swarm_id, "turn")
+    except Exception as e:
+        print(f"swarm helper poke failed for {conv_id}: {e}", file=sys.stderr)
+
+
+def drain_inbox(conv_id, fallback=False):
+    """Start a turn with everything waiting for this session, if it's idle.
+    Returns True if a turn started."""
+    rows = peermail.waiting(conv_id)
+    stranded = peermail.handed(conv_id)
+    if not rows and not stranded:
+        return False
+    entry = store.read("bot_chats/index", {}).get(conv_id)
+    if not isinstance(entry, dict):
+        return False
+    # Mail for a session that handed off goes to its successor instead of
+    # waking it (continuation.py) — mail can arrive between the handoff and
+    # the archive, and the minute tick would otherwise deliver it here.
+    if entry.get("continued_by"):
+        import continuation
+        successor = continuation.successor(conv_id)
+        if successor != conv_id:
+            peermail.readdress(conv_id, successor)
+            return drain_inbox(successor, fallback=fallback)
+    if _effective_running(conv_id, entry):
+        return False
+    # Messages handed into a turn that is over now but never read — its host
+    # died before it could put them back (_run_turn's finally does, normally).
+    # The agent never saw them, so they go out with this turn.
+    if stranded:
+        peermail.unclaim(stranded)
+        rows = peermail.waiting(conv_id)
+        if not rows:
+            return False
+    # A swarm helper's mail is answered by a helper run, not a chat turn —
+    # each run starts fresh from the summaries (swarm_helper.py).
+    if entry.get("role") == "swarm_helper":
+        import swarm_helper
+        return swarm_helper.answer_mail(conv_id)
+    won = peermail.claim(rows, "batched")
+    if not won:
+        return False            # someone else is delivering them
+    result = begin_turn(conv_id, None, batch=won, fallback=fallback)
+    if result["ok"]:
+        peermail.note_delivered(conv_id, won)
+        return True
+    # Busy after all, low on memory, or the turn wouldn't launch: back to
+    # waiting, for the next end-of-turn or the minute tick.
+    peermail.unclaim(won)
+    return False
+
+
+def drain_all_inbox():
+    """The once-a-minute safety net for the mailbox. Returns turns started."""
+    started = 0
+    for conv_id in peermail.any_waiting():
+        if _CONV_ID_RE.match(conv_id) and drain_inbox(conv_id):
+            started += 1
+    return started
+
+
+def _inbox_status(conv_id, entry):
+    """Why her messages are still waiting, for the line under each queued row.
+
+    `running` — a turn is going; without one they start a turn as soon as
+    there's room. `step` — the step the agent is in right now, read from the
+    live tool_calls table (a call with no result yet, from THIS turn): its
+    tool, what it's working on, and how long it has run. A handed-in message
+    is read the moment that step ends. `policy` — 'queue-only' means this
+    session takes messages only between turns."""
+    entry = entry if isinstance(entry, dict) else {}
+    running = _effective_running(conv_id, entry)
+    step = None
+    started = entry.get("turn_started")
+    if running and started:
+        conn = sqlstore.open_db()
+        try:
+            found = conn.execute(
+                "SELECT name, target, at FROM tool_calls WHERE conv = ?"
+                " AND parent_tool_use_id IS NULL AND result_at IS NULL AND at >= ?"
+                " ORDER BY at LIMIT 1", (conv_id, started)).fetchone()
+        finally:
+            conn.close()
+        if found:
+            try:
+                seconds = max(0, int((datetime.now() - datetime.fromisoformat(
+                    found[2])).total_seconds()))
+            except (TypeError, ValueError):
+                seconds = None
+            step = {"name": found[0], "target": (found[1] or "")[:200],
+                    "seconds": seconds}
+    return {"running": running, "step": step, "policy": peermail.policy_of(conv_id)}
+
+
+def peer_send(from_conv, to_conv, text, mode="inject"):
+    """One agent messages another — the door scripts/peers.py uses. Stores the
+    message, draws it as a card in the sender's own chat so the owner sees
+    what was sent, and wakes the recipient if it's idle. Raises ValueError /
+    KeyError from peermail.send."""
+    if from_conv is not None and not isinstance(
+            store.read("bot_chats/index", {}).get(from_conv), dict):
+        raise KeyError(from_conv)
+    row = peermail.send(to_conv, text, from_conv=from_conv, kind="A", mode=mode)
+    if from_conv:
+        peermail.append_line(_chats_dir() / f"{from_conv}.jsonl",
+                             peermail.peer_line(row, "out"))
+    # This message may have made (or grown) a swarm. A new swarm gets its
+    # helper, which names it straight away.
+    try:
+        import swarm_helper
+        import swarms
+        swarms.sync()
+        swarm_id = swarms.swarm_of(row["to_conv"])
+        if swarm_id is not None:
+            conn = sqlstore.open_db()
+            try:
+                named = conn.execute("SELECT helper_conv FROM swarms WHERE id = ?",
+                                     (swarm_id,)).fetchone()
+            finally:
+                conn.close()
+            if named and not named[0]:
+                swarm_helper.poke(swarm_id, "formed")
+    except Exception as e:
+        print(f"swarm update failed after a message: {e}", file=sys.stderr)
+    # Have the message's one-line summary written, in a process of its own
+    # (message_summaries.py). Sending never waits on it or fails because of it.
+    try:
+        import message_summaries
+        message_summaries.spawn(row)
+    except Exception as e:
+        print(f"message summary not started: {e}", file=sys.stderr)
+    started = row["status"] == "waiting" and drain_inbox(row["to_conv"])
+    return {**row, "started": bool(started)}
+
+
+def release_peer_message(message_id):
+    """The owner lets a held message through: mark it on the sender's card,
+    then deliver it like any other. None if it wasn't held."""
+    row = peermail.release(message_id)
+    if row is None:
+        return None
+    if row["from_conv"]:
+        peermail.append_line(_chats_dir() / f"{row['from_conv']}.jsonl",
+                             {"type": "peer-status", "id": row["id"],
+                              "status": "waiting", "ts": _now()})
+    drain_inbox(row["to_conv"])
+    return row
+
+
 # --- Fork-the-work: offload a bloated long-runner onto a fresh spinoff -------
 # From a running session's Orchestra card, read what it is WRITING/creating
 # right now (live, same harvest path terrain.py's live overlay uses) and stage a
@@ -1413,6 +3208,10 @@ def _fork_brief_md(title, surface):
 _PREVIEW_TAIL_BYTES = 262_144
 # What the card can actually hold before it stops being a hovercard.
 _PREVIEW_CHARS = 700
+# How much of a long transcript the Activity pane's first read covers. Enough
+# for the last several turns of a busy session; the older hours are in the
+# conversation itself and in the tool_calls table.
+_ACTIVITY_WINDOW_BYTES = 3 * 1024 * 1024
 
 
 def _message_prose(message):
@@ -1471,77 +3270,6 @@ def _conversation_last_said(path):
     return None, ""
 
 
-# --- Searching the archive -------------------------------------------------
-# Every conversation is one NDJSON file (bot_chats/<conv>.jsonl) of raw Claude
-# Code stream events, so "search everything I've ever said" is a walk over
-# those files — no index, no schema, nothing to keep in step with the record.
-# That's deliberate: an index is a second copy of the truth that can drift, and
-# at this scale (tens to low hundreds of transcripts) the walk is milliseconds.
-# When it stops being milliseconds, THAT is when an index earns its place.
-#
-# The response says how many transcripts it actually read, so a slow day is
-# visible rather than silently partial.
-_SEARCH_MIN_QUERY = 2          # one letter matches everything; not a search
-_SEARCH_HITS_PER_SESSION = 3   # enough to recognise the conversation, not read it
-_SEARCH_SNIPPET_PAD = 100      # characters either side of the match
-_SEARCH_MAX_SESSIONS = 80      # newest-first; anything past this is reported
-
-
-def _speech(path):
-    """Every human-meaningful line in a transcript, oldest first, as
-    (turn_index, who, text).
-
-    Only SPEECH — her typed messages and the agent's prose replies. Tool calls,
-    tool results and the usage records are machinery: they'd match a query for
-    a filename thousands of times and bury the one moment she actually meant.
-    `{"type": "user", "text": ...}` is her, typed; a user event carrying a
-    `message` instead is claude echoing a tool result back to itself, which is
-    exactly the machinery being excluded (same distinction _conversation_last_
-    said draws).
-
-    A torn line (a crash mid-append) is skipped rather than allowed to hide the
-    rest of the file."""
-    out = []
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                try:
-                    ev = json.loads(line)
-                except ValueError:
-                    continue
-                if not isinstance(ev, dict):
-                    continue
-                if ev.get("type") == "assistant":
-                    text = _message_prose(ev.get("message"))
-                    if text:
-                        out.append((len(out), "K", text))
-                elif ev.get("type") == "user":
-                    text = ev.get("text")
-                    if isinstance(text, str) and text.strip():
-                        out.append((len(out), "B", text.strip()))
-    except OSError:
-        return []
-    return out
-
-
-def _snippet(text, needle, pad=_SEARCH_SNIPPET_PAD):
-    """The match with room to breathe either side, and where the match sits
-    inside what's returned — the client needs the offset to mark the words, and
-    recomputing it there would mean re-implementing this trimming in two
-    languages. Collapses whitespace first so a snippet out of a code block
-    doesn't arrive as a column of newlines."""
-    flat = " ".join(text.split())
-    at = flat.lower().find(needle)
-    if at < 0:
-        return None
-    start = max(0, at - pad)
-    end = min(len(flat), at + len(needle) + pad)
-    body = flat[start:end]
-    return {"text": ("…" if start > 0 else "") + body + ("…" if end < len(flat) else ""),
-            "at": (at - start) + (1 if start > 0 else 0),
-            "len": len(needle)}
-
-
 def register(app):
     # The /api/bots/* rules below are kept as aliases of the canonical
     # /api/observatory/* paths purely for cached PWA clients (old service-
@@ -1559,6 +3287,10 @@ def register(app):
         clients that still expect it."""
         chats = _chats_dir()
         index = store.read("bot_chats/index", {})
+        # A turn whose host died is put down before the roster is drawn, so
+        # its card is red the moment anyone looks rather than a minute later.
+        if mark_dead_turns(index):
+            index = store.read("bot_chats/index", {})
         # Ordered by CREATION time, newest first (her 07-27 call), NOT by
         # last activity: a card's spot is fixed the moment it's made, so the
         # roster never reshuffles under her when an agent replies. Recency
@@ -1572,6 +3304,19 @@ def register(app):
         # Pinned sessions surface first (the Keeper session lives at the
         # top); the sort above stays stable within each group.
         sessions.sort(key=lambda c: 0 if c.get("pinned") else 1)
+        # Mark the sessions that handed their work on to a continuation as
+        # retired, so the rooms and swarm pages can sink them to the bottom.
+        # Read off the WHOLE index, archived successors included — the same
+        # rule as swarms.overview's `retired`.
+        # `retired_at` — when its successor started, which is when its final
+        # output (the handoff) finished; the unread dot keys on it.
+        handed_on = {e.get("spawned_from"): e.get("started") for e in index.values()
+                     if isinstance(e, dict) and e.get("spawned_via") == "continue"}
+        for c in sessions:
+            if c["id"] in handed_on:
+                c["retired"] = True
+                if handed_on[c["id"]]:
+                    c["retired_at"] = handed_on[c["id"]]
         # Resolved ONCE for the whole roster, not per card — it's one file read
         # and the answer is the same for every unpinned session.
         cli_model = _cli_default_model()
@@ -1629,84 +3374,6 @@ def register(app):
         # (the client only supplies display labels).
         return jsonify({"sessions": sessions, "bots": bots,
                         "model_choices": list(_MODEL_CHOICES)})
-
-    @app.route("/api/observatory/search")
-    def observatory_search():
-        """Search everything ever said, across every session, archived included.
-
-        `?q=` is a plain case-insensitive substring — not a query language. She
-        is looking for a thing she remembers saying, and every operator syntax
-        ever shipped is a thing to get wrong at the moment she's already
-        struggling to remember the words.
-
-        Returns one entry per session that matches, newest first, each with up
-        to _SEARCH_HITS_PER_SESSION snippets and the offset of the match inside
-        each — enough to recognise the conversation from the results, not
-        enough to read it there. Reading is what opening the session is for.
-
-        JOURNALLED SESSIONS ARE INCLUDED, unlike the terrain hovercard's
-        preview, which withholds them. Different act: the hovercard quotes her
-        diary at a passing cursor, this answers a question she deliberately
-        typed into her own archive. Excluding them would silently fail exactly
-        the search she most wants — the Keeper session is journalled, and it's
-        where most of what she'd go looking for was said. Each hit says whether
-        it came from a journalled session so the client can mark it.
-
-        Prompt that produced it: "i'm also wanting a way to see past sessions
-        and the contents of them ... navigate to another page where i can
-        scroll around and search inside of it and see stuff."
-        """
-        q = (request.args.get("q") or "").strip()
-        if len(q) < _SEARCH_MIN_QUERY:
-            return jsonify({"query": q, "results": [], "scanned": 0, "truncated": False})
-        needle = q.lower()
-        index = store.read("bot_chats/index", {})
-        chats = _chats_dir()
-        # Newest first, so a capped scan drops the oldest rather than an
-        # arbitrary slice of the directory.
-        entries = sorted(
-            ((cid, meta) for cid, meta in index.items() if isinstance(meta, dict)),
-            key=lambda kv: kv[1].get("last_at") or kv[1].get("started") or "",
-            reverse=True)
-        truncated = len(entries) > _SEARCH_MAX_SESSIONS
-        entries = entries[:_SEARCH_MAX_SESSIONS]
-
-        results = []
-        scanned = 0
-        for cid, meta in entries:
-            path = chats / f"{cid}.jsonl"
-            if not path.is_file():
-                continue
-            scanned += 1
-            # The title is worth matching too: "the housing one" is a real way
-            # to look for a conversation, and it may never say "housing" inside.
-            title = meta.get("title") or ""
-            hits = []
-            for turn, who, text in _speech(path):
-                if needle not in text.lower():
-                    continue
-                snip = _snippet(text, needle)
-                if snip:
-                    hits.append(dict(snip, turn=turn, who=who))
-                if len(hits) >= _SEARCH_HITS_PER_SESSION:
-                    break
-            title_hit = needle in title.lower()
-            if not hits and not title_hit:
-                continue
-            results.append({
-                "id": cid,
-                "title": title or cid,
-                "title_hit": title_hit,
-                "lane": _conv_lane(meta),
-                "journal": meta.get("journal") is True,
-                "archived": bool(meta.get("archived")),
-                "pinned": bool(meta.get("pinned")),
-                "started": meta.get("started"),
-                "last_at": meta.get("last_at"),
-                "hits": hits,
-            })
-        return jsonify({"query": q, "results": results,
-                        "scanned": scanned, "truncated": truncated})
 
     @app.route("/api/observatory/atlas")
     def observatory_atlas():
@@ -1822,43 +3489,23 @@ def register(app):
     @app.route("/api/observatory/conversation/<conv_id>/close", methods=["POST"])
     @app.route("/api/bots/conversation/<conv_id>/close", methods=["POST"])
     def bot_conv_close(conv_id):
-        """Close a session: it stops any live turn, then leaves the roster.
-        Nothing is deleted — the jsonl log and index entry stay (her record is
-        the record). The pinned Keeper session always stays open.
+        """Close a session by hand — her ×. The work is close_conversation."""
+        payload, status = close_conversation(conv_id)
+        return jsonify(payload), status
 
-        Closing STOPS a running turn (same kill path as /stop): the subprocess
-        is killed if this worker owns it, else the owning worker is flagged via
-        stop_requested. Pinned is checked FIRST, so refusing to close the Keeper
-        never kills its turn."""
-        _chats_dir()
-        with store.mutate("bot_chats/index", {}) as index:
-            entry = index.get(conv_id)
-            if not isinstance(entry, dict):
-                return jsonify({"error": "not found"}), 404
-            if entry.get("pinned"):
-                return jsonify({"error": "the pinned Keeper session stays open"}), 400
-            if not _kill_local_proc(conv_id) and entry.get("running"):
-                entry["stop_requested"] = _now()
-            entry["archived"] = _now()
-            reap = entry.get("worktree")
-            filed = entry.get("spinoff_slug")
-        # Outside the lock (git is slow, every send wants this lock). Closing is
-        # the ONE moment a worktree can be removed safely: it's the session's
-        # cwd, and a conversation can only ever be resumed from the directory it
-        # was born in — so while the session is open, deleting the copy would
-        # silently make it unresumable forever. The BRANCH survives; that's
-        # where the work is until it's merged.
-        if reap:
-            worktrees.remove(reap)
-        # Closing is also when the brief stops being live work and becomes a
-        # record. It is MOVED, never deleted — the brief is the only thing that
-        # says what this session was asked to do, and git can show what changed
-        # but never what was wanted. Import here, not at module top: spinoff
-        # imports this module.
-        if filed:
-            from routes.spinoff import archive_spinoff
-            archive_spinoff(filed)
-        return jsonify({"ok": True})
+    @app.route("/api/observatory/conversation/<conv_id>/keep", methods=["POST"])
+    def bot_conv_keep(conv_id):
+        """Keep open: cancel a done session's countdown to closing."""
+        payload, status = keep_open(conv_id)
+        return jsonify(payload), status
+
+    @app.route("/api/observatory/conversation/<conv_id>/save", methods=["POST"])
+    def bot_conv_save(conv_id):
+        """Save for later ({"saved": true}, the default) or pick back up
+        ({"saved": false}). The work is save_for_later."""
+        saved = (request.get_json(silent=True) or {}).get("saved", True) is not False
+        payload, status = save_for_later(conv_id, saved)
+        return jsonify(payload), status
 
     @app.route("/api/observatory/conversation/<conv_id>/evidence", methods=["GET"])
     def observatory_conv_evidence(conv_id):
@@ -1883,13 +3530,15 @@ def register(app):
 
     @app.route("/api/observatory/conversations", methods=["POST"])
     def observatory_conv_create():
-        """Create a session in a LANE. Body: {title, journal, model, lane}.
+        """Create a session in a LANE. Body: {title, journal, model, lane},
+        and optionally `swarm` (a live swarm's id) to start it inside a swarm.
 
         The lane picks cwd and the two safety-net defaults (see _lane_profile):
         `orchestra` roots in the app checkout and asks before irreversible
         work; `coding` roots in the app checkout and just acts; `personal`
-        roots at the parent of both repos and just acts. All three carry the
-        full builder toolkit — the lane gates asking, not ability.
+        roots at the parent of both repos and just acts; `research` roots in
+        the research-room folder and just acts. All four carry the full
+        builder toolkit — the lane gates asking, not ability.
 
         `act_gate`/`guard_docs` are deliberately NOT written here: leaving them
         absent is what lets the lane keep driving them, so moving a session
@@ -1906,7 +3555,7 @@ def register(app):
         if model and model not in _MODEL_CHOICES:
             return jsonify({"error": f"unknown model {model!r}"}), 400
         lane = (data.get("lane") or _DEFAULT_LANE).strip()
-        if lane not in _LANES:
+        if not lanes.known(lane):
             return jsonify({"error": f"unknown lane {lane!r}"}), 400
         profile = _lane_profile(lane)
         # `front` — set when the session is started from a front's room. Two
@@ -1926,6 +3575,13 @@ def register(app):
                 return jsonify({"error": f"unknown front {front!r}"}), 400
             if data.get("seed") is not False:
                 brief_path = fronts_mod.write_front_brief(front)
+        # `swarm` — set when the session is started from a swarm's page. The
+        # swarm must be live; the session joins it once it exists, below.
+        swarm_id = data.get("swarm")
+        if swarm_id is not None:
+            import swarms
+            if not isinstance(swarm_id, int) or swarm_id not in swarms.sync():
+                return jsonify({"error": f"unknown swarm {swarm_id!r}"}), 400
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:
             conv_id = _new_conv_id(index)
@@ -1942,8 +3598,32 @@ def register(app):
             # leave the field absent so persona sessions keep owning it.
             if brief_path:
                 index[conv_id]["system_prompt_file"] = brief_path
+        # Join the swarm and tell the session where it woke up. It's a member
+        # before it has messaged anyone (swarms.join), and a seed file (added
+        # to a front brief when there is one) names the swarm, its summary and
+        # its members. The helper is poked so its summaries pick the newcomer up.
+        if swarm_id is not None:
+            import swarm_helper
+            swarms.join(swarm_id, conv_id)
+            seed = swarms.seed_text(swarm_id)
+            if seed:
+                if brief_path:
+                    seed_path = Path(brief_path)
+                    seed = seed_path.read_text(encoding="utf-8") + "\n" + seed
+                else:
+                    folder = _chats_dir() / "swarm_seed"
+                    folder.mkdir(parents=True, exist_ok=True)
+                    seed_path = folder / f"{conv_id}.md"
+                seed_path.write_text(seed, encoding="utf-8")
+                with store.mutate("bot_chats/index", {}) as index:
+                    index[conv_id]["system_prompt_file"] = str(seed_path)
+            try:
+                swarm_helper.poke(swarm_id, "joined")
+            except Exception as e:
+                print(f"swarm helper poke failed after a join: {e}", file=sys.stderr)
         return jsonify({"ok": True, "id": conv_id, "lane": lane,
-                        "front": front or None, "seeded": bool(brief_path)})
+                        "front": front or None, "seeded": bool(brief_path),
+                        "swarm": swarm_id})
 
     @app.route("/api/observatory/<bot_id>/conversations", methods=["POST"])
     @app.route("/api/bots/<bot_id>/conversations", methods=["POST"])
@@ -1998,7 +3678,7 @@ def register(app):
         lane = None
         if "lane" in data:
             lane = (data.get("lane") or "").strip()
-            if lane not in _LANES:
+            if not lanes.known(lane):
                 return jsonify({"error": f"unknown lane {lane!r}"}), 400
         _chats_dir()
         with store.mutate("bot_chats/index", {}) as index:
@@ -2132,6 +3812,100 @@ def register(app):
             }) + "\n")
         return jsonify({"ok": True, "card": quote_card, "note_card": note_card})
 
+    @app.route("/api/observatory/conversation/<conv_id>/journal-restore", methods=["POST"])
+    def bot_journal_restore(conv_id):
+        """Put one OFF-THE-RECORD message of hers back into the journal, on a tap.
+
+        She sent it with the journal paused and changed her mind. This mints
+        the ordinary B card that send would have minted — her words, at the
+        time she sent them — so it sorts into its own place in the day and
+        reads like any other card. Nothing marks it as restored.
+
+        ONLY HER TAP DOES THIS, one message at a time. Nothing here lists her
+        off-the-record messages, and nothing restores in bulk: a message she
+        hasn't tapped still leaves no trace in the journal at all.
+
+        The text and the time come from the session log, never from the
+        request: the client says WHICH message (`user`: its place among her
+        messages in this chat, and `text` to check it against), and the server
+        reads the line itself. A line that isn't flagged off_record is refused,
+        so this can't mint a second card for a message already journaled.
+
+        A `journal-restore` event goes into the log, naming the message by its
+        place among her messages. That is what makes a second tap a no-op (the
+        event is found and its card returned) and what un-dashes the message
+        on reload (events.ts). The whole check-mint-append runs under a file
+        lock, so two taps racing each other still make one card.
+
+        The off_record.jsonl breadcrumb is left alone on purpose. The fallback
+        capture doors don't need it lifted — the reconciler matches bodies
+        against the pool, finds the restored card, and stands down — and
+        removing it early would only open a window for them to mint a twin.
+
+        Prompt: "where I can click an entry that I sent that I had off the
+        record and add it back to the journal."
+        """
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        data = request.json or {}
+        text = data.get("text")
+        wanted = data.get("user")
+        if not isinstance(text, str) or not text.strip():
+            return jsonify({"error": "empty text"}), 400
+        path = _chats_dir() / f"{conv_id}.jsonl"
+        if not isinstance(store.read("bot_chats/index", {}).get(conv_id), dict) \
+                or not path.exists():
+            return jsonify({"error": "not found"}), 404
+
+        with open(path, "a+", encoding="utf-8") as log:
+            fcntl.flock(log, fcntl.LOCK_EX)
+            # Read her messages in order, and which of them are already back.
+            # Her messages are the `user` lines carrying a `text` string — the
+            # same lines the chat draws as hers, so the count matches the page.
+            log.seek(0)
+            hers, restored = [], {}
+            for raw in log.read().splitlines():
+                try:
+                    event = json.loads(raw)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                if event.get("type") == "user" and isinstance(event.get("text"), str):
+                    hers.append(event)
+                elif event.get("type") == "journal-restore":
+                    restored[event.get("user")] = event.get("card")
+
+            # Find the message she tapped. The place the client gave is trusted
+            # only if the words there match; otherwise fall back to the first
+            # off-the-record message with those words that isn't back yet.
+            matches = [n for n, e in enumerate(hers)
+                       if e.get("off_record") is True and e["text"] == text]
+            if wanted in matches:
+                place = wanted
+            else:
+                place = next((n for n in matches if n not in restored),
+                             matches[0] if matches else None)
+            if place is None:
+                return jsonify({"error": "no off-the-record message with that text"}), 409
+            if place in restored:
+                return jsonify({"ok": True, "card": restored[place], "user": place,
+                                "already": True})
+
+            # Mint at the time she sent it. The log stamps ISO local time;
+            # stream.py wants the same moment with a space.
+            try:
+                sent = datetime.fromisoformat(hers[place].get("ts") or "")
+            except ValueError:
+                return jsonify({"error": "that message has no send time"}), 409
+            card = terminal._capture_journal(
+                text, text, ts=sent.strftime("%Y-%m-%d %H:%M:%S"))
+            if not card:
+                return jsonify({"error": "journal mint failed"}), 502
+            log.write(json.dumps({"type": "journal-restore", "user": place,
+                                  "card": card, "ts": _now()}) + "\n")
+        return jsonify({"ok": True, "card": card, "user": place})
+
     @app.route("/api/observatory/conversation/<conv_id>")
     @app.route("/api/bots/conversation/<conv_id>")
     def bot_conversation(conv_id):
@@ -2150,12 +3924,27 @@ def register(app):
             if isinstance(meta, dict):
                 return jsonify({"id": conv_id, "meta": meta, "events": []})
             return jsonify({"error": "not found"}), 404
+        # Slim view for the session page: leave out the tool results. `?lean=1`
+        # drops every {type:'user'} event that isn't her own message — those
+        # are claude echoing tool output back (file contents, command output,
+        # screenshots), routinely 90%+ of a transcript's bytes, and the page's
+        # reducer ignores them (events.ts, case 'user'). They never make a
+        # turn, so turn indices — what journal highlights are addressed by —
+        # come out identical. Opt-in: without the flag the full log is served,
+        # and the file on disk is untouched (Terrain reads it directly).
+        # Prompt: "only load the last some amount of messages ... maybe make it
+        # load some amount that's easy to load."
+        lean = request.args.get("lean") == "1"
         events = []
         for line in path.read_text().splitlines():
             try:
-                events.append(json.loads(line))
+                event = json.loads(line)
             except ValueError:
                 continue  # a torn line (crash mid-append) shouldn't hide the rest
+            if (lean and isinstance(event, dict) and event.get("type") == "user"
+                    and not isinstance(event.get("text"), str)):
+                continue
+            events.append(event)
         if not isinstance(meta, dict):
             meta = {}
         if isinstance(meta, dict) and meta.get("running"):
@@ -2199,6 +3988,64 @@ def register(app):
                         mimetype="text/event-stream",
                         headers={"Cache-Control": "no-cache",
                                  "X-Accel-Buffering": "no"})
+
+    @app.route("/api/observatory/conversation/<conv_id>/activity")
+    def bot_conv_activity(conv_id):
+        """What the agent has been doing: every step, outputs included.
+
+        Serves the Activity pane (frontend/src/features/terrain/activity/). The
+        parsing is in activityfeed.py; this route adds where to resume and
+        whether the turn is still live.
+
+        Resumes by byte offset, like the follow stream. `?from=<n>` is the
+        `next` the last reply gave; each poll reads only what was appended
+        since. A first read of a very long session starts near the end
+        (`clipped`). `mtime` is when the transcript last grew, which is how
+        the pane can say "quiet for 3 minutes" while a turn is supposedly
+        running."""
+        if not _CONV_ID_RE.match(conv_id or ""):
+            return jsonify({"error": "invalid conversation id"}), 400
+        meta = store.read("bot_chats/index", {}).get(conv_id)
+        if not isinstance(meta, dict):
+            return jsonify({"error": "not found"}), 404
+        try:
+            offset = max(0, int(request.args.get("from", 0)))
+        except (TypeError, ValueError):
+            offset = 0
+        path = _chats_dir() / f"{conv_id}.jsonl"
+        events, start, next_offset, clipped = activityfeed.read_since(
+            path, offset, _ACTIVITY_WINDOW_BYTES)
+        try:
+            mtime = datetime.fromtimestamp(path.stat().st_mtime).isoformat(
+                timespec="seconds")
+        except OSError:
+            mtime = None
+        return jsonify({
+            "id": conv_id,
+            "title": meta.get("title") or conv_id,
+            "running": _effective_running(conv_id, meta),
+            "mtime": mtime,
+            # Where the read actually began. Different from the `from` the
+            # client sent (a clip, or a rewritten file) means start the list
+            # over rather than append.
+            "start": start,
+            "next": next_offset,
+            "clipped": clipped,
+            "events": events,
+        })
+
+    @app.route("/api/observatory/conversation/<conv_id>/activity/output")
+    def bot_conv_activity_output(conv_id):
+        """One tool call's output, uncut — the Activity pane's "show all"."""
+        if not _CONV_ID_RE.match(conv_id or ""):
+            return jsonify({"error": "invalid conversation id"}), 400
+        tool_use_id = request.args.get("id", "")
+        if not re.match(r"^[A-Za-z0-9_\-]{1,100}$", tool_use_id):
+            return jsonify({"error": "invalid tool call id"}), 400
+        text = activityfeed.full_output(_chats_dir() / f"{conv_id}.jsonl", tool_use_id)
+        if text is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"id": tool_use_id, "output": text})
 
     @app.route("/api/observatory/conversation/<conv_id>/preview")
     def bot_conv_preview(conv_id):
@@ -2247,6 +4094,88 @@ def register(app):
                 entry["stop_requested"] = _now()
         return jsonify({"ok": True})
 
+    # --- The mailbox, from her side (peermail.py) ---------------------------
+    # What she types while a turn is running goes in the session's mailbox on
+    # the server — not a queue in her browser — so it's handed to the agent
+    # at its next step whether or not the page stays open, and it goes out
+    # together with anything other agents sent. Prompt that produced it:
+    # "change them to queue messages to the server so they can inject
+    # whenever it's ready."
+
+    @app.route("/api/observatory/conversation/<conv_id>/inbox", methods=["POST"])
+    def observatory_inbox_add(conv_id):
+        """Leave her a message in the mailbox. Starts a turn straight away if
+        the session is idle (`started`), otherwise it waits to be handed in."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        data = request.json or {}
+        try:
+            row = peermail.send(conv_id, data.get("text"), kind="B",
+                                record=data.get("record") is not False)
+        except KeyError:
+            return jsonify({"error": "not found"}), 404
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        started = drain_inbox(conv_id, fallback=True)
+        return jsonify({"ok": True, "id": row["id"], "started": started})
+
+    @app.route("/api/observatory/conversation/<conv_id>/inbox", methods=["GET"])
+    def observatory_inbox_list(conv_id):
+        """Her messages the agent hasn't read yet — the rows the chat shows
+        above the composer. `handed` = already written into the running
+        agent, which reads it when its current step ends; those can't be
+        taken back, only sent now. `status` says why they're waiting
+        (_inbox_status)."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        rows = sorted(peermail.waiting(conv_id, kind="B")
+                      + peermail.handed(conv_id, kind="B"), key=lambda r: r["id"])
+        entry = store.read("bot_chats/index", {}).get(conv_id)
+        return jsonify({
+            "waiting": [
+                {"id": r["id"], "text": r["text"], "record": bool(r["record"]),
+                 "handed": r["status"] == "delivered",
+                 "rushed": r["mode"] == "interrupt"}
+                for r in rows],
+            "status": _inbox_status(conv_id, entry) if rows else None,
+        })
+
+    @app.route("/api/observatory/conversation/<conv_id>/inbox/<int:message_id>/now",
+               methods=["POST"])
+    def observatory_inbox_now(conv_id, message_id):
+        """Her "send now": stop the step the agent is on and start a new turn
+        with this message (and anything else waiting). The same interrupt a
+        peer's `peers.py send --interrupt` uses — the running turn's companion
+        sees it within a second (_deliver_midturn). 409 once the agent has
+        already read it."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        if not peermail.send_now(message_id, conv_id):
+            return jsonify({"error": "already delivered"}), 409
+        # Idle after all (the turn ended a moment ago): nothing to interrupt,
+        # so start its turn now.
+        started = drain_inbox(conv_id, fallback=True)
+        return jsonify({"ok": True, "started": started})
+
+    @app.route("/api/observatory/conversation/<conv_id>/inbox/<int:message_id>",
+               methods=["DELETE"])
+    def observatory_inbox_cancel(conv_id, message_id):
+        """Take back one of her waiting messages. 409 if it already went."""
+        if not _CONV_ID_RE.match(conv_id):
+            return jsonify({"error": "invalid conversation id"}), 400
+        if not peermail.cancel(message_id, conv_id):
+            return jsonify({"error": "already delivered"}), 409
+        return jsonify({"ok": True})
+
+    @app.route("/api/observatory/peer/<int:message_id>/release", methods=["POST"])
+    def observatory_peer_release(message_id):
+        """Let a HELD agent message through. Nothing holds new messages any
+        more; this is for the ones the old count brakes held."""
+        row = release_peer_message(message_id)
+        if row is None:
+            return jsonify({"error": "not held"}), 409
+        return jsonify({"ok": True, "status": "waiting"})
+
     @app.route("/api/observatory/conversation/<conv_id>/fork", methods=["POST"])
     def bot_conv_fork(conv_id):
         """Fork-the-work: stage a fresh take-over spinoff seeded with what this
@@ -2264,10 +4193,9 @@ def register(app):
         if not surface:
             return jsonify({"error": "this session isn't writing any files yet — nothing to fork"}), 400
         slug = _fork_slug(meta.get("title") or conv_id)
-        brief_path = store.SPINOFF_DIR / slug / "BRIEF.md"
-        brief_path.parent.mkdir(parents=True, exist_ok=True)
-        brief_path.write_text(_fork_brief_md(meta.get("title") or conv_id, surface),
-                              encoding="utf-8")
+        import briefstore
+        briefstore.save(slug, _fork_brief_md(meta.get("title") or conv_id, surface),
+                        written_by=conv_id)
         from routes.spinoff import open_spinoff
         # start=False: a fork is a TAKE-OVER, not a parallel run. Launching it
         # here would put two agents on the same session's files at once, which
@@ -2278,24 +4206,36 @@ def register(app):
         # inside a REQUEST, so the ambient sender open_spinoff would otherwise
         # read is the web worker (nobody), not the session being forked. A
         # take-over has to land in the same room as the work it takes over.
-        payload, status = open_spinoff(slug, start=False, lane=_conv_lane(meta))
+        payload, status = open_spinoff(slug, start=False, lane=_conv_lane(meta),
+                                       parent=conv_id, via="fork")
         return jsonify(payload), status
 
     @app.route("/api/observatory/conversation/<conv_id>/approve", methods=["POST"])
     def observatory_conv_approve(conv_id):
         """Approve the command a gated session is blocked on. `sticky` (default
         false) = whitelist it for the whole session (`always`); false =
-        one-shot (`once`, consumed on the retry). The client fires a resume send
-        right after so the agent retries and the gate now lets it through."""
+        one-shot (`once`, consumed on the retry). The server then queues the
+        retry cue itself (see Follow-ups) — sent now if the session is idle,
+        the moment its current turn ends if not. `resume` in the reply says
+        which, and tells a current page not to send its own."""
         sticky = bool((request.json or {}).get("sticky"))
         payload, status = resolve_approval(conv_id, "approve", sticky)
+        if status == 200:
+            payload["resume"] = queue_followup(
+                conv_id, APPROVE_CUE,
+                decision={"kind": "approve", "command": payload["command"]})
         return jsonify(payload), status
 
     @app.route("/api/observatory/conversation/<conv_id>/deny", methods=["POST"])
     def observatory_conv_deny(conv_id):
-        """Deny the pending command — clears it without whitelisting. The client
-        resumes with a 'denied' nudge so the agent adjusts instead of dangling."""
+        """Deny the pending command — clears it without whitelisting, then
+        queues a 'denied' nudge the same way approve queues its retry, so the
+        agent adjusts instead of dangling."""
         payload, status = resolve_approval(conv_id, "deny", False)
+        if status == 200:
+            payload["resume"] = queue_followup(
+                conv_id, DENY_CUE,
+                decision={"kind": "deny", "command": payload["command"]})
         return jsonify(payload), status
 
     @app.route("/api/observatory/conversation/<conv_id>/send", methods=["POST"])
@@ -2439,241 +4379,408 @@ def register(app):
             if isinstance(pre, dict) and pre.get("origin") == "nightcrew":
                 return _nightcrew_reply(str(conv_id_req), text)
 
-        # Everything request-bound happens BEFORE the generator: conv/index
-        # setup, the journal mint, and the spawn — the stream only relays.
+        # Create the conversation first if this send is what makes it (the
+        # legacy per-bot door, or no id given). An existing entry's own config
+        # always wins.
         _chats_dir()   # the index (and its .lock) lives inside it
         with store.mutate("bot_chats/index", {}) as index:
             if conv_id_req:
                 conv_id = str(conv_id_req)
-                entry = index.get(conv_id)
-                if not isinstance(entry, dict):
+                if not isinstance(index.get(conv_id), dict):
                     if legacy_bot is None:
                         return jsonify({"error": "not found"}), 404
-                    entry = index.setdefault(conv_id, {
+                    index[conv_id] = {
                         "bot": legacy_bot["id"], "started": _now(),
                         "claude_session_id": None, "title": text[:60],
                         "cost_usd": 0.0, "journal": False,
-                        "cwd": legacy_bot.get("cwd")})
+                        "cwd": legacy_bot.get("cwd")}
             else:
                 conv_id = _new_conv_id(index)
-                entry = index.setdefault(conv_id, {
+                index[conv_id] = {
                     "bot": (legacy_bot or {}).get("id", "keeper"),
                     "started": _now(), "claude_session_id": None,
                     "title": text[:60], "cost_usd": 0.0, "journal": False,
-                    "cwd": (legacy_bot or {}).get("cwd")})
+                    "cwd": (legacy_bot or {}).get("cwd")}
 
-            # One turn at a time per conversation: turns now outlive their
-            # HTTP connection, so a second send racing in (another device,
-            # a retry) must be refused, not run concurrently against the
-            # same resume id.
-            if _effective_running(conv_id, entry):
-                return jsonify({"error": "a turn is already running in this conversation"}), 409
-            entry["last_at"] = _now()
-            entry["running"] = True
-            entry.pop("stop_requested", None)
-            # Talking to an archived session brings it back. The roster hides
-            # archived entries, so without this a resurrected conversation
-            # would run INVISIBLY — off the list while burning tokens. Sending
-            # IS the un-archive; there's deliberately no separate restore
-            # action to find. (Her ask: "I need a feature to open old chats" —
-            # /atlas already shows archived sessions and navigates into them,
-            # so the only missing half was making them live again on contact.)
-            entry.pop("archived", None)
-            # A staged kickoff (from /spinoff or a saved draft) is consumed
-            # by the first send that fires it. `autostart` (set by /spinoff so
-            # the Observatory auto-fires the kickoff on open) is cleared on the
-            # same beat — once fired it must never re-fire, even if she reopens
-            # the session mid-turn.
-            entry.pop("draft", None)
-            entry.pop("autostart", None)
-            # Her answer to a request-for-input IS this send: clear the orange
-            # "awaiting_input" flag so the Orchestra card stops glowing the
-            # moment she replies. (S2 request-for-input — see request_input().)
-            entry.pop("awaiting_input", None)
-            # ...and any unresolved gated-command card (see _dismiss_pending).
-            _dismiss_pending(conv_id)
-            # A fresh attempt clears the red: whatever went wrong last time is
-            # no longer the last thing this session did. If THIS turn fails too,
-            # _run_turn writes the flag straight back.
-            entry.pop("last_error", None)
-            # Her ask, for the card to show. It stays up for the life of the
-            # session now, not just while it works — so these two gates are the
-            # ONLY thing standing between a send and a line that sits on the
-            # roster indefinitely. They were already load-bearing; they're more
-            # so now.
-            #
-            # Two hard gates, both here rather than at the card, so there's one
-            # place to get them right:
-            #   - off the record never lands. It exists so a turn leaves no
-            #     trace; painting it on the roster would walk straight around
-            #     that.
-            #   - a JOURNALING session never lands. Its prompts are the diary,
-            #     and the pinned Keeper session sits at the top of the roster —
-            #     "show the last prompt" would put her journal on the card.
-            # A send that fails either gate leaves the previous value alone
-            # rather than clearing it: the last real ask is still the truest
-            # thing the card can say about what this session is doing.
-            if record and entry.get("journal") is not True:
-                card_prompt = _card_prompt(text)
-                if card_prompt:
-                    entry["last_prompt"] = card_prompt
-            resume_sid = entry.get("claude_session_id")
-            # Journal is opt-in per session (the pinned Keeper session
-            # carries journal:true) — everything else logs to its own jsonl
-            # only. Conversation-only now: no bot-level factor.
-            conv_journals = entry.get("journal") is True
-            config = _conv_config(entry)
-            config["conv_id"] = conv_id   # so the turn's env carries EXOCORTEX_CONV_ID (_spawn)
-            bot_id = entry.get("bot")
+        # Ignore a browser's resume for a decision the server already resumed.
+        # Approve/Deny now queue the retry cue server-side (see the follow-ups
+        # section); an older cached page still fires its own resume after the
+        # tap, and letting both through would tell the agent twice. Answered
+        # with an empty stream, which that page reads as success.
+        if isinstance(decision, dict) and _already_resumed(conv_id, decision):
+            def _noop():
+                yield _sse({"type": "conv", "conversation_id": conv_id,
+                            "journaled": False})
+            return Response(_noop(), mimetype="text/event-stream",
+                            headers={"Cache-Control": "no-cache",
+                                     "X-Accel-Buffering": "no"})
 
-        # Refuse to start another ~400MB claude process below the memory
-        # floor — checked AFTER running=True is durable (so a racing second
-        # send still gets the 409 above, not a duplicate spawn attempt) but
-        # BEFORE the model actually runs.
-        avail = _mem_available_mb()
-        if avail is not None and avail < MIN_SPAWN_MB:
-            msg = f"not enough memory to start claude ({avail}MB available)"
-            with store.mutate("bot_chats/index", {}) as index:
-                entry = index.get(conv_id)
-                if isinstance(entry, dict):
-                    entry["running"] = False
-                    # Flag it here too: an autostarted send (a spinoff firing
-                    # itself) has no one reading the HTTP response, so without
-                    # this the failure would be invisible on the roster.
-                    entry["last_error"] = msg
-            # The refusal carries the numbers behind it, so the client can draw
-            # the memory bar and offer to QUEUE this turn instead of just
-            # showing a dead-end toast. Queueing goes through
-            # /api/runqueue/enqueue (routes/run_queue.py); the run dispatcher
-            # starts it when a slot opens. Import is local because run_queue
-            # imports the dispatcher, and this module is imported by cron
-            # scripts that shouldn't pull that chain in at module load.
-            body = {"error": msg, "can_queue": True}
-            try:
-                from routes import run_queue
-                body["headroom"] = run_queue.headroom()
-            except Exception:
-                pass   # the refusal still stands without its numbers
-            return jsonify(body), 503
-
-        # A session whose GROUND has gone. Only a worktree session can hit this
-        # (worktrees.py) — its cwd is a directory that can be removed, unlike
-        # the two fixed checkouts. It matters because _spawn's fallback for a
-        # missing cwd is to spawn with cwd=None, and `--resume` then looks for
-        # the session under gunicorn's own directory, doesn't find it, and the
-        # turn fails with something that reads like a model error. Said plainly
-        # instead: the work isn't lost, it's on the branch.
-        wt = entry.get("worktree") if isinstance(entry, dict) else None
-        if wt and not os.path.isdir(wt):
-            msg = ("this session's worktree is gone, so it can't be resumed — "
-                   f"its work is on branch {entry.get('branch') or 'agent/…'}")
-            with store.mutate("bot_chats/index", {}) as index:
-                stale = index.get(conv_id)
-                if isinstance(stale, dict):
-                    stale["running"] = False
-                    stale["last_error"] = msg
-            return jsonify({"error": msg, "branch": entry.get("branch")}), 409
-
-        # Capture BEFORE the model runs (Slice-1 guarantee, same door the
-        # terminal chat session uses). Slash commands are operator control,
-        # not journal content — same rule as terminal_send().
-        journaled = False
-        if record and conv_journals and not text.lstrip().startswith("/"):
-            # bool(), not the card id it returns: this goes into the session log
-            # and the SSE conv event as a yes/no.
-            journaled = bool(terminal._capture_journal(text, text))
-        elif conv_journals and not text.lstrip().startswith("/"):
-            # Off the record — and skipping the mint is not enough on its own.
-            # The model still gets the text, so it lands in Claude Code's
-            # transcript, and the two fallback capture doors (the vault's
-            # UserPromptSubmit hook, the cron'd reconciler) read that transcript
-            # in a journaling session and mint anything the pool is missing.
-            # They can't tell "the server chose not to journal this" from "the
-            # server tried and failed", so they were faithfully restoring every
-            # off-the-record turn a minute later. This breadcrumb is what tells
-            # them apart — see terminal._note_off_record.
-            terminal._note_off_record(text)
-
-        log_path = _chats_dir() / f"{conv_id}.jsonl"
-        with open(log_path, "a", encoding="utf-8") as log:
-            if not record and isinstance(decision, dict) \
-                    and decision.get("kind") in ("approve", "deny"):
-                # She tapped Approve/Deny on a gated command. The resume send
-                # stays off the record (never journaled), but instead of a blank
-                # "off the record" gap we log WHICH command she acted on, so the
-                # transcript reads "✓ Approved: <cmd>" / "✕ Denied: <cmd>".
-                # [prompt: "show the actual command ... apply to all terminals"]
-                log.write(json.dumps({"type": "decision",
-                                      "decision": decision["kind"],
-                                      "command": str(decision.get("command") or ""),
-                                      "ts": _now()}) + "\n")
-            elif not record and operator:
-                # Text the app said on her behalf — the red card's "Resume
-                # session?" nudge. Showing it would put words in her mouth in
-                # her own transcript, so this one still leaves a gap marker.
-                log.write(json.dumps({"type": "off-record-gap", "ts": _now()}) + "\n")
-            else:
-                # Everything SHE typed lands here, on the record or off it.
-                # Off the record keeps it out of the journal; it was also
-                # dropping it from this log, so scrolling back through a
-                # conversation showed "— off the record —" where her words had
-                # been and she couldn't tell what she'd asked. `off_record`
-                # rides along so the chat can dim it and so the summary
-                # surfaces (roster card, gists) still skip it.
-                # [prompt: "anything I say off the record shouldn't be hidden
-                #  from the chat"]
-                line = {"type": "user", "text": text, "ts": _now(),
-                        "journaled": journaled}
-                if not record:
-                    line["off_record"] = True
-                log.write(json.dumps(line) + "\n")
-
-        # Where her message ended. The stream below starts here, so the client
-        # is never handed back the line it just optimistically drew itself.
-        try:
-            start_offset = os.path.getsize(log_path)
-        except OSError:
-            start_offset = 0
-
-        # The turn goes to its OWN PROCESS, which is what makes it survive this
-        # worker (see the _spawn_host block up top for the measurements that
-        # forced this). This request's only remaining job is to watch it like
-        # anybody else.
-        if not _spawn_host(config, text, resume_sid, conv_id, log_path):
-            # Belt-and-braces, same shape spinoff_runner.py uses: if the host
-            # can't start, run the turn here rather than lose her reply. This
-            # is the old behaviour exactly — including its exposure to a worker
-            # exit — so a failure to launch degrades to what every turn used to
-            # do, and never to nothing.
-            try:
-                proc, stderr_f = _spawn(config, text, resume_sid,
-                                        cwd_override=config.get("cwd"))
-            except OSError as e:
-                msg = f"could not start claude: {e}"
-                with store.mutate("bot_chats/index", {}) as index:
-                    entry = index.get(conv_id)
-                    if isinstance(entry, dict):
-                        entry["running"] = False
-                        entry["last_error"] = msg   # same reason as the memory floor above
-                return jsonify({"error": msg}), 502
-            _running_procs[conv_id] = proc
-            threading.Thread(
-                target=_run_turn,
-                args=(proc, stderr_f, conv_id, log_path, resume_sid),
-                kwargs={"live_path": _live_path(conv_id)},
-                daemon=True,
-            ).start()
+        result = begin_turn(conv_id, text, record, decision=decision,
+                            operator=operator)
+        if not result["ok"]:
+            return jsonify(result["body"]), result["status"]
 
         # Same view every other watcher gets — the transcript plus the delta
         # sidecar. Ending it (or dying on a client disconnect) leaves the turn
         # completely untouched; only /stop kills a turn.
         return Response(
-            _stream_events(conv_id, start_offset=start_offset,
+            _stream_events(conv_id, start_offset=result["start_offset"],
                            live_from_start=True,
                            first_frame={"type": "conv",
                                         "conversation_id": conv_id,
-                                        "bot": bot_id,
-                                        "journaled": journaled})(),
+                                        "bot": result["bot_id"],
+                                        "journaled": result["journaled"]})(),
             mimetype="text/event-stream",
             headers={"Cache-Control": "no-cache",
                      "X-Accel-Buffering": "no"})
+
+
+def begin_turn(conv_id, text, record=True, decision=None, operator=False,
+               system=None, fallback=True, batch=None):
+    """Start one turn in an existing conversation. Callable with no web
+    request, which is the point: the send route, the follow-up queue (an
+    approval's retry cue, a timed reminder) and the turn process all start
+    turns through here.
+
+    Returns {"ok": True, "start_offset", "journaled", "bot_id"} once the turn
+    is away, or {"ok": False, "status", "body"} with the same refusals the
+    route has always given — 404 unknown, 409 busy or worktree gone, 503 low
+    memory, 502 claude wouldn't start.
+
+    `system` makes this a SYSTEM turn — text neither she nor the keeper wrote
+    (a Coming up reminder). It's a dict {"display", "journal", "source",
+    "item_id"}: `display` is what the chat shows, `journal` is the S card's
+    body, `text` is what the model is told. A system turn never mints a B
+    card, never clears her pending approval or open question, and never
+    becomes the roster card's "last prompt".
+
+    `batch` makes this a MAILBOX turn: a list of already-claimed peermail
+    rows (her waiting messages and other agents'), delivered together.
+    `text` is ignored — the agent gets them labelled (peermail.compose) — and
+    each one is written to the transcript and journal by _deliver_lines.
+    Only a batch that holds one of HER messages counts as her answering: an
+    agent's message alone leaves her open question and pending approval up.
+
+    `fallback` = if the turn process can't launch, run the turn in a thread
+    here instead. Right for a web worker (it stays alive); wrong for a
+    short-lived process like the turn host or a cron script, whose threads die
+    with it — those pass False and leave the job queued for a retry."""
+    def _refuse(status, body, last_error=None):
+        """Undo running=True and say why. The error is also written onto the
+        entry: a send nobody's watching (an autostarted spinoff, a queued
+        follow-up, a reminder) has no HTTP response anyone reads, so without
+        this the failure would be invisible on the roster."""
+        with store.mutate("bot_chats/index", {}) as index:
+            stale = index.get(conv_id)
+            if isinstance(stale, dict):
+                stale["running"] = False
+                if last_error:
+                    stale["last_error"] = last_error
+        return {"ok": False, "status": status, "body": body}
+
+    # A mailbox turn: what the agent reads is the labelled batch, and what
+    # counts as "her ask" is her last on-the-record message in it, if any.
+    hers = [r for r in (batch or []) if r["kind"] == "B"]
+    if batch is not None:
+        text = peermail.compose(batch)
+        record = any(r["record"] for r in hers)
+        ask = next((r["text"] for r in reversed(hers) if r["record"]), None)
+    else:
+        ask = text
+
+    cleared_questions = []
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"ok": False, "status": 404, "body": {"error": "not found"}}
+
+        # Refuse a second turn while one is running: one turn at a time per
+        # conversation. Turns outlive their HTTP connection, so a send racing
+        # in (another device, a retry, or her own page that hasn't yet seen a
+        # turn the app started — a watch firing, a job's wake) must not run
+        # concurrently against the same resume id. `busy` tells the page this
+        # refusal is that one and no other 409, so it puts her message in the
+        # session's mailbox instead of dropping it.
+        if _effective_running(conv_id, entry):
+            return {"ok": False, "status": 409,
+                    "body": {"error": "a turn is already running in this conversation",
+                             "busy": True}}
+        entry["last_at"] = _now()
+        entry["running"] = True
+        entry.pop("stop_requested", None)
+        # A new turn starts with no process record; its host writes its own.
+        # One left behind by a turn that died must not be judged as this one's.
+        entry.pop("turn_proc", None)
+        # Talking to an archived session brings it back. The roster hides
+        # archived entries, so without this a resurrected conversation
+        # would run INVISIBLY — off the list while burning tokens. Sending
+        # IS the un-archive; there's deliberately no separate restore
+        # action to find. (Her ask: "I need a feature to open old chats" —
+        # /atlas already shows archived sessions and navigates into them,
+        # so the only missing half was making them live again on contact.)
+        entry.pop("archived", None)
+        # A staged kickoff (from /spinoff or a saved draft) is consumed
+        # by the first send that fires it. `autostart` (set by /spinoff so
+        # the Observatory auto-fires the kickoff on open) is cleared on the
+        # same beat — once fired it must never re-fire, even if she reopens
+        # the session mid-turn.
+        entry.pop("draft", None)
+        entry.pop("autostart", None)
+        if system is None and (batch is None or hers):
+            # Her words reached the session: take down what was waiting on
+            # her (_her_message_arrived). A system reminder or another
+            # agent's message alone isn't her answer, so it leaves them up.
+            cleared_questions = _her_message_arrived(conv_id, entry)
+        # A fresh attempt clears the red: whatever went wrong last time is
+        # no longer the last thing this session did. If THIS turn fails too,
+        # _run_turn writes the flag straight back.
+        entry.pop("last_error", None)
+        # Her ask, for the card to show. It stays up for the life of the
+        # session now, not just while it works — so these gates are the
+        # ONLY thing standing between a send and a line that sits on the
+        # roster indefinitely. They were already load-bearing; they're more
+        # so now.
+        #
+        # Three hard gates, all here rather than at the card, so there's one
+        # place to get them right:
+        #   - off the record never lands. It exists so a turn leaves no
+        #     trace; painting it on the roster would walk straight around
+        #     that.
+        #   - a JOURNALING session never lands. Its prompts are the diary,
+        #     and the pinned Keeper session sits at the top of the roster —
+        #     "show the last prompt" would put her journal on the card.
+        #   - a system reminder never lands: she didn't ask it.
+        # A send that fails a gate leaves the previous value alone
+        # rather than clearing it: the last real ask is still the truest
+        # thing the card can say about what this session is doing.
+        if record and system is None and ask and entry.get("journal") is not True:
+            card_prompt = _card_prompt(ask)
+            if card_prompt:
+                entry["last_prompt"] = card_prompt
+        resume_sid = entry.get("claude_session_id")
+        # Decide whether a helper's chat (a swarm's, a room's, the Linear
+        # helper's) picks its conversation back up. Most never do: each turn
+        # starts fresh from a rolling seed (helper_chat.py), written just
+        # below, so its context can't outgrow the window however long it runs.
+        # A growing helper (config.HELPER_GROW_ROLES) resumes until it passes
+        # its reset size, then starts fresh too. A fresh start drops the old
+        # model session there and then, so a turn that dies before the new
+        # one is saved can't leave the next turn resuming the old one.
+        helper_chat_entry = dict(entry) if entry.get("role") in _HELPER_ROLES else None
+        helper_resumes = False
+        if helper_chat_entry is not None:
+            import helper_chat
+            helper_resumes = helper_chat.resumes(conv_id, entry)
+            if not helper_resumes:
+                resume_sid = None
+                if helper_chat.grows(entry):
+                    entry["helper_grown_at"] = _now()
+                    entry.pop("claude_session_id", None)
+        # Attach the boot package when this send wakes a Keeper. Any chat
+        # can be woken this way — the pinned one the 3 AM rollover makes
+        # (which also attaches it, in scripts/keeper_rollover.py) or one
+        # she opens and types /journalstart into — and from here on every
+        # turn in it carries the package in its system prompt.
+        if _is_journalstart(text):
+            boot_path = attach_boot_package(conv_id)
+            if boot_path:
+                entry["system_prompt_file"] = boot_path
+        # Journal is opt-in per session (the pinned Keeper session
+        # carries journal:true) — everything else logs to its own jsonl
+        # only. Conversation-only now: no bot-level factor.
+        conv_journals = entry.get("journal") is True
+        config = _conv_config(entry)
+        config["conv_id"] = conv_id   # so the turn's env carries EXOCORTEX_CONV_ID (_spawn)
+        # Hand a spun-off session its hidden instructions from the database.
+        # The brief's context (the Protocol and its preloaded files) is a row
+        # in exo.db (briefstore.py); `claude` takes a prompt this size only by
+        # path, so it is written out to a cache file here, every turn. A
+        # session born before briefs moved to the database still has its
+        # CONTEXT.md on disk, and keeps using it for as long as it is there.
+        prompt_file = config.get("system_prompt_file")
+        if entry.get("spinoff_brief") and not (prompt_file and Path(prompt_file).is_file()):
+            import briefstore
+            try:
+                config["system_prompt_file"] = (
+                    briefstore.context_file(entry["spinoff_brief"]) or prompt_file)
+            except Exception as e:
+                print(f"brief context failed for {conv_id}: {e}", file=sys.stderr)
+        # Keep the agent's input open for mid-turn messages (_TurnInput).
+        config["stream_input"] = app_config.TURN_STREAM_INPUT
+        bot_id = entry.get("bot")
+
+    # Refuse to start another ~400MB claude process below the memory
+    # floor — checked AFTER running=True is durable (so a racing second
+    # send still gets the 409 above, not a duplicate spawn attempt) but
+    # BEFORE the model actually runs.
+    avail = _mem_available_mb()
+    if avail is not None and avail < MIN_SPAWN_MB:
+        msg = f"not enough memory to start claude ({avail}MB available)"
+        # The refusal carries the numbers behind it, so the client can draw
+        # the memory bar and offer to QUEUE this turn instead of just
+        # showing a dead-end toast. Queueing goes through
+        # /api/runqueue/enqueue (routes/run_queue.py); the run dispatcher
+        # starts it when a slot opens. Import is local because run_queue
+        # imports the dispatcher, and this module is imported by cron
+        # scripts that shouldn't pull that chain in at module load.
+        body = {"error": msg, "can_queue": True}
+        try:
+            from routes import run_queue
+            body["headroom"] = run_queue.headroom()
+        except Exception:
+            pass   # the refusal still stands without its numbers
+        return _refuse(503, body, last_error=msg)
+
+    # A session whose GROUND has gone. Only a worktree session can hit this
+    # (worktrees.py) — its cwd is a directory that can be removed, unlike
+    # the two fixed checkouts. It matters because _spawn's fallback for a
+    # missing cwd is to spawn with cwd=None, and `--resume` then looks for
+    # the session under gunicorn's own directory, doesn't find it, and the
+    # turn fails with something that reads like a model error. Said plainly
+    # instead: the work isn't lost, it's on the branch.
+    wt = entry.get("worktree") if isinstance(entry, dict) else None
+    if wt and not os.path.isdir(wt):
+        msg = ("this session's worktree is gone, so it can't be resumed — "
+               f"its work is on branch {entry.get('branch') or 'agent/…'}")
+        return _refuse(409, {"error": msg, "branch": entry.get("branch")},
+                       last_error=msg)
+
+    # Capture BEFORE the model runs (Slice-1 guarantee, same door the
+    # terminal chat session uses). Slash commands are operator control,
+    # not journal content — same rule as terminal_send().
+    journaled = False
+    if batch is not None:
+        pass    # journaled per message, with the transcript lines below
+    elif system is not None:
+        # A system reminder is journaled as an S card — neither hers nor the
+        # keeper's — carrying who set it. The text the model receives still
+        # lands in Claude Code's transcript, so it gets the off-record
+        # breadcrumb too, or the fallback capture doors would re-mint it a
+        # minute later as if she'd typed it.
+        if conv_journals:
+            journaled = bool(terminal._capture_journal(
+                system.get("journal") or text, text, who="S"))
+            terminal._note_off_record(text)
+    elif record and conv_journals and not text.lstrip().startswith("/"):
+        # bool(), not the card id it returns: this goes into the session log
+        # and the SSE conv event as a yes/no.
+        journaled = bool(terminal._capture_journal(text, text))
+    elif conv_journals and not text.lstrip().startswith("/"):
+        # Off the record — and skipping the mint is not enough on its own.
+        # The model still gets the text, so it lands in Claude Code's
+        # transcript, and the two fallback capture doors (the vault's
+        # UserPromptSubmit hook, the cron'd reconciler) read that transcript
+        # in a journaling session and mint anything the pool is missing.
+        # They can't tell "the server chose not to journal this" from "the
+        # server tried and failed", so they were faithfully restoring every
+        # off-the-record turn a minute later. This breadcrumb is what tells
+        # them apart — see terminal._note_off_record.
+        terminal._note_off_record(text)
+
+    # The helper chat's seed: its doc, her last messages with its replies,
+    # and the active sessions. Written BEFORE this message goes in the log,
+    # so the seed's messages end where this new one begins. A growing helper
+    # that is resuming keeps the seed it started from, untouched — a changed
+    # system prompt would throw its prompt cache away — and is handed the
+    # active sessions as they stand now ahead of its message instead.
+    helper_update = ""
+    if helper_chat_entry is not None:
+        import helper_chat
+        try:
+            if helper_resumes:
+                config["system_prompt_file"] = str(helper_chat.seed_path(conv_id))
+                helper_update = helper_chat.write_update(conv_id, helper_chat_entry)
+            else:
+                config["system_prompt_file"] = helper_chat.write_seed(conv_id, helper_chat_entry)
+        except Exception as e:
+            print(f"helper seed failed for {conv_id}: {e}", file=sys.stderr)
+
+    log_path = _chats_dir() / f"{conv_id}.jsonl"
+    if batch is not None:
+        _deliver_lines(conv_id, log_path, batch, conv_journals)
+        journaled = False
+    with open(log_path, "a", encoding="utf-8") as log:
+        if batch is not None:
+            pass    # _deliver_lines wrote one line per message, just above
+        elif system is not None:
+            # A reminder the app sent: its own line type, so the chat can draw
+            # it as a System bubble rather than as her words.
+            log.write(json.dumps({"type": "reminder",
+                                  "text": system.get("display") or text,
+                                  "source": system.get("source"),
+                                  "item_id": system.get("item_id"),
+                                  "journaled": journaled,
+                                  "ts": _now()}) + "\n")
+        elif not record and isinstance(decision, dict) \
+                and decision.get("kind") in ("approve", "deny"):
+            # She tapped Approve/Deny on a gated command. The resume send
+            # stays off the record (never journaled), but instead of a blank
+            # "off the record" gap we log WHICH command she acted on, so the
+            # transcript reads "✓ Approved: <cmd>" / "✕ Denied: <cmd>".
+            # [prompt: "show the actual command ... apply to all terminals"]
+            log.write(json.dumps({"type": "decision",
+                                  "decision": decision["kind"],
+                                  "command": str(decision.get("command") or ""),
+                                  "ts": _now()}) + "\n")
+        elif not record and operator:
+            # Text the app said on her behalf — the red card's "Resume
+            # session?" nudge. Showing it would put words in her mouth in
+            # her own transcript, so this one still leaves a gap marker.
+            log.write(json.dumps({"type": "off-record-gap", "ts": _now()}) + "\n")
+        else:
+            # Everything SHE typed lands here, on the record or off it.
+            # Off the record keeps it out of the journal; it was also
+            # dropping it from this log, so scrolling back through a
+            # conversation showed "— off the record —" where her words had
+            # been and she couldn't tell what she'd asked. `off_record`
+            # rides along so the chat can dim it and so the summary
+            # surfaces (roster card, gists) still skip it.
+            # [prompt: "anything I say off the record shouldn't be hidden
+            #  from the chat"]
+            line = {"type": "user", "text": text, "ts": _now(),
+                    "journaled": journaled}
+            if not record:
+                line["off_record"] = True
+            log.write(json.dumps(line) + "\n")
+
+    # Where her message ended. The stream starts here, so the client is
+    # never handed back the line it just optimistically drew itself.
+    try:
+        start_offset = os.path.getsize(log_path)
+    except OSError:
+        start_offset = 0
+
+    # The turn goes to its OWN PROCESS, which is what makes it survive this
+    # worker (see the _spawn_host block up top for the measurements that
+    # forced this). The caller's only remaining job is to watch it like
+    # anybody else.
+    # Tell the agent which open questions her message just cleared. What it
+    # reads gets the note; the transcript and journal keep her words alone.
+    agent_text = helper_update + text + _reopen_note(cleared_questions)
+    if not _spawn_host(config, agent_text, resume_sid, conv_id, log_path):
+        if not fallback:
+            return _refuse(502, {"error": "could not start the turn process"})
+        # Belt-and-braces, same shape spinoff_runner.py uses: if the host
+        # can't start, run the turn here rather than lose her reply. This
+        # is the old behaviour exactly — including its exposure to a worker
+        # exit — so a failure to launch degrades to what every turn used to
+        # do, and never to nothing.
+        try:
+            proc, stderr_f = _spawn(config, agent_text, resume_sid,
+                                    cwd_override=config.get("cwd"))
+        except OSError as e:
+            msg = f"could not start claude: {e}"
+            return _refuse(502, {"error": msg}, last_error=msg)
+        _running_procs[conv_id] = proc
+
+        def _turn_then_follow_up():
+            _run_turn(proc, stderr_f, conv_id, log_path, resume_sid,
+                      live_path=_live_path(conv_id))
+            after_turn(conv_id)
+            drain_followups(conv_id)
+            drain_inbox(conv_id)
+
+        threading.Thread(target=_turn_then_follow_up, daemon=True).start()
+
+    return {"ok": True, "start_offset": start_offset, "journaled": journaled,
+            "bot_id": bot_id}

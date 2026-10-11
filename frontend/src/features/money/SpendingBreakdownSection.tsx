@@ -1,4 +1,26 @@
+/**
+ * SpendingBreakdownSection.tsx — the Money page's "Spending by month" card.
+ * Each month opens to an earned-vs-spent gauge (point at or tap a colour to
+ * see what it is), then a split by kind
+ * (Recurring / Can cut back / One-time / Not sorted), then one bar per
+ * category. Tapping a category bar drills into its transactions, where each
+ * can be renamed, recategorized, or given a receipt photo. The category
+ * dropdown ends with "+ New category…", which makes the category and files
+ * the expense under it in one go (newCategory.ts).
+ *
+ * Spending that won't come back — one-time things and "Not recurring"
+ * categories — is left out of each month's totals by default, with a line
+ * saying how much was left out and a button to count it back in (the choice
+ * is remembered on this device).
+ *
+ * The math lives in moneyMath.ts (groupByMonth, incomeGauge, monthKindSplit,
+ * monthBars, leaveOutNotRecurring). A category's kind is set in Budget setup (BudgetConfigSection.tsx);
+ * one-time things are marked in the statement preview or Recent expenses.
+ */
 import { useState } from 'react';
+import { Button } from '../../ui';
+import type { AddCategoryPayload } from './api';
+import { NEW_CATEGORY_OPTION, promptNewCategory } from './newCategory';
 import { Section } from './Section';
 import {
   drillTransactions,
@@ -6,10 +28,12 @@ import {
   grandTotals,
   groupByMonth,
   incomeGauge,
+  leaveOutNotRecurring,
   monthBars,
+  monthKindSplit,
   monthLabel,
 } from './moneyMath';
-import type { Expense, ReceiptEntry } from './types';
+import type { BudgetCategory, Expense, ReceiptEntry } from './types';
 import styles from './money.module.css';
 
 export interface SpendingBreakdownSectionProps {
@@ -18,8 +42,12 @@ export interface SpendingBreakdownSectionProps {
   masked: boolean;
   /** Sorted list for the drill-down recategorize dropdowns. */
   knownCategories: string[];
+  /** Budget categories, for each one's kind in the month split. */
+  categories: BudgetCategory[];
   onUpdateExpense: (patch: { id: string; category?: string; title?: string; learn_label_rule?: boolean }) => void;
   onUploadReceipt: (id: string, file: File) => void;
+  /** Saves a new budget category (the same call Budget setup's Add makes). */
+  onAddCategory: (payload: AddCategoryPayload) => Promise<unknown>;
 }
 
 interface Drill {
@@ -96,11 +124,24 @@ function DrillTable({
   knownCategories,
   onUpdateExpense,
   onUploadReceipt,
+  onAddCategory,
 }: {
   items: Expense[];
   category: string;
-} & Omit<SpendingBreakdownSectionProps, 'expenses'>) {
+} & Omit<SpendingBreakdownSectionProps, 'expenses' | 'categories'>) {
   const matching = drillTransactions(items, category);
+
+  // Recategorize an expense, or make a new category and file it there.
+  // Prompt: "there is still no way to add from the uncategorized dropdown on the monthly spending"
+  async function pickCategory(expenseId: string, value: string) {
+    if (value !== NEW_CATEGORY_OPTION) {
+      onUpdateExpense({ id: expenseId, category: value });
+      return;
+    }
+    const name = await promptNewCategory(knownCategories, onAddCategory);
+    if (name) onUpdateExpense({ id: expenseId, category: name });
+  }
+
   if (!matching.length) {
     return <div className={styles.drillEmpty}>No transactions.</div>;
   }
@@ -120,7 +161,10 @@ function DrillTable({
                 <td style={{ whiteSpace: 'nowrap' }}>
                   <TitleCell key={`${e.id}:${e.title || ''}`} expense={e} onUpdateExpense={onUpdateExpense} />
                 </td>
-                <td className={styles.mutedText}>{e.comments || ''}</td>
+                <td className={styles.mutedText}>
+                  {e.comments || ''}
+                  {e.one_time ? <span className={styles.dupTag}>one-time</span> : null}
+                </td>
                 <td style={{ textAlign: 'center' }}>
                   <ReceiptCell expense={e} receipt={receiptsMap[e.id]} onUploadReceipt={onUploadReceipt} />
                 </td>
@@ -129,7 +173,7 @@ function DrillTable({
                     className={styles.drillSelect}
                     value={e.category || 'Uncategorized'}
                     aria-label="Category"
-                    onChange={(ev) => onUpdateExpense({ id: e.id, category: ev.target.value })}
+                    onChange={(ev) => pickCategory(e.id, ev.target.value)}
                   >
                     <option value="Uncategorized">— Uncategorized —</option>
                     {knownCategories
@@ -139,6 +183,7 @@ function DrillTable({
                           {c}
                         </option>
                       ))}
+                    <option value={NEW_CATEGORY_OPTION}>+ New category…</option>
                   </select>
                 </td>
               </tr>
@@ -150,9 +195,30 @@ function DrillTable({
   );
 }
 
+/** What a pointed-at piece of the gauge is: its name, amount and colour. */
+interface GaugeFocus {
+  label: string;
+  amount: number;
+  color: string;
+}
+
 function IncomeGaugeBar({ items, masked }: { items: Expense[]; masked: boolean }) {
+  const [focus, setFocus] = useState<GaugeFocus | null>(null);
   const g = incomeGauge(items);
   if (g.empty) return null;
+
+  // Name the colour under the pointer. Hovering a piece of the bar swaps the
+  // "Earned · Spent" line for that piece's colour, name and amount; a tap
+  // does the same on a phone (tap again to go back). Swapping the line rather
+  // than floating a tooltip keeps the card from jumping.
+  // Prompt: "when i hover over a color on the bar, it tells me what that is"
+  function pointAt(next: GaugeFocus) {
+    return {
+      onMouseEnter: () => setFocus(next),
+      onMouseLeave: () => setFocus(null),
+      onClick: () => setFocus((cur) => (cur && cur.label === next.label ? null : next)),
+    };
+  }
 
   let leftoverLabel: React.ReactNode;
   if (g.income === 0) {
@@ -166,9 +232,16 @@ function IncomeGaugeBar({ items, masked }: { items: Expense[]; masked: boolean }
   return (
     <div className={styles.gaugeWrap}>
       <div className={styles.gaugeLabels}>
-        <span className={styles.mutedText}>
-          Earned {formatMoney(g.income, masked)} &middot; Spent {formatMoney(g.spent, masked)}
-        </span>
+        {focus ? (
+          <span className={styles.gaugeFocus}>
+            <span className={styles.gaugeSwatch} style={{ background: focus.color }} />
+            <b>{focus.label}</b> {formatMoney(focus.amount, masked)}
+          </span>
+        ) : (
+          <span className={styles.mutedText}>
+            Earned {formatMoney(g.income, masked)} &middot; Spent {formatMoney(g.spent, masked)}
+          </span>
+        )}
         <span>
           <b>{leftoverLabel}</b>
         </span>
@@ -178,14 +251,14 @@ function IncomeGaugeBar({ items, masked }: { items: Expense[]; masked: boolean }
           <div
             key={seg.category}
             className={styles.gaugeSeg}
-            title={`${seg.category} — ${formatMoney(seg.amount, masked)}`}
             style={{ width: `${seg.pct}%`, background: seg.color }}
+            {...pointAt({ label: seg.category, amount: seg.amount, color: seg.color })}
           />
         ))}
         {g.unspentPct > 0 ? (
           <div
             className={styles.gaugeUnspent}
-            title={`Unspent — ${formatMoney(g.leftover, masked)}`}
+            {...pointAt({ label: 'Unspent', amount: g.leftover, color: 'color-mix(in srgb, #7f7f7f 18%, transparent)' })}
             style={{ width: `${g.unspentPct}%` }}
           />
         ) : null}
@@ -201,6 +274,70 @@ function IncomeGaugeBar({ items, masked }: { items: Expense[]; masked: boolean }
   );
 }
 
+/** The month's spending by kind, as a row of small figures: a label over
+ * an amount. No colour on purpose: the gauge and category bars right around
+ * it already use the palette, and matching hues would read as the same thing.
+ * Hidden when nothing is sorted yet, since a lone "Not sorted" says nothing. */
+function KindSplit({ items, categories, masked }: { items: Expense[]; categories: BudgetCategory[]; masked: boolean }) {
+  const split = monthKindSplit(items, categories);
+  if (!split.length || (split.length === 1 && split[0].kind === 'unsorted')) return null;
+  return (
+    <dl className={styles.kindSplit}>
+      {split.map((k) => (
+        <div key={k.kind} className={styles.kindFigure}>
+          <dt>{k.label}</dt>
+          <dd>
+            {formatMoney(k.amount, masked)} <span className={styles.kindPct}>{Math.round(k.pct)}%</span>
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+// Remember "leave out not-recurring" on this device. Missing = leave it out,
+// since that's what the card is for.
+const LEAVE_OUT_KEY = 'money.spending.leaveOutNotRecurring';
+
+function readLeaveOut(): boolean {
+  try {
+    return localStorage.getItem(LEAVE_OUT_KEY) !== 'no';
+  } catch {
+    return true;
+  }
+}
+
+/** The line under a month saying how much not-recurring spending there was
+ * and whether it's in the totals, with the button that flips it. */
+function LeftOutNote({
+  items,
+  leavingOut,
+  masked,
+  onToggle,
+}: {
+  items: Expense[];
+  leavingOut: boolean;
+  masked: boolean;
+  onToggle: () => void;
+}) {
+  if (!items.length) return null;
+  const amount = items.reduce((s, e) => s + (e.amount || 0), 0);
+  const names = items.map((e) => e.title || e.category || 'Uncategorized');
+  const shown = Array.from(new Set(names)).slice(0, 3).join(', ');
+  const more = new Set(names).size > 3 ? '…' : '';
+  return (
+    <div className={styles.leftOutNote}>
+      <span className={styles.mutedText}>
+        {leavingOut ? 'Left out' : 'Counting'} {formatMoney(amount, masked)} not recurring ({shown}
+        {more})
+      </span>
+      <Button variant="ghost" onClick={onToggle}>
+        {leavingOut ? 'Count it' : 'Leave it out'}
+      </Button>
+    </div>
+  );
+}
+
 /** "Spending by month" — per-month income gauge + category bars with
  * click-to-drill transaction tables (renderSpendingBreakdown & co). */
 export function SpendingBreakdownSection({
@@ -208,14 +345,39 @@ export function SpendingBreakdownSection({
   receiptsMap,
   masked,
   knownCategories,
+  categories,
   onUpdateExpense,
   onUploadReceipt,
+  onAddCategory,
 }: SpendingBreakdownSectionProps) {
   const [drill, setDrill] = useState<Drill | null>(null);
+  const [leavingOut, setLeavingOut] = useState(readLeaveOut);
   if (!expenses.length) return null;
 
-  const months = groupByMonth(expenses);
-  const { grandSpent, grandIncome } = grandTotals(expenses);
+  // Leave not-recurring spending out of the totals. Everything below — the
+  // month totals, gauge, split and bars — works from `shown`; what was left
+  // out is grouped by month for each month's note.
+  const { counted, leftOut } = leaveOutNotRecurring(expenses, categories);
+  const shown = leavingOut ? counted : expenses;
+  const leftOutByMonth: Record<string, Expense[]> = {};
+  leftOut.forEach((e) => {
+    (leftOutByMonth[(e.date || '').substring(0, 7)] ||= []).push(e);
+  });
+  const leftOutTotal = leftOut.reduce((s, e) => s + (e.amount || 0), 0);
+
+  function toggleLeaveOut() {
+    setLeavingOut((cur) => {
+      try {
+        localStorage.setItem(LEAVE_OUT_KEY, cur ? 'no' : 'yes');
+      } catch {
+        /* private mode: just don't remember */
+      }
+      return !cur;
+    });
+  }
+
+  const months = groupByMonth(shown);
+  const { grandSpent, grandIncome } = grandTotals(shown);
 
   function toggleDrill(monthKey: string, category: string) {
     setDrill((cur) =>
@@ -232,6 +394,9 @@ export function SpendingBreakdownSection({
           {grandIncome > 0 ? <span className={styles.green}>+{formatMoney(grandIncome, masked)} in &middot; </span> : null}
           <span>−{formatMoney(grandSpent, masked)} out</span> across {months.length} month
           {months.length === 1 ? '' : 's'}
+          {leavingOut && leftOutTotal > 0 ? (
+            <span className={styles.mutedText}> &middot; {formatMoney(leftOutTotal, masked)} not recurring left out</span>
+          ) : null}
         </span>
       }
     >
@@ -248,7 +413,14 @@ export function SpendingBreakdownSection({
             </span>
           </summary>
           <div className={styles.monthBody}>
+            <LeftOutNote
+              items={leftOutByMonth[m.monthKey] || []}
+              leavingOut={leavingOut}
+              masked={masked}
+              onToggle={toggleLeaveOut}
+            />
             <IncomeGaugeBar items={m.items} masked={masked} />
+            <KindSplit items={m.spendingOnly} categories={categories} masked={masked} />
             {monthBars(m.spendingOnly).map((bar) => {
               const isActive =
                 drill !== null && drill.monthKey === m.monthKey && drill.category === bar.category;
@@ -284,6 +456,7 @@ export function SpendingBreakdownSection({
                       knownCategories={knownCategories}
                       onUpdateExpense={onUpdateExpense}
                       onUploadReceipt={onUploadReceipt}
+                      onAddCategory={onAddCategory}
                     />
                   ) : null}
                 </div>

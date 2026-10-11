@@ -9,16 +9,16 @@
 //! shells out to `thread open` / `thread add-card` / `thread link` the same
 //! way `routes/pending.py` already shells out to `add-todo`.
 //!
-//!   thread check-slug migraines
-//!   thread propose thread_open --json '{"slug": "migraines", ...}'
-//!   thread open --slug migraines --name Migraines --fronts health,job --kind standing
-//!   thread add-card --slug migraines --section "What it is" --text "..." --source 2026-07-08.1841b
-//!   thread link --slug migraines --add-parent long-covid
-//!   thread set-status migraines dormant
-//!   thread set-name --slug migraines --name Migraines
-//!   thread set-charter --slug migraines --charter "The headaches themselves. Out: ..."
-//!   thread distill migraines
-//!   thread inbox migraines
+//!   thread check-slug topic-b
+//!   thread propose thread_open --json '{"slug": "topic-b", ...}'
+//!   thread open --slug topic-b --name Topic B --fronts health,job --kind standing
+//!   thread add-card --slug topic-b --section "What it is" --text "..." --source 2026-07-08.1841b
+//!   thread link --slug topic-b --add-parent topic-a
+//!   thread set-status topic-b dormant
+//!   thread set-name --slug topic-b --name Topic B
+//!   thread set-charter --slug topic-b --charter "The narrower subject itself. Out: ..."
+//!   thread distill topic-b
+//!   thread inbox topic-b
 //!   thread lint --fix-dormancy
 //!
 //! WHY this exists: the design of record (`personal/docs/threads-architecture.md`

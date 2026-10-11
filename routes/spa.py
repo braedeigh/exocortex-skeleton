@@ -6,12 +6,19 @@ reachable at "/classic" as a rollback path, and the design doc this implements
 URL scheme:
   - "/" and every SPA route ("/todos", "/legacy/<tab>", "/journal", "/research",
     "/settings", "/files", "/chat") → `frontend/dist/index.html`, with `window.THEME_OVERRIDES`,
-    `window.VIEW_MODE`, and `window.PUBLIC_INTRO_HTML` injected before `</head>`.
+    `window.VIEW_MODE`, `window.PUBLIC_ONLY`, `window.STANDALONE`, and `window.PUBLIC_INTRO_HTML` injected before `</head>`.
     Client-side routing (TanStack Router) takes it from there. Cache-Control:
     no-store — this HTML is the one thing here that's never safe to cache (the
     injected values are per-request).
+  - "/api/build" → the name of the build in `dist/` right now, so an open
+    page can tell it has fallen behind.
   - "/assets/<path>" → the hashed, content-addressed build output — safe to
     cache forever.
+  - "/geo/<file>" → the US county/state boundary GeoJSON the Ecosystem map
+    draws its outlines from (`frontend/public/geo/`, copied into `dist/geo/`
+    by the build). Cached for a day: the counties file is ~3MB and never
+    changes between builds. Without this route every county/state source on
+    the map silently fell back to a dot — the fetch got a 404 page, not JSON.
   - single-segment root files vite-plugin-pwa writes into `dist/` (manifest,
     the SW registration shim, the service worker itself, its workbox runtime
     chunk, the PWA icons) → served from `dist/`, revalidated every time except
@@ -24,9 +31,10 @@ iframes and the `/classic` rollback shell are gone with the legacy frontend
 survives only as a redirect for old bookmarks.
 """
 import json
+import re
 from pathlib import Path
 
-from flask import request, make_response, send_from_directory, abort
+from flask import request, make_response, send_from_directory, abort, jsonify
 
 import config
 from routes.settings import load_theme
@@ -40,12 +48,30 @@ _NATIVE_TABS = frozenset(
      "movement", "body", "ideas", "ecosystem", "housing", "people", "travel")
 )
 ASSETS_DIR = DIST_DIR / "assets"
+GEO_DIR = DIST_DIR / "geo"
 INDEX_PATH = DIST_DIR / "index.html"
 
 # Extensions vite-plugin-pwa writes as loose files directly under dist/ (as
 # opposed to the hashed dist/assets/ bundle). Anything else at a single path
 # segment 404s same as before this route existed.
 _ROOT_FILE_EXTS = {".js", ".webmanifest", ".png", ".svg", ".ico"}
+
+
+def build_id():
+    """Name the page build now sitting in frontend/dist/.
+
+    The built index.html points at its main script and stylesheet by names
+    that carry a hash of their contents ("index-CohfYSG0.js"), so those names
+    change exactly when the build does. They are sorted and joined into one
+    string. The page reads the same names off its own document
+    (frontend/src/shell/newBuild.ts) and compares. Answers "" while a build
+    is being written and index.html is briefly missing.
+    """
+    try:
+        html = INDEX_PATH.read_text()
+    except OSError:
+        return ""
+    return "+".join(sorted(set(re.findall(r"/assets/(index-[\w-]+\.(?:js|css))", html))))
 
 
 def _spa_response():
@@ -66,12 +92,24 @@ def _spa_response():
     )
     profile = config.get_profile()
     meta_json = json.dumps(
-        {"name": profile["app_name"], "owner": profile["owner_name"], "version": config.APP_VERSION}
+        {"name": profile["app_name"], "owner": profile["owner_name"], "version": config.APP_VERSION,
+         # The owner's main site, on a public mirror: the header's way back.
+         "home_site": config.home_site()}
     ).replace("</", "<\\/")
     injected = (
         "<script>"
         f"window.THEME_OVERRIDES = {theme_json};"
         f'window.VIEW_MODE = "{view_mode}";'
+        # A public-only mirror has no login page, so the shell hides its
+        # Sign-in buttons rather than pointing strangers at a 404.
+        f"window.PUBLIC_ONLY = {'true' if config.public_only() else 'false'};"
+        # The desktop app (config.standalone): the shell shows only the
+        # Observatory and Terrain, and a first-run screen.
+        f"window.STANDALONE = {'true' if config.standalone() else 'false'};"
+        # Extra pages the desktop app's server also serves, by name: the
+        # Journal (standalone_journal.py). Empty on the live site, which
+        # serves everything and never reads it.
+        f"window.STANDALONE_EXTRAS = {'[\"journal\"]' if config.standalone() else '[]'};"
         f"window.PUBLIC_INTRO_HTML = {intro_json};"
         f"window.APP_META = {meta_json};"
         "</script></head>"
@@ -93,6 +131,7 @@ def register(app):
     @app.route("/wiki/<slug>")
     @app.route("/threads")
     @app.route("/threads/<slug>")
+    @app.route("/transcripts")
     @app.route("/settings")
     @app.route("/files")
     @app.route("/chat")
@@ -116,7 +155,11 @@ def register(app):
     @app.route("/movement")
     @app.route("/body")
     @app.route("/ideas")
+    # The Food area: the map (/food), every food, one food's page and the
+    # review list (/food/<rest>). /ecosystem is a client-side redirect to /food.
     @app.route("/ecosystem")
+    @app.route("/food")
+    @app.route("/food/<path:rest>")
     @app.route("/housing")
     @app.route("/people")
     @app.route("/travel")
@@ -126,11 +169,13 @@ def register(app):
     @app.route("/scratchpad")
     @app.route("/vscode")
     @app.route("/food-map")
+    # The frozen swarm, the Observatory's exhibit (routes/swarm_demo.py).
+    @app.route("/demo/swarm")
     @app.route("/about")
     # Session-visualization surfaces (born native, no Flask ancestor):
     @app.route("/terrain")
-    # ...and the pages under it: /terrain/map (where /terrain lands) plus the
-    # rooms /terrain/usage and /terrain/sql — each a full page in the SPA now,
+    # ...and the pages under it: /terrain/files (the heatmap, where /terrain
+    # lands), /terrain/map and every other room — each a full page in the SPA,
     # not a child panel. Without this, a refresh or a pasted link inside any
     # of them 404'd.
     @app.route("/terrain/<path:rest>")
@@ -149,6 +194,10 @@ def register(app):
     # hits Flask first — and the catch-all below only serves loose files out of
     # dist/, so without this line those all 404.
     @app.route("/build")
+    # Shared recipes: one by its link, and the list of all shared ones. Open
+    # to visitors (public_config.PUBLIC_PATHS); the page draws without the shell.
+    @app.route("/share/recipes")
+    @app.route("/share/r/<rest>")
     def spa_shell(tab=None, slug=None, rest=None):
         return _spa_response()
 
@@ -172,16 +221,42 @@ def register(app):
         resp.headers["Cache-Control"] = "no-cache"
         return resp
 
+    # Tell an open page which build the server has now, so it can offer a
+    # reload when its own is older (frontend/src/shell/NewBuildBar.tsx). Never
+    # cached: an old answer here would hide exactly the news it carries.
+    # Prompt: "add a small 'A newer version is ready — Reload' bar that
+    # appears when the server has a newer build than the page you have open"
+    @app.route("/api/build")
+    def spa_build():
+        resp = jsonify({"build": build_id()})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
     @app.route("/assets/<path:filename>")
     def spa_asset(filename):
         resp = make_response(send_from_directory(ASSETS_DIR, filename))
         resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return resp
 
+    # Boundary outlines for the Ecosystem map. Only .geojson, only from
+    # dist/geo/ — send_from_directory refuses anything that escapes the dir.
+    # Prompt: "i am wanting the county outlines to display rather than dots"
+    @app.route("/geo/<path:filename>")
+    def spa_geo_file(filename):
+        if not filename.endswith(".geojson"):
+            abort(404)
+        resp = make_response(send_from_directory(GEO_DIR, filename))
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
+
     @app.route("/<filename>")
     def spa_root_file(filename):
         path = DIST_DIR / filename
         if not path.is_file() or path.suffix not in _ROOT_FILE_EXTS:
+            abort(404)
+        # No service worker in the desktop app: a cached shell on localhost
+        # only ever shows a stale page after an update.
+        if config.standalone() and filename in ("sw.js", "registerSW.js"):
             abort(404)
         resp = make_response(send_from_directory(DIST_DIR, filename))
         resp.headers["Cache-Control"] = "no-store" if filename == "sw.js" else "no-cache"

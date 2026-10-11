@@ -14,7 +14,7 @@ rejection below points at a literal substring or a missing flag, and every
 rejection carries the reason so the UI can show her why.
 
 Two locks, and neither one is an agent's opinion:
-  1. She taps ✓ on the note   → `night: true` on the note in dev_notes.json.
+  1. She taps ✓ on the note   → an `approved` judgment on the note (devnote_judgments.py).
   2. These rules reject it anyway if the text disqualifies it.
 
 Lock 2 exists because lock 1 happens at 11 PM when she's tired. A design that

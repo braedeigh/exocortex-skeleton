@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { mdToHtml } from '../journal/markdown';
 import { CLAIM_CYCLE, KIND_LABEL, authorsShort, entryTint, originFile, truncate } from './helpers';
 import { useResearchCtx } from './ResearchContext';
@@ -177,6 +178,10 @@ export function EntryRow({ entry: e, editing }: { entry: Entry; editing: boolean
         >
           {e.verdict || '—'}
         </button>
+        {/* A claim's sources live on the claims table, opened on this claim. */}
+        <Link to="/research/claims" search={{ claim: e.id }} className={styles.chip} title="Open in the claims table">
+          &#8677; sources
+        </Link>
       </div>
     );
   } else if (e.kind === 'question') {

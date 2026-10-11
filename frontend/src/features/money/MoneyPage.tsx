@@ -115,7 +115,7 @@ export function MoneyPage() {
 
         <div className={styles.sectionTitle}>Money</div>
 
-        {!isPublic ? <QuickExpense budget={budgetView} todayStr={todayStr} onAdd={expenseActions.add} /> : null}
+        {!isPublic ? <QuickExpense budget={budgetView} todayStr={todayStr} expenses={expenses} onAdd={expenseActions.add} onAddCategory={budgetActions.addCategory} /> : null}
 
         {!isPublic ? <CsvImportSection push={push} /> : null}
 
@@ -134,8 +134,10 @@ export function MoneyPage() {
           receiptsMap={receiptsMap}
           masked={masked}
           knownCategories={knownCategories}
+          categories={budgetView.categories || []}
           onUpdateExpense={expenseActions.update}
           onUploadReceipt={expenseActions.uploadReceipt}
+          onAddCategory={budgetActions.addCategory}
         />
 
         <ThisMonthSection budget={budgetView} expenses={expenses} masked={masked} />
@@ -144,6 +146,7 @@ export function MoneyPage() {
           expenses={expenses}
           masked={masked}
           onRemove={(e) => requestDelete(`expense:${e.id}`, 'Expense removed', () => expenseActions.remove(e.id))}
+          onUpdate={isPublic ? undefined : expenseActions.update}
         />
 
         <SubscriptionsSection
@@ -166,6 +169,7 @@ export function MoneyPage() {
             onSaveIncome={budgetActions.saveIncome}
             onSaveBankUrl={budgetActions.saveBankUrl}
             onAddCategory={budgetActions.addCategory}
+            onSetKind={budgetActions.setCategoryKind}
             onRemoveCategory={(c) =>
               requestDelete(`cat:${c.name}`, `Category "${c.name}" removed`, () => budgetActions.removeCategory(c.name))
             }

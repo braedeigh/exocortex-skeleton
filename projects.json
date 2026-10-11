@@ -1,0 +1,619 @@
+{
+  "_about": "The app, cut into projects — which code, tables, collections and dev-note tabs belong to which. A map for understanding, and the first step toward a project someone else could install on its own. Read by scripts/project_map.py; tests/test_projects.py fails if a table, route, frontend feature, top-level module or SQL collection belongs to no project (or two), or if a listed path doesn't exist — so the map can't quietly go stale. See docs/projects.md. Keep generic: no personal details, this repo is shareable.",
+  "projects": {
+    "core": {
+      "name": "Core",
+      "what": "The platform every project stands on: the data layer (store, SQLite, the one migration ladder), the AI provider seam (llm.py), login, the app shell and tabs, settings and theme, the approval queue, tags and fronts (the shared vocabularies), notifications.",
+      "modules": [
+        "server.py",
+        "config.py",
+        "store.py",
+        "sqlstore.py",
+        "sqlquery.py",
+        "data_helpers.py",
+        "features.py",
+        "public_config.py",
+        "proxy_auth.py",
+        "apiseam.py",
+        "writelog.py",
+        "tablelog.py",
+        "textanchor.py",
+        "textsearch.py",
+        "commons.py",
+        "llm.py",
+        "standalone_app.py",
+        "standalone_jobs.py",
+        "standalone_journal.py"
+      ],
+      "routes": [
+        "spa.py",
+        "shell.py",
+        "settings.py",
+        "profile.py",
+        "push.py",
+        "pending.py",
+        "decisions.py",
+        "tabsets.py",
+        "claude_auth.py",
+        "tags.py",
+        "fronts.py",
+        "annotations.py"
+      ],
+      "frontend": [
+        "settings",
+        "approvals",
+        "fronts",
+        "setup"
+      ],
+      "tools": [],
+      "scripts": [
+        "commons_fetch.py",
+        "validate_data.py",
+        "git_backup.sh",
+        "restart_server.sh",
+        "standalone.py",
+        "standalone_seed.py"
+      ],
+      "tables": [
+        "docs",
+        "tags",
+        "fronts"
+      ],
+      "collections": [
+        "theme_settings",
+        "annotations"
+      ],
+      "dev_note_tabs": [
+        "global"
+      ]
+    },
+    "journal": {
+      "name": "Journal",
+      "what": "The Keeper and the journal: capture of every turn as cards, the day view, threads, people and the wiki built over them, search, photos and recordings.",
+      "modules": [
+        "cardstore.py",
+        "cardsearch.py",
+        "recap_summary.py",
+        "comingup.py",
+        "namerisk.py",
+        "pagestore.py",
+        "loadrecord.py",
+        "threadsummaries.py"
+      ],
+      "routes": [
+        "cards.py",
+        "journal_search.py",
+        "journal_days.py",
+        "keeper.py",
+        "threads.py",
+        "entities.py",
+        "person.py",
+        "photos.py",
+        "coming_up.py"
+      ],
+      "frontend": [
+        "journal",
+        "keeper",
+        "threads",
+        "people",
+        "person",
+        "personality"
+      ],
+      "tools": [
+        "stream",
+        "thread",
+        "people"
+      ],
+      "scripts": [
+        "update_cards.py",
+        "context_loads.py",
+        "keeper_rollover.py",
+        "cricket_swarm.sh",
+        "thread_tending.py",
+        "thread_summary.py",
+        "cricket_housekeep.sh",
+        "make_photo_thumbs.py"
+      ],
+      "tables": [
+        "cards",
+        "card_tags",
+        "journal_pages",
+        "context_loads",
+        "thread_summaries",
+        "cards_fts",
+        "cards_fts_data",
+        "cards_fts_idx",
+        "cards_fts_content",
+        "cards_fts_docsize",
+        "cards_fts_config"
+      ],
+      "collections": [
+        "recordings",
+        "coming_up"
+      ],
+      "dev_note_tabs": [
+        "journal",
+        "threads",
+        "personality"
+      ]
+    },
+    "todos": {
+      "name": "To-dos",
+      "what": "The life to-do list and what feeds it: priorities, reminders, day counters, triage, the Today tab.",
+      "modules": [
+        "todostore.py",
+        "todo_provenance.py"
+      ],
+      "routes": [
+        "todos.py",
+        "reminders.py",
+        "streaks.py",
+        "triage.py"
+      ],
+      "frontend": [
+        "todos"
+      ],
+      "tools": [
+        "add-todo"
+      ],
+      "scripts": [
+        "update_todos.py",
+        "todo_note.py",
+        "todo_propose.py",
+        "todo_push_dispatcher.py"
+      ],
+      "tables": [
+        "todos",
+        "todo_fronts",
+        "todo_subtasks",
+        "todo_agent_notes"
+      ],
+      "collections": [
+        "reminders",
+        "priority_notes",
+        "streaks",
+        "shrike_applied"
+      ],
+      "dev_note_tabs": [
+        "today"
+      ]
+    },
+    "kitchen": {
+      "name": "Kitchen",
+      "what": "Food in and out: the food catalog, grocery lists and trips, receipts, recipes and meals, and the buy-organic-or-not estimates.",
+      "modules": [
+        "foodstore.py",
+        "estimatestore.py",
+        "sourcestore.py",
+        "proposalstore.py",
+        "provenance.py",
+        "georegions.py",
+        "measures.py",
+        "fdcdb.py", "dri.py", "nutrition.py", "nutrient_facts.py", "nutrient_storage.py", "histamine.py",
+        "recipe_nutrition.py", "recipe_shares.py", "label_products.py",
+        "openfoodfacts.py"
+      ],
+      "routes": [
+        "kitchen",
+        "food.py",
+        "nutrition.py",
+        "georegions.py",
+        "recipe_nutrition.py",
+        "recipe_share.py"
+      ],
+      "frontend": [
+        "kitchen",
+        "nutrition"
+      ],
+      "tools": [],
+      "scripts": [
+        "estimate_organic.py",
+        "migrate_ecosystem_sql.py",
+        "propose_sources.py",
+        "check_proposals.py",
+        "build_georegions.py",
+        "backfill_proposal_regions.py",
+        "nutrient_data.py"
+      ],
+      "tables": [
+        "foods",
+        "food_names",
+        "products",
+        "receipt_names",
+        "food_links",
+        "recipe_makes",
+        "meal_rotation",
+        "recipes",
+        "recipe_lines",
+        "shopping_trips",
+        "shopping_lines",
+        "grocery_list",
+        "receipts",
+        "food_estimates",
+        "food_sources",
+        "food_source_counties",
+        "source_requests",
+        "source_proposals",
+        "source_proposal_counties",
+        "source_proposal_regions",
+        "source_proposal_parts",
+        "source_proposal_evidence",
+        "food_usda",
+        "recipe_line_grams"
+      ],
+      "collections": [
+        "kitchen",
+        "kitchen_trips",
+        "grocery_item_rules",
+        "grocery_trips",
+        "meal_defaults",
+        "meal_notes",
+        "recipes"
+      ],
+      "dev_note_tabs": [
+        "kitchen"
+      ]
+    },
+    "health": {
+      "name": "Health",
+      "what": "The body: habits, symptoms, supplements, activity, movement, meditation, and food-sensitivity experiments.",
+      "modules": [
+        "habitstore.py",
+        "habit_cadence.py",
+        "habit_meta.py"
+      ],
+      "routes": [
+        "health.py",
+        "habits.py",
+        "food_test.py"
+      ],
+      "frontend": [
+        "body",
+        "habits",
+        "lifemap"
+      ],
+      "tools": [],
+      "scripts": [],
+      "tables": [
+        "habits",
+        "habit_aliases",
+        "habit_entries"
+      ],
+      "collections": [
+        "habits_log",
+        "habit_cadence",
+        "habit_meta",
+        "habit_settings",
+        "habit_start_dates",
+        "growth_notes",
+        "activity_log",
+        "supplements",
+        "symptom_definitions",
+        "runs",
+        "movement",
+        "meditation_log",
+        "meditation_notes",
+        "deity_profiles",
+        "food_tests",
+        "test_queue"
+      ],
+      "dev_note_tabs": [
+        "body",
+        "map",
+        "movement"
+      ]
+    },
+    "research": {
+      "name": "Research",
+      "what": "The research pool — notes, sources, claims, questions — their documents and passages, the hazard tables and verdicts built from them, and the agents that research.",
+      "modules": [
+        "researchstore.py",
+        "hazardstore.py",
+        "docstore.py",
+        "paperclients.py",
+        "embeddings.py",
+        "filerstore.py",
+        "exposurestore.py",
+        "commonsdb.py",
+        "exposure.py",
+        "reference_loaders.py",
+        "pdfpages.py"
+      ],
+      "routes": [
+        "research.py",
+        "research_claims.py",
+        "research_import.py",
+        "research_room.py",
+        "research_search.py",
+        "research_sources.py",
+        "research_tables.py",
+        "research_text.py",
+        "ideas.py",
+        "exposure.py"
+      ],
+      "frontend": [
+        "research",
+        "ideas",
+        "exposure"
+      ],
+      "tools": [],
+      "scripts": [
+        "research_claims.py",
+        "research_ctl.py",
+        "research_dispatcher.py",
+        "research_doctor.py",
+        "research_tables.py",
+        "exo_query.py",
+        "reference_data.py"
+      ],
+      "tables": [
+        "research_topics",
+        "research_topic_fronts",
+        "research_entries",
+        "research_entry_topics",
+        "research_entry_context",
+        "research_sessions",
+        "research_session_entries",
+        "research_session_topics",
+        "research_annotations",
+        "claim_sources",
+        "claim_values",
+        "hazards",
+        "hazard_names",
+        "hazard_parents",
+        "hazard_measures",
+        "food_judgments",
+        "judgment_grounds",
+        "hazard_history",
+        "research_tables",
+        "filer_nominations",
+        "filer_verdicts",
+        "hazard_facts",
+        "food_pdp_codes",
+        "data_pulls",
+        "exposure_scores",
+        "exposure_terms",
+        "source_files",
+        "passage_pages"
+      ],
+      "collections": [
+        "research",
+        "research_vectors"
+      ],
+      "dev_note_tabs": [
+        "research"
+      ]
+    },
+    "money": {
+      "name": "Money",
+      "what": "Budget, expenses, subscriptions, bank imports, receipts as expenses.",
+      "modules": [
+        "expensestore.py"
+      ],
+      "routes": [
+        "money.py"
+      ],
+      "frontend": [
+        "money"
+      ],
+      "tools": [],
+      "scripts": [],
+      "tables": [
+        "expense_categories",
+        "expenses"
+      ],
+      "collections": [
+        "budget",
+        "expenses",
+        "expense_receipts",
+        "merchant_categories",
+        "merchant_labels",
+        "subscriptions",
+        "tax_setaside"
+      ],
+      "dev_note_tabs": []
+    },
+    "life": {
+      "name": "Life",
+      "what": "The rest of the owner's world: things owned and to buy, archivals, car, housing, travel, places, contacts, media, and the ecosystem map of where things come from.",
+      "modules": [],
+      "routes": [
+        "inventory.py",
+        "archivals.py",
+        "places.py",
+        "media.py",
+        "ecosystem.py"
+      ],
+      "frontend": [
+        "inventory",
+        "media",
+        "ecosystem"
+      ],
+      "tools": [],
+      "scripts": [],
+      "tables": [],
+      "collections": [
+        "active_inventory",
+        "buy_list",
+        "archivals",
+        "car_maintenance",
+        "car_notes",
+        "housing",
+        "places",
+        "contacts",
+        "media",
+        "ecosystem",
+        "ecosystem_config"
+      ],
+      "dev_note_tabs": [
+        "inventory",
+        "ecosystem"
+      ]
+    },
+    "workshop": {
+      "name": "Workshop",
+      "what": "Where the app gets built: agent sessions in the Observatory, spinoffs, the run queue and scheduled jobs, the night crew, dev notes and the build queue, the terminal.",
+      "modules": [
+        "notestore.py",
+        "devnote_judgments.py",
+        "jobstore.py",
+        "worktrees.py",
+        "procmem.py",
+        "activityfeed.py",
+        "chatsearch.py",
+        "lanes.py", "fairywall.py", "linear_api.py", "peermail.py", "swarms.py", "swarm_helper.py", "helper_chat.py", "room_helper.py", "watches.py", "linear_feed.py", "edited_files.py", "file_alerts.py", "continuation.py", "sudo_requests.py", "briefstore.py", "message_summaries.py"
+      ],
+      "routes": [
+        "observatory.py",
+        "chat_search.py",
+        "swarms.py",
+        "swarm_demo.py",
+        "spinoff.py",
+        "nightcrew.py",
+        "branches.py",
+        "worktree_map.py",
+        "sudo.py",
+        "run_queue.py",
+        "automations.py",
+        "devnotes.py",
+        "helpers.py",
+        "linear_room.py",
+        "terminal.py"
+      ],
+      "frontend": [
+        "observatory",
+        "sudo",
+        "nightcrew",
+        "runqueue",
+        "automations",
+        "phone"
+      ],
+      "tools": [
+        "nightcrew",
+        "act_ask_gate.py"
+      ],
+      "scripts": [
+        "run_dispatcher.py",
+        "turn_host.py",
+        "nightcrew_run.py",
+        "spinoff_runner.py",
+        "backfill_spawned_from.py",
+        "spark_morning.py",
+        "sort_bot_chats.py", "peers.py", "sudo_request.py", "room_moves.py", "freeze_swarm.py", "helper_watch.py", "helper_rule.py", "linear_feed.py", "spinoff_brief.py", "import_spinoff_briefs.py"
+      ],
+      "tables": [
+        "notes",
+        "note_judgments",
+        "job_runs", "agent_messages", "message_summaries", "message_thread_summaries", "swarms", "swarm_members", "swarm_helper_runs",
+        "chat_lines_fts", "chat_lines_fts_data", "chat_lines_fts_idx",
+        "chat_lines_fts_content", "chat_lines_fts_docsize", "chat_lines_fts_config",
+        "chat_line_sources",
+        "session_summaries", "swarm_pins", "room_moves", "room_helper_runs", "helper_watches", "file_alerts", "linear_events", "swarm_closings", "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs"
+      ],
+      "collections": [
+        "dev_notes",
+        "idea_notes",
+        "build_todo",
+        "scheduled_prompts"
+      ],
+      "dev_note_tabs": [
+        "terminal",
+        "notes",
+        "rodeo"
+      ]
+    },
+    "observatory": {
+      "name": "Observatory",
+      "what": "Watching the system itself: the terrain map, the creek, the pond, wiring, flow, the SQL lab, usage — and the telemetry tables they read (tool calls, requests, traces, code history, attention).",
+      "modules": [
+        "codestore.py",
+        "buildlist.py",
+        "codemap.py",
+        "codegraph.py",
+        "toolcallstore.py",
+        "commandstore.py",
+        "attentionstore.py",
+        "uieventstore.py",
+        "requestlog.py",
+        "runtime_trace.py",
+        "runtime_sensor.py"
+      ],
+      "routes": [
+        "terrain.py",
+        "terrain_builds.py",
+        "terrain_map.py",
+        "terrain_mirror.py",
+        "terrain_tables.py",
+        "creek.py",
+        "pond.py",
+        "sqlab.py",
+        "sandbox.py",
+        "usage.py",
+        "token_burn.py"
+      ],
+      "frontend": [
+        "terrain"
+      ],
+      "tools": [],
+      "scripts": [
+        "update_code_history.py",
+        "codemap.py",
+        "extract_footprints.py",
+        "usage_events.py",
+        "usage_rollup.py",
+        "usage_doctor.py",
+        "usage_ledger.py",
+        "command_rollup.py",
+        "publish_terrain.py",
+        "export_write_log.py"
+      ],
+      "tables": [
+        "files",
+        "file_paths",
+        "commits",
+        "commit_files",
+        "sessions",
+        "session_files",
+        "session_turns",
+        "attention_segments",
+        "command_runs",
+        "command_sources",
+        "code_files",
+        "code_edges",
+        "traces",
+        "trace_spans",
+        "tool_calls",
+        "tool_call_sources",
+        "model_calls",
+        "turn_results",
+        "turn_usage",
+        "ui_events",
+        "requests"
+      ],
+      "collections": [
+        "feature_usage"
+      ],
+      "dev_note_tabs": [
+        "terrain",
+        "usage"
+      ]
+    },
+    "transcripts": {
+      "name": "Transcripts",
+      "what": "Anyone's chatbot history, organized: import a ChatGPT or Claude.ai data export, have the user's own AI subscription file each conversation under topics, and read it all as a pond. Standalone, built to ship beside Terrain; its data lives in its own transcripts.db, not exo.db.",
+      "modules": [
+        "transcript_import.py",
+        "transcriptstore.py"
+      ],
+      "routes": [],
+      "frontend": [],
+      "tools": [],
+      "scripts": [
+        "sort_transcripts.py"
+      ],
+      "tables": [],
+      "collections": [],
+      "dev_note_tabs": []
+    }
+  }
+}

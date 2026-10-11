@@ -5,7 +5,7 @@ import { fmtTime } from '../todos/todoHelpers';
 import type { EntityMatcher } from './entityHighlight';
 import { EntryCard } from './EntryCard';
 import { RefCard } from './RefCard';
-import type { Card, StreakRetirement } from './types';
+import type { Card, CardEdit, StreakRetirement } from './types';
 import styles from './CardStream.module.css';
 
 export interface CardStreamProps {
@@ -46,6 +46,10 @@ export interface CardStreamProps {
   onOpenSession?: (convId: string) => void;
   /** Day counters retired on this day — woven as ⏹ rows, todo-marker style. */
   retirements?: StreakRetirement[];
+  /** Edits made this day to entries from other days — woven as ✎ rows. */
+  edits?: CardEdit[];
+  /** A ✎ row tapped: jump to the edited entry on its own day. */
+  onOpenEdited?: (date: string, cardId: string) => void;
   addSaving: boolean;
   /** Resolves true on a successful save; the composer clears its draft on
    * success. New notes always append to the end of the day. */
@@ -54,6 +58,14 @@ export interface CardStreamProps {
    * "composing" flag — fires whenever its focused-or-has-draft state
    * changes so the parent can fold it into the same pause condition. */
   onBottomActiveChange: (active: boolean) => void;
+}
+
+/** "Thu, Sep 18" — the edited entry's day on a ✎ row. Display only. */
+function formatMarkerDay(day: string): string {
+  const date = new Date(`${day}T12:00:00`);
+  return Number.isNaN(date.getTime())
+    ? day
+    : date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 interface BottomComposerProps {
@@ -173,6 +185,8 @@ export function CardStream({
   sessionNames,
   onOpenSession,
   retirements = [],
+  edits = [],
+  onOpenEdited,
   addSaving,
   onComposeSave,
   onBottomActiveChange,
@@ -189,11 +203,13 @@ export function CardStream({
     type Woven =
       | { kind: 'card'; card: Card }
       | { kind: 'marker'; marker: MarkedTodo }
-      | { kind: 'retire'; retire: StreakRetirement };
+      | { kind: 'retire'; retire: StreakRetirement }
+      | { kind: 'edit'; edit: CardEdit };
     const out: Woven[] = [];
     const pending: Array<{ time: string; item: Woven }> = [
       ...markers.map((m) => ({ time: m.time, item: { kind: 'marker', marker: m } as Woven })),
       ...retirements.map((r) => ({ time: r.time ?? '99:99', item: { kind: 'retire', retire: r } as Woven })),
+      ...edits.map((e) => ({ time: e.edited_at.slice(11, 16), item: { kind: 'edit', edit: e } as Woven })),
     ].sort((a, b) => a.time.localeCompare(b.time));
     for (const card of lines) {
       const t = card.ts.slice(11, 16);
@@ -204,7 +220,7 @@ export function CardStream({
     }
     for (const p of pending) out.push(p.item);
     return out;
-  }, [lines, markers, retirements]);
+  }, [lines, markers, retirements, edits]);
 
   function renderCard(card: Card) {
     return card.kind === 'ref' ? (
@@ -259,6 +275,24 @@ export function CardStream({
             <span className={styles.markerText}>{w.marker.text}</span>
             <span className={styles.markerTime}>{fmtTime(w.marker.time)}</span>
           </div>
+        ) : w.kind === 'edit' ? (
+          // An edit made today to an entry from another day: the change shows
+          // on the date it happened, and tapping it goes to the entry.
+          <button
+            key={`edited-${w.edit.card_id}`}
+            type="button"
+            className={`${styles.marker} ${styles.markerButton}`}
+            onClick={() => onOpenEdited?.(w.edit.card_day, w.edit.card_id)}
+            data-track="journal-edit-marker"
+          >
+            <span className={styles.markerCheck} aria-hidden="true">
+              &#9998;
+            </span>
+            <span className={styles.markerText}>
+              edited an entry from {formatMarkerDay(w.edit.card_day)}: “{w.edit.snippet}”
+            </span>
+            <span className={styles.markerTime}>{fmtTime(w.edit.edited_at.slice(11, 16))}</span>
+          </button>
         ) : (
           <div key={`retired-${w.retire.slug}`} className={styles.marker}>
             <span className={styles.markerCheck} aria-hidden="true">

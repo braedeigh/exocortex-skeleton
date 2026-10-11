@@ -1,0 +1,301 @@
+/* ChatFinder — the search box and the Recently opened list at the top of the
+   Observatory, plus the result rows the Past sessions page shares. The row,
+   chip and excerpt looks are the ones ArchivePage.module.css set; they live
+   here now so both pages draw a result the same way. */
+
+.finder {
+  margin-bottom: var(--space-4);
+}
+
+.searchBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.search {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-base);
+}
+
+.search:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+/* House rule: a × is never faint and never small. */
+.clear {
+  flex: none;
+  min-width: var(--tap-target);
+  min-height: var(--tap-target);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.clear:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.results {
+  margin-top: var(--space-2);
+}
+
+.hint {
+  padding: var(--space-3) var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+}
+
+/* --- Said / Did: which record the search reads --------------------------- */
+
+.inRow {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.inChip {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 180ms ease, color 180ms ease;
+}
+
+.inChip:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--text);
+}
+
+.inChipOn {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* --- Recently opened ----------------------------------------------------- */
+
+.recent {
+  margin-top: var(--space-2);
+}
+
+/* The fold button: a quiet heading that is also a full-height tap target. */
+.recentHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recentHead:hover {
+  color: var(--text);
+}
+
+.chevron {
+  width: 1em;
+  font-size: var(--font-size-base);
+}
+
+/* One line per session: name, room, closed or not, how long ago. The whole
+   line opens it. */
+.recentRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-bottom: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease;
+}
+
+.recentRow:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.showAll {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.showAll:hover {
+  color: var(--accent);
+}
+
+/* --- one session that matched --------------------------------------------- */
+
+/* The whole row opens the session — one big target, not a link buried in text. */
+.row {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease;
+}
+
+.row:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.rowTop {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-height: 28px;
+}
+
+.rowTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rowDate {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.chip {
+  flex: none;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+/* A journalled session's words are her diary. The chip isn't a warning — it's
+   so she's never surprised about which surface a line she's reading came off. */
+.chipJournal {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--ongoing) 40%, transparent);
+  background: color-mix(in srgb, var(--ongoing) 12%, transparent);
+  color: var(--ongoing);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+/* --- a match, in context ------------------------------------------------- */
+
+.snippet {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border);
+}
+
+/* Who said it. Two characters of context that change the meaning of the line
+   entirely — finding her own words back is a different thing from finding the
+   answer she was given. */
+.who,
+.whoTool {
+  flex: none;
+  width: 2.2em;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+/* A tool's name (Edit, Bash, WebSearch) is longer than "you" or "it". */
+.whoTool {
+  width: 5.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.snippetText {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+/* The one saturated thing on the page — it's what she came for. Accent wash
+   rather than the browser's default yellow, which belongs to no palette here
+   and reads as a foreign object on both themes. */
+.mark {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* How many more lines matched than the few shown. */
+.more {
+  margin-top: var(--space-2);
+  padding-left: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}

@@ -208,9 +208,42 @@ def test_csv_parse_normalizes_dates_skips_balance_rows_and_sets_includes(client)
     paypal = by_desc["PAYPAL DES:GUMROAD"]
     assert paypal["date"] == "2026-04-03"
     assert paypal["include"] is True            # plain expense: in by default
-    assert by_desc["VIDALA DES:PAYROLL"]["include"] is True   # paycheck: in (tax tracking)
+    assert by_desc["VIDALA DES:PAYROLL"]["include"] is True   # money in: in
     assert by_desc["TRANSFER TO SAVINGS"]["include"] is False  # internal transfer: out
     assert by_desc["TRANSFER TO SAVINGS"]["category"] == "Savings/Transfer"
+
+
+def test_csv_parse_ticks_money_in_and_refunds_but_not_own_transfers(client):
+    fname = _write_csv("test_money_in.csv", BOA_CSV
+                       + "04/08/2026,ST HEALTH SVCS DES:PAYROLLREG ID:7013,4401.60\n"
+                       + "04/09/2026,Etsy.com*Shop 04/08 REFUND BROOKLYN NY,290.11\n"
+                       + "04/10/2026,TRANSFER FROM SAVINGS,50.00\n")
+    rows = _post(client, "/api/csv/parse", {"filename": fname}).get_json()["rows"]
+    include = {row["desc"]: row["include"] for row in rows}
+    assert include["ST HEALTH SVCS DES:PAYROLLREG ID:7013"] is True
+    assert include["Etsy.com*Shop 04/08 REFUND BROOKLYN NY"] is True
+    assert include["TRANSFER FROM SAVINGS"] is False
+    (IMPORT_DATA_DIR / "bank_csvs" / fname).unlink()
+
+
+def test_csv_parse_files_a_refund_under_its_merchants_category_not_income(client):
+    store.write("merchant_categories", {"patterns": [{"match": "amazon prime", "category": "Subscriptions"}]})
+    fname = _write_csv("test_refund_cat.csv", BOA_CSV
+                       + "04/09/2026,AMAZON PRIME PMTS 04/07 REFUND Amzn.com/bill WA,16.53\n")
+    rows = _post(client, "/api/csv/parse", {"filename": fname}).get_json()["rows"]
+    refund = next(r for r in rows if "REFUND" in r["desc"])
+    assert refund["category"] == "Subscriptions"
+    (IMPORT_DATA_DIR / "bank_csvs" / fname).unlink()
+
+
+def test_csv_import_stores_money_back_in_a_spending_category_as_negative(client):
+    _post(client, "/api/csv/import", {"selections": [
+        {"date": "2026-04-09", "desc": "Etsy REFUND", "amount": 290.11, "category": "Recreation"},
+        {"date": "2026-04-08", "desc": "ST HEALTH PAYROLL", "amount": 4401.60, "category": "Income"},
+        {"date": "2026-04-07", "desc": "ETSY PURCHASE", "amount": -290.11, "category": "Recreation"},
+    ]})
+    amounts = {e["comments"]: e["amount"] for e in store.read("expenses", {"items": []})["items"]}
+    assert amounts == {"Etsy REFUND": -290.11, "ST HEALTH PAYROLL": 4401.60, "ETSY PURCHASE": 290.11}
 
 
 def test_csv_parse_flags_already_imported_rows(client):
@@ -227,6 +260,40 @@ def test_csv_parse_flags_already_imported_rows(client):
 def test_csv_parse_404s_on_missing_or_escaping_filename(client):
     assert _post(client, "/api/csv/parse", {"filename": "nope.csv"}).status_code == 404
     assert _post(client, "/api/csv/parse", {"filename": "../expenses.json"}).status_code == 404
+
+
+def _upload_csv(client, name, content=BOA_CSV):
+    return client.post("/api/csv/upload",
+                       data={"file": (io.BytesIO(content.encode()), name)},
+                       content_type="multipart/form-data")
+
+
+def test_csv_upload_saves_file_that_then_lists_and_parses(client):
+    r = _upload_csv(client, "my statement!.csv")
+    assert r.status_code == 200
+    fname = r.get_json()["filename"]
+    assert fname == "my_statement.csv"
+    assert fname in client.get("/api/csv/list").get_json()["files"]
+    rows = _post(client, "/api/csv/parse", {"filename": fname}).get_json()["rows"]
+    assert len(rows) == 3
+    (IMPORT_DATA_DIR / "bank_csvs" / fname).unlink()
+
+
+def test_csv_upload_keeps_a_different_file_with_the_same_name_apart(client):
+    first = _upload_csv(client, "clash.csv").get_json()["filename"]
+    again = _upload_csv(client, "clash.csv").get_json()["filename"]
+    other = _upload_csv(client, "clash.csv", BOA_CSV + "04/07/2026,COFFEE,-4.00\n").get_json()["filename"]
+    assert (first, again, other) == ("clash.csv", "clash.csv", "clash-2.csv")
+    for name in (first, other):
+        (IMPORT_DATA_DIR / "bank_csvs" / name).unlink()
+
+
+def test_csv_upload_refuses_non_csv_and_unreadable_files_without_keeping_them(client):
+    assert _upload_csv(client, "photo.jpg").status_code == 400
+    r = _upload_csv(client, "other_bank.csv", "Posted,Payee,Debit\n04/03/2026,COFFEE,4.00\n")
+    assert r.status_code == 400
+    assert "Bank of America" in r.get_json()["error"]
+    assert not (IMPORT_DATA_DIR / "bank_csvs" / "other_bank.csv").exists()
 
 
 def test_csv_import_adds_expenses_learns_rules_and_creates_categories(client):
@@ -247,6 +314,37 @@ def test_csv_import_adds_expenses_learns_rules_and_creates_categories(client):
     cats = {c["name"] for c in read_budget()["categories"]}
     assert cats == {"Fun"}
     assert out["categories_added"] == 1
+
+
+def test_csv_parse_names_rows_from_learned_labels_newest_first(client):
+    fname = _write_csv("test_labels.csv", BOA_CSV + "04/07/2026,PAYPAL DES:INST XFER ID:UBER INDN:X,-12.00\n")
+    store.write("merchant_labels", {"patterns": [
+        {"match": "paypal des:inst", "title": "PayPal transfer"},
+        {"match": "id:uber", "title": "Uber"},
+    ]})
+    out = _post(client, "/api/csv/parse", {"filename": fname}).get_json()
+    by_desc = {row["desc"]: row for row in out["rows"]}
+    assert by_desc["PAYPAL DES:INST XFER ID:UBER INDN:X"]["title"] == "Uber"
+    assert by_desc["PAYPAL DES:GUMROAD"]["title"] == ""
+    assert out["titles"] == ["PayPal transfer", "Uber"]
+    (IMPORT_DATA_DIR / "bank_csvs" / fname).unlink()
+
+
+def test_csv_import_saves_row_names_and_learns_labels_replacing_old_ones(client):
+    store.write("merchant_labels", {"patterns": [{"match": "cosmic coffee", "title": "Coffee"}]})
+    r = _post(client, "/api/csv/import", {
+        "selections": [
+            {"date": "2026-04-03", "amount": -4.5, "desc": "TST*COSMIC COFFEE - EAS 04/03",
+             "category": "Food", "title": "Cosmic Coffee"},
+            {"date": "2026-04-04", "amount": -9.0, "desc": "SHELL OIL 575", "category": "Gas"},
+        ],
+        "learn_labels": [{"match": "cosmic coffee", "title": "Cosmic Coffee"}, {"match": "x", "title": "Too short"}],
+    })
+    assert r.get_json()["labels_learned"] == 1
+    titles = {e["comments"]: e["title"] for e in read_expenses()}
+    assert titles == {"TST*COSMIC COFFEE - EAS 04/03": "Cosmic Coffee", "SHELL OIL 575": ""}
+    labels = store.read("merchant_labels", {"patterns": []})["patterns"]
+    assert labels == [{"match": "cosmic coffee", "title": "Cosmic Coffee"}]
 
 
 def test_csv_import_merges_bank_row_into_receipt_expense(client):
@@ -416,3 +514,72 @@ def test_parsed_receipt_import_404s_without_staged_file(client):
 def test_parsed_receipt_import_404s_for_unknown_expense(client):
     r = _post(client, "/api/expense-receipts/parsed/import", {"eid": "nope"})
     assert r.status_code == 404
+
+
+# --- category kinds + one-time things ------------------------------------------
+
+def test_category_kind_is_set_and_validated(client):
+    _post(client, "/api/budget/category/add", {"name": "Eating Out", "kind": "cut_back"})
+    _post(client, "/api/budget/category/add", {"name": "Rent"})
+    assert _post(client, "/api/budget/category/update", {"name": "Rent", "kind": "recurring"}).status_code == 200
+    assert _post(client, "/api/budget/category/update", {"name": "Rent", "kind": "sometimes"}).status_code == 400
+    assert _post(client, "/api/budget/category/update", {"name": "Nope", "kind": "recurring"}).status_code == 404
+    kinds = {c["name"]: c["kind"] for c in read_budget()["categories"]}
+    assert kinds == {"Eating Out": "cut_back", "Rent": "recurring"}
+
+
+def test_category_kind_can_be_not_recurring(client):
+    _post(client, "/api/budget/category/add", {"name": "Therapy", "kind": "one_time"})
+    assert read_budget()["categories"][0]["kind"] == "one_time"
+
+
+def _seed_expense(**extra):
+    store.write("expenses", {"items": [{"id": "e1", "date": "2026-09-02", "amount": 499.0,
+                                        "category": "Home", "comments": "FUTON SHOP", "title": "Futon Shop", **extra}]})
+
+
+def test_marking_one_time_durable_files_it_into_archivals_once(client):
+    _seed_expense()
+    store.write("buy_list", {"items": [{"name": "Mattress", "kind": "durable"}]})
+    payload = {"id": "e1", "one_time": {"name": "Mattress", "shelf": "durables"}}
+    _post(client, "/api/expense/update", payload)
+    _post(client, "/api/expense/update", payload)  # marking again doesn't file twice
+    archivals = store.read("archivals", {"items": []})["items"]
+    assert [a["name"] for a in archivals] == ["Mattress"]
+    assert "Futon Shop" in archivals[0]["origin"] and "$499.00" in archivals[0]["origin"]
+    assert store.read("buy_list", {"items": []})["items"] == []
+    e = read_expenses()[0]
+    assert e["one_time"] is True
+    assert e["inventory"] == {"shelf": "durables", "name": "Mattress", "id": archivals[0]["id"]}
+
+
+def test_marking_one_time_consumable_restocks_existing_item(client):
+    _seed_expense(amount=12.5, title="Target")
+    store.write("active_inventory", {"items": [{"name": "toilet cleaner", "status": "finished", "ordered_at": ["2026-01-01"]}]})
+    _post(client, "/api/expense/update", {"id": "e1", "one_time": {"name": "Toilet cleaner", "shelf": "consumables"}})
+    items = store.read("active_inventory", {"items": []})["items"]
+    assert len(items) == 1
+    assert items[0]["status"] == "in_use" and items[0]["last_cost"] == "12.50"
+    assert items[0]["ordered_at"] == ["2026-01-01", "2026-09-02"]
+
+
+def test_unmarking_one_time_drops_the_flag_but_keeps_the_inventory_item(client):
+    _seed_expense()
+    _post(client, "/api/expense/update", {"id": "e1", "one_time": {"name": "Mattress", "shelf": "durables"}})
+    _post(client, "/api/expense/update", {"id": "e1", "one_time": None})
+    e = read_expenses()[0]
+    assert "one_time" not in e and "inventory" not in e
+    assert len(store.read("archivals", {"items": []})["items"]) == 1
+
+
+def test_csv_import_files_one_time_rows_into_inventory(client):
+    r = _post(client, "/api/csv/import", {"selections": [
+        {"date": "2026-09-03", "desc": "TARGET 123", "amount": -8.99, "category": "Home", "title": "Target",
+         "one_time": {"name": "Toilet cleaner", "shelf": "consumables"}},
+        {"date": "2026-09-04", "desc": "TARGET 123", "amount": -20, "category": "Home", "title": "Target"},
+    ]})
+    assert r.status_code == 200
+    one, plain = read_expenses()
+    assert one["one_time"] is True and one["inventory"]["shelf"] == "consumables"
+    assert "one_time" not in plain
+    assert [i["name"] for i in store.read("active_inventory", {"items": []})["items"]] == ["Toilet cleaner"]

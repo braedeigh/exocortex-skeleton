@@ -56,6 +56,35 @@ settable by an agent; a question's `status` stays the owner's alone). This
 replaces an earlier prompt-only contract — see `research_ctl.py`'s module
 docstring for the incident that motivated the code-enforced rewrite.
 
+## The research room (`research-room/`) — where sessions stand now
+
+The sixth folder is not a role but a GROUND. `research-room/CLAUDE.md`
+(store.py's `RESEARCH_ROOM_DIR`, env `EXOCORTEX_RESEARCH_ROOM_DIR`, default
+`<VAULT_DIR>/research-room/`) is the cwd of every conversation in the
+Observatory's `research` lane (`routes/observatory.py`, listed by
+`routes/research_room.py` at `GET /api/research-room`, drawn at
+`/observatory/research`). Two kinds of session stand there:
+
+- **the owner's own desk session** — opened from the Research door with
+  "+ New research session"; the room's CLAUDE.md teaches it the read-only
+  query door (`scripts/exo_query.py`) over her tables and the one write door
+  (`scripts/research_ctl.py`) into the pool.
+- **a dispatched worker or distiller** — since 2026-09-24 these no longer run
+  in tmux panes. `scripts/research_dispatcher.py`'s `spawn_worker` mints a
+  research-lane conversation stamped `origin: "research"` and
+  `research_session_id`, appends the role's CLAUDE.md (worker or distiller)
+  as the session's system prompt, and stamps the research session record
+  with `conv_id` + `run_id` (`research_ctl.py set-session --conv --run`).
+  The run dispatcher starts it through the same runner as any queued
+  Observatory turn, and reaps it by the conversation's liveness plus the
+  research record's status. `worker_apply_result.py` copies `conv_id` onto
+  the reply entry, so a reply, its session, its conversation and its
+  run-queue receipt (`usage_ledger.py`: `research_session`, `conv_id`,
+  `claude_session`) all point at each other.
+
+The worker and distiller CLAUDE.md files should therefore no longer tell the
+agent to kill a tmux session — there isn't one; it just stops.
+
 ## research.json — the shared schema
 
 Three top-level lists, read/written only via `store.mutate("research.json", ...)`:

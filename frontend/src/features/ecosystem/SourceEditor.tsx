@@ -7,10 +7,18 @@
  *
  * Mount one instance per editing session (key it on the draft's id) so the
  * address/USDA messages and key prompt reset like the old globals did.
+ *
+ * The origin section records where the placement information came from. The
+ * two lookups fill it themselves — an address search writes "geocoded" with
+ * what OpenStreetMap matched, the USDA button writes "usda-nass" with the
+ * dataset, the figure that ranked the counties, each county's number, and the
+ * day — and anything else (the package, a visit, a study) is typed by hand.
+ * Prompt for that part: "save the source origin information like USDA or
+ * whatever in the table and display it."
  */
 import { useEffect, useState } from 'react';
 import type { RefObject } from 'react';
-import { ECO_GEO, ECO_GEO_ORDER, ECO_TX, ECO_TX_ORDER } from './axes';
+import { ECO_GEO, ECO_GEO_ORDER, ECO_ORIGIN, ECO_ORIGIN_ORDER, ECO_TX, ECO_TX_ORDER } from './axes';
 import { geocodeAddress, saveUsdaKey, usdaSuggest } from './api';
 import type { UsdaSuggestion } from './api';
 import type { EcoMapHandle } from './EcoMap';
@@ -74,7 +82,12 @@ export function SourceEditor({ draft, editing, onPatch, onSave, onCancel, onDele
   function useCircle() {
     const patch: Partial<EcoDraft> = { area_kind: 'circle', counties: [], region_name: '' };
     if (!(draft.radius_km > 0)) patch.radius_km = 100;
-    if (draft.geo_source === 'proxy') patch.geo_source = 'guess'; // a hand circle is a hunch, not USDA
+    // a hand circle is a hunch, not USDA — neither the axis nor the origin
+    // may keep claiming USDA once its outline is gone
+    const patchExtra: Partial<EcoDraft> = { county_detail: [] };
+    if (draft.geo_source === 'proxy') patchExtra.geo_source = 'guess';
+    if (draft.origin === 'usda-nass') patchExtra.origin = 'hand';
+    Object.assign(patch, patchExtra);
     onPatch(patch);
   }
 
@@ -114,8 +127,18 @@ export function SourceEditor({ draft, editing, onPatch, onSave, onCancel, onDele
       setAddrMsg(j?.reason || 'No match found.');
       return;
     }
-    // a geocoded address is a deliberate, exact placement
-    onPatch({ precision: 'point', lat: j.lat, lng: j.lng, geo_source: 'placed' });
+    // a geocoded address is a deliberate, exact placement — and the lookup
+    // is where the information came from
+    onPatch({
+      precision: 'point',
+      lat: j.lat,
+      lng: j.lng,
+      geo_source: 'placed',
+      origin: 'geocoded',
+      origin_detail: j.origin_detail || '',
+      origin_url: j.origin_url || '',
+      origin_date: j.origin_date || '',
+    });
     map.current?.setView(j.lat, j.lng, 13);
     setAddrMsg(j.label ? 'Found: ' + j.label : 'Found it — adjust or save.');
   }
@@ -144,6 +167,12 @@ export function SourceEditor({ draft, editing, onPatch, onSave, onCancel, onDele
         region_name: '',
         radius_km: 0,
         geo_source: 'proxy', // USDA = where it's generally grown, not this item
+        // the origin record, with USDA's number for each county
+        origin: 'usda-nass',
+        origin_detail: j.origin_detail || '',
+        origin_url: j.origin_url || '',
+        origin_date: j.origin_date || '',
+        county_detail: j.detail || [],
       };
       if (!draft.note) patch.note = j.note || '';
       if ((draft.transparency || 'unrated') === 'unrated') patch.transparency = 'partial';
@@ -172,6 +201,11 @@ export function SourceEditor({ draft, editing, onPatch, onSave, onCancel, onDele
         lat: typeof j.lat === 'number' ? j.lat : null,
         lng: typeof j.lng === 'number' ? j.lng : null,
         geo_source: 'proxy', // USDA = where it's generally grown, not this item
+        origin: 'usda-nass',
+        origin_detail: j.origin_detail || '',
+        origin_url: j.origin_url || '',
+        origin_date: j.origin_date || '',
+        county_detail: [],
       };
       if (!draft.note) patch.note = j.note || '';
       if ((draft.transparency || 'unrated') === 'unrated') patch.transparency = 'partial';
@@ -402,6 +436,52 @@ export function SourceEditor({ draft, editing, onPatch, onSave, onCancel, onDele
           );
         })}
       </div>
+
+      {/* Where the information came from — the origin record. */}
+      <div className={styles.axisLabel}>Where did this information come from?</div>
+      <div className={styles.btnRow}>
+        {ECO_ORIGIN_ORDER.map((k) => {
+          const t = ECO_ORIGIN[k];
+          const on = draft.origin === k;
+          return (
+            <button
+              key={k}
+              type="button"
+              className={`${styles.geoBtn} ${on ? styles.geoBtnOn : ''}`}
+              onClick={() => onPatch({ origin: k })}
+            >
+              {t.icon} {t.label}
+            </button>
+          );
+        })}
+      </div>
+      <input
+        type="text"
+        className={`${styles.input} ${styles.noteInput}`}
+        value={draft.origin_detail}
+        onChange={(e) => onPatch({ origin_detail: e.target.value })}
+        placeholder="The citation — which dataset, what the label said, who you asked…"
+      />
+      <div className={styles.coordRow}>
+        <input
+          type="url"
+          className={styles.input}
+          value={draft.origin_url}
+          onChange={(e) => onPatch({ origin_url: e.target.value })}
+          placeholder="Link to check it (optional)"
+        />
+        <input
+          type="date"
+          className={styles.input}
+          value={draft.origin_date}
+          onChange={(e) => onPatch({ origin_date: e.target.value })}
+          aria-label="When it was looked up"
+        />
+      </div>
+
+      {!editing && draft.food_label ? (
+        <div className={styles.regionInfo}>🔗 Will be linked to {draft.food_label}</div>
+      ) : null}
 
       <div className={styles.locLine}>
         {hasLoc ? (

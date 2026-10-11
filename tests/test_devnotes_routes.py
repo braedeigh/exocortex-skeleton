@@ -36,6 +36,16 @@ def test_add_and_get_roundtrip(client):
     assert res.get_json()["notes"][0]["text"] == "fix the thing"
 
 
+def test_a_new_tab_keeps_its_own_list(client):
+    # Two rooms share one 📝 panel component but name different tabs ('terminal'
+    # for the conversation surfaces, 'terrain' for the map). That only unlinks
+    # them if a never-seen tab is created on first write and stays separate.
+    _add(client, "terminal", "about the conversation")
+    _add(client, "terrain", "about the map")
+    texts = [n["text"] for n in client.get("/api/devnotes/terrain").get_json()["notes"]]
+    assert texts == ["about the map"]
+
+
 # --- night-crew questions ride the note until she answers ---
 
 def _plant_questions(nid):

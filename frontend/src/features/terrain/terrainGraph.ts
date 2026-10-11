@@ -8,8 +8,70 @@
  * is for a given recency lens.
  */
 import type { TerrainData, TerrainFile, TerrainLiveSession, TerrainRepo, TerrainSession } from './api';
+import { foreignKeyEdges } from './tableNodes';
 
 export type HeatLens = 'day' | 'week' | 'month';
+
+/**
+ * WINDOW vs HALF-LIFE — the two units the heat runs in, and the seam between.
+ *
+ * What she sets (the Heat bar's thumb, the presets, the breath) is a WINDOW:
+ * "lit for a day", "lit for a month". The dot on the bar is the EDGE of the
+ * colour — where the glow has run out, not where it's half. What the decay
+ * math takes is a HALF-LIFE: the time for a touch to fall to half strength.
+ * The two meet here: a window is WINDOW_HALF_LIVES half-lives long, so by its
+ * edge a touch is down to 2^-3 = an eighth, which is where hue over ash stops
+ * being visible (see terrainCanvas.ts glowAlpha). Fully lit today, half lit a
+ * third of the way, gone at the dot.
+ *
+ * Three is a judgment, not a law: two would leave a quarter at the edge (a
+ * faint hue still showing past the dot), four would pull the last visible
+ * colour to well inside the dot. Three lands it right at the dot.
+ *
+ * Everything the slider or the breath produces is a window; convert with
+ * windowToHalfLife() before it meets computeFileHeat / heatThreads. The
+ * named presets (LENS_HALF_LIFE_SECONDS) are genuine half-lives for callers
+ * that pass a HeatLens by name, and the breath's day..month range is read as
+ * windows by the surfaces that run it.
+ *
+ * Prompt that produced it: "i want the dot to be the edge of the color, not
+ * for the color to trail after it" → "last visible color right at the dot."
+ */
+export const WINDOW_HALF_LIVES = 3;
+
+/** A window (what she set) → the half-life the decay runs on. */
+export function windowToHalfLife(windowSeconds: number): number {
+  return windowSeconds / WINDOW_HALF_LIVES;
+}
+
+/**
+ * The GOLD channel's DEFAULT window: a file is gold if it actually RAN inside
+ * it. One day — "did this code run today" — which is where the map's Active
+ * bar opens and what any surface that doesn't set a window of its own gets.
+ *
+ * It is a default and no longer a constant of the map: the Active bar owns
+ * gold's window and runs it from five minutes to a week (activeScale.ts), the
+ * way the Heat bar owns ember's. Under Dynamic gold takes its own breath
+ * instead (goldBreathWindow below): five minutes out to a day and back,
+ * ALTERNATING with ember's day-to-month breath — see alternatingBreath. Same
+ * shape of decay as ember either way: fully lit just ran, half a third of the
+ * way, gone at the edge.
+ */
+export const RUN_WINDOW_SECONDS = 24 * 3600;
+export const RUN_HALF_LIFE_SECONDS = windowToHalfLife(RUN_WINDOW_SECONDS);
+
+/**
+ * The gold breath's range. The floor is five minutes, not the minute she
+ * named, and the sensor is why: runtime_sensor.py stamps a run into a
+ * FIVE-MINUTE bucket (BUCKET_SEC), so "ran in the last minute" would be true
+ * for a file only when its bucket happened to start inside that minute — one
+ * cycle in five — and the map would flicker at the bottom of every breath.
+ * Five minutes is the sensor's honest resolution; the ceiling is the fixed
+ * window above, so the top of the gold breath is exactly what a fixed preset
+ * shows. Under the breath gold RESTS at the floor, not the ceiling — see
+ * alternatingBreath for why.
+ */
+export const GOLD_BREATH_SECONDS = { min: 300, max: RUN_WINDOW_SECONDS } as const;
 
 /** Half-life in seconds for each lens — the exponential decay's "time to fall
  * to half brightness". Touches (and payloads generally) are unix seconds. */
@@ -50,61 +112,56 @@ export function formatAge(seconds: number): string {
 }
 
 /**
- * The three labels down the colour key, hottest first, derived from whatever
- * half-life the heat bar is set to — they used to be hardcoded per named
- * lens, which a continuous bar can't be.
- *
- * The middle tick is a QUARTER of the half-life, which is where the ramp is
- * still visibly warm; the bottom is the half-life itself, marked "+" because
- * everything older piles up below it. At a one-day half-life that reproduces
- * the old Day key exactly (now / 6h / 1d+).
- *
- * Prompt that produced it: "generate them from the half life".
+ * The three labels down the colour key, hottest first, derived from the
+ * WINDOW the heat bar is set to: now at the top, the window's midpoint, and
+ * its edge at the bottom — the age at which the colour has run out. No "+"
+ * on the edge any more: it isn't a floor everything older piles up under,
+ * it's where the ramp ends.
  */
-export function heatKeyTicks(halfLife: number): [string, string, string] {
-  return ['now', formatAge(halfLife / 4), `${formatAge(halfLife)}+`];
+export function heatKeyTicks(windowSeconds: number): [string, string, string] {
+  return ['now', formatAge(windowSeconds / 2), formatAge(windowSeconds)];
 }
 
 /**
  * The colour ramp laid along the heat slider's own track, so the control and
- * the legend are one object.
+ * the legend are one object — and the thumb is the EDGE of the colour.
  *
- * The trick is that the track's axis can be read two ways at once. As a
- * *control* it's the half-life you're setting; as a *scale* it's an age axis —
- * position x is "a file touched x days ago", and the colour there is exactly
- * what such a file wears on the map right now. So the bar answers "how far
- * back does the map remember" by showing it rather than naming it, and it
- * restates itself live as you drag: pull the handle right and the whole ramp
- * brightens, because a longer half-life is literally a map that keeps older
- * work lit.
+ * The track's axis reads two ways at once. As a *control* it's the window
+ * you're setting; as a *scale* it's an age axis — position x is "a file
+ * touched x days ago", and the colour there is what such a file wears on the
+ * map right now. The fill runs hot at the near end, decays across the window
+ * on the same 2^-(age/half_life) curve every node uses (half_life =
+ * window / WINDOW_HALF_LIVES), and stops at the thumb: everything older than
+ * the window is drawn at t = 0, i.e. ash. On the map a file just past the
+ * edge is at an eighth, which the eye already reads as ash; the bar rounds
+ * that last sliver to zero so the dot is a clean edge, and the 28px thumb
+ * sits over the seam. Drag right and the fill lengthens — a longer memory,
+ * shown rather than named.
  *
  * Returns sample points, not colours — the ramp itself lives with the canvas
  * that paints it (heatColor in terrainCanvas.ts), and this stays pure maths.
- * `pct` is the position along the track and `t` the 0..1 heat at it, using the
- * same 2^-(age/half_life) decay every node on the map uses.
+ * `pct` is the position along the track and `t` the 0..1 heat at it.
  *
  * Sampled rather than two-stop because the track is LOGARITHMIC in days while
  * the decay is exponential in days: a straight CSS gradient between the ends
  * would draw a curve the map doesn't have. Twenty-four stops is past the point
  * where the eye can find the seams.
- *
- * Prompt that produced it: "i want the heat map to also be superimposed onto
- * the heat map bar."
  */
 export function heatTrackStops(
-  halfLifeDays: number,
+  windowDays: number,
   minDays: number = HEAT_DAYS_MIN,
   maxDays: number = HEAT_DAYS_MAX,
   samples = 24,
 ): { pct: number; t: number }[] {
   const ratio = maxDays / minDays;
+  const halfLifeDays = windowToHalfLife(windowDays);
   return Array.from({ length: samples }, (_, i) => {
     const p = samples > 1 ? i / (samples - 1) : 0; // a lone sample is the near end, not 0/0
 
     const days = minDays * ratio ** p;
     return {
       pct: p * 100,
-      t: halfLifeDays > 0 ? 2 ** (-days / halfLifeDays) : 0,
+      t: windowDays > 0 && days <= windowDays ? 2 ** (-days / halfLifeDays) : 0,
     };
   });
 }
@@ -114,6 +171,11 @@ export function heatTrackStops(
 export const BREATH_INHALE_FRACTION = 0.4;
 
 /** One full breath. Her pick: slow and deep, not a human 5s rhythm.
+ *
+ * The breath's value is a WINDOW (a day out to a month — see windowToHalfLife
+ * at the top of this file); the surfaces that run it convert before the
+ * decay sees it. breathHalfLife keeps its name from when the two units were
+ * one. Gold breathes too, on its own range — see goldBreathWindow.
  *
  * Lives here rather than in either surface that uses it, because BOTH breathe
  * now — the Observatory backdrop and /terrain's Dynamic heat preset — and two
@@ -157,18 +219,86 @@ export const BREATH_TICK_MS = 150;
  * the map appears to remember further back, and then forget again.
  */
 export function breathHalfLife(elapsedMs: number, periodMs = 10_000): number {
-  if (!(periodMs > 0)) return LENS_HALF_LIFE_SECONDS.day;
+  return breathSpan(elapsedMs, periodMs, LENS_HALF_LIFE_SECONDS.day, LENS_HALF_LIFE_SECONDS.month);
+}
+
+/**
+ * The gold breath's SHAPE: five minutes swelling out to a day over the inhale
+ * and easing back over the exhale — the same motion as ember's breath, on
+ * gold's own range. It starts and ends at its floor, so the bottom of the
+ * breath is gold's quiet state (only what ran in the last five minutes is
+ * lit) and the top is the fixed preset's question (what ran today).
+ *
+ * On its own this never runs; alternatingBreath() below hands the clock to
+ * one fire at a time.
+ */
+export function goldBreathWindow(elapsedMs: number, periodMs = 10_000): number {
+  return breathSpan(elapsedMs, periodMs, GOLD_BREATH_SECONDS.min, GOLD_BREATH_SECONDS.max);
+}
+
+/** Which fire the current breath belongs to. */
+export type BreathTurn = 'ember' | 'gold';
+
+/**
+ * THE ALTERNATING BREATH — the two fires take turns, and each rests at its
+ * SMALLEST. One full cycle (BREATH_PERIOD_MS) belongs to ember: its window
+ * swells from a day out to a month and settles back while gold rests at five
+ * minutes. The next cycle belongs to gold: its window swells from five
+ * minutes out to a day and settles back while ember rests at ITS day. Then
+ * ember again. Her call, after seeing them breathe together: "have one
+ * breath be the time of editing, then the other breath be the time of the
+ * last activated, and then have them alternate rather than both be active at
+ * the same time".
+ *
+ * Why gold rests at five minutes and not at its day: a day is gold's
+ * LARGEST window, so resting there meant the map stayed fully yellow for the
+ * whole of ember's turn, while red glowed up around it. Her correction:
+ * "change it such that when the red is at its smallest, the yellow is at its
+ * largest. Currently yellow is off kilter and stays yellow in half of the
+ * cycle while the red is glowing up". With both resting small, only one
+ * colour blooms at a time: yellow is at its fullest at the top of gold's
+ * turn, exactly when red is at its smallest, and yellow is quiet while red
+ * reaches back.
+ *
+ * The handoff is seamless by construction: both breaths START and END at
+ * their rest, so at the moment the clock passes from one fire to the other
+ * nothing on the map or the bar jumps — the thumb comes to rest at the left
+ * as the gold ring begins to move out from the left, and vice versa. (Gold's
+ * rest differs from the fixed preset's day, so entering or leaving Dynamic
+ * moves the ring — the same jump the thumb already makes.)
+ *
+ * What it looks like: the map remembers back a month of edits and forgets
+ * again; then what is executing right now widens to what ran today and
+ * narrows again; then it remembers again. One question at a time, in red,
+ * then in gold.
+ */
+export function alternatingBreath(
+  elapsedMs: number,
+  periodMs = BREATH_PERIOD_MS,
+): { ember: number; gold: number; turn: BreathTurn } {
+  const rest = { ember: LENS_HALF_LIFE_SECONDS.day, gold: GOLD_BREATH_SECONDS.min };
+  if (!(periodMs > 0)) return { ...rest, turn: 'ember' };
+  const two = 2 * periodMs;
+  const inPair = ((elapsedMs % two) + two) % two;
+  const within = inPair % periodMs;
+  if (inPair < periodMs) return { ember: breathHalfLife(within, periodMs), gold: rest.gold, turn: 'ember' };
+  return { ember: rest.ember, gold: goldBreathWindow(within, periodMs), turn: 'gold' };
+}
+
+/** One breath cycle mapped onto a range, in LOG space (an hour matters more
+ * against a day than against a month). The inhale owns the first 40% of the
+ * cycle and rides lo -> hi; the exhale owns the remaining 60% and rides back.
+ * Both are half-cosines, so the value is flat at the top and at both ends. */
+export function breathSpan(elapsedMs: number, periodMs: number, lo: number, hi: number): number {
+  if (!(periodMs > 0)) return lo;
   const phase = ((elapsedMs % periodMs) + periodMs) % periodMs / periodMs;
-  // The inhale owns the first 40% of the cycle and rides 0 -> 1; the exhale
-  // owns the remaining 60% and rides 1 -> 0. Both are half-cosines, so the
-  // value is flat at the top and at both ends of the cycle.
   const u =
     phase < BREATH_INHALE_FRACTION
       ? (1 - Math.cos((phase / BREATH_INHALE_FRACTION) * Math.PI)) / 2
       : (1 + Math.cos(((phase - BREATH_INHALE_FRACTION) / (1 - BREATH_INHALE_FRACTION)) * Math.PI)) / 2;
-  const lo = Math.log(LENS_HALF_LIFE_SECONDS.day);
-  const hi = Math.log(LENS_HALF_LIFE_SECONDS.month);
-  return Math.exp(lo + (hi - lo) * u);
+  const llo = Math.log(lo);
+  const lhi = Math.log(hi);
+  return Math.exp(llo + (lhi - llo) * u);
 }
 
 /** Slight per-level decay applied when a directory's heat is rolled up from
@@ -191,6 +321,9 @@ export interface TerrainFilter {
   to: number;
   /** How many file nodes to keep, globally across repos. null = every file. */
   count: number | null;
+  /** Files kept whatever the dials say, as `<repo>:file:<path>` ids — the dots
+   * a journey replay needs on the map even if nothing else would show them. */
+  pinned?: ReadonlySet<string>;
 }
 
 /** Every file the payload holds, before any client-side dial — the
@@ -224,6 +357,21 @@ export function terrainEarliestTouch(data: TerrainData, fallbackTo: number): num
   return earliest;
 }
 
+/** Oldest run anywhere in the payload — how far back the Active bar's "All
+ * time" reaches. Null when nothing has run at all. That's often the honest
+ * answer: runs are Python-only, and the sensor keeps only each file's last 50
+ * five-minute buckets (routes/terrain.py), so "all time" here means "as far
+ * back as the run record goes", which can be hours rather than months. */
+export function terrainEarliestRun(data: TerrainData): number | null {
+  let earliest = Infinity;
+  for (const repo of data.repos) {
+    for (const file of repo.files) {
+      for (const ts of file.ran ?? []) if (ts < earliest) earliest = ts;
+    }
+  }
+  return Number.isFinite(earliest) ? earliest : null;
+}
+
 function inRange(ts: number, from: number, to: number): boolean {
   return ts >= from && ts <= to;
 }
@@ -237,35 +385,55 @@ function inRange(ts: number, from: number, to: number): boolean {
  * asking for 200 files should give the 200 hottest files *of that week*, not
  * whichever of the all-time top 200 happen to fall inside it.
  *
- * A file survives the time cut if any of its git touches OR any session's
- * last write lands in range; everything out of range is stripped from the
- * file, so heat, ages, and the session lists all describe the chosen span
- * rather than all time. `files_total` is deliberately NOT recomputed — it
- * stays the honest whole-corpus count the key line reports against.
+ * The date range NEVER removes a file. Out-of-range touches are stripped, and
+ * an out-of-range session keeps its attribution with its stamp blanked, so
+ * heat and ages describe the chosen span — but the node stays in the graph,
+ * cold and empty-handed. A file with nothing left in range is then hidden by
+ * the canvas rather than deleted from it (filesOutsideRange below, joined into
+ * the one hidden set in TerrainPage): the dots go, the layout doesn't move,
+ * and dragging the handles back brings them home to the same spots.
+ *
+ * Deleting them is what it used to do, and it meant every drag of a date
+ * handle tore down the graph and re-ran the force layout over a different set
+ * of bodies — the map rearranged itself under her, which is the one thing a
+ * map must never do.
+ *
+ * Owner, 2026-09-19: "i want it to remove the dots but i don't want it to
+ * rearrange everything, as if they were still there but just not visible."
+ *
+ * The COUNT dial still removes files — that one is "draw fewer bodies", which
+ * is a different question from "show me this span". `files_total` is
+ * deliberately NOT recomputed — it stays the honest whole-corpus count the key
+ * line reports against.
  */
 export function filterTerrainData(
   data: TerrainData,
   filter: TerrainFilter,
   nowSeconds = Date.now() / 1000,
 ): TerrainData {
-  const { from, to, count } = filter;
+  const { from, to, count, pinned } = filter;
 
-  interface Ranked { repoIndex: number; file: TerrainFile; rank: number }
+  interface Ranked { repoIndex: number; file: TerrainFile; rank: number; pin: boolean }
   const ranked: Ranked[] = [];
 
   data.repos.forEach((repo, repoIndex) => {
     for (const file of repo.files) {
+      const pin = pinned?.has(`${repo.id}:file:${file.path}`) ?? false;
       const touches = file.touches.filter((ts) => inRange(ts, from, to));
       // Session stamps are ISO strings; sessionLastSeconds is what makes them
       // comparable to the numeric touches above. A session with no usable
       // stamp is KEPT rather than dropped — attribution ("this agent wrote
       // here") is worth more than the timestamp we failed to parse, and
       // dropping them is what made the agent orbs disappear entirely.
-      const sessions = file.sessions.filter((s) => {
+      // An out-of-range session keeps its row and loses its stamp. Blanking
+      // `last` is what takes it out of the heat sums (they skip a null) while
+      // leaving the agent's tether to this file in the graph — so narrowing the
+      // dates re-lights the map without changing which bodies or edges exist,
+      // and the layout has no reason to move.
+      const sessions = file.sessions.map((s) => {
         const last = sessionLastSeconds(s.last);
-        return last === null || inRange(last, from, to);
+        return last !== null && !inRange(last, from, to) ? { ...s, last: null } : s;
       });
-      if (touches.length === 0 && sessions.length === 0) continue;
       const kept: TerrainFile = { ...file, touches, sessions };
       // Synthetic sub-buckets (the pond tile's days) obey the date dial too —
       // a range narrowed to one week should empty the tile's other columns,
@@ -282,17 +450,18 @@ export function filterTerrainData(
         const last = sessionLastSeconds(s.last);
         if (last !== null) rank += Math.pow(2, -(ref - last) / COUNT_RANK_HALF_LIFE_SECONDS);
       }
-      ranked.push({ repoIndex, file: kept, rank });
+      ranked.push({ repoIndex, file: kept, rank, pin });
     }
   });
 
   let kept = ranked;
   if (count !== null && count < ranked.length) {
     // Stable within equal rank (sort by path) so the same N files survive
-    // across refetches instead of shuffling under her.
+    // across refetches instead of shuffling under her. Pinned files ride
+    // along outside the count — they're there because a replay asked.
     kept = [...ranked]
       .sort((a, b) => b.rank - a.rank || a.file.path.localeCompare(b.file.path))
-      .slice(0, count);
+      .filter((r, i) => i < count || r.pin);
   }
 
   const byRepo = new Map<number, TerrainFile[]>();
@@ -309,6 +478,45 @@ export function filterTerrainData(
       files: (byRepo.get(i) ?? []).sort((a, b) => a.path.localeCompare(b.path)),
     })),
   };
+}
+
+/**
+ * The files with nothing inside the date range — the dots the range hides.
+ *
+ * Read off the payload BEFORE filterTerrainData strips it, because the
+ * question is "did anything happen in this span", and the stripped copy has
+ * already thrown away the evidence either way. A file with no timestamps at
+ * all anywhere is NOT hidden: there's nothing to judge it by, and the same
+ * rule elsewhere in this file says attribution outlives a stamp we couldn't
+ * parse. The pond tile is never hidden — it's the journal's one landmark, and
+ * the range reaches inside it to empty its day columns instead.
+ *
+ * Returns ids to hide rather than a smaller payload, on purpose: joined with
+ * the heat and activity cuts into the one set the canvas paints around
+ * (terrainCanvas.ts setHiddenFiles), so every time filter on this page hides
+ * dots and none of them can move the layout.
+ */
+export function filesOutsideRange(data: TerrainData, from: number, to: number): Set<string> {
+  const hidden = new Set<string>();
+  for (const repo of data.repos) {
+    for (const file of repo.files) {
+      if (file.days) continue; // the pond tile is a landmark, not a dot to sort
+      let anyStamp = false;
+      let inside = false;
+      for (const ts of file.touches) {
+        anyStamp = true;
+        if (inRange(ts, from, to)) inside = true;
+      }
+      for (const session of file.sessions) {
+        const last = sessionLastSeconds(session.last);
+        if (last === null) continue;
+        anyStamp = true;
+        if (inRange(last, from, to)) inside = true;
+      }
+      if (anyStamp && !inside) hidden.add(`${repo.id}:file:${file.path}`);
+    }
+  }
+  return hidden;
 }
 
 export type TerrainNodeKind = 'repo' | 'dir' | 'file' | 'session';
@@ -352,6 +560,11 @@ export interface TerrainNode {
   /** Raw decayed-touch sum for this node's own lens/heat calc. Always 0 for
    * session orbs — identity, not magnitude. */
   heat: number;
+  /** The same decayed sum, but over the file's RUN buckets rather than edits
+   * — when this code actually executed, on the fixed one-day run window.
+   * Drives the gold body: "this ran today". Absent on nodes that never ran
+   * on record, which is most of the map (and every non-Python file). */
+  runHeat?: number;
   /** The file payload, for file nodes only (sessions, touches). */
   file?: TerrainFile;
   /** Heat per synthetic sub-bucket, parallel to `file.days` — only ever on
@@ -365,10 +578,13 @@ export interface TerrainNode {
 export interface TerrainEdge {
   source: string;
   target: string;
-  /** 'tree' = parent→child structure (default); 'session' = a weak tether
-   * from a session orb to one of its footprint files, so the physics parks
-   * the orb amid its own territory without distorting the tree. */
-  kind?: 'tree' | 'session';
+  /** 'tree' = parent→child structure (default); 'session' = a tether from a
+   * session orb to one of its footprint files — drawn, and what the map
+   * reads to stand the orb outside the cloud level with its files, but never
+   * a spring, so it can't distort the tree; 'fk' = a
+   * foreign key, from the table that holds it to the table it points at
+   * (tableNodes.ts). */
+  kind?: 'tree' | 'session' | 'fk';
 }
 
 export interface TerrainGraph {
@@ -402,9 +618,14 @@ export function computeFileHeat(file: TerrainFile, lens: HeatSpan, nowSeconds: n
   const halfLife = halfLifeSeconds(lens);
   if (halfLife <= 0) return 0;
   const allTouches: number[] = [...file.touches];
-  for (const session of file.sessions) {
-    const last = sessionLastSeconds(session.last);
-    if (last !== null) allTouches.push(last);
+  // A table's red means its STRUCTURE changed, and an agent writing rows into
+  // it is the other colour — so a table's sessions stay out of this sum. (A
+  // session that did change the structure is already in `touches`.)
+  if (!file.table) {
+    for (const session of file.sessions) {
+      const last = sessionLastSeconds(session.last);
+      if (last !== null) allTouches.push(last);
+    }
   }
   let heat = 0;
   for (const ts of allTouches) {
@@ -485,6 +706,9 @@ function collapse(dir: TrieDir): TrieDir {
 interface BuildCtx {
   repo: TerrainRepo;
   lens: HeatSpan;
+  /** Half-life the GOLD (run) channel decays on — from the fixed day, or the
+   * gold breath. See RUN_WINDOW_SECONDS / goldBreathWindow. */
+  runHalfLife: number;
   nowSeconds: number;
   nodes: TerrainNode[];
   edges: TerrainEdge[];
@@ -537,6 +761,7 @@ function emitDir(ctx: BuildCtx, dir: TrieDir, parentId: string, depth: number, p
       repoId: ctx.repo.id,
       path: file.path,
       heat,
+      runHeat: computeRunHeat(file, ctx.nowSeconds, ctx.runHalfLife),
       file,
       dayHeats: file.days?.map((d) => bucketHeat(d.touches, ctx.lens, ctx.nowSeconds)),
     });
@@ -568,10 +793,17 @@ export function buildTerrainGraph(
   data: TerrainData,
   lens: HeatSpan,
   nowSeconds = Date.now() / 1000,
-  opts?: { orbSessionIds?: Set<string> | null; alwaysOrbIds?: Set<string> | null },
+  opts?: {
+    orbSessionIds?: Set<string> | null;
+    alwaysOrbIds?: Set<string> | null;
+    /** Half-life for the GOLD (run) channel. Omitted = the fixed one-day
+     * window; the breathing surfaces pass windowToHalfLife(goldBreathWindow). */
+    runHalfLife?: number;
+  },
 ): TerrainGraph {
   const nodes: TerrainNode[] = [];
   const edges: TerrainEdge[] = [];
+  const runHalfLife = opts?.runHalfLife ?? RUN_HALF_LIFE_SECONDS;
 
   for (const repo of data.repos) {
     const repoId = `repo:${repo.id}`;
@@ -587,7 +819,7 @@ export function buildTerrainGraph(
     nodes.push(repoNode);
 
     const trie = buildTrie(repo.files);
-    const repoCtx: BuildCtx = { repo, lens, nowSeconds, nodes: [], edges: [] };
+    const repoCtx: BuildCtx = { repo, lens, runHalfLife, nowSeconds, nodes: [], edges: [] };
 
     // The repo root's own files (rare — files sitting directly at repo root)
     // and its top-level directories both hang straight off the repo hub.
@@ -604,6 +836,7 @@ export function buildTerrainGraph(
         repoId: repo.id,
         path: file.path,
         heat,
+        runHeat: computeRunHeat(file, nowSeconds, runHalfLife),
         file,
         dayHeats: file.days?.map((d) => bucketHeat(d.touches, lens, nowSeconds)),
       });
@@ -629,6 +862,9 @@ export function buildTerrainGraph(
   );
   nodes.push(...orbs.nodes);
   edges.push(...orbs.edges);
+
+  // Foreign keys: a line between two tables, when the map carries tables.
+  edges.push(...foreignKeyEdges(nodes));
 
   return { nodes, edges };
 }
@@ -691,8 +927,8 @@ export const SESSION_NODE_PREFIX = 'session:';
  * hasn't touched a file yet — or whose files fell outside the current dials —
  * simply isn't on the map, however plainly open it is. /terrain passes the
  * conversations she has open here, so "open" is enough to earn a body. Such an
- * orb has no tethers and therefore no gravity: the sim parks it at the canvas
- * anchor rather than amid a territory it doesn't have yet.
+ * orb has no tethers and so nothing to stand level with: the map moves it
+ * out of the cloud from the canvas anchor and it rests there.
  */
 export function buildSessionOrbs(
   fileNodes: TerrainNode[],
@@ -870,6 +1106,39 @@ export function sessionFootprintByRecency(nodes: TerrainNode[], sessionId: strin
   return scored.map((e) => e.id);
 }
 
+/** One file in a session's footprint, as a row a list can print. */
+export interface SessionFootprintFile {
+  /** The node id the map knows this file by. */
+  id: string;
+  repoId: string;
+  path: string;
+  /** How the session touched it — the same word its ring's colour says. */
+  kind: FileTouchKind;
+}
+
+/**
+ * A session's footprint as rows for a written list: every file it touched,
+ * newest touch first (the same order sessionFootprintByRecency gives the
+ * canvas's captions), each with its address and how the session touched it.
+ * The build report prints this under the session she tapped, so the list and
+ * the rings on the map are read from the same nodes and can't disagree.
+ */
+export function sessionFootprintFiles(nodes: TerrainNode[], sessionId: string): SessionFootprintFile[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const rows: SessionFootprintFile[] = [];
+  for (const id of sessionFootprintByRecency(nodes, sessionId)) {
+    const node = byId.get(id);
+    if (!node?.file || !node.path) continue;
+    rows.push({
+      id,
+      repoId: node.repoId,
+      path: node.path,
+      kind: sessionFileTouch(node.file, sessionId) ?? 'read',
+    });
+  }
+  return rows;
+}
+
 /** Node ids belonging to one session's footprint — every file node it
  * touched, so the canvas can ring them and dim everything else. */
 export function sessionFootprint(nodes: TerrainNode[], sessionId: string): Set<string> {
@@ -896,6 +1165,91 @@ export function sessionFileTouch(file: TerrainFile, sessionId: string): FileTouc
   if (!s) return null;
   if ((s.creates ?? 0) > 0) return 'created';
   return (s.writes ?? 0) > 0 ? 'modified' : 'read';
+}
+
+/**
+ * RUN heat — the GOLD channel: the same exponential decay computeFileHeat
+ * runs, but over the file's run buckets (runtime_sensor.py, via `ran` on the
+ * payload) and on the fixed one-day run window rather than the slider's.
+ *
+ * Kept as its own sum because the two say different things and the map draws
+ * them in different colours: heat is the red ramp (this file was EDITED, per
+ * git), run is the gold one (this code EXECUTED today). A file can be hot on
+ * one and cold on the other — a route that serves every click but hasn't
+ * been edited in a month is pure gold; a file rewritten this morning that
+ * nothing has called yet is pure red — and that contrast is the point.
+ *
+ * The buckets are five minutes wide, so a file that runs constantly carries
+ * one touch per five minutes; a dozen buckets in the last hour sum well past
+ * one and saturate the normaliser, which is right: "running all the time" is
+ * as gold as gold gets.
+ */
+export function computeRunHeat(
+  file: TerrainFile,
+  nowSeconds: number,
+  halfLife: number = RUN_HALF_LIFE_SECONDS,
+): number {
+  if (!(halfLife > 0) || !file.ran?.length) return 0;
+  let heat = 0;
+  for (const ts of file.ran) {
+    const age = nowSeconds - ts;
+    if (Number.isFinite(age) && age >= 0) heat += Math.pow(2, -age / halfLife);
+  }
+  return heat;
+}
+
+/** How long an agent's write stays at FULL strength before it starts fading —
+ * her call: "an hour is the brightest". */
+export const WRITE_PEAK_SECONDS = 3600;
+
+/** ...and when it has faded out entirely: "by 24 it's dark like the rest".
+ * Same 24h the created-green window uses, so the map has one freshness day. */
+export const WRITE_FRESH_WINDOW_SECONDS = 24 * 3600;
+
+/**
+ * Seconds since an agent last WROTE this file, or null if none ever did.
+ *
+ * Honesty note, and it is load-bearing: the footprints sidecar stamps ONE
+ * `last` per (session, file) — the session's most recent touch of that file of
+ * ANY kind, read or write (see scripts/extract_footprints.py's `_aggregate`).
+ * So this is "a session that wrote this file last touched it N seconds ago",
+ * and the error runs one way only: a write can look FRESHER than it was, never
+ * staler, bounded by the length of the conversation. Sessions with no writes
+ * are skipped outright, so a pure reader never counts here.
+ */
+export function fileLastAgentWrite(
+  file: TerrainFile,
+  nowSeconds: number = Date.now() / 1000,
+): number | null {
+  let newest: number | null = null;
+  for (const s of file.sessions) {
+    if ((s.writes ?? 0) <= 0) continue;
+    const last = sessionLastSeconds(s.last);
+    if (last === null) continue;
+    if (newest === null || last > newest) newest = last;
+  }
+  return newest === null ? null : Math.max(0, nowSeconds - newest);
+}
+
+/**
+ * A write's freshness, 1 → 0: full for the first hour, then falling away to
+ * nothing at 24h.
+ *
+ * The falloff is LOGARITHMIC over that span, not linear, for the same reason
+ * breathHalfLife interpolates in log space — an hour matters far more against
+ * the hour before it than hour 23 does against hour 22, so equal slices of the
+ * curve are equal *ratios* of age. Linear would hold the mark near-full through
+ * most of the day and then drop it off a cliff; this reads as a thing cooling.
+ */
+export function writeFreshness(
+  ageSeconds: number | null,
+  peak: number = WRITE_PEAK_SECONDS,
+  window: number = WRITE_FRESH_WINDOW_SECONDS,
+): number {
+  if (ageSeconds === null || !Number.isFinite(ageSeconds)) return 0;
+  if (ageSeconds <= peak) return 1;
+  if (ageSeconds >= window) return 0;
+  return 1 - Math.log(ageSeconds / peak) / Math.log(window / peak);
 }
 
 /** One day, the window a "freshly created" file glows green in its own dot. */

@@ -1,54 +1,25 @@
-/* The frosted file window — see FileCodeWindow.tsx for what it's for. */
+/* The file pane — see FileCodeWindow.tsx for what it's for. */
 
-.catcher {
-  position: fixed;
+/* Cover the whole terrain panel, and only that panel. The pane is positioned
+   against the terrain page (its nearest positioned parent), so `inset: 0`
+   fills whatever box the terrain was given — the full page on a single
+   screen, one tile when the screen is split in two or three — and never
+   reaches over a neighbouring panel. Opaque, so code never sits over moving
+   dots. z-index clears the page's chrome (2–4) and the floating landmarks;
+   the app's portalled sheets sit far above and are unaffected. */
+.pane {
+  position: absolute;
   inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-5);
-  /* No scrim, deliberately. Every other overlay in the app washes the page
-     behind it in 40% black; this one must not, because the thing behind it is
-     the map the file came from and the whole point is that it's still there.
-     The catcher is invisible and exists only to catch the click that closes. */
-  animation: veilIn 140ms ease;
-}
-
-.window {
+  /* Stop at the Guide's edge when it is docked (TerrainPage.module.css sets
+     --guide-width on the page while the guide is open; unset means 0). */
+  right: var(--guide-width, 0px);
+  z-index: 10;
   display: flex;
   flex-direction: column;
-  /* Big on a large screen — this is a code reader, and the map it floats over
-     is wider still. Capped so it never becomes the whole viewport: seeing the
-     terrain around the edges is what makes it read as a window ON the map
-     rather than a page that replaced it. */
-  width: min(1040px, 68vw);
-  height: min(80vh, 900px);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--border);
-  /* The frost itself: a partly-transparent pane of the card colour with the
-     map blurred behind it. The tint is heavy enough (82%) that code stays
-     legible over a busy field of dots — the house rule is legibility first,
-     and a lighter pane put moving terrain directly behind monospace text. */
-  background: color-mix(in srgb, var(--card-bg) 82%, transparent);
-  backdrop-filter: var(--frost-pane);
-  -webkit-backdrop-filter: var(--frost-pane);
-  box-shadow: 0 24px 60px rgb(0 0 0 / 0.28);
-  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
   animation: windowIn 160ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-/* Below the desktop breakpoint the window gives up on floating and takes the
-   screen — a 68vw pane on a phone is a stamp. The frost stays. */
-@media (max-width: 900px) {
-  .catcher {
-    padding: var(--space-3);
-  }
-
-  .window {
-    width: 100%;
-    height: 88vh;
-  }
 }
 
 .header {
@@ -89,11 +60,11 @@
   text-align: left;
 }
 
-/* The one scroll region in the window. The code block inside it no longer
+/* The one scroll region in the pane. The code block inside it no longer
    scrolls vertically on its own (FileCodeBody's uncapCode) — one file, one
    scrollbar, rather than a pane that scrolls inside a pane that scrolls.
    overscroll-behavior stops a flick at the end of the file from continuing
-   into the map's own wheel/zoom handlers underneath. */
+   into the map's own wheel/zoom handlers beside it. */
 .body {
   flex: 1;
   min-height: 0;
@@ -118,19 +89,13 @@
   text-transform: lowercase;
 }
 
-@keyframes veilIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 @keyframes windowIn {
   from { opacity: 0; transform: translateY(8px) scale(0.985); }
   to { opacity: 1; transform: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .catcher,
-  .window {
+  .pane {
     animation: none;
   }
 }

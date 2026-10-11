@@ -1,0 +1,17 @@
+# The desktop window (Tauri). It shows a "starting" page, asks ../launcher to
+# start the Python server, then points the window at it.
+# Needs the system's WebKitGTK development packages to compile on Linux; see
+# ../README.md.
+[package]
+name = "exocortex-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde_json = "1"
+exo-launcher = { path = "../launcher" }

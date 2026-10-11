@@ -139,6 +139,21 @@ describe('orchestraRows', () => {
     expect(byId.ask).toMatchObject({ running: false, awaiting: 'sqlite or postgres?' });
   });
 
+  it('numbers every filed question, and falls back to the single line', () => {
+    const rows = orchestraRows(
+      [
+        session('many', { awaiting_input: 'a?\nb?', awaiting_questions: ['a?', 'b?'] }),
+        session('old', { awaiting_input: 'just one?' }),
+        session('none'),
+      ],
+      terrain([]),
+    );
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+    expect(byId.many.questions).toEqual(['a?', 'b?']);
+    expect(byId.old.questions).toEqual(['just one?']);
+    expect(byId.none.questions).toEqual([]);
+  });
+
   it('keeps an awaiting session that is no longer running (the ask outlives the turn)', () => {
     const rows = orchestraRows(
       [session('ask', { running: false, awaiting_input: 'which way?' })],

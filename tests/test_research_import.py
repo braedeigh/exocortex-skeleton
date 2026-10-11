@@ -137,7 +137,9 @@ def test_dry_run_previews_and_writes_nothing(client, research_dir):
     assert body["total"] == 2
     assert body["plan"][0]["file"] == "wearables.md"
     assert body["plan"][0]["topic"] == "Wearables signal taxonomy"
-    assert _read() == {"topics": [], "entries": []}
+    # An untouched pool reads back as researchstore's empty document, which
+    # always carries the sessions list — not the default the reader passed.
+    assert _read() == {"topics": [], "entries": [], "sessions": []}
 
 
 def test_import_creates_topic_and_open_questions_with_origin(client, research_dir):

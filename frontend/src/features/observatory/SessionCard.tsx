@@ -9,21 +9,28 @@
  * are keyed by conversation id in the lane, so state sticks to its card
  * across polls exactly as the maps did.
  *
+ * Pointing the mouse at any of the three lights that session's orb on the
+ * Terrain map, when the map is open in another tile
+ * (shell/panels/agentHoverBus.ts).
+ *
  * Shares SessionLane.module.css — the cards and the lane are one visual
  * language, and the stylesheet is named for it.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import { dispatchIntent } from '../../shell/panels/windowBus';
 import {
-  approveConversation,
-  denyConversation,
   forkConversation,
+  keepConversation,
+  saveForLater,
+  sendToInbox,
   stopConversation,
   streamSend,
   type SessionMeta,
 } from './api';
 import { resumeAfterDecision } from './resumeAfterDecision';
+import { CommandDecision } from './CommandDecision';
 import type { OrchestraRow } from './orchestra';
 import { cardMetaLine } from './sessionStatus';
 import { cardState, sessionIs, type CardState } from './sessionFilters';
@@ -36,11 +43,16 @@ import styles from './SessionLane.module.css';
    like. Adding a state is a row in each table and a rule in the stylesheet —
    never another branch buried in the markup.
 
-   'rest' has no card class on purpose: a cold card is the plain card. */
+   'rest' has no card class on purpose: a cold card is the plain card. 'unread'
+   has none either: an unread reply is a plain grey card whose DOT stays orange
+   — only a session that needs her answer wears the orange card. (An asking
+   session normally draws as AwaitingCard/ApprovalCard; the row is here so the
+   table stays total.) */
 const CARD_CLASS: Record<CardState, string> = {
   error: 'cardError',
   running: 'cardLive',
-  unread: 'cardUnread',
+  asking: 'cardUnread',
+  unread: '',
   recent: 'cardRecent',
   rest: '',
 };
@@ -48,6 +60,7 @@ const CARD_CLASS: Record<CardState, string> = {
 const DOT_CLASS: Record<CardState, string> = {
   error: 'errorDot',
   running: 'liveDot',
+  asking: 'readyDot',
   unread: 'readyDot',
   recent: 'recentDot',
   rest: 'restDot',
@@ -129,9 +142,9 @@ function LastPrompt({ text }: { text: string }) {
 const RESUME_CUE =
   'That turn ended in an error. Check what state things are actually in before continuing.';
 
-/** Needs her OK — a gated command the act-ask gate stopped. The exact command
- * in her face, an Approve (Once/Always toggle, Once default — the safest per
- * Terra) and a Deny. */
+/** Needs her OK — a gated command the act-ask gate stopped: the session's title
+ * and a way into it, then the shared decision body (CommandDecision.tsx). The
+ * same body also appears inside the chat that's asking (ChatApprovalCard.tsx). */
 export function ApprovalCard({
   row,
   onOpen,
@@ -141,71 +154,8 @@ export function ApprovalCard({
   onOpen: (convId: string) => void;
   onChanged?: () => void;
 }) {
-  const [sticky, setSticky] = useState(false);
-  const [deciding, setDeciding] = useState(false);
-  // Set when a decision landed but the resume never got through, so the card
-  // says so instead of looking like the tap did nothing (which is exactly how
-  // this bug presented). Cleared when she taps again.
-  const [decideErr, setDecideErr] = useState('');
-
-  // Resume the blocked turn after she decides: her tap + this send IS the retry
-  // (same transport as request_input). The turn runs detached server-side; the
-  // roster poll shows it running again.
-  // The resume text is what the AGENT sees (its retry cue). The `decision` is
-  // what SHE sees: it makes the server log a "✓ Approved: <cmd>" line in the
-  // transcript instead of a blank off-record gap.
-  //
-  // The send goes through resumeAfterDecision rather than straight out, because
-  // the Approve card is raised the moment the gate blocks — i.e. while the agent
-  // is still writing the last message of the turn it was told to stop. A resume
-  // fired into that window hits the server's one-turn-at-a-time guard (409) and
-  // used to be dropped on the floor, which is what made an approved session sit
-  // there doing nothing. Now it waits for the turn to land and then sends.
-  const resume = async (text: string, decision: { kind: 'approve' | 'deny'; command: string }) => {
-    try {
-      await resumeAfterDecision(() =>
-        streamSend(row.id, text, { record: false, decision }, () => {}),
-      );
-    } catch (err) {
-      // A decision she made that never reached the agent must be visible.
-      setDecideErr(err instanceof Error ? err.message : 'could not resume the session');
-      setDeciding(false);
-    } finally {
-      onChanged?.();
-    }
-  };
-
-  const decide = (
-    resolve: () => Promise<{ command: string }>,
-    kind: 'approve' | 'deny',
-    cue: string,
-  ) => {
-    setDeciding(true);
-    setDecideErr('');
-    resolve()
-      .then((res) => resume(cue, { kind, command: res.command }))
-      .catch((err: unknown) => {
-        setDecideErr(err instanceof Error ? err.message : 'could not record that decision');
-        setDeciding(false);
-      });
-  };
-
-  const doApprove = () =>
-    decide(
-      () => approveConversation(row.id, sticky),
-      'approve',
-      'Approved — go ahead and retry that exact command now.',
-    );
-
-  const doDeny = () =>
-    decide(
-      () => denyConversation(row.id),
-      'deny',
-      "I've denied that command — don't run it. Find another way, or stop and tell me why.",
-    );
-
   return (
-    <div className={styles.approval}>
+    <div className={styles.approval} {...agentPointerProps(row.id)}>
       <div className={styles.awaitTop}>
         <span className={styles.awaitDot} aria-hidden="true" />
         <span className={styles.title}>{row.title}</span>
@@ -218,76 +168,221 @@ export function ApprovalCard({
           open →
         </button>
       </div>
-      <div className={styles.approvalLabel}>wants to run</div>
-      <code className={styles.command}>{row.pendingApproval?.command}</code>
-      <div className={styles.approvalActions}>
-        <div className={styles.scopeToggle} role="group" aria-label="Approval scope">
-          <button
-            type="button"
-            className={[styles.scopeBtn, !sticky ? styles.scopeOn : ''].filter(Boolean).join(' ')}
-            aria-pressed={!sticky}
-            onClick={() => setSticky(false)}
-            title="Allow just this once"
-          >
-            Once
-          </button>
-          <button
-            type="button"
-            className={[styles.scopeBtn, sticky ? styles.scopeOn : ''].filter(Boolean).join(' ')}
-            aria-pressed={sticky}
-            onClick={() => setSticky(true)}
-            title="Allow this command for the rest of the session"
-          >
-            Always
-          </button>
-        </div>
-        <div className={styles.decideBtns}>
-          <button type="button" className={styles.denyBtn} disabled={deciding} onClick={doDeny}>
-            Deny
-          </button>
-          <button
-            type="button"
-            className={styles.approveBtn}
-            disabled={deciding}
-            onClick={doApprove}
-          >
-            {deciding ? 'Sending…' : sticky ? 'Approve · always' : 'Approve · once'}
-          </button>
-        </div>
-      </div>
-      {/* A decision that never reached the agent says so here. Silence was the
-          whole bug: the tap looked accepted and nothing moved. */}
-      {decideErr ? (
-        <div className={styles.decideError} role="alert">
-          Couldn’t resume this session — {decideErr}. Tap again.
-        </div>
-      ) : null}
+      <CommandDecision
+        convId={row.id}
+        command={row.pendingApproval?.command ?? ''}
+        onChanged={onChanged}
+      />
     </div>
   );
 }
 
-/** Waiting on her — orange, question in her face, tap to answer. */
+/** Save for later, or Pick back up — one quiet full-width button at the foot
+ * of a card. Saving parks the session in the roster's Saved for later section
+ * (SavedLane.tsx): still open, questions and all, but the idle check never
+ * wakes it and nothing on the page asks her about it. The roster poll moves
+ * the card; this only says so while the request is out.
+ * [prompt: "i'm also wanting to be able to save projects for later that the
+ * system check doesn't send checks to ... keep that open but i don't want to
+ * look at it right now"] */
+export function SaveLaterButton({
+  convId,
+  saved,
+  onChanged,
+}: {
+  convId: string;
+  /** True in the Saved for later section: the button picks it back up. */
+  saved: boolean;
+  onChanged?: () => void;
+}) {
+  // 'busy' while the request is out, or the failure text.
+  const [state, setState] = useState<'busy' | string | null>(null);
+  const toggle = () => {
+    setState('busy');
+    saveForLater(convId, !saved)
+      .then(() => {
+        setState(null);
+        onChanged?.();
+      })
+      .catch((err) => setState(err instanceof Error ? err.message : 'could not save it'));
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className={saved ? styles.pickUpBtn : styles.laterBtn}
+        disabled={state === 'busy'}
+        onClick={toggle}
+        title={
+          saved
+            ? 'Put it back in its room'
+            : 'Keep it open but out of the way — no daily check, no nudges'
+        }
+      >
+        {state === 'busy' ? '…' : saved ? 'Pick back up' : 'Save for later'}
+      </button>
+      {state && state !== 'busy' ? <div className={styles.errorNote}>{state}</div> : null}
+    </>
+  );
+}
+
+/** "Done — closes at 8:15 PM", its note, and the Keep open button. */
+function DoneNote({
+  meta,
+  convId,
+  onChanged,
+}: {
+  meta: SessionMeta;
+  convId: string;
+  onChanged?: () => void;
+}) {
+  const [keeping, setKeeping] = useState(false);
+  const closesAt = new Date(meta.closes_at ?? '');
+  const when = Number.isNaN(closesAt.getTime())
+    ? 'soon'
+    : closesAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return (
+    <div className={styles.doneNote}>
+      <div className={styles.doneText}>
+        <strong>Done</strong> — closes itself at {when}
+        {meta.done_note ? <div className={styles.doneWhat}>{meta.done_note}</div> : null}
+      </div>
+      <button
+        type="button"
+        className={styles.keepBtn}
+        disabled={keeping}
+        onClick={() => {
+          setKeeping(true);
+          keepConversation(convId)
+            .then(() => onChanged?.())
+            .catch(() => {
+              /* a failed keep leaves the countdown showing — the poll re-syncs */
+            })
+            .finally(() => setKeeping(false));
+        }}
+      >
+        Keep open
+      </button>
+    </div>
+  );
+}
+
+/** Waiting on her — orange, every open question numbered, and a box right
+ * under them that answers into the session without opening it. On a long list
+ * the box stays at the bottom of the screen until she reaches the end of the
+ * card, so she can type while the first question is still in view.
+ *
+ * The answer goes through the session's mailbox (sendToInbox), the same door
+ * as typing into its chat while a turn runs: an idle session starts a turn
+ * with it at once, a busy one gets it at its next step. Either way her words
+ * are what clears the orange, server-side — so after a send the card just
+ * says so and waits for the roster poll to take it away, rather than hiding
+ * itself on a guess.
+ *
+ * [prompt: "on the front page, i want the orange sessions to have these
+ * questions printed out with an input box beneath it that i can type directly
+ * into to send into the session"] */
 export function AwaitingCard({
   row,
   onOpen,
+  onChanged,
 }: {
   row: OrchestraRow;
   onOpen: (convId: string) => void;
+  onChanged?: () => void;
 }) {
+  const [answer, setAnswer] = useState('');
+  // 'sending' while it goes out, 'sent' once the mailbox has it, or the
+  // failure text.
+  const [sendState, setSendState] = useState<'sending' | 'sent' | string | null>(null);
+  const questions = row.questions.length > 0 ? row.questions : [row.awaiting ?? ''];
+
+  // Send her answer into the session, keeping the text if it fails.
+  const send = () => {
+    const text = answer.trim();
+    if (!text || sendState === 'sending') return;
+    setSendState('sending');
+    sendToInbox(row.id, text, true)
+      .then(() => {
+        setAnswer('');
+        setSendState('sent');
+        onChanged?.();
+      })
+      .catch((err) => setSendState(err instanceof Error ? err.message : 'could not send'));
+  };
+
   return (
-    <button
-      type="button"
-      className={styles.awaiting}
-      onClick={() => onOpen(row.id)}
-      title="Answer this session"
-    >
+    <div className={styles.awaiting} {...agentPointerProps(row.id)}>
       <div className={styles.awaitTop}>
         <span className={styles.awaitDot} aria-hidden="true" />
         <span className={styles.title}>{row.title}</span>
-        <span className={styles.answerHint}>Answer →</span>
+        <button
+          type="button"
+          className={styles.openLink}
+          onClick={() => onOpen(row.id)}
+          title="Open this session"
+        >
+          open →
+        </button>
       </div>
-      <div className={styles.question}>{row.awaiting}</div>
-    </button>
+      {/* The questions and the answer box share one wrapper, because the box
+          is a sticky footer (SessionLane.module.css .answerForm): it holds at
+          the bottom of the screen while the questions scroll, and the wrapper
+          is what it can't leave. The title row sits outside it, so the box
+          never rides up over the session's name. */}
+      <div>
+        {questions.length === 1 ? (
+          <div className={styles.question}>{questions[0]}</div>
+        ) : (
+          <ol className={styles.questionList}>
+            {questions.map((q, i) => (
+              <li key={i} className={styles.question}>
+                {q}
+              </li>
+            ))}
+          </ol>
+        )}
+        <form
+          className={styles.answerForm}
+          onSubmit={(e) => {
+            e.preventDefault();
+            send();
+          }}
+        >
+          {/* Enter makes a new line, since an answer to several questions is
+              often several lines; Ctrl/Cmd+Enter sends, like the chat. */}
+          <textarea
+            className={styles.answerInput}
+            value={answer}
+            rows={2}
+            placeholder={questions.length > 1 ? 'Answer them here…' : 'Answer here…'}
+            aria-label={`Answer ${row.title}`}
+            disabled={sendState === 'sending'}
+            onChange={(e) => setAnswer(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                send();
+              }
+            }}
+          />
+          <button
+            type="submit"
+            className={styles.answerSend}
+            disabled={!answer.trim() || sendState === 'sending'}
+          >
+            {sendState === 'sending' ? 'Sending…' : 'Send'}
+          </button>
+        </form>
+      </div>
+      {sendState === 'sent' ? (
+        <div className={styles.answerNote}>Sent — it has your answer.</div>
+      ) : sendState && sendState !== 'sending' ? (
+        <div className={styles.errorNote}>{sendState}</div>
+      ) : null}
+      {/* Not answering now: park it, questions and all, until she's back. */}
+      <SaveLaterButton convId={row.id} saved={false} onChanged={onChanged} />
+    </div>
   );
 }
 
@@ -436,6 +531,7 @@ export function SessionCard({
 
   return (
     <div
+      {...agentPointerProps(row.id)}
       className={[
         styles.card,
         CARD_CLASS[state] ? styles[CARD_CLASS[state]] : '',
@@ -472,6 +568,8 @@ export function SessionCard({
             </span>
           ) : null}
           {meta.draft ? <span className={styles.badge}>staged</span> : null}
+          {/* Handed its work on to a continuation — why it sits at the bottom. */}
+          {meta.retired ? <span className={styles.badge}>handed on</span> : null}
           <ProposalBadge convId={row.id} />
           {row.running ? (
             <span className={styles.fileCount}>
@@ -585,6 +683,14 @@ export function SessionCard({
           broke", which sends her into the session to find out what — the
           whole point of the card is to answer that from the lane. */}
       {row.error ? <div className={styles.errorNote}>{row.error}</div> : null}
+      {/* Done, and about to close itself. The session said its work is
+          finished (scripts/session_done.py); the server closes it at the time
+          shown unless she taps Keep open or anything starts a new turn in it.
+          [prompt: "make sure that sessions that are completely done get auto
+          closed"] */}
+      {meta.done_at && !row.running ? (
+        <DoneNote meta={meta} convId={row.id} onChanged={onChanged} />
+      ) : null}
       {/* One tap to put the session back on its feet. No confirm — it's a
           retry, not a destructive act.
 
@@ -614,6 +720,11 @@ export function SessionCard({
         </>
       ) : null}
       {files}
+      {/* Park it: not while it's working (Stop is the control then), and never
+          the Keeper, which is the door to her day. */}
+      {!row.running && !meta.pinned ? (
+        <SaveLaterButton convId={row.id} saved={Boolean(meta.saved_at)} onChanged={onChanged} />
+      ) : null}
 
       {/* Fork-the-work: offload a bloated long-runner. Only offered while
           it's actually working and has a surface to hand over. Take-over, not

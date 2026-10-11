@@ -1,0 +1,189 @@
+/**
+ * types.ts — the shapes routes/exposure.py sends: a food's exposure scores
+ * with their per-pesticide working, the study numbers beside them, and one
+ * contaminant's facts and findings. Field names match exposurestore.py.
+ */
+import type { OrganicVerdict, VerdictReview } from '../kitchen/types';
+
+export type SampleClaim = 'conventional' | 'organic' | 'all';
+
+export interface ExposureTerm {
+  pesticide_code: string;
+  pesticide: string;
+  hazard_id: number | null;
+  samples_tested: number;
+  samples_detected: number;
+  mean_ppb: number;
+  max_ppb: number | null;
+  dose: number | null;
+  dose_fact_id: number | null;
+  dri: number | null;
+  /** EPA's own words where it sets no chronic limit — shown, never used as a dose. */
+  no_chronic_limit?: { value: string; url: string | null; fact_id: number } | null;
+}
+
+export interface OrganicLine {
+  samples_over: number;
+  detections_without_tolerance: number;
+  share_of_tolerance: number;
+}
+
+export interface ScoreReference {
+  body_kg: number;
+  serving_g: number;
+  racc_g: number;
+  serving_share: number;
+  codes: [string, string][];
+  organic_line: OrganicLine;
+  bands: [number, OrganicVerdict][];
+}
+
+export interface ExposureScore {
+  id: number;
+  food_id: number;
+  method: string;
+  claim: SampleClaim;
+  years: string;
+  sample_count: number;
+  pesticide_count: number;
+  detected_count: number;
+  no_dose_count: number;
+  total_dri: number;
+  max_dri: number;
+  verdict: OrganicVerdict;
+  reference: ScoreReference;
+  computed_at: string;
+  terms?: ExposureTerm[];
+}
+
+export interface StudyMeasure {
+  id: number;
+  food_id: number;
+  food: string;
+  hazard_id: number;
+  hazard: string;
+  measure: string;
+  amount: number;
+  unit: string;
+  sample_size: number | null;
+  basis: string | null;
+  year: number | null;
+  source_id: string | null;
+  source: string | null;
+  source_url: string | null;
+  review: VerdictReview;
+}
+
+export interface ExposureMethod {
+  name: string;
+  body_kg: number;
+  serving_share: number;
+  bands: [number, OrganicVerdict][];
+  organic_tolerance_share: number;
+  verdicts: Record<OrganicVerdict, string>;
+  facts: Record<string, string>;
+}
+
+export interface FoodExposure {
+  food_id: number;
+  name: string;
+  codes: [string, string][];
+  scores: ExposureScore[];
+  headline: Partial<Record<SampleClaim, ExposureScore>>;
+  years: string[];
+  measures: StudyMeasure[];
+  rankings: OutsideRanking[];
+}
+
+/** What a published ranking (EWG, Consumer Reports) says about a food — a
+ * sanity check beside the verdict, with the article's own words. */
+export interface OutsideRanking {
+  claim_id: string;
+  by: string | null;
+  year: number | null;
+  claim: SampleClaim | null;
+  label: string | null;
+  rank: number | null;
+  text: string;
+  verdict: string | null;
+  reviewed: boolean;
+  source_id: string | null;
+  source: string | null;
+  url: string | null;
+  passage: string | null;
+}
+
+export interface ContaminantFact {
+  id: number;
+  hazard_id: number;
+  fact: string;
+  label: string;
+  value: string;
+  amount: number | null;
+  unit: string | null;
+  basis: string | null;
+  source_id: string | null;
+  annotation_id: string | null;
+  url: string | null;
+  note: string | null;
+  author: 'code' | 'llm' | 'owner';
+  review: VerdictReview;
+  /** The research source's citation and address, when the fact names one. */
+  source: string | null;
+  source_url: string | null;
+  /** The source's own words that back the fact (its highlighted passage). */
+  passage: string | null;
+}
+
+export interface ContaminantFinding {
+  score_id: number;
+  food_id: number;
+  food: string;
+  claim: SampleClaim;
+  years: string;
+  sample_count: number;
+  samples_tested: number;
+  samples_detected: number;
+  mean_ppb: number;
+  max_ppb: number | null;
+  dose: number | null;
+  dri: number | null;
+  method: string;
+}
+
+export interface LiteratureSearch {
+  database: string;
+  query: string;
+  matched: number;
+  looked_at: number;
+  searched_at: string;
+}
+
+export interface Contaminant {
+  id: number;
+  name: string;
+  note: string | null;
+  parents: string[];
+  names: string[];
+  facts: ContaminantFact[];
+  /** How far past the agencies' word it has been checked: findings you confirmed
+   * as useful, findings still waiting for you, and whether it still needs research. */
+  research: { independent: number; to_judge: number; needs_research: boolean };
+  /** Every literature search logged about it, newest first. */
+  searches: LiteratureSearch[];
+  found_in: ContaminantFinding[];
+  measures: StudyMeasure[];
+}
+
+export interface ContaminantListItem {
+  id: number;
+  name: string;
+  parents: string | null;
+  foods: number;
+  facts: number;
+  max_dri: number | null;
+  /** Independent findings you confirmed; 0 means it still needs research. */
+  independent: number;
+  /** Independent findings waiting for you to judge. */
+  to_judge: number;
+}

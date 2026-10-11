@@ -303,13 +303,24 @@ def receipt(run, now=None, sum_fn=None, conv_fn=None, snapshot_fn=None):
 
 def entry_for(run, receipt_data):
     """The ledger record — one shape, several consumers (the usage rollup, a
-    future queue view, the night's narration). Flat and boring on purpose."""
+    future queue view, the night's narration). Flat and boring on purpose.
+
+    Three link fields ride along so a receipt can be walked back to what it
+    paid for: `research_session` (the research.json session a research
+    worker served — from the run's spawn block), `conv_id` (the Observatory
+    conversation it ran as) and `claude_session` (the Claude Code session
+    id, when one was captured). Each is None when the run had no such thing;
+    the key is always present so consumers never have to probe for it."""
+    spawn = run.get("spawn") or {}
     return {
         "id": run.get("id"),
         "lane": run.get("lane"),
         "kind": run.get("kind"),
         "mem_class": run.get("mem_class"),
         "status": run.get("status"),
+        "research_session": spawn.get("session_id"),
+        "conv_id": run.get("conv_id"),
+        "claude_session": run.get("claude_session"),
         "model": receipt_data.get("model"),
         "started": run.get("started"),
         "finished": run.get("finished"),
@@ -433,4 +444,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # Put this run on the runtime map (runtime_sensor.py): which of our
+    # files actually execute, and which call which. Inside __main__ rather
+    # than at import, because some of these modules are also imported BY
+    # the web app, and only the standalone run is a process of its own.
+    import runtime_sensor
+    runtime_sensor.attach()
     sys.exit(main())

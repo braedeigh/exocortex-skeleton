@@ -39,6 +39,24 @@
   color: var(--text-muted);
 }
 
+/* The "Claims table" door on the page head — a chip-sized link, pushed to
+ * the right edge. */
+.pageHeadLink {
+  margin-left: auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .publicStub {
   padding: var(--space-6);
   color: var(--text-muted);

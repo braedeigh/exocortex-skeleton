@@ -4,8 +4,9 @@
 Plain English: while she sleeps, this works the dev-note backlog. It attempts
 notes she has green-lit (the moon tap). Its own initiative is a three-rung
 ladder (see pick_mode): off / picks / full. The current rung is PICKS — each
-night it PROPOSES up to five notes as "picked" cards (oldest never-answered
-gate-passers, tools/nightcrew/nominate.py) and works none of them; she judges
+night it PROPOSES up to five notes as "picked" cards (the newest
+never-answered gate-passers from the last week, tools/nightcrew/nominate.py)
+and works none of them; she judges
 the picks in the morning (would-want / not-this, with a why), so the picking
 policy is tuned on real judgments before any tokens act on it. Her own moons
 still run as always. For each note it works, it makes a throwaway copy of the
@@ -93,6 +94,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import devnote_judgments                        # noqa: E402
 import store                                    # noqa: E402
 from routes import observatory as rr            # noqa: E402
 from tools.nightcrew import nominate            # noqa: E402
@@ -268,9 +270,8 @@ PICKS_PER_NIGHT = 5
 
 def record_picks(tabs):
     """One "picked" card per nominee — a proposal, not work. Nothing on the
-    note itself changes (no moon is flipped): approval lives on the card
-    until "we go onto making", and a rejection writes the sticky night:false
-    through the judgment endpoint, not here.
+    note itself changes here: her verdict reaches the note's judgments only
+    when she answers the card (routes/nightcrew.py `/pick`).
 
     Skipped: notes already carrying an unjudged pick card (a proposal she
     hasn't answered must not repeat — that's the pestering the burn's
@@ -289,12 +290,33 @@ def record_picks(tabs):
         record({"id": f"p-{datetime.now():%m%d-%H%M}-{p['id'][:8]}",
                 "status": "picked", "note_id": p["id"], "tab": p["tab"],
                 "note_text": p["text"], "note_created": p["created"],
-                "pick_reason": f"oldest never-answered note that passes the "
+                "pick_reason": f"newest never-answered note from the last "
+                               f"{nominate.WINDOW_DAYS} days that passes the "
                                f"gate — #{i + 1} of {total} candidates",
                 "finished": now()})
         log(f"picked [{p['id']}] ({p['tab']}, {p['created'] or 'undated'}) "
             f"— {p['text'][:60]}")
     return len(candidates)
+
+
+def self_queue(tabs, need):
+    """Full rung: the crew lights up to `need` notes for itself and returns them
+    as queue rows. Each gets an `approved` judgment with `by: "crew"`, so the
+    note knows it was lit and by whom — the green light triage.py reads, and the
+    answer that keeps nominate.py from proposing it again."""
+    picked = nominate.nominate(tabs, need) if need > 0 else []
+    if not picked:
+        return []
+    ids = {p["id"] for p in picked}
+    with store.mutate("dev_notes.json", {"tabs": {}}) as data:
+        for notes in (data.get("tabs") or {}).values():
+            for n in notes or []:
+                if isinstance(n, dict) and n.get("id") in ids:
+                    devnote_judgments.append(n, "approved", by="crew")
+    for p in picked:
+        log(f"self-queued [{p['id']}] ({p['tab']}, {p['created'] or 'undated'}) "
+            f"— {p['text'][:60]}")
+    return [{"id": p["id"], "tab": p["tab"], "text": p["text"]} for p in picked]
 
 
 # --- the brief --------------------------------------------------------------
@@ -406,9 +428,17 @@ def drop_worktree(path):
 
 
 def sweep_old_branches():
-    """Delete agent/* branches older than the TTL. Runs before the night's work
-    so a long-abandoned branch never accumulates; skips anything still checked
-    out by a live worktree."""
+    """Delete the crew's own branches once they're older than the TTL. Runs
+    before the night's work so a long-abandoned branch never accumulates.
+
+    Only branches a night run recorded are eligible. Spinoff worktrees share the
+    `agent/` prefix, and a spinoff whose worktree was archived can leave a
+    branch with commits nobody merged — a prefix match would force-delete that
+    work at 14 days. Anything still checked out by a live worktree is refused
+    by git anyway."""
+    ours = {run.get("branch") for run in
+            store.read("night_runs.json", {"runs": []}).get("runs", [])
+            if isinstance(run, dict) and run.get("branch")}
     r = subprocess.run(
         ["git", "-C", str(SKELETON), "for-each-ref", "--format=%(refname:short) %(committerdate:iso8601)",
          "refs/heads/agent/"], capture_output=True, text=True)
@@ -422,7 +452,7 @@ def sweep_old_branches():
             when = datetime.fromisoformat(date.strip()[:19])
         except ValueError:
             continue
-        if when < cutoff:
+        if when < cutoff and name in ours:
             d = subprocess.run(["git", "-C", str(SKELETON), "branch", "-D", name],
                                capture_output=True)
             swept += d.returncode == 0
@@ -466,10 +496,48 @@ def verify(worktree):
         # Last few lines only: the summary is what she'd read, and a full
         # pytest dump would bury the card.
         tail = "\n".join(out[-6:]) if out else "(no output)"
+        if r.returncode != 0 and name == "pytest":
+            inherited = failures_main_shares(failed_test_ids(out), env)
+            if inherited:
+                parts.append(f"pytest: ok — the only failures also fail on main, "
+                             f"so not this change: {', '.join(inherited)}\n{tail}")
+                continue
         if r.returncode != 0:
             green = False
         parts.append(f"{name}: {'ok' if r.returncode == 0 else 'FAILED'}\n{tail}")
     return green, "\n\n".join(parts)
+
+
+def failed_test_ids(lines):
+    """The test ids pytest's short summary lists as failed ("FAILED path::name
+    - message"), in order."""
+    ids = []
+    for line in lines:
+        if line.startswith("FAILED "):
+            ids.append(line[len("FAILED "):].split(" - ", 1)[0].strip())
+    return ids
+
+
+def failures_main_shares(ids, env):
+    """Were these failures already there before the change? Returns the ids
+    when every one of them also fails in the live checkout (main), else [].
+
+    This is the false-red guard again, for tests instead of the build. On
+    2026-08-12..16 seven night runs were marked failed by one observatory test
+    that was broken on main at the time — none of those changes touched it, and
+    the cards said the crew's work had failed. Only the failing ids are rerun,
+    so this costs seconds. An empty list (no ids parsed, a collection error,
+    main passes) means the red stands."""
+    if not ids:
+        return []
+    try:
+        r = subprocess.run([str(SKELETON / "venv/bin/python3"), "-m", "pytest", "-q", *ids],
+                           cwd=str(SKELETON), capture_output=True, text=True,
+                           timeout=300, env=env)
+    except subprocess.TimeoutExpired:
+        return []
+    out = ((r.stdout or "") + (r.stderr or "")).splitlines()
+    return ids if set(failed_test_ids(out)) == set(ids) else []
 
 
 # Belt and braces with make_worktree's exclude file: even if that write fails,
@@ -733,28 +801,16 @@ def main():
     # The crew's own initiative, by rung (see pick_mode):
     #   "picks" — write proposal cards only; her moons below still run, but
     #             nothing the crew picked is worked tonight.
-    #   "full"  — top the night up to MAX_NOTES with the oldest never-answered
-    #             gate-passers, moons flipped for real (un-mooning stays a
-    #             permanent no — nominate.py never re-proposes an answered
-    #             note). Her taps go first; they're fresher intent.
+    #   "full"  — top the night up to MAX_NOTES with nominate.py's picks, each
+    #             approved on the note itself with `by: "crew"` so the record
+    #             shows the crew lit it, not her (devnote_judgments.py). Her
+    #             taps go first; they're fresher intent.
     mode = pick_mode()
     if mode == "picks":
         n = record_picks(tabs)
         log(f"pick-only mode: proposed {n} note(s), worked none of them")
     elif mode == "full":
-        need = MAX_NOTES - len(queued)
-        picked = nominate.nominate(tabs, need) if need > 0 else []
-        if picked:
-            ids = {p["id"] for p in picked}
-            with store.mutate("dev_notes.json", {"tabs": {}}) as data:
-                for notes in (data.get("tabs") or {}).values():
-                    for n in notes or []:
-                        if isinstance(n, dict) and n.get("id") in ids:
-                            n["night"] = True
-            for p in picked:
-                log(f"self-queued [{p['id']}] ({p['tab']}, {p['created'] or 'undated'}) "
-                    f"— {p['text'][:60]}")
-            queued += [{"id": p["id"], "tab": p["tab"], "text": p["text"]} for p in picked]
+        queued += self_queue(tabs, MAX_NOTES - len(queued))
 
     spent, done = 0.0, 0
     for note in queued[:MAX_NOTES]:
@@ -788,4 +844,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # Put this run on the runtime map (runtime_sensor.py): which of our
+    # files actually execute, and which call which. Inside __main__ rather
+    # than at import, because some of these modules are also imported BY
+    # the web app, and only the standalone run is a process of its own.
+    import runtime_sensor
+    runtime_sensor.attach()
     sys.exit(main())

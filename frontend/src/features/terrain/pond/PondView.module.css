@@ -1,0 +1,1055 @@
+/* PondView — the journal drawn as a place (PondView.tsx).
+
+   A whole page, worn the way the terrain's other rooms are: full-bleed, opaque
+   on the theme's own background, no border, no float, no frost. The same short
+   horizontal slide on entry says "you went somewhere" in the same voice the
+   Attention and Growth rooms use.
+
+   Two arrangements share one surface. TIME draws dots — deliberately quiet,
+   hairline hour rules, small enough that a month reads as texture rather than
+   as a list. WORDS drops the clock and sets the cards in tiny type, so the
+   surface becomes something you READ; there the restraint moves from the marks
+   to the containers — no borders, barely-there card fills, and the words
+   themselves carry the page.
+
+   Only ONE saturated colour on the page either way: whatever's lit. Everything
+   else is ink at three weights. That restraint is what lets a single thread be
+   instantly findable in a field of a thousand cards. */
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  overflow: hidden;
+  animation: pageIn 320ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes pageIn {
+  from { opacity: 0; transform: translateX(28px); }
+  to { opacity: 1; transform: none; }
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* --- the arrangement + size switches -------------------------------------- */
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+}
+
+.seg,
+.segOn {
+  min-height: calc(var(--tap-target) - 8px);
+  min-width: 46px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.segOn {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.seg:hover { color: var(--text); }
+
+.seg:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* Where you are on the zoom scale, at a glance. Five marks is less chrome than
+   five labelled buttons and says the same thing. */
+.zoomPips {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 var(--space-1);
+}
+
+.pip,
+.pipOn {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.35;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.pipOn {
+  background: var(--accent);
+  opacity: 1;
+  transform: scale(1.5);
+}
+
+/* The other reading: the pond drops away and only the thread's words are left.
+   Off by default — emphasis-not-filter is still the house position. */
+.only,
+.onlyOn {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.onlyOn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+.only:hover { color: var(--text); }
+
+/* The Keeper layer toggle. Same pill as the filter controls; when the layer is
+   hidden the label is struck through and recedes — the button wears its own
+   state, no second label needed. */
+.keeperOn,
+.keeperOff {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 160ms ease, opacity 160ms ease;
+}
+
+.keeperOn:hover,
+.keeperOff:hover { color: var(--text); }
+
+.keeperOff {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+/* --- the rail: the vault's own shelves ------------------------------------ */
+
+.rail {
+  flex: none;
+  width: 210px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.groups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+}
+
+.group,
+.groupOn {
+  min-height: calc(var(--tap-target) - 8px);
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.groupOn {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.group:hover { color: var(--text); }
+
+.railList {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding-right: var(--space-1);
+}
+
+.railEmpty {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  /* The house rule: ~40px of tappable height even though the content is two
+     short lines. */
+  min-height: var(--tap-target);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.thread:hover { background: var(--card-bg); }
+
+.threadOn {
+  background: var(--card-bg);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.threadName {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.threadMeta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.moreThreads {
+  min-height: var(--tap-target);
+  margin-top: var(--space-1);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* --- the drawing ---------------------------------------------------------- */
+
+.stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  overflow: hidden;
+}
+
+/* The hours pan horizontally with nothing (they sit outside the horizontal
+   scroller) but scroll VERTICALLY with the cards — its own scroller synced by
+   sharing the same content height, so a label can never end up naming a row
+   it isn't beside. */
+.gutter {
+  flex: none;
+  width: 36px;
+  overflow: hidden;
+  position: relative;
+}
+
+.gutterInner { position: relative; }
+
+.hourLabel {
+  position: absolute;
+  right: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.scroller {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+}
+
+.canvas { position: relative; }
+
+.underlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hourLine {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+}
+
+/* Sticky to the top of the scrollport, so the dates stay legible however far
+   down a long day you've scrolled. Tinted rather than transparent — cards pass
+   underneath it and text over text is unreadable. */
+.dayHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 22px;
+  background: var(--card-bg);
+  pointer-events: none;
+}
+
+.dayLabel {
+  position: absolute;
+  top: 3px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* The one saturated thing on the page. */
+.threadLine {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+
+/* --- the working lane ------------------------------------------------------
+
+   The other half of her day, one lane right of the journal and overlapping it
+   slightly, on the same clock.
+
+   ONE COLOUR for all three marks: `--ongoing`, the teal already in the theme's
+   four accents, which means it follows light and dark without a new value
+   being invented here. The pond's standing rule is that the page carries
+   exactly one SATURATED colour and it belongs to whatever is lit (`--accent`,
+   the thread line and the open card). Teal is the working half's whole
+   allowance, held below the accent's weight so a lit thread still wins the
+   page. The three layers tell themselves apart by SHAPE — dot, tick, hairline
+   — the same way the journal tells her voice from the Keeper's without a
+   second hue. */
+
+/* Her messages to agents. A dot, like a card: the same kind of event. Slightly
+   translucent for the same reason the cards are — a burst of messages should
+   read as a darker blot rather than as one mark hiding five. */
+/* Both point marks are BUTTONS now — tapping one opens what was touched and
+   which session did it. They borrow the journal dot's hit trick: a transparent
+   border widens the target well past the ink, offset by a negative margin so
+   the mark itself doesn't move. Capped by --hit (set inline, same value the
+   cards use) so a fat target never spills into the neighbouring day and makes
+   tapping a coin-flip. The house 40px rule doesn't apply here for the same
+   reason it doesn't apply to the cards: these are data marks at four pixels a
+   day, and a 40px target would swallow a week. */
+.turnDot {
+  position: absolute;
+  padding: 0;
+  border: var(--hit, 4px) solid transparent;
+  border-radius: 50%;
+  background: var(--ongoing);
+  background-clip: padding-box;
+  box-sizing: content-box;
+  margin: calc(-1 * var(--hit, 4px)) 0 0 calc(-1 * var(--hit, 4px));
+  opacity: 0.75;
+  cursor: pointer;
+  transition: transform 140ms ease, opacity 140ms ease;
+}
+
+.turnDot:hover,
+.turnDot:focus-visible {
+  opacity: 1;
+  transform: scale(1.5);
+}
+
+/* Files written. A TICK — wider than tall — so it stays a different species
+   from a dot even at four pixels a day, which is the zoom where two round
+   marks would melt together. Its opacity is set inline from the write count
+   (writeWeight in pondMath.ts), so nothing here fixes it. */
+.writeTick {
+  position: absolute;
+  padding: 0;
+  border: var(--hit, 4px) solid transparent;
+  border-radius: 1px;
+  background: var(--ongoing);
+  background-clip: padding-box;
+  box-sizing: content-box;
+  margin: calc(-1 * var(--hit, 4px)) 0 0 calc(-1 * var(--hit, 4px));
+  cursor: pointer;
+  transition: transform 140ms ease;
+}
+
+.writeTick:hover,
+.writeTick:focus-visible { transform: scaleY(2); }
+
+/* Files deleted or moved. Same teal, same lane — the pond's one-hue rule for
+   the working half holds — told apart from a write by SHAPE. A delete is a
+   HOLLOW tick: an absence, drawn as one. The ring is an inset shadow rather
+   than a visible border because the border is already spent on the invisible
+   hit-area trick above. */
+.eventDelete {
+  position: absolute;
+  padding: 0;
+  border: var(--hit, 4px) solid transparent;
+  border-radius: 1px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ongoing);
+  box-sizing: content-box;
+  margin: calc(-1 * var(--hit, 4px)) 0 0 calc(-1 * var(--hit, 4px));
+  opacity: 0.85;
+  cursor: pointer;
+  transition: transform 140ms ease;
+}
+
+.eventDelete:hover,
+.eventDelete:focus-visible { transform: scaleY(1.6); opacity: 1; }
+
+/* A move is a SLANTED tick — a thing shifted sideways. Filled like a write,
+   skewed so it can't be read as one. */
+.eventMove {
+  position: absolute;
+  padding: 0;
+  border: var(--hit, 4px) solid transparent;
+  border-radius: 1px;
+  background: var(--ongoing);
+  background-clip: padding-box;
+  box-sizing: content-box;
+  margin: calc(-1 * var(--hit, 4px)) 0 0 calc(-1 * var(--hit, 4px));
+  opacity: 0.85;
+  transform: skewX(-24deg);
+  cursor: pointer;
+  transition: transform 140ms ease;
+}
+
+.eventMove:hover,
+.eventMove:focus-visible { transform: skewX(-24deg) scaleY(1.6); opacity: 1; }
+
+/* --- what a tapped mark opens ---------------------------------------------
+   Lives in the same panel slot as an open card, so there is one detail region
+   and one subject at a time. */
+
+.workSession {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--ongoing) 12%, var(--card-bg));
+}
+
+.workSessionName {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.workSessionMeta {
+  margin-top: 2px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.workFileLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.workRepo {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--ongoing) 20%, transparent);
+  color: var(--ongoing);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.workPath {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.workCounts {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+/* The panel saying what it does NOT know. Styled to be read, not skipped —
+   the heading above it invites exactly the wrong assumption. */
+.workCaveat {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--border-soft);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.workCode {
+  margin-top: var(--space-3);
+}
+
+.workFiles {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workFilesLabel {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--space-1);
+}
+
+.workFileRow,
+.workFileRowOn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workFileRowOn {
+  background: color-mix(in srgb, var(--ongoing) 16%, transparent);
+  color: var(--text);
+}
+
+.workFileRow:hover { background: var(--card-bg); color: var(--text); }
+
+.workFileName {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;          /* a long path keeps its FILENAME visible, not its root */
+  text-align: left;
+}
+
+.workFileWrites {
+  flex: none;
+  color: var(--ongoing);
+  font-variant-numeric: tabular-nums;
+}
+
+/* How long a session sat OPEN: a hairline the length of the whole stretch,
+   deliberately faint, because an open window is not activity — it's the
+   absence of closing one. */
+.sessionOpen {
+  stroke: var(--ongoing);
+  stroke-width: 1;
+  opacity: 0.22;
+}
+
+/* ...and the part of it that actually wrote files, solid inside the ghost.
+   The gap between the two IS the answer to "how long do I leave things open" —
+   a long faint line with a short solid core is a session she walked away
+   from. */
+.sessionWorked {
+  stroke: var(--ongoing);
+  stroke-width: 2.5;
+  opacity: 0.6;
+  stroke-linecap: round;
+}
+
+/* The three layer switches. Same pill as the Time/Words segmented control so
+   they read as part of the same family of controls, but tinted teal when on
+   rather than accent-filled — these choose what the page CONTAINS, which is a
+   quieter kind of switch than choosing what it's ABOUT. */
+.work,
+.workOn {
+  min-height: calc(var(--tap-target) - 8px);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.workOn {
+  background: color-mix(in srgb, var(--ongoing) 22%, transparent);
+  color: var(--ongoing);
+}
+
+.work:hover { color: var(--text); }
+
+/* --- the cards, in both arrangements -------------------------------------- */
+
+/* TIME: a dot, at exactly its minute. Translucent BY DESIGN: close entries
+   overlap (a minute is half a pixel at the default zoom), and translucency
+   turns a pile of overlapping dots into a darker blot — density becomes ink,
+   the way a real scatter plot handles it. Picking one card out of a tight
+   cluster is what zooming in is for.
+
+   The button is padded out by a transparent border so a fingertip has
+   something to land on; the padding comes from the zoom (`--hit`) so it
+   shrinks as the columns do. In a cluster the tap lands on the latest card at
+   that spot — good enough, by her call, given the zoom path. */
+.dot {
+  position: absolute;
+  padding: 0;
+  border: var(--hit, 6px) solid transparent;
+  border-radius: 50%;
+  background-clip: padding-box;
+  cursor: pointer;
+  box-sizing: content-box;
+  margin: calc(-1 * var(--hit, 6px)) 0 0 calc(-1 * var(--hit, 6px));
+  opacity: 0.55;
+  transition: transform 140ms ease, opacity 140ms ease;
+}
+
+/* WORDS: the card itself is the target, and it's tall. No border — at this
+   density borders would out-shout the words they contain; a barely-there fill
+   is enough to say "one card ends, another begins". */
+.wordCard {
+  position: absolute;
+  display: block;
+  padding: 4px 5px;
+  border: none;
+  border-radius: var(--radius-sm, 5px);
+  background: var(--bg);
+  color: var(--text-secondary);
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background 140ms ease, opacity 140ms ease, color 140ms ease;
+}
+
+.wordText {
+  display: block;
+  line-height: 1.35;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.fromOwner { background-color: var(--bg); }
+.dot.fromOwner { background-color: var(--text-secondary); }
+
+/* The Keeper's turns sit back a step — hers is the voice the page is about. */
+.fromKeeper { opacity: 0.72; font-style: italic; }
+.dot.fromKeeper { background-color: var(--text-muted); opacity: 0.4; }
+
+/* A system reminder — the app speaking, neither voice. An outlined dot in the
+   accent color: visible where it landed in her day, never mistaken for hers. */
+.fromSystem { opacity: 0.8; border: 1px dashed var(--border); }
+.dot.fromSystem {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* Emphasis, not a filter — the unlit pond stays drawn, just quieter, so a
+   thread is seen in the context of everything else that was happening.
+   (Doubled selectors on purpose: they must outweigh `.dot.fromKeeper`'s own
+   opacity, which is also two classes strong.) */
+.dot.dimmed,
+.wordCard.dimmed { opacity: 0.16; }
+
+/* Lit and open dots surface fully opaque above the translucent haze. */
+.onThread { color: var(--text); }
+.dot.onThread { transform: scale(1.45); opacity: 1; }
+.wordCard.onThread { box-shadow: inset 2px 0 0 var(--accent); }
+
+.open { color: var(--text); }
+.dot.open { background-color: var(--accent); transform: scale(1.6); opacity: 1; }
+.wordCard.open { background: var(--card-bg); box-shadow: 0 0 0 1px var(--accent); }
+
+.wordCard:hover { color: var(--text); }
+
+/* --- the hovercard over a dot ---------------------------------------------
+
+   The terrain map's hovercard voice (AgentHoverCard.module.css), value for
+   value — same frost, same radius, same shadow, same 160ms arrival on the same
+   curve — so pointing at a dot in the pond feels like pointing at an orb on
+   the map. One deliberate difference: this one is a TOOLTIP, not a hovercard.
+   It never takes the pointer (a tap opens the real panel, and a popup you
+   could wander into would fight it), so there is no engaged state and nothing
+   scrolls — the fade at the bottom of a long entry says "there's more; tap". */
+
+.hoverCard {
+  position: fixed;
+  z-index: 90;
+  width: 272px; /* must match POPUP_W in PondView.tsx — placed before measured */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card-bg) 88%, transparent);
+  backdrop-filter: var(--frost-pane);
+  -webkit-backdrop-filter: var(--frost-pane);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.26);
+  pointer-events: none;
+  animation: hoverCardIn 160ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.hoverHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* The dot restated at the terrain hovercard's size, in the pond's own two
+   inks — the card confirms which KIND of dot you're on. */
+.hoverDotOwner,
+.hoverDotKeeper,
+.hoverDotSystem {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.hoverDotOwner { background: var(--text-secondary); }
+.hoverDotKeeper { background: var(--text-muted); }
+.hoverDotSystem { box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+.hoverTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The entry itself — darkest grey, the point of the card. Clamped rather than
+   scrolled (nothing here takes the pointer), with the terrain card's resting
+   fade as the "keep going" cue. */
+.hoverBody {
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 7;
+  line-clamp: 7;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 78%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent 100%);
+}
+
+.hoverThreads {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+}
+
+/* The terrain card's label treatment: uppercase, tracked, muted. */
+.hoverLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.hoverTags {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+@keyframes hoverCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hoverCard { animation: none; }
+}
+
+/* Hover is a mouse gesture — on a coarse pointer the popup can never be
+   summoned properly, and the tap already opens the full panel. */
+@media (pointer: coarse) {
+  .hoverCard { display: none; }
+}
+
+/* --- the card she opened -------------------------------------------------- */
+
+.detail {
+  flex: none;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  overflow-y: auto;
+}
+
+.detailHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.detailMeta {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.detailClose {
+  flex: none;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.detailClose:hover { background: var(--bg); color: var(--text); }
+
+.detailBody {
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* --- walking the thread --------------------------------------------------- */
+
+.detailNav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.navBtn {
+  flex: none;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.navBtn:hover:not(:disabled) { color: var(--text); }
+.navBtn:disabled { opacity: 0.3; cursor: default; }
+
+.navWhere {
+  flex: 1;
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- membership ------------------------------------------------------------ */
+
+.detailTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* A chip and its remove button, joined into one pill. */
+.chipPair {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.tagChip {
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-right: none;
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.tagChipOn {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Armed on the first tap, done on the second — a stray touch near a chip
+   must never silently edit the journal. */
+.chipRemove,
+.chipRemoveArmed {
+  min-height: 32px;
+  min-width: 30px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-soft);
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chipRemove:hover { color: var(--text); }
+
+.chipRemoveArmed {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.addTag {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.addTagInput {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+}
+
+.addTagBtn {
+  flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addTagBtn:hover:not(:disabled) { color: var(--text); }
+.addTagBtn:disabled { opacity: 0.4; cursor: default; }
+
+/* The one way OUT of the panel — quiet, full width, sat under everything else
+   the way the terrain hovercard keeps its single action in the footer. */
+.journalLink {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  margin-top: var(--space-1);
+  padding: 0 var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.journalLink:hover { color: var(--text); }
+
+/* Phone: the rail becomes a scrolling strip above the drawing, and the opened
+   card sits underneath rather than beside — a 320px panel next to a timeline
+   on a narrow screen leaves neither enough room to be worth having. */
+@media (max-width: 780px) {
+  .body { flex-direction: column; }
+
+  .rail {
+    width: auto;
+    flex: none;
+  }
+
+  .railList {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: var(--space-1);
+  }
+
+  .groups { grid-template-columns: repeat(4, 1fr); }
+
+  .thread { flex: none; }
+
+  .stage { flex: 1; min-height: 260px; }
+
+  .detail { width: auto; max-height: 40vh; }
+}

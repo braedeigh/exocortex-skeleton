@@ -1,6 +1,21 @@
-/** Pure logic for the symptom dot grid + per-day editor — port of overview.js. */
-import { symptomTip } from '../todos/symptomHelpers';
+/** Pure logic for the symptom dot grid + per-day editor — port of overview.js.
+ * symptomTip lived in features/todos while the dashboard had a symptom
+ * check-in card; that card is gone, so it lives here with its only readers
+ * (this file's dotInfo and DayEditor). */
 import type { BodyHealthDay, SymptomDefinitions } from './types';
+
+const GENERIC_TIPS = ['None', 'Mild', 'Moderate', 'Bad'];
+const ENERGY_TIPS = ['Crashed', 'Low', 'Okay', 'Great'];
+
+/** The owner's custom definition for a symptom level, or the generic fallback
+ * (port of health.js symptomTip). Energy has its own scale, where 0 is the bad
+ * end rather than the good one. */
+export function symptomTip(defs: SymptomDefinitions | undefined, col: string, level: number): string {
+  const custom = defs?.[col]?.[String(level)];
+  if (custom) return custom;
+  const generic = col === 'energy' ? ENERGY_TIPS : GENERIC_TIPS;
+  return generic[level] || '';
+}
 
 /** "No data" dot color (overview.js `gray`). */
 export const GRID_GRAY = '#ddd';

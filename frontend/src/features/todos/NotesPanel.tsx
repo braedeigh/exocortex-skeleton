@@ -1,6 +1,5 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Link } from '@tanstack/react-router';
 import { useNotesPillList, useNotesPillMutations, type NotesPillKind } from './useNotesPill';
 import { formatNoteAge, isLongNote, sortNotesByCreated } from './noteHelpers';
 import { useGreenlight } from '../nightcrew/useGreenlight';
@@ -34,7 +33,7 @@ const PLACEHOLDER: Record<NotesPillKind, string> = {
  * rebuilt by hand for the same reason.
  */
 export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function NotesPanel(
-  { kind, tab, showAllLink, sort, onToggleSort, onClose, onError, className },
+  { kind, tab, sort, onToggleSort, onClose, onError, className },
   ref,
 ) {
   const { data, isLoading } = useNotesPillList(kind, tab);
@@ -134,17 +133,7 @@ export const NotesPanel = forwardRef<HTMLDivElement, NotesPanelProps>(function N
     >
       <div className={styles.head}>
         <span className={`${styles.title} ${kind === 'idea' ? styles.titleIdea : ''}`}>{LABEL[kind]}</span>
-        {showAllLink ? (
-          <Link
-            to="/notes"
-            className={styles.allLink}
-            title="Browse all notes"
-            aria-label="Browse all notes"
-            onClick={onClose}
-          >
-            &#8599;
-          </Link>
-        ) : null}
+        {/* The 'browse all notes' link went with the Notes page: shed/unvisited-2026-10-10. */}
         <button type="button" className={styles.sort} onClick={onToggleSort}>
           {/* ︎ = text variation selector: stops iOS rendering the arrow as emoji */}
           {sort === 'newest' ? '\u2193\uFE0E Newest' : '\u2191\uFE0E Oldest'}

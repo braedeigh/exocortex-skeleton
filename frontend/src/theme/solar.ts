@@ -5,12 +5,49 @@
  * horizon), equation of time, solar noon shifted into the local timezone.
  */
 import { HOME_LAT, HOME_LNG, HOME_TZ_OFFSET } from '../ownerHome';
+import { isStandalone } from '../shell/standalone';
 
-// The owner's coordinates + tz come from .env.local (see ownerHome.ts).
-// Unset, the equatorial/UTC defaults give a sane ~12h day year-round.
-export const SKY_LAT = HOME_LAT ?? 0;
-export const SKY_LNG = HOME_LNG ?? 0;
-export const SKY_TZ_OFFSET = HOME_TZ_OFFSET ?? 0;
+/** A spot on the earth and its clock, which is all the sun maths needs. */
+export interface SkyPlace {
+  lat: number;
+  lng: number;
+  tzOffset: number;
+}
+
+/**
+ * Pick the place the sky theme keeps time for.
+ *
+ * The normal site uses the owner's coordinates and timezone from .env.local
+ * (see ownerHome.ts); unset, the equatorial/UTC defaults give a sane ~12h day
+ * year-round.
+ *
+ * The desktop app runs on someone else's machine, somewhere unknown, so it
+ * ignores those and reads the machine's own clock instead: the equator, at
+ * the middle of this computer's timezone. That gives sunrise near 6 and
+ * sunset near 18 by the local clock everywhere. It is a rough day, not the
+ * real sun, because the app doesn't know where the person is.
+ */
+export function skyPlace(args: {
+  standalone: boolean;
+  home: { lat?: number; lng?: number; tzOffset?: number };
+  /** Hours this computer's clock is ahead of UTC. */
+  clockOffsetHours: number;
+}): SkyPlace {
+  if (args.standalone) {
+    return { lat: 0, lng: args.clockOffsetHours * 15, tzOffset: args.clockOffsetHours };
+  }
+  return { lat: args.home.lat ?? 0, lng: args.home.lng ?? 0, tzOffset: args.home.tzOffset ?? 0 };
+}
+
+const PLACE = skyPlace({
+  standalone: isStandalone(),
+  home: { lat: HOME_LAT, lng: HOME_LNG, tzOffset: HOME_TZ_OFFSET },
+  clockOffsetHours: -new Date().getTimezoneOffset() / 60,
+});
+
+export const SKY_LAT = PLACE.lat;
+export const SKY_LNG = PLACE.lng;
+export const SKY_TZ_OFFSET = PLACE.tzOffset;
 
 export interface SunTimes {
   /** Decimal local hours, e.g. 6.5 = 06:30. */

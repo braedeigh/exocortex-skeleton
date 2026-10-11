@@ -33,7 +33,8 @@ def test_mint_helper_stamps_origin_kind_and_title(helper_client):
     assert entry["helper"] == "recipe"
     assert entry["title"] == "Recipe: soup"
     assert entry["lane"] == "personal"
-    assert (store.SPINOFF_DIR / "recipe-1" / "BRIEF.md").read_text() == BRIEF
+    import briefstore
+    assert briefstore.for_session(payload["conversation_id"])["body"] == BRIEF
 
 
 def test_rejoin_keeps_the_original_title(helper_client):

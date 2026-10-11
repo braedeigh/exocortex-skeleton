@@ -2,14 +2,27 @@
  * api.ts — every endpoint the research workspace talks to, one thin typed
  * helper each (same pattern as src/api/endpoints.ts, kept feature-local).
  * Backend: routes/research.py, research_sources.py, research_text.py,
- * research_search.py, research_import.py, annotations.py, plus server.py's
- * GET /api/data/research.
+ * research_search.py, research_import.py, annotations.py, the claims table
+ * endpoints under /api/research/claims, the research tables under
+ * /api/research/tables|hazards|measures|judgments (research_tables.py), plus
+ * server.py's GET /api/data/research.
  */
 
 import { api, ApiError } from '../../api/client';
 import type {
   AnnotationContent,
   AnnotationsResponse,
+  Hazard,
+  JudgmentDetail,
+  MeasureDetail,
+  NewTableBody,
+  ResearchTable,
+  Review,
+  TablesVocab,
+  TableView,
+  VerdictKey,
+  ClaimDetailResponse,
+  ClaimsListResponse,
   DocTextResponse,
   LibraryFileResponse,
   LibraryResponse,
@@ -17,6 +30,7 @@ import type {
   ResearchHealth,
   ResearchState,
   SearchHit,
+  SourceClaimsResponse,
 } from './types';
 
 // --- State ---
@@ -207,6 +221,32 @@ export function removeAnnotation(id: string): Promise<AnnotationsResponse> {
   return api.post('/api/annotations/remove', { id });
 }
 
+// --- Claims table (claims ↔ sources, with the passage behind each link) ---
+
+export interface ClaimsFilter {
+  topic?: string;
+  front?: string;
+}
+
+/** GET /api/research/claims?topic=&front= — newest first is the page's job. */
+export function getClaims(filter: ClaimsFilter, signal?: AbortSignal): Promise<ClaimsListResponse> {
+  const params = new URLSearchParams();
+  if (filter.topic) params.set('topic', filter.topic);
+  if (filter.front) params.set('front', filter.front);
+  const query = params.toString();
+  return api.get(`/api/research/claims${query ? `?${query}` : ''}`, signal);
+}
+
+/** GET /api/research/claims/<id> — one claim with every source linked to it. */
+export function getClaim(id: string, signal?: AbortSignal): Promise<ClaimDetailResponse> {
+  return api.get(`/api/research/claims/${encodeURIComponent(id)}`, signal);
+}
+
+/** GET /api/research/sources/<id>/claims — every claim citing one source. */
+export function getSourceClaims(id: string, signal?: AbortSignal): Promise<SourceClaimsResponse> {
+  return api.get(`/api/research/sources/${encodeURIComponent(id)}/claims`, signal);
+}
+
 // --- Error message mapping (parity with the old alerts) ---
 
 /**
@@ -224,4 +264,77 @@ export function researchErrorMessage(err: unknown, fallback: string, notLoadedNa
   }
   if (err instanceof TypeError) return 'Network error — try again.';
   return fallback;
+}
+
+// --- Research tables (foods × hazards, verdicts, her review) ---
+
+/** GET /api/research/tables -> her tables, plus the pickers' vocabulary. */
+export function getTables(signal?: AbortSignal): Promise<{ tables: ResearchTable[]; vocab: TablesVocab }> {
+  return api.get('/api/research/tables', signal);
+}
+
+/** GET /api/research/tables/<id>[?all=1] — the grid; `all` keeps foods with no numbers. */
+export function getTableView(id: number, allFoods: boolean, signal?: AbortSignal): Promise<TableView> {
+  return api.get(`/api/research/tables/${id}${allFoods ? '?all=1' : ''}`, signal);
+}
+
+export function addTable(body: NewTableBody): Promise<TableView> {
+  return api.post('/api/research/tables/add', body);
+}
+
+export function deleteTable(id: number): Promise<{ ok: boolean }> {
+  return api.post(`/api/research/tables/${id}/delete`);
+}
+
+/** GET /api/research/hazards -> the whole hazard map. */
+export function getHazards(signal?: AbortSignal): Promise<{ hazards: Hazard[] }> {
+  return api.get('/api/research/hazards', signal);
+}
+
+export function addHazard(name: string, parents: number[]): Promise<{ hazards: Hazard[] }> {
+  return api.post('/api/research/hazards/add', { name, parents });
+}
+
+/** Plant the starter families on an empty map; a map with hazards is left alone. */
+export function seedHazards(): Promise<{ hazards: Hazard[] }> {
+  return api.post('/api/research/hazards/seed');
+}
+
+export function updateHazard(
+  id: number,
+  fields: { name?: string; parents?: number[]; aliases?: string[] },
+): Promise<{ hazards: Hazard[] }> {
+  return api.post(`/api/research/hazards/${id}/update`, fields);
+}
+
+export function deleteHazard(id: number): Promise<{ hazards: Hazard[] }> {
+  return api.post(`/api/research/hazards/${id}/delete`);
+}
+
+export function getMeasure(id: number, signal?: AbortSignal): Promise<MeasureDetail> {
+  return api.get(`/api/research/measures/${id}`, signal);
+}
+
+export function reviewMeasure(id: number, review: Review): Promise<MeasureDetail> {
+  return api.post(`/api/research/measures/${id}/review`, { review });
+}
+
+export function getJudgment(id: number, signal?: AbortSignal): Promise<JudgmentDetail> {
+  return api.get(`/api/research/judgments/${id}`, signal);
+}
+
+export function reviewJudgment(id: number, review: Review): Promise<JudgmentDetail> {
+  return api.post(`/api/research/judgments/${id}/review`, { review });
+}
+
+/** Her own verdict — born confirmed; an agent's on the same food, lens and
+ * hazard is kept in the history. */
+export function setJudgment(body: {
+  food: number;
+  lens: string;
+  verdict: VerdictKey;
+  hazard?: number | null;
+  reasoning?: string;
+}): Promise<JudgmentDetail> {
+  return api.post('/api/research/judgments/set', body);
 }

@@ -39,7 +39,9 @@ export const TAB_META: Record<LegacyTab, TabMeta> = {
   media: { key: 'media', label: 'Media', icon: '🎬' },
   body: { key: 'body', label: 'Body', icon: '🩺' },
   ideas: { key: 'ideas', label: 'Ideas', icon: '💡' },
-  ecosystem: { key: 'ecosystem', label: 'Ecosystem', icon: '🌱' },
+  // The key stays 'ecosystem' (saved tab orders and dev notes are filed under
+  // it); the page is the Food area now.
+  ecosystem: { key: 'ecosystem', label: 'Food', icon: '🌱' },
   people: { key: 'people', label: 'People', icon: '👥' },
 };
 
@@ -76,7 +78,7 @@ export const TAB_ROUTES: Record<LegacyTab, string> = {
   media: '/media',
   body: '/body',
   ideas: '/ideas',
-  ecosystem: '/ecosystem',
+  ecosystem: '/food',
   people: '/people',
 };
 
@@ -90,10 +92,11 @@ export function tabForPath(pathname: string): LegacyTab | null {
 /** Non-legacy view routes offered from the More sheet, alongside the remaining tabs. */
 export const VIEW_META = [
   { key: 'journal', label: 'Journal', icon: '📓', to: '/journal' },
-  { key: 'research', label: 'Research', icon: '🔎', to: '/research' },
+  // Research lands on the claims table, the surface she reads; the thread
+  // directory is a tap away from it. Prompt: "i want the research UI you
+  // made to go in the 'research' tab on the dashboard".
+  { key: 'research', label: 'Research', icon: '🔎', to: '/research/claims' },
   { key: 'settings', label: 'Settings', icon: '⚙️', to: '/settings' },
   { key: 'files', label: 'Files', icon: '🗂️', to: '/files' },
-  { key: 'notes', label: 'Notes', icon: '📝', to: '/notes' },
-  { key: 'build', label: 'Build', icon: '🔨', to: '/build' },
-  { key: 'recordings', label: 'Recordings', icon: '🎙️', to: '/recordings' },
+  // Notes, Build and Recordings are set down in shed/unvisited-2026-10-10.
 ] as const;

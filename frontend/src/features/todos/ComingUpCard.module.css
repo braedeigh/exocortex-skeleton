@@ -1,0 +1,144 @@
+/* Coming up — same page rhythm as the Up now / Tomorrow cards above it. */
+.wrap {
+  margin: 0 var(--space-4) var(--space-4);
+}
+
+/* Title-line add button: a full 40px target, clearly visible. */
+.addBtn {
+  margin-left: auto;
+  min-width: 40px;
+  min-height: 40px;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+}
+
+.empty {
+  margin: var(--space-2) 0;
+  color: var(--text-muted);
+}
+
+.subhead {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* One item — a 40px row, the whole thing tappable to edit. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--space-2) 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.when {
+  flex: 0 0 auto;
+  min-width: 88px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ping {
+  flex: 0 0 auto;
+}
+
+/* Who made it, when it wasn't her — small but at the 12px floor. */
+.byKeeper {
+  flex: 0 0 auto;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* --- the edit modal --- */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.field input,
+.field textarea {
+  min-height: 40px;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 400;
+  font-size: var(--font-size-base);
+}
+
+.pair {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.kinds {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.kindBtn {
+  flex: 1;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.kindOn {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--red);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

@@ -11,7 +11,8 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import { parseSseChunk } from './sseFrames';
+import { isStandalone } from '../../shell/standalone';
+import { flushSseRest, parseSseChunk } from './sseFrames';
 
 /** Cached facts about the nightly rollover job, updated after each run
  * (on-demand or the cron original) — surfaced so the on-demand trigger can
@@ -56,13 +57,24 @@ export interface PendingApproval {
  *              It has no room on the roster and the pickers don't offer it;
  *              its history stays reachable under Past sessions.
  *
+ *   research   her research desk, and where dispatched research workers run
+ *              now (they left tmux, 09-24). Rooted in the research-room
+ *              folder, ungated — every write it makes lands reviewed:false
+ *              for her to check. A DOOR on the roster (ResearchDoor →
+ *              /observatory/research), not a room block, like Helpers.
+ *
+ *   linear     sessions that work in Linear (the outside issue tracker, via
+ *              the `linear` MCP server) with her. Rooted in the linear-room
+ *              folder, ungated — the act gate would stop on every Linear
+ *              call. Another DOOR (LinearDoor → /observatory/linear).
+ *
  * Personal and Coding differ by GROUND. */
-export type Lane = 'orchestra' | 'personal' | 'coding';
+export type Lane = 'orchestra' | 'personal' | 'coding' | 'research' | 'linear';
 
 /** Every lane the client can name — used for PARSING and LABELLING (the archive
  * scopes and chips), not for deciding what the roster draws. Orchestra is in
  * here because sessions still carry it; see ROOMS for what's actually offered. */
-export const ALL_LANES: Lane[] = ['personal', 'coding', 'orchestra'];
+export const ALL_LANES: Lane[] = ['personal', 'coding', 'research', 'linear', 'orchestra'];
 
 /** The rooms the Observatory actually DRAWS and offers, in the order the roster
  * stacks them. Split from ALL_LANES when Orchestra was retired: a lane can
@@ -76,7 +88,81 @@ export type Room = (typeof ROOMS)[number];
  * what tells the roster to fold those sessions somewhere visible instead of
  * dropping them off the page. */
 export function isRoom(lane: Lane): lane is Room {
+  if (isStandalone()) return offeredRooms().some((room) => room.id === lane);
   return (ROOMS as readonly Lane[]).includes(lane);
+}
+
+/** One room as the roster draws it: the lane id sessions carry, and its name. */
+export interface RoomInfo {
+  id: Lane;
+  name: string;
+}
+
+/**
+ * The desktop app's rooms: a list the person edits.
+ *
+ * On the site the rooms are fixed (ROOMS, above). In the desktop app
+ * (shell/standalone.ts) a person can add, rename and delete them, so the list
+ * lives on the server and is copied here each time it's fetched or changed
+ * (roomsApi.ts does both). It is plain module state, not React state, so that
+ * toLane() and laneLabel() can read it from anywhere; the components that
+ * draw rooms re-render through roomsApi.ts's query. Null until the first
+ * answer, when the two rooms a fresh install starts with stand in.
+ *
+ * A room's id is the lane its sessions carry. The ids of added rooms are
+ * minted by the server and are not in the Lane union; they are carried as
+ * Lane anyway, because every place that holds a lane only compares it or
+ * hands it back to the server.
+ *
+ * Her ask: "2 rooms, personal and code, with the option to add more or
+ * delete or rename."
+ */
+let desktopRooms: RoomInfo[] | null = null;
+
+const DESKTOP_STARTING_ROOMS: RoomInfo[] = [
+  { id: 'personal', name: 'Personal' },
+  { id: 'coding', name: 'Code' },
+];
+
+/** Replace the desktop app's copy of the room list with the server's. */
+export function setDesktopRooms(rooms: readonly { id: string; name: string }[] | null): void {
+  desktopRooms = rooms ? rooms.map((room) => ({ id: room.id as Lane, name: room.name })) : null;
+}
+
+/** The rooms the roster draws and the pickers offer, in order: the fixed two
+ * on the site, the person's own list in the desktop app. */
+export function offeredRooms(): RoomInfo[] {
+  if (isStandalone()) return desktopRooms ?? DESKTOP_STARTING_ROOMS;
+  return ROOMS.map((id) => ({ id, name: LANE_LABEL[id] }));
+}
+
+/** The room that shows a session whose own lane has no room, so it is never
+ * dropped off the page: Coding on the site, the first room in the desktop
+ * app. Null only when the desktop app has no rooms at all. */
+export function strayRoom(): Lane | null {
+  if (isStandalone()) return offeredRooms()[0]?.id ?? null;
+  return 'coding';
+}
+
+/** A lane's display name. In the desktop app a room's own name wins, so a
+ * renamed room reads the same on the roster, the pickers and the archive. */
+export function laneLabel(lane: Lane): string {
+  if (isStandalone()) {
+    const room = offeredRooms().find((candidate) => candidate.id === lane);
+    if (room) return room.name;
+  }
+  return LANE_LABEL[lane] ?? lane;
+}
+
+/** One line on where a room's sessions stand, for the pickers. The site's
+ * lines are LANE_BLURB. The desktop app's say only what its server does:
+ * the starting Personal room stands in the journal's folder, every other
+ * room in the folder Terrain is drawing. */
+export function laneBlurb(lane: Lane): string {
+  if (!isStandalone()) return LANE_BLURB[lane] ?? '';
+  return lane === 'personal'
+    ? 'Sessions here work in the journal’s folder.'
+    : 'Sessions here work in the code folder Terrain is drawing.';
 }
 
 /** Narrow whatever the server said into a lane this client can name. An
@@ -84,6 +170,8 @@ export function isRoom(lane: Lane): lane is Room {
  * the backend uses for anything it can't place. Orchestra has no room, so the
  * roster shows such a session in Coding rather than dropping it (RosterPage). */
 export function toLane(value: string | undefined): Lane {
+  // The desktop app's own rooms have ids this file can't list ahead of time.
+  if (isStandalone() && offeredRooms().some((room) => room.id === value)) return value as Lane;
   return (ALL_LANES as string[]).includes(value ?? '') ? (value as Lane) : 'orchestra';
 }
 
@@ -94,6 +182,8 @@ export function toLane(value: string | undefined): Lane {
 export const LANE_LABEL: Record<Lane, string> = {
   personal: 'Personal',
   coding: 'Coding',
+  research: 'Research',
+  linear: 'Linear',
   orchestra: 'Orchestra',
 };
 
@@ -105,6 +195,8 @@ export const LANE_LABEL: Record<Lane, string> = {
 export const LANE_BLURB: Record<Lane, string> = {
   personal: 'Rooted where both repos meet, so it can reach your vault. Just acts — you’re the one watching.',
   coding: 'Rooted in the app code, where the build happens. Just acts — you’re the one watching.',
+  research: 'Rooted in the research room, with a read-only door onto your tables. Just acts — everything it writes waits for your review.',
+  linear: 'Rooted in the Linear room, with your Linear workspace at hand. Just acts — you’re the one watching.',
   orchestra: 'Rooted in the app code. Stops and asks before anything irreversible.',
 };
 
@@ -139,6 +231,16 @@ export interface SessionMeta {
   journal?: boolean;
   /** Pinned sessions sort first (the Keeper session lives at the top). */
   pinned?: boolean;
+  /** The row id of the brief this session was spun off on (briefstore.py).
+   * Present means the session has a brief page (SessionBriefPage.tsx). */
+  spinoff_brief?: number;
+  /** It handed its work on to a continuation that took over from it —
+   * marked server-side off the whole index (routes/observatory.py). Rooms and
+   * swarm pages sink it to the bottom, out of the way (roomOrder.ts). */
+  retired?: boolean;
+  /** When a retired session's successor started — the end of its final
+   * output (the handoff). The unread dot on a retired card keys on this. */
+  retired_at?: string;
   /** When it was closed. Archived sessions are off the roster but reachable
    * from the archive — and SENDING into one reopens it (routes/observatory.py
    * pops the flag on send, deliberately: talking to an old chat is the whole
@@ -170,6 +272,29 @@ export interface SessionMeta {
    * via scripts/request_input.py — the question text. Its Orchestra card glows
    * orange until her next send into the session clears it (server-side). */
   awaiting_input?: string;
+  /** The same ask as a list — every open question the session filed in one
+   * request_input call (it replaces, never appends). Absent on a flag raised
+   * before questions came as a list; read both through openQuestions(). */
+  awaiting_questions?: string[];
+  /** The session said its work is finished (scripts/session_done.py) at this
+   * time. Her next message, or her Keep open, clears it along with
+   * closes_at and done_note; a peer's or a job's turn leaves it standing
+   * (routes/observatory.py). */
+  done_at?: string;
+  /** When the minute tick will close it, set with done_at. */
+  closes_at?: string;
+  /** When its final output finished — the end of the turn that marked it
+   * done. The unread dot on a done card keys on this (sessionFilters). */
+  final_at?: string;
+  /** Its one line about what was finished, when it gave one. */
+  done_note?: string;
+  /** She saved it for later (her "not now, but keep it"): it stays open with
+   * everything it had, open questions included, but the idle check never wakes
+   * it, it never closes itself, the room helper leaves it be, and the roster
+   * lifts it out of the rooms into the shut Saved for later section
+   * (SavedLane.tsx). Her next message into it, or Pick back up, clears it
+   * (routes/observatory.py save_for_later). */
+  saved_at?: string;
   /** Which model this session's next turn will actually run on — its own pin
    * if it has one, else the CLI's own default, resolved server-side. Absent
    * only when neither says anything. Read-only, for SHOWING: the ✎ dialog seeds
@@ -207,6 +332,16 @@ export interface SessionMeta {
   model?: string;
 }
 
+/** The questions a session is waiting on her for, as a list — empty when it
+ * isn't waiting. Falls back to the single `awaiting_input` line for a flag
+ * raised before questions came as a list. Shared by the roster's orange card
+ * and the chat's questions card so both number the same set. */
+export function openQuestions(meta: Pick<SessionMeta, 'awaiting_input' | 'awaiting_questions'> | undefined): string[] {
+  const list = (meta?.awaiting_questions ?? []).filter((q) => q.trim() !== '');
+  if (list.length > 0) return list;
+  return meta?.awaiting_input ? [meta.awaiting_input] : [];
+}
+
 export function getSessions(
   signal?: AbortSignal,
 ): Promise<{ sessions: SessionMeta[]; model_choices?: string[] }> {
@@ -217,7 +352,9 @@ export function getConversation(
   id: string,
   signal?: AbortSignal,
 ): Promise<{ id: string; meta: SessionMeta; events: unknown[] }> {
-  return api.get(`/api/observatory/conversation/${encodeURIComponent(id)}`, signal);
+  // `lean=1`: the server leaves out tool results, which the page never draws
+  // and which are most of a transcript's weight (routes/observatory.py).
+  return api.get(`/api/observatory/conversation/${encodeURIComponent(id)}?lean=1`, signal);
 }
 
 /** The last thing said in a session — the agent's newest reply, or her ask if
@@ -239,12 +376,15 @@ export interface SessionPreview {
  * model, spend, what it's waiting on) without RosterPage's polling loop. Terrain
  * uses it for the agent hovercard. Idle-slow by default; the caller passes
  * `live` while something is actually running. */
-export function useSessionRoster(live = false) {
+export function useSessionRoster(live = false, enabled = true) {
   return useQuery({
     queryKey: ['observatory-roster'] as const,
     queryFn: async ({ signal }) => getSessions(signal),
     staleTime: live ? 4_000 : 30_000,
     refetchInterval: live ? 5_000 : false,
+    // Off for a public visitor (the map is public, the roster is not): a
+    // disabled query never fires, so nothing 401s in their console.
+    enabled,
   });
 }
 
@@ -299,15 +439,23 @@ export function useArchiveList() {
   });
 }
 
-/** One match inside a transcript: where the words sit in the snippet (`at`,
- * `len`) so the client can mark them without re-finding the query in trimmed,
- * ellipsised text. `turn` is its index among that session's spoken lines. */
-export interface SearchHit {
+/** One piece of an excerpt: a stretch of text, and whether it is one of the
+ * matched words. The server cuts the excerpt and marks the matches, so the
+ * page never re-finds the query in trimmed text. */
+export interface SearchPiece {
   text: string;
-  at: number;
-  len: number;
-  turn: number;
-  who: 'B' | 'K';
+  hit: boolean;
+}
+
+/** One match inside a session. In a "said" search `who` is 'B' (the owner)
+ * or 'K' (the agent) and `turn` is the line's place among that session's
+ * spoken lines; in a "did" search `who` is the tool's name (Edit, Bash…) and
+ * `turn` is null. */
+export interface SearchHit {
+  who: string;
+  turn: number | null;
+  said_at: string | null;
+  pieces: SearchPiece[];
 }
 
 export interface SearchResult {
@@ -321,22 +469,73 @@ export interface SearchResult {
   pinned: boolean;
   started?: string;
   last_at?: string;
+  /** How many lines (or tool calls) in this session matched; `hits` holds
+   * only the first few. */
+  count: number;
   hits: SearchHit[];
 }
 
+/** Which record a search reads: what was SAID in the chats, or what the
+ * agents DID (the files they touched, the commands they ran). */
+export type SearchIn = 'said' | 'did';
+
 export interface SearchResponse {
   query: string;
+  in: SearchIn;
   results: SearchResult[];
-  /** How many transcripts were actually read — so a partial scan is visible
-   * rather than silently passing for "everything". */
-  scanned: number;
+  /** More sessions matched than are shown. */
   truncated: boolean;
+  /** Some chat logs haven't been indexed yet, so the answer may be missing
+   * older sessions. */
+  catching_up: boolean;
 }
 
-/** Search every session's transcript, archived included. Plain substring, no
- * query language — see the route's docstring for why. */
-export function searchSessions(q: string, signal?: AbortSignal): Promise<SearchResponse> {
-  return api.get(`/api/observatory/search?q=${encodeURIComponent(q)}`, signal);
+/** Search every session, closed ones included. Query rules are in
+ * chatsearch.py: every word must appear, a half-typed word finds the whole
+ * one, "quotes" make a phrase, -word leaves a line out. */
+export function searchSessions(
+  q: string,
+  where: SearchIn = 'said',
+  signal?: AbortSignal,
+): Promise<SearchResponse> {
+  return api.get(`/api/observatory/search?q=${encodeURIComponent(q)}&in=${where}`, signal);
+}
+
+/** A session on the recently-opened list. */
+export interface RecentSession {
+  id: string;
+  title: string;
+  lane: Lane;
+  journal: boolean;
+  archived: boolean;
+  pinned: boolean;
+  started?: string;
+  last_at?: string;
+  opened_at: string;
+}
+
+/** The sessions she opened most recently, newest first, closed ones included.
+ * Kept on the server, so every device shows the same list. */
+export function useRecentSessions(limit = 20) {
+  return useQuery({
+    queryKey: ['observatory-recent', limit] as const,
+    queryFn: async ({ signal }) =>
+      api.get<{ sessions: RecentSession[] }>(`/api/observatory/recent?limit=${limit}`, signal),
+    staleTime: 15_000,
+  });
+}
+
+/** Tell the server she just opened a session, so it tops the recently-opened
+ * list on every device. Best-effort: a failed note only leaves the list a
+ * step behind. */
+export function noteSessionOpened(convId: string): void {
+  void api.post('/api/observatory/opened', { conv: convId }).catch(() => {});
+}
+
+/** Hand the server a whole map of opens (conversation id -> ISO time). The
+ * server keeps the later time for each session. */
+export function mergeOpenedSessions(opened: Record<string, string>): Promise<unknown> {
+  return api.post('/api/observatory/opened', { opened });
 }
 
 /** Create a session ahead of its first message — the roster's '+ New
@@ -356,8 +555,11 @@ export function createSession(
   journal: boolean,
   model = '',
   lane: Lane = 'orchestra',
+  swarm?: number,
 ): Promise<{ ok: true; id: string; lane: Lane }> {
-  return api.post('/api/observatory/conversations', { title, journal, model, lane });
+  // `swarm` starts the session inside that swarm: a member from birth, told
+  // which swarm it woke up in (the '+' on a swarm's page).
+  return api.post('/api/observatory/conversations', { title, journal, model, lane, swarm });
 }
 
 /** Put one keeper reply into the journal (a K card) — the tap gesture.
@@ -378,10 +580,32 @@ export function journalHighlight(
   return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/journal-highlight`, h);
 }
 
+/** Put one of her off-the-record messages back into the journal, as the B card
+ * it would have been, at the time she sent it. `user` is the message's place
+ * among her messages in this chat (events.ts userOrdinal); `text` lets the
+ * server check it has the right one. Asking twice still makes one card. */
+export function journalRestore(
+  convId: string,
+  m: { user: number; text: string },
+): Promise<{ ok: true; card: string; user: number; already?: boolean }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/journal-restore`, m);
+}
+
 /** Close (archive) a session — it leaves the roster; its log stays. The
  * pinned Keeper session refuses (400). */
 export function closeConversation(id: string): Promise<{ ok: true }> {
   return api.post(`/api/observatory/conversation/${encodeURIComponent(id)}/close`, {});
+}
+
+/** Keep open: cancel a finished session's countdown to closing itself. */
+export function keepConversation(id: string): Promise<{ ok: true }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(id)}/keep`, {});
+}
+
+/** Save a session for later, or pick it back up (saved = false). The pinned
+ * Keeper refuses (400). */
+export function saveForLater(id: string, saved: boolean): Promise<{ ok: true }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(id)}/save`, { saved });
 }
 
 /** Stop a running turn on purpose — the stop button's door. This is the only
@@ -400,19 +624,25 @@ export function forkConversation(
   return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/fork`, {});
 }
 
+/** What the server says after an Approve/Deny. `resume` is how the retry cue
+ * went out: "sent" (the session was idle) or "queued" (it starts the moment
+ * the current reply ends). The server owns that wait now, so a page that sees
+ * `resume` sends nothing itself; one that doesn't is talking to an older
+ * server and falls back to sending its own. */
+export interface DecisionResult {
+  ok: boolean;
+  command: string;
+  resume?: 'sent' | 'queued';
+}
+
 /** Approve the gated command a session is blocked on. `sticky` = whitelist it
- * for the whole session (never asks again); false = one-shot (this retry only).
- * The caller fires a resume send right after so the agent retries and the gate
- * now lets it through. */
-export function approveConversation(
-  convId: string,
-  sticky: boolean,
-): Promise<{ ok: boolean; command: string }> {
+ * for the whole session (never asks again); false = one-shot (this retry only). */
+export function approveConversation(convId: string, sticky: boolean): Promise<DecisionResult> {
   return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/approve`, { sticky });
 }
 
 /** Deny the pending gated command — clears it without whitelisting. */
-export function denyConversation(convId: string): Promise<{ ok: boolean; command: string }> {
+export function denyConversation(convId: string): Promise<DecisionResult> {
   return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/deny`, {});
 }
 
@@ -470,12 +700,23 @@ export class SendError extends Error {
   /** True when the refusal is one this turn could be QUEUED past. */
   canQueue?: boolean;
 
-  constructor(message: string, status: number, extra?: { headroom?: unknown; canQueue?: boolean }) {
+  /** True when the server says the refusal is "a turn is already running
+   * here" and nothing else — the one 409 a message can go to the mailbox
+   * past (sendFailure.ts). Other 409s (a night session with nowhere to put a
+   * reply) don't carry it. */
+  busy?: boolean;
+
+  constructor(
+    message: string,
+    status: number,
+    extra?: { headroom?: unknown; canQueue?: boolean; busy?: boolean },
+  ) {
     super(message);
     this.name = 'SendError';
     this.status = status;
     this.headroom = extra?.headroom;
     this.canQueue = extra?.canQueue;
+    this.busy = extra?.busy;
   }
 }
 
@@ -542,10 +783,12 @@ export async function streamSend(
       error?: string;
       headroom?: unknown;
       can_queue?: boolean;
+      busy?: boolean;
     };
     throw new SendError(data.error || `send failed (${res.status})`, res.status, {
       headroom: data.headroom,
       canQueue: data.can_queue,
+      busy: data.busy === true,
     });
   }
 
@@ -554,18 +797,24 @@ export async function streamSend(
   const decoder = new TextDecoder();
   // Frame-cutting is pure and tested on its own — see sseFrames.ts.
   let pending = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const { events, rest } = parseSseChunk(pending + decoder.decode(value, { stream: true }));
-    pending = rest;
+  const handle = (events: Record<string, unknown>[]) => {
     for (const event of events) {
       if (event.type === 'conv' && typeof event.conversation_id === 'string') {
         convIdOut = event.conversation_id;
       }
       onEvent(event);
     }
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const { events, rest } = parseSseChunk(pending + decoder.decode(value, { stream: true }));
+    pending = rest;
+    handle(events);
   }
+  // Flush the last frame: a stream that closes without a trailing blank line
+  // still sent it, and the decoder may be holding the tail of a character.
+  handle(flushSseRest(pending + decoder.decode()));
   return convIdOut;
 }
 
@@ -603,8 +852,361 @@ export interface HelpersState {
   failed: number;
 }
 
+/** One conversation in the spinoff family tree (GET /api/spinoff/tree,
+ * routes/spinoff.py spinoff_tree). `parent` is the conversation it was spun
+ * off from; `via` is how ("skill", "go", "fork", "helper", "steward",
+ * "terminal", "app"). A parent that was never itself spun off has no `via`. */
+export interface SpinoffTreeNode {
+  id: string;
+  title: string;
+  slug: string | null;
+  lane: string;
+  started: string | null;
+  last: string | null;
+  archived: boolean;
+  running: boolean;
+  parent: string | null;
+  via: string | null;
+}
+
+/** GET /api/spinoff/tree — every conversation in a spinoff family, flat,
+ * archived ones included. SpinoffTreePage folds it into a tree. */
+export function getSpinoffTree(signal?: AbortSignal): Promise<{ nodes: SpinoffTreeNode[] }> {
+  return api.get('/api/spinoff/tree', signal);
+}
+
 /** GET /api/helpers — every helper session ever minted, archived included,
  * newest first. Drawn by HelpersDoor (census) and HelpersPage (the list). */
 export function getHelpers(signal?: AbortSignal): Promise<HelpersState> {
   return api.get('/api/helpers', signal);
+}
+
+/** One row of the Research room's list: her own desk sessions and the
+ * dispatched workers alike. `research_session_id` is set on a worker — the
+ * research.json session it served — and absent on a desk session. */
+export interface ResearchRoomSession {
+  id: string;
+  title: string;
+  started: string;
+  last_at: string;
+  running: boolean;
+  archived: string | null;
+  last_error: string | null;
+  origin: string | null;
+  research_session_id: string | null;
+  tokens?: { output: number; cost_usd: number };
+}
+
+export interface ResearchRoomState {
+  sessions: ResearchRoomSession[];
+  running: number;
+  failed: number;
+  /** The model picker's choices, so the page's "+" sheet matches the roster's. */
+  model_choices: string[];
+}
+
+/** Every research-lane session, archived included, newest first
+ * (routes/research_room.py). */
+export function getResearchRoom(signal?: AbortSignal): Promise<ResearchRoomState> {
+  return api.get('/api/research-room', signal);
+}
+
+/** One row of the Linear room's list — a session that works in Linear. */
+export interface LinearRoomSession {
+  id: string;
+  title: string;
+  started: string;
+  last_at: string;
+  running: boolean;
+  archived: string | null;
+  last_error: string | null;
+  /** The Linear issue a "Work on this" session was started on ("BAS-12"). */
+  linear_issue?: string | null;
+  tokens?: { output: number; cost_usd: number };
+}
+
+export interface LinearRoomState {
+  sessions: LinearRoomSession[];
+  running: number;
+  failed: number;
+  /** The model picker's choices, so the page's "+" sheet matches the roster's. */
+  model_choices: string[];
+  /** When each recent piece of Linear news happened (linear_feed.py), newest
+   * first, so the door can count what she hasn't looked at yet. */
+  news_times?: string[];
+  /** The Linear helper's session, once the feed has made it. */
+  helper?: string | null;
+}
+
+/** One thing someone other than her did in Linear, as the app's minute check
+ * wrote it down (linear_feed.py, the `linear_events` table). */
+export interface LinearEvent {
+  id: number;
+  /** When it happened, by Linear's clock (UTC, ISO). */
+  at: string;
+  kind: string;
+  /** The issue's short name ("BAS-12") and its title. */
+  identifier: string;
+  title: string;
+  url: string;
+  /** Who did it, and one plain line saying what ("moved it from Todo to Done"). */
+  actor: string;
+  summary: string;
+  /** A comment's own words; null for everything else. */
+  body: string | null;
+  /** It calls on her: a comment, or an issue assigned to her. */
+  for_owner: boolean;
+}
+
+export interface LinearFeedState {
+  events: LinearEvent[];
+  helper: string | null;
+  /** When the app last asked Linear, and what Linear said if that failed. */
+  checked_at: string | null;
+  error: string | null;
+  /** False when the feed can't run: it's switched off, or there's no key. */
+  on: boolean;
+}
+
+/** The Linear news, newest first, from the app's own record. Never calls Linear. */
+export function getLinearFeed(signal?: AbortSignal): Promise<LinearFeedState> {
+  return api.get('/api/linear-room/feed', signal);
+}
+
+/** Every Linear-lane session, archived included, newest first
+ * (routes/linear_room.py). */
+export function getLinearRoom(signal?: AbortSignal): Promise<LinearRoomState> {
+  return api.get('/api/linear-room', signal);
+}
+
+// --- The live Linear board (routes/linear_room.py, linear_api.py) -----------
+// Read live from Linear's own API with a personal key, never stored here.
+
+export interface LinearPerson {
+  id: string;
+  name: string;
+}
+
+export interface LinearIssue {
+  /** Linear's internal id: what every write below takes. */
+  id: string;
+  /** "BAS-12": what people call it. */
+  identifier: string;
+  title: string;
+  url: string;
+  updated_at: string;
+  state_id: string;
+  assignee: LinearPerson | null;
+  project: string | null;
+  milestone: string | null;
+  /** Open issues still blocking this one (finished blockers are dropped). */
+  blocked_by: { identifier: string; title: string }[];
+  blocks: string[];
+  blocked: boolean;
+  /** Not done, canceled or a duplicate. */
+  open: boolean;
+  /** Assigned to her, the key's owner. */
+  mine: boolean;
+}
+
+/** One status column, in board order. `type` is Linear's kind of status
+ * (triage, backlog, unstarted, started, completed, canceled, duplicate). */
+export interface LinearColumn {
+  id: string;
+  name: string;
+  type: string;
+  color: string | null;
+  issues: LinearIssue[];
+}
+
+/** The board, or (configured: false) the reason there isn't one yet. */
+export type LinearBoardState =
+  | {
+      configured: false;
+      /** A key was set but Linear refused it. */
+      refused: boolean;
+      key_help: string;
+      key_from_env: boolean;
+    }
+  | {
+      configured: true;
+      team: { id: string; key: string; name: string };
+      viewer: LinearPerson | null;
+      members: (LinearPerson & { me: boolean })[];
+      columns: LinearColumn[];
+      waiting_on_you: LinearIssue[];
+      /** Where quick capture files a new issue: Triage, else Backlog. */
+      capture_into: { id: string; name: string } | null;
+      issue_count: number;
+    };
+
+export function getLinearBoard(fresh = false, signal?: AbortSignal): Promise<LinearBoardState> {
+  return api.get(`/api/linear-room/board${fresh ? '?fresh=1' : ''}`, signal);
+}
+
+/** Save a pasted Linear API key; the server checks it with Linear first. */
+export function saveLinearKey(key: string): Promise<{ ok: true; name: string | null }> {
+  return api.post('/api/linear-room/key', { key });
+}
+
+export function forgetLinearKey(): Promise<{ ok: true }> {
+  return api.delete('/api/linear-room/key');
+}
+
+export function setLinearIssueState(issueId: string, stateId: string): Promise<{ ok: true }> {
+  return api.post(`/api/linear-room/issue/${encodeURIComponent(issueId)}/state`, { state_id: stateId });
+}
+
+/** `null` unassigns it. */
+export function assignLinearIssue(issueId: string, assigneeId: string | null): Promise<{ ok: true }> {
+  return api.post(`/api/linear-room/issue/${encodeURIComponent(issueId)}/assign`, { assignee_id: assigneeId });
+}
+
+export function commentOnLinearIssue(issueId: string, body: string): Promise<{ ok: true }> {
+  return api.post(`/api/linear-room/issue/${encodeURIComponent(issueId)}/comment`, { body });
+}
+
+/** Quick capture: the first line becomes the title, the rest the description. */
+export function captureLinearIssue(
+  text: string,
+): Promise<{ ok: true; identifier: string; url: string; status: string }> {
+  return api.post('/api/linear-room/capture', { text });
+}
+
+/** "Work on this": a Linear session briefed with the issue that starts as soon
+ * as it's opened. `existing` = an open session was already on it. */
+export function workOnLinearIssue(issueId: string): Promise<{ ok: true; id: string; existing: boolean }> {
+  return api.post(`/api/linear-room/issue/${encodeURIComponent(issueId)}/work`, {});
+}
+
+/** A /spinoff the agent staged as a Go button on this conversation
+ * (routes/spinoff.py offer_spinoff). `sessions` carries each brief's title. */
+export interface SpinoffOffer {
+  slugs: string[];
+  offered: string;
+  lane?: string;
+  sessions: { slug: string; title: string }[];
+}
+
+export interface SpinoffGoResult {
+  ok: boolean;
+  spawned: { slug: string; conversation_id: string; lane: string; newly_spawned: boolean; started: boolean }[];
+  errors: { slug: string; error: string }[];
+}
+
+export function getSpinoffOffer(convId: string, signal?: AbortSignal): Promise<{ offer: SpinoffOffer | null }> {
+  return api.get(`/api/spinoff/offer/${encodeURIComponent(convId)}`, signal);
+}
+
+export function goSpinoffOffer(convId: string): Promise<SpinoffGoResult> {
+  return api.post(`/api/spinoff/offer/${encodeURIComponent(convId)}/go`, {});
+}
+
+export function dismissSpinoffOffer(convId: string): Promise<{ ok: true }> {
+  return api.post(`/api/spinoff/offer/${encodeURIComponent(convId)}/dismiss`, {});
+}
+
+/** Another session, named: its id and its title. */
+export interface NamedSession {
+  id: string;
+  title: string;
+}
+
+/** What is kept about one spun-off session's brief (routes/spinoff.py
+ * `session_brief`): the brief itself, the files pasted into its hidden
+ * instructions, those instructions whole, and any handoffs. All of it is read
+ * from the database; none of it is a file. */
+export interface SessionBrief {
+  conv: string;
+  title: string;
+  brief: {
+    id: number;
+    slug: string;
+    written_at: string;
+    written_by: NamedSession | null;
+    opened_at: string | null;
+    continues: NamedSession | null;
+    body: string;
+    preloaded: string[];
+    too_big: string[];
+  } | null;
+  /** The hidden instructions every turn is handed; null when it has none. */
+  context: string | null;
+  handoffs: {
+    id: number;
+    at: string;
+    body: string;
+    from: NamedSession | null;
+    to: NamedSession | null;
+    /** true: this session wrote it. false: this session was started from it. */
+    written_here: boolean;
+  }[];
+  continued_by: NamedSession | null;
+}
+
+/** One session's brief. Not polled: a brief doesn't change once its session
+ * has started. */
+export function useSessionBrief(convId: string) {
+  return useQuery({
+    queryKey: ['session-brief', convId] as const,
+    queryFn: ({ signal }) => api.get<SessionBrief>(`/api/spinoff/brief/${encodeURIComponent(convId)}`, signal),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+}
+
+// --- The mailbox (peermail.py) ------------------------------------------------
+// What she types while a turn is running goes to the session's mailbox on the
+// server, which hands it to the agent at its next step — or starts a turn with
+// it if the session is idle. Held agent messages are released from here too.
+
+/** One of her messages the agent hasn't read yet. `handed` = already written
+ * into the running agent, which reads it when its current step ends — too late
+ * to take back, not too late to send now. `rushed` = she pressed send now. */
+export interface InboxMessage {
+  id: number;
+  text: string;
+  record: boolean;
+  handed?: boolean;
+  rushed?: boolean;
+}
+
+/** Why her messages are waiting (routes/observatory.py _inbox_status):
+ * whether a turn is running, the step the agent is in right now (its tool,
+ * what it's working on, how long it has run), and what the session accepts
+ * mid-turn. */
+export interface InboxStatus {
+  running: boolean;
+  step: { name: string; target: string; seconds: number | null } | null;
+  policy: string;
+}
+
+export function sendToInbox(
+  convId: string,
+  text: string,
+  record: boolean,
+): Promise<{ ok: boolean; id: number; started: boolean }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/inbox`, { text, record });
+}
+
+export function fetchInbox(
+  convId: string,
+  signal?: AbortSignal,
+): Promise<{ waiting: InboxMessage[]; status?: InboxStatus | null }> {
+  return api.get(`/api/observatory/conversation/${encodeURIComponent(convId)}/inbox`, signal);
+}
+
+/** Her "send now": stop the step the agent is on and start a new turn with
+ * this message. 409 once the agent has already read it. */
+export function sendInboxNow(convId: string, id: number): Promise<{ ok: boolean; started: boolean }> {
+  return api.post(`/api/observatory/conversation/${encodeURIComponent(convId)}/inbox/${id}/now`, {});
+}
+
+export function cancelInboxMessage(convId: string, id: number): Promise<{ ok: boolean }> {
+  return api.delete(`/api/observatory/conversation/${encodeURIComponent(convId)}/inbox/${id}`);
+}
+
+/** Let a held agent message through (a brake stopped it). */
+export function releasePeerMessage(id: number): Promise<{ ok: boolean; status: string }> {
+  return api.post(`/api/observatory/peer/${id}/release`);
 }

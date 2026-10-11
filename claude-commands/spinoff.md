@@ -20,20 +20,55 @@ Multiple references ("1 and 3") default to **one session each**. If two items
 are so intertwined that separate sessions would collide in the same files,
 say so and propose combining — their call.
 
-## 2. Brief — write the handoff file
+## 2. Brief — write the handoff and save it
 
 For each task, pick a short readable slug (what the tab should be called —
-`keeper-chat`, not `item-1`; numbers mean nothing tomorrow) and write
-`<data dir>/spinoffs/<slug>/BRIEF.md`.
+`keeper-chat`, not `item-1`; numbers mean nothing tomorrow). Briefs are kept in
+the app's database, not in files, so **don't write a BRIEF.md**. Hand the text
+to the brief script on standard input, as a quoted here-document, from the
+skeleton checkout:
 
-**The brief is a distilled summary, not a context dump.** The child will do its
-own complete pass over the architecture and the owner's dev notes around the
-item — that's its job, baked into the Protocol below. What you hand it is:
-what the task IS (your distillation of what the owner wants), WHERE to look
-(dev-note sections by name, key files), and your read of the ground — marked
-as unverified. Anything you assert about the code, the child re-verifies
-against the code before believing it. Keep it tight; the child's fresh eyes
-are the point.
+```
+EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_brief.py <slug> <<'BRIEF'
+# Spinoff: <one-line title>
+...
+BRIEF
+```
+
+The quotes around the first `BRIEF` matter: they stop the shell from touching
+the backticks and `$` in your text. The closing `BRIEF` sits alone on the last
+line. The reply is one JSON line; `missing` lists any "Where to look" path
+that doesn't exist. To change a brief, send the whole text again under the
+same slug (it replaces the saved one until a session has started on it);
+`spinoff_brief.py <slug> --show` prints what is saved. If the session will
+land in a different room from yours, add `--room coding|personal` so relative
+paths are checked from the right folder.
+
+**The brief is a distilled summary, not a context dump — and it is the child's
+first message.** The whole text is posted into the new chat as-is, so the owner
+reads it there too; write it for both of them. What you hand the child is: what
+the task IS (your distillation of what the owner wants), WHERE to look (files),
+and your read of the ground — marked as unverified. Anything you assert about
+the code, the child re-verifies before believing it. Keep it tight; the child's
+fresh eyes are the point.
+
+**"Where to look" is a strict list: one file per line, nothing else.** Every
+file listed is pasted into the child's hidden instructions before it starts (a
+session merely *asked* to read its files skipped about one in eight — mostly
+the tests). Absolute paths, or relative to the room's working folder (Coding =
+the app checkout, Personal = the parent of both repos). A line range narrows a
+big file: `path:120-180`. After the path, a space and a short note is fine.
+Files only — no folders, no prose lines; put dev-note sections and "search for
+X" hints in the summary instead. **A path that doesn't exist refuses the whole
+spawn** — `spinoff_open.py` / the Go button reports which one, so fix it and
+offer again. Very large files aren't pasted; the child is told to read those
+itself.
+
+Don't write a Protocol — the general one (explore, teach, questions only if
+real ones exist, build, say it in the room) is attached to the child's instructions
+automatically, from `claude-commands/spinoff/protocol.md`. Write a
+`## Protocol` section only when this job genuinely needs a different one; if
+the brief has one, it replaces the general one.
 
 ```markdown
 # Spinoff: <one-line title>
@@ -44,50 +79,14 @@ they actually want. If it came from the dev/build TODO, quote the entry and
 name its section so the session can find the surrounding notes.>
 
 ## Where to look
-<Pointers only: the dev/build TODO sections by name, related dev-note entries,
-the key files/dirs. A map, not the territory.>
+- routes/example.py — the route in question (relative: a Coding-room child)
+- tests/test_example_routes.py
+- <absolute path to the dev/build TODO>:40-75 — the section this came from
 
 ## Sender's summary (UNVERIFIED — re-verify against the code)
 <Your distilled read: constraints, decisions already made by the owner, what
 you believe is true of the architecture. Short. The child treats every claim
 here as a hint to check, not a fact.>
-
-## Protocol
-You are a task executor, but the owner is in the learning phase and this is
-their system — you build WITH their input, never around it. In order:
-1. **Explore.** Completely review the architecture this task touches — the
-   actual routes, stores, frontend features, docs — and read the owner's dev
-   notes related to the item, in full. Verify every claim in "Sender's
-   summary" yourself; it is a hint sheet from another session, not ground
-   truth. No edits during this phase.
-2. **Teach.** Explain to the owner how the relevant structures work today —
-   where things live, how the pieces connect, why the code is shaped the way
-   it is. Cite file paths so they learn the territory. Assume they are
-   learning this system — never assume they already know what's going on;
-   build the picture from the ground up.
-3. **Clarify.** Ask the questions that genuinely fork the design — the ones
-   you cannot answer from the notes or the code. Not ceremony; real forks.
-4. **Recap, then check.** Before any plan: recap the structure in a few
-   sentences — the map of what you found and what the change will touch —
-   and ask the owner explicitly: "anything else you need to know before I
-   go into plan mode?" Wait for their answer. Only proceed when they say
-   they're ready.
-5. **Plan mode.** Enter plan mode and present your implementation plan. The
-   owner approves it from an informed position because of steps 2–4. Do not
-   write code before the plan is approved.
-6. **Build.** Execute the approved plan yourself, following this repo's
-   CLAUDE.md conventions (tests for behavior, restart/build steps, commit
-   when the thing ships). Keep teaching as you go when something surprising
-   turns up.
-7. **Say it in the room.** As your LAST act, tell the owner what you did — in
-   the conversation, not in a file. Short: what changed, what it could break,
-   and what you're not sure about. Do NOT claim your work passes; say what you
-   actually ran. Say it even if you parked or failed; especially then.
-An Orchestra session works in its OWN copy of the checkout (a git worktree, see
-worktrees.py) on branch `agent/<slug>-<date>`, so it can't collide with anything
-else running — but it also can't see its change in the running site, and its
-work reaches the app only when the owner merges that branch. Commit to it early
-and name your commits.
 
 ## Result
 <Leave empty. One line at the end — the outcome, plainly.>
@@ -116,38 +115,54 @@ for it. Same reason `scripts/nightcrew_run.py` runs the tests itself rather than
 believing the worker. Don't reintroduce a prose artifact that sits beside the
 evidence pretending to be it.
 
-## 3. Spawn — confirm, then stage the session
+## 3. Offer — a Go button, not a question
 
-Show the owner what you're about to spawn — slug + one-line task summary per
-session — and **wait for their go**. This starts a real agent doing real work;
-never skip the confirm.
-
-On yes, for each task (from the skeleton checkout):
+Show the owner what you'd spawn: the slug and a one-line task summary per
+session. Then, instead of asking "go?", **offer it** (from the skeleton
+checkout), with every slug in one call:
 
 ```
-EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_open.py <slug>
+EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_offer.py <slug> [<slug> ...]
 ```
 
-(The env var matters: without it the script resolves the repo's default
-`data/` instead of the instance's real data dir, and won't find your brief.)
+(The env var matters, here and on `spinoff_brief.py`: without it the script
+resolves the repo's default `data/` instead of the instance's real data dir,
+and won't find your brief.)
+
+That puts a **Go** card at the bottom of her chat, listing each brief's title.
+End your turn there: one short line saying the Go button is up. Don't ask
+"shall I?" too. Her tap on Go IS the confirm. It starts the sessions, takes her
+to the first one, and that session asks whether to close this chat. You don't
+spawn anything yourself, and you won't see the tap.
+
+She can also ignore the card and keep talking. If what she says changes the
+plan, save the brief again (same slug) or save a new one, and run
+`spinoff_offer.py` again; a new offer replaces the old card. If she says "go"
+in words instead of tapping, spawn directly with `spinoff_open.py <slug>`, the
+same door the button uses.
+
+**Not in an Observatory session** (a terminal, where there's no chat to put a
+button in): `spinoff_offer.py` refuses with "no EXOCORTEX_CONV_ID". Then fall
+back to the old way: ask in words, **wait for their go** (this starts a real
+agent doing real work, so never skip the confirm), and on yes run
+`scripts/spinoff_open.py <slug>` for each.
 
 **The room comes along by itself — don't name one unless they did.** A spinoff
 lands in the room THIS conversation is in: spun off from a Personal session it's
-Personal, from an Orchestra session it's Orchestra. That's inherited from your
-own session id, so the plain command above is the right one almost always. Two
-cases where you say it outright, with `--room personal` / `--room orchestra`:
+Personal, from a Coding session it's Coding. That's inherited from your own
+session id, so the plain commands above are the right ones almost always. Two
+cases where you say it outright, with `--room coding` / `--room personal` (both
+scripts take it):
 
-- **They specified.** "put it in personal", "that one should be orchestra."
+- **They specified.** "put it in personal", "that one's coding."
 - **You're not in a room at all** — a terminal session, not an Observatory one.
-  Then there's nothing to inherit and it falls to `orchestra`, the room that
-  stops and asks. If the work is really vault-side or hers-in-real-time, pass
-  `--room personal`; otherwise let it default.
+  Then there's nothing to inherit, so always name one: `--room coding` for app
+  work, `--room personal` if the work is vault-side or hers-in-real-time.
 
-The room isn't cosmetic: it sets where the child is rooted (Orchestra = the app
+The room isn't cosmetic: it sets where the child is rooted (Coding = the app
 checkout, Personal = the parent of both repos, where it sees code and vault as
-peers) and whether it stops to ask before irreversible work (Orchestra asks,
-Personal acts). The reply's `lane` is the room it actually landed in — tell her
-which room each session went to when you report back.
+peers). The reply's `lane` is the room it actually landed in — tell her which
+room each session went to when you report back.
 
 (Same narrow-door doctrine as `scripts/stage_change.py` — agents shell out to
 the script; the app's own UI uses `POST /api/spinoff/open`, both wrapping the
@@ -171,9 +186,10 @@ for her". They can't double-fire: whichever send lands first pops both fields,
 and a second send into a running conversation is refused with a 409. A
 `started: false` is the one case where she really does have to open it.
 
-Tell the owner the session(s) are **running now**, which room each went to
-(`lane`), and what each is working on. Her sequencing decision is therefore
-YOURS, made before you spawn, not hers made at the door: if two spinoffs would
+When YOU spawned (the terminal path, or she said "go" in words), tell the owner
+the session(s) are **running now**, which room each went to (`lane`), and what
+each is working on. Either way, the sequencing decision is YOURS, made before
+you offer, not hers made at the door: if two spinoffs would
 edit the same files they must not be spawned together — propose combining them
 into one session, or spawn the first and hold the second until it ships. If
 `newly_spawned` came back false, tell her the spinoff session already exists in

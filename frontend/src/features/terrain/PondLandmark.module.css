@@ -1,146 +1,117 @@
-/* The pond floating over the terrain — see PondLandmark.tsx for what it is.
+/* The pond floating over the terrain — see PondLandmark.tsx for what it is,
+   and pondPlacement.ts for where each piece goes.
 
-   The whole file is one idea: ONE object at two sizes. Everything that changes
-   between resting and reached is a transition on the same element, never a
-   swap between two of them, because the growth is meant to read as walking up
-   to a thing rather than as one thing being replaced by another. */
+   The landmark is a LAYER over the whole viewport that takes no pointer
+   events itself, holding a few pieces placed in screen pixels: at rest, a
+   transparent reach target laid over the canvas-drawn tile and the name
+   floating above it; reached, the pane (opened above the tile) and an
+   invisible bridge joining the two. Hover is judged on the layer, so moving
+   between its pieces never counts as leaving. */
 
-.landmark {
+.layer {
   position: fixed;
+  inset: 0;
   z-index: 60;
-  /* Centred on the anchor the canvas reports — the journal cluster's middle. */
-  transform: translate(-50%, -50%);
-  transform-origin: center;
-  display: block;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--pond-deep) 45%, transparent);
-  border-radius: 999px 999px 46% 46% / 999px 999px 62% 62%;
-  background: color-mix(in srgb, var(--card-bg) 62%, transparent);
-  backdrop-filter: var(--frost-chip);
-  -webkit-backdrop-filter: var(--frost-chip);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.20);
-  cursor: pointer;
-  overflow: hidden;
-  text-align: left;
-  /* The two properties that are cheap to animate, and the two the size change
-     actually needs. Width/height are in here too because the box genuinely
-     resizes — but they're the only layout properties that move, and this
-     element is position:fixed, so nothing else on the page reflows with it. */
-  transition:
-    width 300ms cubic-bezier(0.32, 0.72, 0, 1),
-    height 300ms cubic-bezier(0.32, 0.72, 0, 1),
-    border-radius 300ms cubic-bezier(0.32, 0.72, 0, 1),
-    box-shadow 300ms ease,
-    background-color 300ms ease;
+  pointer-events: none;
 
   /* The pond's own two tones, resolved per theme below. Kept as custom
-     properties so the SVG gradient and the chrome can't drift apart. */
+     properties so every piece of chrome reads from one place. */
   --pond-bright: #79b4d6;
   --pond-deep: #2f6b8f;
 }
 
-:global(.theme-dark) .landmark,
-:global([data-theme='dark']) .landmark {
+:global(.theme-dark) .layer,
+:global([data-theme='dark']) .layer {
   --pond-bright: #8ec7e6;
   --pond-deep: #26536e;
 }
 
-.landmark:hover,
-.landmark:focus-visible {
-  box-shadow: 0 16px 40px rgb(0 0 0 / 0.30);
-}
-
-/* At rest the landmark is not the drawing any more — the canvas paints the
-   pond tile itself (terrainCanvas.ts), and this box is a transparent reach
-   target sitting over it, with the name hung beneath. No border, no glass, no
-   shadow: chrome over the tile would cover the exact thing it names. Overflow
-   is visible because the name lives OUTSIDE the box now. */
-.atRest {
+/* Resting, the whole tile is one target: laid exactly over the square the
+   canvas paints, transparent, so the drawing underneath is what she sees. */
+.reachTarget {
+  position: absolute;
+  padding: 0;
   border: 0;
   border-radius: 12px;
-  background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow: none;
-  overflow: visible;
+  background: none;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
-.atRest:hover,
-.atRest:focus-visible {
-  box-shadow: none;
-}
-
-/* The name (and the lit-thread chip) beneath the square, centred — a map
-   caption under its symbol, like the directory hubs name themselves. */
-.atRest .stack {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  height: auto;
-  width: max-content;
-  max-width: 200px;
-  align-items: center;
-  padding: 2px 0 0;
-}
-
-.landmark:focus-visible {
+.reachTarget:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
-/* Reached: a real pane rather than a pebble. The border-radius unwinds from
-   the pond-ish blob toward a card, because at this size it's something to read
-   from, not a symbol. */
-.reached {
+/* The name floating just above the square, centred — a map caption over its
+   symbol. The point it's placed at is its bottom-middle, hence the -100%.
+   The lit-thread chip, when there is one, rides above the name. */
+.restLabel {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: max-content;
+  max-width: 200px;
+  pointer-events: none;
+}
+
+/* The invisible strip joining the tile to the open pane — see hoverBridge in
+   pondPlacement.ts. Pointer events on, so the hover carries across it. */
+.bridge {
+  position: absolute;
+  pointer-events: auto;
+}
+
+/* THE PANE: a real panel, rising out of the tile when she reaches it. Its size
+   is set directly (no width/height transition), so the corner grip tracks
+   her finger instead of trailing 300ms behind it; the arrival is a short rise
+   on transform and opacity, the two properties that are cheap to animate. */
+.pane {
+  position: absolute;
+  pointer-events: auto;
+  border: 1px solid color-mix(in srgb, var(--pond-deep) 45%, transparent);
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--card-bg) 86%, transparent);
   backdrop-filter: var(--frost-pane);
   -webkit-backdrop-filter: var(--frost-pane);
-  cursor: default;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.30);
+  overflow: hidden;
+  text-align: left;
+  animation: rise 220ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* Resting, the whole symbol is one target. Covers the box rather than sitting
-   in it, so the 40px house floor is met by the landmark's own size. */
-.reachTarget {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
+/* Rise from the edge nearest the tile, so the pane reads as coming out of it. */
+.above { transform-origin: 50% 100%; }
+.below { transform-origin: 50% 0%; }
+.over { transform-origin: 50% 50%; }
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
-.reachTarget:focus-visible {
-  outline: none;
-}
-
-/* Name and chips are FLOW content in a padded column, not absolutely-placed
-   offsets. They used to be pinned to top and bottom of a 46px box, and at the
-   resting size a lit thread's chip landed on top of the name — "POND" with
-   "Ezra" sitting across it. Stacking them means the box can never collide with
-   itself at any size. */
+/* The pane's whole layout: a header line, the drawing taking every pixel
+   that's left, and one row of controls on the floor. The drawing is the only
+   thing that flexes, which is what makes dragging the corner buy TIME rather
+   than chrome. Name and chips are flow content, so they can never land on
+   top of each other at any size. */
 .stack {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
-  height: 100%;
-  padding: 5px 9px;
-  pointer-events: none;
-}
-
-/* Reached, the stack is the pane's whole layout: a header line, the drawing
-   taking every pixel that's left, and one row of controls on the floor. The
-   drawing is the only thing that flexes, which is what makes dragging the
-   corner buy TIME rather than chrome. */
-.reached .stack {
   gap: 6px;
+  height: 100%;
   padding: 8px 10px 10px;
-  pointer-events: auto;
 }
 
 .name {
@@ -149,7 +120,7 @@
   gap: var(--space-2);
 }
 
-.reached .name {
+.pane .name {
   align-self: stretch;
 }
 
@@ -172,8 +143,9 @@
   text-shadow: 0 1px 3px color-mix(in srgb, var(--card-bg) 80%, transparent);
 }
 
-.reached .nameText {
+.pane .nameText {
   font-size: 14px;
+  text-shadow: none;
 }
 
 .count {
@@ -186,16 +158,18 @@
   color: var(--text-muted);
 }
 
-/* The filter display — one chip at rest (the lit thread), the full set once
-   reached. Sits in the stack under the name, so it can never cover it. */
+/* The filter display — one chip at rest (the lit thread), the full set in
+   the pane. Flow content beside the name, so it can never cover it. */
 .filters {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 4px;
   max-width: 100%;
 }
 
-.reached .filters {
+.pane .filters {
+  justify-content: flex-start;
   gap: 5px;
 }
 
@@ -380,6 +354,7 @@
   position: absolute;
   right: 0;
   bottom: 0;
+  z-index: 1;
   width: 22px;
   height: 22px;
   cursor: nwse-resize;
@@ -392,6 +367,14 @@
     color-mix(in srgb, var(--text-muted) 55%, transparent) 72% 79%,
     transparent 79%
   );
+}
+
+/* An above-pane is pinned at its bottom, so its free corner is the top one:
+   the grip moves there and its ridges turn to match. */
+.above .resize {
+  top: 0;
+  bottom: auto;
+  transform: scaleY(-1);
 }
 
 /* Her voice against the Keeper's — a hairline, not a chart. */
@@ -423,14 +406,14 @@
   }
 }
 
-/* Reduced motion: the landmark still grows — the size change IS the
-   information — but it stops easing and nothing slides. */
+/* Reduced motion: the pane still opens, it just appears rather than rising,
+   and nothing slides. */
 @media (prefers-reduced-motion: reduce) {
-  .landmark,
   .ownFill {
     transition-duration: 1ms;
   }
 
+  .pane,
   .enter {
     animation: none;
   }

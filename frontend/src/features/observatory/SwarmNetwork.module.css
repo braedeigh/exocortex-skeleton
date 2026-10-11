@@ -1,0 +1,454 @@
+/* SwarmNetwork — a swarm as rings and lines. Rings are Terrain's --accent
+   purple around a solid dot (glowing, with a spinning teal arc, while it
+   works; an extra orange ring when waiting on her); talk lines are --green,
+   the helper's threads out to members are blue; an arrowhead on a line
+   points at whoever received the messages. */
+
+/* The drawing fills the width it's given and never scrolls sideways: the
+   layout is fitted to that width (swarmNetworkMath.ts layoutSwarm), and the
+   height follows from the aspect ratio SwarmNetwork.tsx sets. */
+.canvas {
+  position: relative;
+  width: 100%;
+}
+
+.lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.talk {
+  stroke: var(--green);
+  /* Square ends: a line stops flat against the base of its arrowhead, and
+     an end with no head is hidden under its ring. */
+  stroke-linecap: butt;
+  opacity: 0.85;
+}
+
+/* The helper's threads: blue (--helper-blue, theme.css), so they read apart
+   from green talk. The Terrain map draws the same lines from the same two
+   tokens. A touch fainter than talk. */
+.helperThread {
+  stroke: var(--helper-blue);
+  stroke-linecap: butt;
+  opacity: 0.7;
+}
+
+/* The arrowheads: a head at each end of a line that received messages, in
+   the line's own colour and strength. */
+.talkHead {
+  fill: var(--green);
+  opacity: 0.85;
+}
+
+.helperHead {
+  fill: var(--helper-blue);
+  opacity: 0.7;
+}
+
+.handover {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+  opacity: 0.6;
+}
+
+.handoverHead {
+  fill: var(--accent);
+  opacity: 0.6;
+}
+
+/* The spotlight: while one agent is pointed at, every line, count and ring
+   that isn't its own steps back (SwarmNetwork.tsx puts this class on them).
+   The fade is quick and eased, and only opacity moves. */
+.lines g,
+.count,
+.node {
+  transition: opacity 180ms ease-out;
+}
+
+.lines g.dimmed,
+.count.dimmed,
+.node.dimmed {
+  opacity: 0.18;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lines g,
+  .count,
+  .node {
+    transition: none;
+  }
+}
+
+/* A message count sits on its line, on a chip so it reads. */
+.count {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  min-width: 24px;
+  padding: 1px 6px;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  background: var(--card-bg, var(--surface));
+  color: var(--green);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* A count is a button: tap it to read that line's messages. The chip stays
+   small; the unseen ring round it brings the tap target up to ~40px. */
+button.count {
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+button.count::before {
+  content: '';
+  position: absolute;
+  inset: -9px;
+}
+
+button.count:hover,
+button.count:focus-visible {
+  background: color-mix(in srgb, currentColor 14%, var(--card-bg, var(--surface)));
+}
+
+/* The band along a message line that takes the click: unseen, far wider
+   than the line it lies on, so a thin line is easy to hit. */
+.hit {
+  stroke: transparent;
+  stroke-width: 18;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* The sheet a line opens into: its messages, newest first. */
+.lineNote {
+  margin: 0 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.lineMessages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.lineMessage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--green);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--green) 6%, transparent);
+}
+
+.lineMeta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.lineText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* What the two ends are coordinating on: the sheet's opening lines. */
+.lineThread {
+  margin: 0 0 var(--space-3);
+  font-weight: 600;
+}
+
+/* A message's one-line summary, and the fold that opens its own words. */
+.lineGist {
+  overflow-wrap: anywhere;
+}
+
+.lineFull {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.lineFull::before {
+  content: '▸';
+  margin-right: var(--space-1);
+}
+
+details[open] > .lineFull::before {
+  content: '▾';
+}
+
+/* The helper thread's count: the same chip, in blue. */
+.helperCount {
+  border-color: var(--helper-blue);
+  color: var(--helper-blue);
+}
+
+/* One agent. The ring's centre sits exactly on its seat; the name hangs
+   below. 132px is the widest a name runs; on a narrow drawing
+   SwarmNetwork.tsx sets a narrower width inline. */
+.node {
+  position: absolute;
+  transform: translate(-50%, -20px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 132px;
+  min-height: var(--tap-target, 40px);
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  /* Let clicks through the button's empty space: the box is far wider than
+     its ring, and a message line running under it has to stay clickable.
+     Only the ring and the name take the pointer (the rule below). */
+  pointer-events: none;
+}
+
+.node > * {
+  pointer-events: auto;
+}
+
+.node:hover,
+.node:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* A ring above the helper carries its name on top: the button is turned
+   upside down and hung from its bottom edge, so the ring's centre still
+   sits on its seat (20px up from the bottom) and the name grows upward. */
+.above {
+  flex-direction: column-reverse;
+  transform: translate(-50%, calc(-100% + 20px));
+}
+
+.ringBox {
+  overflow: visible;
+  flex: none;
+}
+
+/* The ring's tap target: an unseen disc, 40px across, under the ring. */
+.ringHit {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.ring {
+  fill: var(--card-bg, var(--surface));
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.halo {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  opacity: 0.25;
+}
+
+.name {
+  font-size: var(--font-size-sm);
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* The solid dot at the centre of every ring. */
+.dot {
+  fill: var(--accent);
+}
+
+/* WORKING: the ring and dot stay put; the dot glows in and out and a teal
+   arc spins around it. Teal isn't in the theme palette — the same value the
+   tab bar's live tabs use (TabBar.module.css --live-teal). */
+.state_working .dot {
+  animation: dotGlow 2.4s ease-in-out infinite;
+}
+
+.spinner {
+  fill: none;
+  stroke: #2fa6a0;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  /* A third of the circle drawn, the rest a gap: an arc that reads as turning. */
+  stroke-dasharray: 13.6 27.2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spin 1.6s linear infinite;
+}
+
+.state_working .halo {
+  opacity: 0.45;
+}
+
+/* SILENT: resting, a step back. */
+.state_silent .ringBox {
+  opacity: 0.6;
+}
+
+/* NEEDS HER: a second, orange ring just outside the purple one. Still. */
+.waitRing {
+  fill: none;
+  stroke: var(--orange);
+  stroke-width: 2.2;
+}
+
+/* RETIRED (archived or handed on, while shown): further back still. */
+.retired .ringBox,
+.retired .name {
+  opacity: 0.4;
+}
+
+/* THE OUTER RING (retired, in a bigger swarm): a smaller ring, still a
+   ~40px tap. The top padding keeps the ring's centre 20px from the top,
+   where .node's transform expects it. */
+.outer {
+  padding-top: 8px;
+}
+
+.outer.above {
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
+
+/* No room for names on the outer ring: the button shrinks to its ring,
+   and the name floats on a chip, only on hover, focus or a first tap. */
+.unnamed {
+  width: var(--tap-target, 40px);
+}
+
+.unnamed .name {
+  display: none;
+  position: absolute;
+  top: 38px;
+  left: 50%;
+  /* Centred under the ring, pushed back in near the drawing's side edges
+     (--peek-shift, set by SwarmNetwork.tsx). */
+  transform: translateX(calc(-50% + var(--peek-shift, 0px)));
+  z-index: 2;
+  width: max-content;
+  max-width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg, var(--surface));
+}
+
+.unnamed:hover,
+.unnamed:focus-visible,
+.peeked {
+  z-index: 2;
+}
+
+.unnamed:hover .name,
+.unnamed:focus-visible .name,
+.peeked .name {
+  display: block;
+  opacity: 1;
+}
+
+@keyframes dotGlow {
+  0%, 100% { opacity: 0.55; filter: drop-shadow(0 0 0 var(--accent)); }
+  50% { opacity: 1; filter: drop-shadow(0 0 3px var(--accent)); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .state_working .dot,
+  .spinner {
+    animation: none;
+  }
+}
+
+.allHidden {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.keyTalk,
+.keyHandover {
+  display: inline-block;
+  width: 28px;
+  height: 0;
+  border-top: 3px solid var(--green);
+}
+
+.keyHandover {
+  border-top: 2px dashed var(--accent);
+}
+
+.keyHelper {
+  display: inline-block;
+  width: 28px;
+  height: 0;
+  border-top: 3px solid var(--helper-blue);
+  vertical-align: middle;
+}
+
+/* The hide/show-retired switch: a full-size tap target at the key's end. */
+.retiredToggle {
+  min-height: var(--tap-target, 40px);
+  margin-left: auto;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg, var(--surface));
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.retiredToggle[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* THE HELPER: a bigger filled dot in the middle, no ring of its own, a
+   name in bold. It glows (state_working) while a run is going. Its button
+   is only as wide as its short name, so it doesn't lie over the taps of
+   the members seated close round it. */
+.helper {
+  width: 72px;
+}
+
+.helper .name {
+  font-weight: 600;
+}
+
+.helper .spinner {
+  stroke-dasharray: 25 50;
+}

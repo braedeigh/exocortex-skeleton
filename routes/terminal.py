@@ -7,7 +7,7 @@ PhoneTerminal; see frontend/MIGRATION_NOTES.md). Their APIs below are unchanged.
 from flask import request, jsonify, Response
 from pathlib import Path
 from datetime import datetime
-from data_helpers import DATA_DIR, UPLOAD_DIR, sweep_uploads
+from data_helpers import DATA_DIR, UPLOAD_DIR, sweep_uploads_throttled
 from routes.cards import _run_stream
 import fcntl
 import hashlib
@@ -569,7 +569,8 @@ def _thread_tag_for_session(sess):
     return None
 
 
-def _capture_journal(body, typed, tags=None, who="B", session=None, reply_to=None):
+def _capture_journal(body, typed, tags=None, who="B", session=None, reply_to=None,
+                     ts=None):
     """Mint a card for one journal turn, at the server, before the text is
     ever typed into tmux -- capture must not depend on a terminal process
     staying alive to see it (the whole reason this exists: the hook's
@@ -587,6 +588,13 @@ def _capture_journal(body, typed, tags=None, who="B", session=None, reply_to=Non
     out of, and `reply_to` hangs it under another card. Both are for the
     highlight-a-span door in observatory.py: the quote card carries the session,
     and her annotation is a B card replying to the quote.
+
+    `ts` ('YYYY-MM-DD HH:MM:SS', local) backdates the card to when the words
+    were actually said, instead of now. It is for the put-it-back door in
+    observatory.py: an off-the-record message she later taps into the journal
+    lands at its original send time. A backdated mint is not a fresh prompt, so
+    it leaves no ui_captured hash — the hook saw that prompt long ago, and a
+    stray hash would swallow the next time she types the same words.
 
     RETURNS THE MINTED CARD ID (a truthy string) or None -- the highlight door
     needs the id to hang her annotation off the quote card. Truthiness is the
@@ -606,6 +614,8 @@ def _capture_journal(body, typed, tags=None, who="B", session=None, reply_to=Non
         args += ["--session", session]
     if reply_to:
         args += ["--reply-to", reply_to]
+    if ts:
+        args += ["--ts", ts]
     try:
         result = _run_stream(*args, stdin=body)
     except subprocess.TimeoutExpired as e:
@@ -617,9 +627,9 @@ def _capture_journal(body, typed, tags=None, who="B", session=None, reply_to=Non
     if result.returncode != 0:
         _log_capture_failure(body, (result.stderr or "").strip() or "stream.py record failed")
         return None
-    if who == "B":
+    if who == "B" and not ts:
         # The hook-dedup hash is keyed to her typed prompts; a keeper card
-        # has no hook fallback to dedup against.
+        # has no hook fallback to dedup against, and neither has a backdated one.
         _note_ui_capture(typed)
     # stream.py echoes the new id as its last stdout line -- same contract
     # routes/cards.py reads. A mint that somehow printed nothing still counts
@@ -694,7 +704,11 @@ def register(app):
             # journal capture below needs typed_now/body_now either way.
             saved_to = None
             if len(text) > 500:
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                # Microseconds, matching the image path below. Without them two
+                # long pastes inside the same wall-clock second resolve to the
+                # same filename and the write_text on the next line silently
+                # truncates the first one away — no error, no trace.
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                 dest = UPLOAD_DIR / f"{ts}_paste.txt"
                 dest.write_text(text)
                 saved_to = str(dest)
@@ -1000,7 +1014,12 @@ def register(app):
 
     @app.route("/api/terminal/upload", methods=["POST"])
     def terminal_upload():
-        sweep_uploads()   # uploads are transient: anything older than 24h goes
+        # Aged uploads get FILED into the archive, not deleted (see
+        # data_helpers.sweep_uploads). Throttled, where this used to be the one
+        # unthrottled call in the system — it fired hardest exactly when uploads
+        # were arriving fastest. Once nothing is lost, there is no reason to
+        # drain the inbox on the instant; an hour late costs nothing.
+        sweep_uploads_throttled()
         files = [f for f in request.files.getlist("photo") if f and f.filename]
         if not files:
             return jsonify({"error": "no file"}), 400

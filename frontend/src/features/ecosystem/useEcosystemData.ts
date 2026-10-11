@@ -9,7 +9,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '../../api/client';
-import { addSource, getEcosystemData, removeSource, updateSource } from './api';
+import { addSource, getEcosystemData, linkSource, removeSource, unlinkSource, updateSource } from './api';
 import type { SourcePayload } from './api';
 
 export const ECOSYSTEM_QUERY_KEY = ['data', 'ecosystem'] as const;
@@ -42,5 +42,19 @@ export function useSourceMutations(onError: (message: string) => void) {
     onSuccess: invalidate,
   });
 
-  return { save, remove };
+  // Link / unlink a food or product to a source — the join the map traces by.
+  const link = useMutation({
+    mutationFn: (v: { sourceId: string; target: { food?: number; product_id?: number } }) =>
+      linkSource(v.sourceId, v.target),
+    onError: (err) => onError(errorMessage(err, 'Link failed.')),
+    onSuccess: invalidate,
+  });
+
+  const unlink = useMutation({
+    mutationFn: (linkId: number) => unlinkSource(linkId),
+    onError: (err) => onError(errorMessage(err, 'Unlink failed.')),
+    onSuccess: invalidate,
+  });
+
+  return { save, remove, link, unlink };
 }

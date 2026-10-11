@@ -53,6 +53,23 @@ if _FIRST_PASS:
 # the shared /tmp; nested, the whole family stays inside the throwaway tree.
     os.environ["EXOCORTEX_DATA_DIR"] = os.path.join(_TEST_ROOT, "data")
     os.environ["EXOCORTEX_CONTENT_DIR"] = os.path.join(_TEST_ROOT, "content")
+    # The spinoff start-up logs default to /var/tmp, not to a folder derived
+    # from the data dir, so they need pointing into the throwaway tree by name.
+    os.environ["EXOCORTEX_SPINOFF_KICKOFF_DIR"] = os.path.join(_TEST_ROOT, "spinoff-kickoffs")
+
+# No test runs as an agent session. EXOCORTEX_CONV_ID is set in every
+# Observatory turn, so a suite started from inside one would inherit that
+# session's identity — and peermail.send refuses the owner's messages from an
+# agent's process. Dropped so a run from a session behaves like the nightly
+# cron run; a test that wants an identity sets it with monkeypatch.setenv.
+os.environ.pop("EXOCORTEX_CONV_ID", None)
+
+# Turns take one prompt and close their input, the old way, for the whole suite
+# (set BEFORE config is imported). The test stubs standing in for the agent read
+# their input to the end before answering, so a turn that keeps its input open
+# for mid-turn messages would wait on them forever. tests/test_peer_turns.py
+# turns it back on with a stub that speaks the streaming format.
+os.environ["EXOCORTEX_TURN_STREAM_INPUT"] = "0"
 
 # Kill the store's op counters for the whole suite (set BEFORE store is
 # imported): tests hammer the store, and nothing may leak into any data dir —
@@ -65,6 +82,15 @@ os.environ["EXOCORTEX_STORE_STATS_OFF"] = "1"
 # re-checks the env on every call, so tests/test_writelog.py can still turn
 # it on per test with monkeypatch.setenv regardless of this default.
 os.environ.setdefault("EXOCORTEX_WRITE_LOG_OFF", "1")
+# ...and the runtime-utilization sensor (runtime_sensor.py). server.py starts it
+# at import, and three test modules import server — which without this leaves a
+# background thread running for the rest of the suite, writing a sidecar nobody
+# asked for, and quietly makes every later `start()` a no-op that returns True
+# while still watching the SKELETON dir. That last one is the nasty half: a test
+# that starts the sensor on its own tmp root would look like it succeeded and
+# then see none of its own hits. tests/test_runtime_sensor.py re-enables it per
+# test with monkeypatch.setenv.
+os.environ["EXOCORTEX_RUNTIME_SENSOR"] = "0"
 
 import store  # noqa: E402
 
@@ -73,9 +99,10 @@ import store  # noqa: E402
 # to start: a collection error is cheap, and discovering it from a clobbered
 # vault is not. (Only on the first pass — see the sentinel above.)
 if _FIRST_PASS:
-    for _name in ("DATA_DIR", "CONTENT_DIR", "UPLOAD_DIR", "RECEIPTS_DIR", "RECIPES_DIR",
+    for _name in ("DATA_DIR", "CONTENT_DIR", "UPLOAD_DIR", "UPLOAD_ARCHIVE_DIR", "THUMB_DIR",
+                  "RECEIPTS_DIR", "RECIPES_DIR",
                   "ARCHIVALS_DIR", "RECORDINGS_DIR",
-                  "TRIAGE_DIR", "SPINOFF_DIR", "PERSON_SKILL_DIR",
+                  "TRIAGE_DIR", "SPINOFF_DIR", "SPINOFF_KICKOFF_DIR", "PERSON_SKILL_DIR",
                   "RESEARCH_DIR", "RESEARCH_FILER_DIR", "RESEARCH_RUNNER_DIR",
                   "RESEARCH_DEEP_DIR", "RESEARCH_WORKER_DIR", "RESEARCH_DISTILLER_DIR"):
         _root = getattr(store, _name, None)
@@ -114,8 +141,66 @@ import codestore  # noqa: E402
 codestore.default_repos = lambda: ()
 
 
+# BUILD THE EMPTY DATABASE ONCE, COPY IT PER TEST — a template.
+#
+# Every store-backed test used to open a brand-new exo.db and climb the whole
+# migration ladder (hundreds of CREATEs, then a checkpoint on close): about
+# 0.15s, paid again by thousands of tests. Copying a finished file costs about
+# 0.003s. The ladder is pure schema — no rung reads the data dir — so a copy
+# of one migrated empty database is the same thing the ladder would have built.
+#
+# The copy happens only at the moment sqlstore would have CREATED the file, so
+# a test that builds its own exo.db by hand first (with its own tables) still
+# gets exactly what it built, and a test asserting that no database exists
+# still sees none. Tests that are about the ladder itself opt out with
+# `@pytest.mark.fresh_db` and climb it for real.
+import shutil  # noqa: E402
+
+import sqlstore  # noqa: E402
+
+_REAL_CONNECT = sqlstore._connect
+_TEMPLATE_DB = pathlib.Path(_TEST_ROOT) / "db-template" / "exo.db"
+
+
+def _template_db():
+    """The migrated empty database, built on first use in this process."""
+    if not _TEMPLATE_DB.exists():
+        _TEMPLATE_DB.parent.mkdir(parents=True, exist_ok=True)
+        saved = store.DATA_DIR
+        store.DATA_DIR = _TEMPLATE_DB.parent
+        try:
+            _REAL_CONNECT().close()     # the last close checkpoints the WAL into the file
+        finally:
+            store.DATA_DIR = saved
+    return _TEMPLATE_DB
+
+
+def _connect_from_template():
+    """sqlstore._connect, but a missing database starts as a copy of the template.
+
+    Copy to a side file, then hard-link it into place: the link fails if the
+    file already exists, so when several threads open a fresh database at once
+    exactly one copy lands and nobody ever sees a half-written file."""
+    path = sqlstore._db_path()
+    if not path.exists():
+        side = path.with_name(f".exo.db.{os.getpid()}.{id(object())}")
+        shutil.copyfile(_template_db(), side)
+        try:
+            os.link(side, path)
+        except FileExistsError:
+            pass
+        finally:
+            side.unlink()
+    return _REAL_CONNECT()
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "fresh_db: build exo.db through the real migration ladder, not the template")
+
+
 @pytest.fixture
-def data_dir(tmp_path, monkeypatch):
+def data_dir(tmp_path, monkeypatch, request):
     """Point the store at a fresh temp dir for this test only.
 
     The blob roots have to be re-pointed one by one: each is resolved from its
@@ -123,9 +208,29 @@ def data_dir(tmp_path, monkeypatch):
     the process-wide test root — shared by every test, and therefore a place
     where one test's uploaded file is still sitting when the next one runs.
     """
+    if request.node.get_closest_marker("fresh_db") is None:
+        # Build the template here, before the test starts any thread. Building
+        # it swings store.DATA_DIR over to the template folder for a few
+        # seconds; left to first use, a test whose first database open happens
+        # on a background thread (a streamed turn) has its own thread read and
+        # write files in the template folder meanwhile, and fails only when it
+        # is the first store test in the run.
+        _template_db()
+        monkeypatch.setattr(sqlstore, "_connect", _connect_from_template)
+    # Never start a real model call from a test: sending an agent message
+    # starts a detached summary call (message_summaries.py), and that would
+    # run the real `claude`. A test about the summaries puts its own in.
+    import message_summaries
+    monkeypatch.setattr(message_summaries, "_detach", lambda message_id: None)
     monkeypatch.setattr(store, "DATA_DIR", tmp_path)
     monkeypatch.setattr(store, "UPLOAD_DIR", tmp_path / "uploads")
+    # The uploads archive is the one root where a leak would be silent AND
+    # permanent: the sweep only ever moves files INTO it, so a test that
+    # resolved the real one would file its fixtures among the owner's photos
+    # and still pass. Re-pointed here as well as asserted above.
+    monkeypatch.setattr(store, "UPLOAD_ARCHIVE_DIR", tmp_path / "uploads-archive")
     monkeypatch.setattr(store, "RECORDINGS_DIR", tmp_path / "recordings")
+    monkeypatch.setattr(store, "THUMB_DIR", tmp_path / ".thumbs")
     return tmp_path
 
 

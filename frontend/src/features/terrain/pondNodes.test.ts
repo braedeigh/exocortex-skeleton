@@ -16,12 +16,19 @@ const card = (name: string, touches: number[] = [100]): TerrainFile => ({
   sessions: [],
 });
 
-const data = (files: TerrainFile[]): TerrainData => ({
+const data = (
+  files: TerrainFile[],
+  pond_days?: { day: string; touches: number[] }[],
+): TerrainData => ({
   generated_at: '2026-08-21T00:00:00Z',
   window_days: null,
   file_cap: null,
+  pond_days,
   repos: [{ id: 'vault', name: 'Personal vault', root: '/v', files, files_total: files.length }],
 });
+
+/** Midnight local on a day, in unix seconds — the clock pond_days is on. */
+const at = (day: string, clock = '00:00:00') => Date.parse(`${day}T${clock}`) / 1000;
 
 const TODAY = '2026-08-21';
 
@@ -107,6 +114,56 @@ describe('collapseToPondTile', () => {
     // Newest first, matching what the payload guarantees for real files.
     expect(tile.touches).toEqual([200, 10]);
     expect(tile.days?.flatMap((d) => d.touches)).toEqual([200]);
+  });
+
+  // The payload's card files are cut to the hottest N per repo, so counting
+  // them under-draws the month badly — the server sends the journal's own
+  // per-day counts and those win. See routes/terrain.py `_pond_days`.
+  it('draws the month from pond_days, not from the card files that survived the cap', () => {
+    const got = collapseToPondTile(
+      // One card file present; the journal says that day had three cards and
+      // the day before — with no file in the payload at all — had two.
+      data([card('2026-08-21.0900b.md', [200])], [
+        { day: '2026-08-19', touches: [] },
+        { day: '2026-08-20', touches: [at('2026-08-20', '10:00'), at('2026-08-20', '11:00')] },
+        {
+          day: '2026-08-21',
+          touches: [at('2026-08-21', '09:00'), at('2026-08-21', '12:00'), at('2026-08-21', '18:00')],
+        },
+      ]),
+      TODAY,
+      3,
+    );
+    const tile = got.data.repos[0].files[0];
+    expect(tile.days?.map((d) => d.day)).toEqual(['2026-08-19', '2026-08-20', '2026-08-21']);
+    expect(tile.days?.map((d) => d.touches.length)).toEqual([0, 2, 3]);
+  });
+
+  it('pools the window from pond_days and older cards from their files, never both', () => {
+    const old = at('2026-01-05', '09:00');
+    const got = collapseToPondTile(
+      data([card('2026-08-21.0900b.md', [at('2026-08-21', '23:00')]), card('2026-01-05.0900b.md', [old])], [
+        { day: '2026-08-19', touches: [] },
+        { day: '2026-08-20', touches: [] },
+        { day: '2026-08-21', touches: [at('2026-08-21', '09:00')] },
+      ]),
+      TODAY,
+      3,
+    );
+    const tile = got.data.repos[0].files[0];
+    // The in-window card is counted once, at the time the pool stamped it —
+    // not also at the time git happened to commit it.
+    expect(tile.touches).toEqual([at('2026-08-21', '09:00'), old]);
+  });
+
+  it('falls back to counting card files when the server sent no pond_days', () => {
+    const got = collapseToPondTile(
+      data([card('2026-08-21.0900b.md', [200]), card('2026-08-19.0900b.md', [50, 60])], []),
+      TODAY,
+      3,
+    );
+    const tile = got.data.repos[0].files[0];
+    expect(tile.days?.map((d) => d.touches)).toEqual([[50, 60], [], [200]]);
   });
 
   it('leaves non-card files and card-free repos untouched', () => {

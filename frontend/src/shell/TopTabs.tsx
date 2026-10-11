@@ -3,8 +3,11 @@ import { Link, useNavigate, useLocation } from '@tanstack/react-router';
 import { Sheet, TapRow } from '../ui';
 import { TAB_META, TAB_ROUTES, VIEW_META, isValidTab, tabForPath, type LegacyTab } from './tabs';
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
+import { isEmbed } from './embed';
+import { SETUP_PATH, isStandalone, standaloneAllows } from './standalone';
 import { useSessionsContext } from './SessionsContext';
 import { useChatSurfaceObservatory } from './chatSurface';
+import { useMenuFit } from './menuFit';
 import styles from './TopTabs.module.css';
 
 /**
@@ -29,6 +32,11 @@ import styles from './TopTabs.module.css';
  * frosted.css's .public-header: site name · About · Sign in) plus row 2
  * restricted to the public tabs, so the pages public_config.py exposes are
  * actually reachable without typing URLs.
+ *
+ * The desktop app (shell/standalone.ts) gets neither of those either: one
+ * short strip, Observatory / Terrain / Setup (and Journal, when its server
+ * has one), and only in a narrow window —
+ * a wide one has the workspace's own tab bars.
  */
 
 const PRIMARY_TABS: ReadonlyArray<{ key: 'today' | LegacyTab; label: string }> = [
@@ -72,8 +80,7 @@ const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
   // Atlas is gone from the menu: /atlas is now a bare redirect to the
   // Observatory's archive, which has its own doors from every room.
   { key: 'personality', label: 'Personality', to: '/personality' },
-  { key: 'scratchpad', label: 'Scratchpad', to: '/scratchpad' },
-  { key: 'vscode', label: 'VS Code', to: '/vscode' },
+  // Scratchpad and VS Code are set down in shed/unvisited-2026-10-10.
   // The database's own page — the collection map plus a read-only query
   // console. Sits with the other tool pages rather than in MORE_VIEWS, which
   // is an explicit allowlist of the *content* browsers (files/notes/research).
@@ -85,7 +92,7 @@ const MORE_PAGES: ReadonlyArray<{ key: string; label: string; to: string }> = [
 // slot in row 1 — it kept its route and its active-state handling, it's just
 // one tap further away now.
 const MORE_VIEWS = VIEW_META.filter(
-  (v) => v.key === 'files' || v.key === 'notes' || v.key === 'research',
+  (v) => v.key === 'files' || v.key === 'research',
 );
 
 type ActiveKey = 'today' | LegacyTab | `view:${(typeof VIEW_META)[number]['key']}` | null;
@@ -225,12 +232,24 @@ function PublicHeader() {
         )}
       </div>
       <div className={styles.publicLinks}>
-        <Link to="/about" className={styles.publicLink}>
-          About
+        {/* The way back to the owner's main site, on her public mirror: a
+            visitor arrives from that page's cards and needs a door home from
+            every page here. Named by its host, so it says where it goes. */}
+        {meta?.home_site ? (
+          <a href={meta.home_site} className={styles.publicLink}>
+            ← {meta.home_site.replace(/^https?:\/\//, '')}
+          </a>
+        ) : null}
+        {/* /about is closed to visitors since 2026-09-17 (public_config
+            _NOT_YET_PRESENTABLE); bring its link back with the page. */}
+        <Link to="/terrain/files" className={styles.publicLink}>
+          Terrain
         </Link>
-        <a href="/login" className={joinClass(styles.publicLink, styles.signInBtn)}>
-          Sign in
-        </a>
+        {window.PUBLIC_ONLY ? null : (
+          <a href="/login" className={joinClass(styles.publicLink, styles.signInBtn)}>
+            Sign in
+          </a>
+        )}
       </div>
     </div>
   );
@@ -253,10 +272,16 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
 
   const rowRef = useRef<HTMLDivElement | null>(null);
   const moreWrapRef = useRef<HTMLDivElement | null>(null);
+  // The dropdown hangs off this button and is clipped by whatever box the row
+  // is sitting in — in the tiled desktop that's a panel, not the window. See
+  // menuFit.ts: without this the menu's bottom items are cut off rather than
+  // scrolled to.
+  const [moreBtn, setMoreBtn] = useState<HTMLButtonElement | null>(null);
   const optionalRefs = useRef<Partial<Record<LegacyTab, HTMLAnchorElement | null>>>({});
 
   const activeKey = useActiveKey(pathname);
   const closeMore = useCallback(() => setMoreOpen(false), []);
+  const moreFit = useMenuFit(moreBtn, moreOpen && isDesktop);
 
   // Port of layoutTabs (static/js/core.js:2615) — measure with all optional
   // tabs visible, then hide from the end (skipping the active tab until
@@ -410,6 +435,7 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
         <div className={styles.moreWrap} ref={moreWrapRef}>
           <button
             type="button"
+            ref={setMoreBtn}
             className={joinClass(styles.tab, moreActive && styles.active)}
             onClick={() => setMoreOpen((v) => !v)}
             aria-expanded={moreOpen}
@@ -418,7 +444,11 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
             {moreLabel} &#9662;
           </button>
           {isDesktop && moreOpen ? (
-            <div className={styles.dropdown} role="menu">
+            <div
+              className={joinClass(styles.dropdown, moreFit?.flipUp && styles.dropdownUp)}
+              role="menu"
+              style={moreFit ? { maxHeight: moreFit.maxHeight } : undefined}
+            >
               <MoreMenuContent
                 overflowed={overflowed}
                 activeKey={activeKey}
@@ -484,11 +514,60 @@ export function TopTabs({ subRowOnly = false }: { subRowOnly?: boolean } = {}) {
   }, [location.pathname]);
 
   if (typeof window !== 'undefined' && window.VIEW_MODE === 'public') {
+    // The embed view (shell/embed.ts) is the bare map inside a frame on the
+    // portfolio page — no header there.
+    if (isEmbed()) return null;
     return (
       <>
         <PublicHeader />
         {dashboardActive ? <DashboardTabRow pathname={location.pathname} isPublic /> : null}
       </>
+    );
+  }
+
+  if (isStandalone()) {
+    // The desktop app's strip: the two places it holds, and the way back to
+    // setup. A workspace panel (subRowOnly) gets nothing, because the row it
+    // would ask for is the dashboard's and the desktop app has no dashboard.
+    if (subRowOnly) return null;
+    const onSetup = location.pathname === SETUP_PATH;
+    return (
+      <div className={styles.dashBar}>
+        <button
+          type="button"
+          className={joinClass(
+            styles.dashBtn,
+            location.pathname.startsWith('/observatory') && !onSetup && styles.dashBtnActive,
+          )}
+          onClick={() => void navigate({ to: '/observatory' })}
+        >
+          Observatory
+        </button>
+        <button
+          type="button"
+          className={joinClass(styles.dashBtn, location.pathname.startsWith('/terrain') && styles.dashBtnActive)}
+          onClick={() => void navigate({ to: '/terrain' })}
+        >
+          Terrain
+        </button>
+        {/* Only when the desktop server has a journal to show. */}
+        {standaloneAllows('/journal') ? (
+          <button
+            type="button"
+            className={joinClass(styles.dashBtn, location.pathname === '/journal' && styles.dashBtnActive)}
+            onClick={() => void navigate({ to: '/journal' })}
+          >
+            Journal
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={joinClass(styles.dashBtn, onSetup && styles.dashBtnActive)}
+          onClick={() => void navigate({ to: SETUP_PATH })}
+        >
+          Setup
+        </button>
+      </div>
     );
   }
 
@@ -559,7 +638,7 @@ export function TopTabs({ subRowOnly = false }: { subRowOnly?: boolean } = {}) {
         {/* Terrain holds this slot instead of Research (her call — it's the
             surface she actually works from now). Research kept its route and
             moved into the More menu. startsWith, not equality: the terrain is
-            several full pages sharing the /terrain prefix (/terrain/map, where
+            several full pages sharing the /terrain prefix (/terrain/files, where
             /terrain lands, plus the rooms /terrain/usage and /terrain/sql),
             and the tab stays lit in every one of them. */}
         <button

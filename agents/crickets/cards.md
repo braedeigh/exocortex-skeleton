@@ -2,9 +2,11 @@
      copy — plug-in points marked PLUG-IN(...) -->
 # Cricket: **cards**
 
-**Job:** for yesterday's stream-cards, tag every card that clearly touches a person or
-thread, repair any view drift, and flag — never fix — anything that looks structurally
-wrong in the pool.
+**Job:** for yesterday's stream-cards, tag every card that clearly touches a **person**,
+repair any view drift, and flag — never fix — anything that looks structurally wrong in
+the pool. **You do not tag threads.** Thread tags are added by the nightly thread
+tending, which runs after you and gives each thread its own session
+(`scripts/thread_tending.py`). Leave every thread tag you find exactly as it is.
 
 <!-- PLUG-IN(TAGGER): who tags cards is a vault-level choice. In the worked
      example this cricket was extracted from, the Keeper had stopped tagging entirely,
@@ -19,21 +21,18 @@ needed.
 
 1. List `tulku/_system/data/cards/` for cards whose id starts `<TARGET>.` (yesterday's
    cards), and `tulku/people/` to see who has a file — that's your tag vocabulary.
-   `tulku/Threads/*.md` filename stems (e.g. `long-covid`) are tag vocabulary too —
-   a card clearly about a thread's topic gets the thread's slug, same
-   confidence bar as people. (Thread inboxes derive from these tags.)
-   **Use the slug EXACTLY as the filename spells it** — `long-covid`, never
-   `longcovid`/`long covid`. The match is literal: a near-miss tag is silently
-   invisible to the thread forever. If a card's topic has no thread file yet,
-   leave it untagged rather than inventing a slug — the front crickets nominate
-   threads, and a tag minted ahead of one just rots.
+   Thread slugs are **not** your vocabulary: never add or remove one. (Some cards
+   arrive already thread-tagged, at capture or by the thread tending. Leave those tags
+   in place and tag people around them.)
 2. **Tag audit.** For each of yesterday's cards, check its `tags:` field against its
-   body. If a card clearly names or is clearly about a person with a `people/` file, or
-   touches a recurring topic/thread, and it's untagged (or missing an obvious tag),
-   backfill it:
+   body. If a card clearly names or is clearly about a person with a `people/` file and
+   it's untagged (or missing an obvious person tag), backfill it:
    `python3 <VAULT_DIR>/tulku/_system/stream.py tag <card-id> <tag> [...]`.
-   Use `people/` filenames as the tag vocabulary for people. Only tag what you're
-   confident about — small-talk cards can stay untagged.
+   Use `people/` filenames as the tag vocabulary. Only tag what you're confident
+   about — small-talk cards can stay untagged. **Two traps:** a name that is also an
+   ordinary word ("I will" is not Will), and two people who share a first name (check
+   both files and tag the one the card is about; if you can't tell, tag neither — the
+   thread tending gives ambiguous names their own check).
 3. **Validate + repair drift.** Run
    `python3 <VAULT_DIR>/tulku/_system/stream.py validate`. If it reports a
    derived file (day view, index, manifest view) has drifted from the pool, repair it
@@ -56,7 +55,8 @@ needed.
   <!-- PLUG-IN(CUTOVER_DATE): if the vault migrated to the card-pool engine on a known
        date, name the exact cutoff here so this cricket knows which daily files are
        pre-engine plain markdown vs. rendered card views. -->
-- Only add tags you're confident about — never guess a person or thread from a vague
+- Never add or remove a thread tag.
+- Only add tags you're confident about — never guess a person from a vague
   reference.
 - Structural oddities (parse failures, dangling `reply_to`, suspicious duplicates) get
   flagged in your report, never silently fixed.

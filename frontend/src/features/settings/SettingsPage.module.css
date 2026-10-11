@@ -108,19 +108,6 @@
   margin-bottom: var(--space-3);
 }
 
-.modeSelect {
-  box-sizing: border-box;
-  min-height: var(--tap-target);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg);
-  color: var(--text);
-  font-size: 14px;
-  font-family: inherit;
-  max-width: 360px;
-  width: 100%;
-}
 
 .toggleRow {
   display: flex;
@@ -157,6 +144,83 @@
   cursor: pointer;
   flex-shrink: 0;
   accent-color: var(--accent);
+}
+
+/* The advanced-colours disclosure. Closed, it's one quiet row; open, it
+ * nests the four tuning blocks under sub-headings so they read as *inside*
+ * Theme rather than as four more top-level sections. */
+.advanced {
+  margin-top: var(--space-4);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-card);
+}
+
+.advancedSummary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--tap-target);
+  padding: var(--space-3);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.advancedSummary::-webkit-details-marker {
+  display: none;
+}
+
+.advancedChevron {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-muted);
+  transition: transform 0.18s ease;
+}
+
+.advanced[open] .advancedChevron {
+  transform: rotate(90deg);
+}
+
+.advancedLabel {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.advancedDesc {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.advancedBody {
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.subsection {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-soft);
+}
+
+.subsection:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.subheading {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-1);
 }
 
 /* Phase timing + accents share the open-card look (legacy `.phase-card.open`

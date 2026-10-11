@@ -36,6 +36,17 @@ export const docTextKey = (doc: string) => ['annotations', 'doc-text', doc] as c
 
 type PushToast = (message: string, opts?: { tone?: 'error' | 'info' }) => void;
 
+/** Plain English for the fetch-text route's error codes.
+ * The route (routes/research_text.py) answers a failed extraction with a
+ * short code; any code not listed here (e.g. not_html) is shown as-is. */
+const FETCH_TEXT_MESSAGES: Record<string, string> = {
+  pdftotext_missing: "This install can't read PDFs yet — pdftotext isn't installed.",
+  pdf_too_large: 'That PDF is over the size cap.',
+  pdf_extract_failed: "Couldn't read that PDF.",
+  pdf_no_text: 'That PDF has no text layer — probably a scan.',
+  not_pdf: 'The PDF link turned out to be a web page.',
+};
+
 function normalize(blob: Partial<ResearchState> | undefined): ResearchState {
   return {
     topics: blob?.topics ?? [],
@@ -222,11 +233,7 @@ export function useResearchMutations(push: PushToast) {
     },
     onError: (err) => {
       const msg = researchErrorMessage(err, 'Could not fetch text.');
-      push(
-        msg === 'pdf_extraction_unavailable'
-          ? "That source is a PDF — PDF text extraction isn't wired up yet."
-          : msg,
-      );
+      push(FETCH_TEXT_MESSAGES[msg] ?? msg);
     },
   });
 
@@ -310,12 +317,58 @@ export function useDocText(doc: string | null) {
   });
 }
 
-export function useAnnotations(doc: string | null) {
+/** The doc's annotations. `pollMs` keeps them fresh while a session is
+ * writing (the claims page passes its live signal); the annotator leaves it
+ * off and writes through its own mutations. */
+export function useAnnotations(doc: string | null, pollMs: number | false = false) {
   return useQuery({
     queryKey: annotationsKey(doc ?? ''),
     queryFn: async ({ signal }) => (await apiR.getAnnotations(doc!, signal)).annotations ?? [],
     enabled: doc !== null,
     staleTime: 0,
+    refetchInterval: pollMs,
+  });
+}
+
+// --- Claims table -----------------------------------------------------------
+//
+// Same "real time" as the research doc: the page passes `live` =
+// anySessionInFlight(sessions) and the list, the open claim, and the open
+// source's citing-claims refetch every 5s while it is true.
+
+export const claimsKey = (filter: apiR.ClaimsFilter) =>
+  ['research', 'claims', filter.topic ?? '', filter.front ?? ''] as const;
+export const claimKey = (id: string) => ['research', 'claim', id] as const;
+export const sourceClaimsKey = (id: string) => ['research', 'source-claims', id] as const;
+
+export const CLAIMS_POLL_MS = 5_000;
+
+export function useClaims(filter: apiR.ClaimsFilter, live: boolean) {
+  return useQuery({
+    queryKey: claimsKey(filter),
+    queryFn: async ({ signal }) => (await apiR.getClaims(filter, signal)).claims ?? [],
+    staleTime: 5_000,
+    refetchInterval: live ? CLAIMS_POLL_MS : false,
+  });
+}
+
+export function useClaim(id: string | null, live: boolean) {
+  return useQuery({
+    queryKey: claimKey(id ?? ''),
+    queryFn: ({ signal }) => apiR.getClaim(id!, signal),
+    enabled: id !== null,
+    staleTime: 5_000,
+    refetchInterval: live ? CLAIMS_POLL_MS : false,
+  });
+}
+
+export function useSourceClaims(id: string | null, live: boolean) {
+  return useQuery({
+    queryKey: sourceClaimsKey(id ?? ''),
+    queryFn: ({ signal }) => apiR.getSourceClaims(id!, signal),
+    enabled: id !== null,
+    staleTime: 5_000,
+    refetchInterval: live ? CLAIMS_POLL_MS : false,
   });
 }
 

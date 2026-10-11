@@ -1,3 +1,16 @@
+/**
+ * RecipesSection.tsx — the Recipes card on the Kitchen tab.
+ *
+ * What this file does: the parsed-recipes banner, the URL/image parse inputs,
+ * search + Name/Added/Time sort, and the tappable recipe cards. For her (not a
+ * visitor) it also reads what each recipe gives (./recipeNutrition.ts →
+ * GET /api/recipes/nutrition) and adds three filters over the list: hide
+ * recipes with a food that hurts her, hide ones with a line the SIGHI list
+ * rates high in histamine, and "Good for" one of her day's gap nutrients,
+ * which sorts richest serving first. Each card then shows a serving's
+ * calories and top gaps, and names what in it she's sensitive to.
+ */
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { parseRecipeUrl, scanRecipeImage } from './api';
 import {
@@ -6,6 +19,17 @@ import {
   writeRecipeSort,
   type RecipeSort,
 } from './recipeHelpers';
+import {
+  getRecipeNutritionOverview,
+  OVERVIEW_KEY,
+  passesFilters,
+  readRecipeFilters,
+  servingHighlights,
+  sortByNutrient,
+  writeRecipeFilters,
+  type RecipeFilters,
+  type RecipeNutritionSummary,
+} from './recipeNutrition';
 import { Section } from './Section';
 import type { ParsedRecipeMeta, Recipe } from './types';
 import styles from './kitchen.module.css';
@@ -42,7 +66,28 @@ export function RecipesSection({
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState<RecipeSort>(readRecipeSort);
 
-  const visible = filterSortRecipes(recipes, search, sortMode);
+  const [filters, setFiltersState] = useState<RecipeFilters>(readRecipeFilters);
+  // What each recipe gives and what's in it — her own numbers, never fetched for a visitor.
+  const nutrition = useQuery({
+    queryKey: OVERVIEW_KEY,
+    queryFn: ({ signal }) => getRecipeNutritionOverview(signal),
+    enabled: !isPublic,
+    staleTime: 60_000,
+  });
+  const summaries = new Map((nutrition.data?.recipes ?? []).map((summary) => [summary.id, summary]));
+  const gaps = nutrition.data?.gaps ?? [];
+
+  // Search and sort as before, then her filters, then "Good for" reorders by that nutrient.
+  const searched = filterSortRecipes(recipes, search, sortMode);
+  const filtered = isPublic ? searched : searched.filter((r) => passesFilters(summaries.get(r.id), filters));
+  const visible = !isPublic && filters.goodFor ? sortByNutrient(filtered, summaries, filters.goodFor) : filtered;
+  const hiddenByFilters = searched.length - filtered.length;
+
+  function setFilters(next: RecipeFilters) {
+    setFiltersState(next);
+    writeRecipeFilters(next);
+  }
+
   const unarchivedCount = recipes.filter((r) => !r.is_archived).length;
 
   function scheduleParsedRefetches() {
@@ -203,6 +248,48 @@ export function RecipesSection({
             </span>
           </div>
 
+          {!isPublic ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 10 }}>
+              <button
+                type="button"
+                className={`${styles.sortBtn} ${filters.hideHurts ? styles.sortBtnActive : ''}`}
+                title="Hide recipes with a food your food guide or catalog says hurts you"
+                onClick={() => setFilters({ ...filters, hideHurts: !filters.hideHurts })}
+              >
+                Hide what hurts
+              </button>
+              <button
+                type="button"
+                className={`${styles.sortBtn} ${filters.lowHistamine ? styles.sortBtnActive : ''}`}
+                title="Hide recipes with a line the SIGHI list rates high in histamine or says to avoid. Lines not on the list don't hide a recipe."
+                onClick={() => setFilters({ ...filters, lowHistamine: !filters.lowHistamine })}
+              >
+                Low histamine
+              </button>
+              {gaps.length ? (
+                <select
+                  className={styles.sortBtn}
+                  aria-label="Sort by a nutrient your day is short of"
+                  value={filters.goodFor ?? ''}
+                  onChange={(e) => setFilters({ ...filters, goodFor: e.target.value || null })}
+                >
+                  <option value="">Good for…</option>
+                  {gaps.map((gap) => (
+                    <option key={gap.key} value={gap.key}>
+                      {gap.label}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {hiddenByFilters ? (
+                <span className={styles.muted12}>
+                  {hiddenByFilters} hidden by filters
+                </span>
+              ) : null}
+              {nutrition.isLoading ? <span className={styles.muted12}>adding up nutrients…</span> : null}
+            </div>
+          ) : null}
+
           {visible.length ? (
             visible.map((r) => {
               const timeBits: string[] = [];
@@ -235,6 +322,7 @@ export function RecipesSection({
                           {timeBits.join(' · ')}
                         </div>
                       ) : null}
+                      {!isPublic && summaries.get(r.id) ? <ServingLine summary={summaries.get(r.id)!} gaps={gaps} goodFor={filters.goodFor} /> : null}
                       <div style={{ marginTop: 6 }}>
                         {(r.tags || []).map((t) => (
                           <span key={t} className={styles.badge} style={{ marginRight: 4 }}>
@@ -287,5 +375,31 @@ export function RecipesSection({
         </div>
       )}
     </Section>
+  );
+}
+
+/** A card's nutrient line — a serving's calories and top gaps — and what in it she's sensitive to. */
+function ServingLine({
+  summary,
+  gaps,
+  goodFor,
+}: {
+  summary: RecipeNutritionSummary;
+  gaps: { key: string; label: string }[];
+  goodFor: string | null;
+}) {
+  const bits = servingHighlights(summary, gaps, goodFor);
+  const { hurts, histamine_high: high } = summary.flags;
+  return (
+    <div style={{ fontSize: 12, marginTop: 4 }}>
+      {bits.length ? (
+        <div className={styles.muted12}>
+          {summary.per === 'recipe' ? 'whole recipe' : 'a serving'}: {bits.join(' · ')}
+          {summary.counted < summary.lines ? ` (${summary.counted} of ${summary.lines} lines counted)` : ''}
+        </div>
+      ) : null}
+      {hurts.length ? <div style={{ color: 'var(--red)' }}>hurts you: {hurts.join(', ')}</div> : null}
+      {high.length ? <div style={{ color: 'var(--orange)' }}>high histamine: {high.join(', ')}</div> : null}
+    </div>
   );
 }

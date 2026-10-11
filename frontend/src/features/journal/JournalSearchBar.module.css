@@ -1,0 +1,93 @@
+/* The journal search box + its ⚙ filters button (JournalSearchBar.tsx). */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.icon {
+  position: absolute;
+  left: var(--space-3);
+  font-size: 14px;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 0 40px 0 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-size-base);
+}
+
+/* The browser's own clear button would sit beside ours. */
+.input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.clear {
+  position: absolute;
+  right: 0;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.filtersButton {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.filtersButton:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.filtersOn {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* "Some filters are on" while the row is closed. */
+.dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}

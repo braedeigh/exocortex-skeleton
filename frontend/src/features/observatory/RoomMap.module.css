@@ -1,0 +1,95 @@
+/* RoomMap — a room from above: the room helper on top, each swarm as a stack
+   (SwarmStack.module.css), the sessions working alone in rows beneath. The rings themselves
+   come from SwarmNetwork.module.css, so they look the same everywhere. */
+
+.map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+/* The room helper, centred above the circles, with its last move beside it. */
+.top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.lastMove {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+/* One ring and its name — a solo session, or the room helper. */
+.agent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 132px;
+  min-height: var(--tap-target, 40px);
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.agent:hover,
+.agent:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.roomHelper .agentName {
+  font-weight: 600;
+}
+
+.agentName {
+  font-size: var(--font-size-sm);
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* The swarm stacks side by side where there's room, one under another on a
+   phone. Each stack's own look is SwarmStack.module.css. */
+.stacks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+/* "N need you" on the title line, seen even with the card shut. */
+.titleNote {
+  margin-left: auto;
+  color: var(--orange);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.soloHead {
+  margin: 0;
+  font-size: var(--font-size-md, 1rem);
+}
+
+.solos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}

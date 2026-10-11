@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { subscribeTheme } from '../../theme';
 import { useTerrain, type TerrainData } from './api';
 import { collapseToPondTile, localDayISO } from './pondNodes';
+import { windowCoils } from './coilFolders';
 import {
-  breathHalfLife,
+  alternatingBreath,
+  windowToHalfLife,
   buildTerrainGraph,
   changedFileIds,
   BREATH_PERIOD_MS,
@@ -29,7 +31,7 @@ import styles from './TerrainBackdrop.module.css';
  * few thousand nodes, several times what the map beside it is drawing.
  *
  * HOW THE WORDS WIN, since it isn't by dimming. The canvas used to sit at 0.62
- * opacity; it's at full colour now and carries a 2px blur instead. Reading is
+ * opacity; it's at full colour now and carries a 3px blur instead. Reading is
  * edge detection, so a hard-edged node the size of a letterform competes with
  * that letterform however faint it is — the blur removes the competition
  * rather than the map, and reads as distance while it's at it. The heat ramp's
@@ -115,17 +117,32 @@ export function TerrainBackdrop({
   const engineRef = useRef<TerrainCanvas | null>(null);
   const fittedRef = useRef(false);
 
-  // The journal collapsed to the pond tile once per payload, not per breath
-  // tick — parsing ~1,700 card filenames at 7fps would be pure waste.
+  /**
+   * The coil folders, then the journal's pond tile — both once per payload,
+   * not per breath tick: parsing a couple of thousand filenames at 7fps would
+   * be pure waste.
+   *
+   * The backdrop takes EVERY file the payload will give (BACKDROP_TIER is
+   * null — no cap), so without this the wallpaper carries each coil folder
+   * whole, as a spray of several hundred identical dots — the exact thicket
+   * the coils exist to undo. They get their default first window and no way
+   * to widen it: this is wallpaper, and it takes no gestures at all.
+   */
+  const coiled = useMemo(() => (data ? windowCoils(data) : undefined), [data]);
   const collapsed = useMemo(
-    () => (data ? collapseToPondTile(data, localDayISO()).data : undefined),
-    [data],
+    () => (coiled ? collapseToPondTile(coiled.data, localDayISO()).data : undefined),
+    [coiled],
   );
 
   // The payload lives in a ref because the breath rebuilds the graph on its
   // own clock, outside React's render cycle.
   const dataRef = useRef<TerrainData | undefined>(undefined);
   dataRef.current = collapsed;
+  // The coil rides in a ref for the same reason the payload does: the breath
+  // paints outside React's render cycle. No caption — the wallpaper's centre
+  // isn't a control, so there's nothing for it to report.
+  const coilRef = useRef<ReturnType<typeof windowCoils> | undefined>(undefined);
+  coilRef.current = coiled;
 
   // The focused conversation, in a ref for the same reason — the breath's paint
   // loop (empty-dep effect) reads it to keep the focused agent in the active
@@ -193,7 +210,13 @@ export function TerrainBackdrop({
       const payload = dataRef.current;
       if (!engine || !payload) return;
       const elapsed = calm ? BREATH_PERIOD_MS / 2 : performance.now() - started;
-      const half = breathHalfLife(elapsed, BREATH_PERIOD_MS);
+      // The breath's values are WINDOWS; the decay takes a half-life a third
+      // of each, so the glow runs out at the window's edge (terrainGraph.ts
+      // windowToHalfLife). The two fires take turns — one cycle ember, the
+      // next gold (alternatingBreath) — so `half` is whichever is moving now,
+      // and the turn detector below listens to that one.
+      const breath = alternatingBreath(elapsed, BREATH_PERIOD_MS);
+      const half = breath.turn === 'ember' ? breath.ember : breath.gold;
       // The focused agent's purple sonar fires at BOTH turns of the breath —
       // the top, where the map stops widening its memory and starts letting it
       // go, and the bottom, where it turns back. Two rings per cycle, spaced
@@ -224,9 +247,22 @@ export function TerrainBackdrop({
       for (const s of payload.sessions ?? []) if (s.running) orbSessionIds.add(s.id);
       const focus = focusConvRef.current;
       if (focus) orbSessionIds.add(focus);
-      const graph = buildTerrainGraph(payload, half, undefined, { orbSessionIds });
+      const graph = buildTerrainGraph(payload, windowToHalfLife(breath.ember), undefined, {
+        orbSessionIds,
+        runHalfLife: windowToHalfLife(breath.gold),
+      });
       // Same node ids every time, so this updates heat in place and never
       // re-warms the layout — the map holds still, only the embers move.
+      engine.setCoils(
+        (coilRef.current?.coils ?? []).map((coil) => ({
+          folderId: coil.folderId,
+          ids: coil.spiralIds,
+          // No caption — the wallpaper's centres aren't controls, so there's
+          // nothing for them to report.
+          caption: null,
+          canPull: coil.pullTo !== undefined,
+        })),
+      );
       engine.setGraph(graph.nodes, graph.edges);
       if (!fittedRef.current && graph.nodes.length > 0) {
         fittedRef.current = true;

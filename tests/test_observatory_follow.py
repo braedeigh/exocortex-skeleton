@@ -155,6 +155,82 @@ def test_follow_picks_up_events_written_while_it_is_watching(follow_client):
     assert got[-1] == {"type": "follow_end", "count": 4}
 
 
+# --- the typing and the message, in step --------------------------------------
+# A reply reaches a watcher through two files: the transcript (finished
+# messages) and the `.live` sidecar (the typing). The writer puts the typing on
+# disk before the message it built. These hold the watcher to the same order.
+
+def _delta(text):
+    return {"type": "stream_event", "event": {
+        "type": "content_block_delta",
+        "delta": {"type": "text_delta", "text": text}}}
+
+
+def _spoken(text):
+    return {"type": "assistant", "message": {
+        "role": "assistant", "content": [{"type": "text", "text": text}]}}
+
+
+def test_a_message_is_never_sent_ahead_of_its_typing(follow_client, monkeypatch):
+    """The duplicated tail. The agent finishes a message in the gap between
+    the watcher's two reads: the rest of the typing and the message land
+    together. Whichever file the watcher reads second sees the new write; if
+    that is the transcript, the message goes out without the typing before it,
+    and the typing follows as if it were new words."""
+    chats = store.DATA_DIR / "bot_chats"
+    log = write_log("c1", [{"type": "user", "text": "hi"}])
+    live = chats / "c1.live"
+    live.write_text(json.dumps(_delta("The whole ")) + "\n")
+    store.write("bot_chats/index", {"c1": {
+        "running": True,
+        "last_at": __import__("datetime").datetime.now().isoformat()}})
+
+    real_read = observatory._read_whole_lines
+    reads = []
+
+    def read_then_the_agent_writes(path, offset):
+        got = real_read(path, offset)
+        reads.append(path)
+        if len(reads) == 1:
+            # Between the first read and the second: typing first, then the
+            # message — the order _run_turn writes them in.
+            with live.open("a") as fh:
+                fh.write(json.dumps(_delta("reply.")) + "\n")
+            with log.open("a") as fh:
+                fh.write(json.dumps(_spoken("The whole reply.")) + "\n")
+            store.write("bot_chats/index", {"c1": {"running": False}})
+        return got
+
+    monkeypatch.setattr(observatory, "_read_whole_lines", read_then_the_agent_writes)
+    monkeypatch.setattr(observatory, "_FOLLOW_POLL_SEC", 0.01)
+    got = events_from(follow_client.get(
+        "/api/observatory/conversation/c1/follow?from=1"))
+
+    # A watcher that joins late takes the typing from where it joined, so
+    # "The whole " is not replayed — what matters is that "reply." comes
+    # before the message that already contains it.
+    assert [e["type"] for e in got] == [
+        "stream_event", "assistant", "done", "follow_end"]
+    assert got[0]["event"]["delta"]["text"] == "reply."
+
+
+def test_a_stream_that_hits_its_time_limit_does_not_say_the_turn_is_done(
+        follow_client, monkeypatch):
+    """`done` is what the chat closes a reply on. A stream that is closed only
+    because it has been open too long, with the agent still working, must not
+    send it — that showed a half-hour turn as finished while it was still
+    writing. It says the turn is still running instead."""
+    write_log("c1", [{"type": "user", "text": "hi"}, _spoken("Starting.")])
+    store.write("bot_chats/index", {"c1": {
+        "running": True,
+        "last_at": __import__("datetime").datetime.now().isoformat()}})
+    monkeypatch.setattr(observatory, "_FOLLOW_MAX_SEC", 0)
+    monkeypatch.setattr(observatory, "_FOLLOW_POLL_SEC", 0.01)
+    got = events_from(follow_client.get("/api/observatory/conversation/c1/follow"))
+    assert [e["type"] for e in got] == ["user", "assistant", "follow_end"]
+    assert got[-1] == {"type": "follow_end", "count": 2, "running": True}
+
+
 # --- the reader, directly -----------------------------------------------------
 
 def test_read_whole_lines_resumes_from_its_own_offset(data_dir):

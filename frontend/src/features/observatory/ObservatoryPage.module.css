@@ -221,6 +221,12 @@
   border-left-width: 2px;
 }
 
+/* An off-the-record message can be tapped to offer putting it back in the
+   journal, so it shows a pointer. */
+.userTappable {
+  cursor: pointer;
+}
+
 /* --- The reply: body text ------------------------------------------------ */
 
 .reply {
@@ -304,6 +310,37 @@
   color: var(--text-secondary);
 }
 
+/* A table in a reply scrolls sideways inside itself instead of widening the
+   page. `display: block` is what lets a table take overflow-x: on a phone a
+   six-column table is wider than the screen, and without this the whole chat
+   column would scroll. Cells keep a minimum width so a long column wraps into
+   readable lines rather than one word per line. */
+.replyBody :global(table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 var(--space-4);
+  border-collapse: collapse;
+  font-size: var(--font-size-md);
+  /* Rows sit on their own opaque card, so no watermark to win against. */
+  text-shadow: none;
+  overflow-wrap: normal;
+}
+
+.replyBody :global(th),
+.replyBody :global(td) {
+  min-width: 5.5em;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
+  text-align: left;
+  vertical-align: top;
+}
+
+.replyBody :global(th) {
+  font-weight: 600;
+}
+
 .toolNote {
   margin-top: var(--space-2);
   color: var(--text-muted);
@@ -377,6 +414,14 @@
   font-weight: 600;
   cursor: pointer;
   animation: pillIn 150ms ease-out;
+}
+
+/* The pill under an off-the-record message she tapped. Same shape and words
+   as .journalBtn under a reply — one gesture, whoever said the words. Pulled
+   up under the message it belongs to, away from the reply below. */
+.restoreBtn {
+  composes: journalBtn;
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4) var(--space-3);
 }
 
 /* --- Highlight-to-journal ------------------------------------------------- */
@@ -580,7 +625,7 @@
 
 .queuedRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   min-height: var(--tap-target);
   margin: var(--space-3) 0 0;
@@ -591,13 +636,108 @@
 
 .queuedTag {
   flex-shrink: 0;
+  /* Rows start at the top now (the reason line can wrap under the text), so
+     the tag sits on the first line's baseline by hand. */
+  padding-top: 0.2em;
   font-size: var(--font-size-sm);
   font-style: italic;
 }
 
-.queuedText {
+/* The message and, under it, why it's still waiting. */
+.queuedBody {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+}
+
+/* Why it's waiting: the step the agent is in, and for how long. */
+.queuedWhy {
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* What that step is working on — the command, the file — one line, cut. */
+.queuedWhyDetail {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+}
+
+/* Send now: a real button, 40px+, quieter than the composer's send. */
+.queuedNow {
+  flex-shrink: 0;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* The in-place confirm: send now costs the step it stops, so it says so. */
+.queuedConfirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.queuedConfirmText {
+  flex-basis: 100%;
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.queuedConfirmGo,
+.queuedConfirmCancel {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border-radius: 999px;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.queuedConfirmGo {
+  border: 1px solid var(--red, #b3423e);
+  background: transparent;
+  color: var(--red, #b3423e);
+}
+
+.queuedConfirmCancel {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+/* Under her message in the chat, when it waited in the mailbox: where it
+   landed ("arrived mid-turn, after step 14"). Tucked up against the message it
+   belongs to, in its accent rule's column. */
+.arrivedNote {
+  margin: calc(-1 * var(--space-3)) 0 var(--space-4);
+  padding-left: calc(var(--space-3) + 2px);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* A queued message the server never took: the tag turns red and says so. */
+.queuedTagFailed {
+  color: var(--red, #b3423e);
+  font-style: normal;
+}
+
+.queuedText {
   font-size: var(--font-size-md);
   line-height: 1.5;
   white-space: pre-wrap;
@@ -622,6 +762,32 @@
 }
 
 /* --- Gap + error turns --------------------------------------------------- */
+
+/* The "Show earlier messages" button at the top of a windowed transcript. */
+.showEarlier {
+  display: block;
+  min-height: 40px;
+  margin: 0 auto var(--space-6);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.showEarlier:hover {
+  color: var(--text);
+}
+
+/* The grey "loaded: …" line under a message that named a person or thread. */
+.contextLoaded {
+  margin: var(--space-2) 0 var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
 
 .gap {
   margin: var(--space-6) 0;
@@ -689,6 +855,30 @@
   overflow: hidden;
 }
 
+/* A System reminder — same left-ruled card as a decision, dashed so it reads
+   as the app speaking rather than either voice in the conversation. */
+.reminder {
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border);
+  border-left: 3px solid var(--accent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reminderLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.reminderText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* --- Empty state: literary minimum --------------------------------------- */
 
 .empty {
@@ -711,13 +901,72 @@
   font-size: var(--font-size-md);
 }
 
+/* --- The strip above the message box -------------------------------------- */
+/* Where things that float over the chat live: the ↓ latest pill, the
+   "questions" chip, and the questions card when she has floated it
+   (QuestionsCard.tsx). .floatDock is a zero-height row sitting directly above
+   the composer, so it takes no room from the conversation; .floatStack hangs
+   upward from it. Anchoring to the composer's top edge rather than to a fixed
+   distance from the bottom of the page means everything here clears the
+   composer however tall it gets (attached photos, a note line).
+   The stack is never taller than --float-room, the visible space above the
+   composer as useFloatRoom.ts measures it (less when the phone keyboard is
+   open). The floated card is the one piece that gives: it shrinks to fit and
+   its questions scroll inside it, so its top never leaves the screen. */
+.floatDock {
+  flex: none;
+  height: 0;
+  position: relative;
+  /* Above the conversation it floats over; below the notes and schedule
+     panels and the upload overlay, which are modal surfaces. */
+  z-index: 2;
+}
+
+.floatStack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  box-sizing: border-box;
+  max-height: var(--float-room, 80vh);
+  /* Only the controls take taps — the strip itself must not block the text
+     scrolling underneath it. */
+  pointer-events: none;
+}
+
+/* The row of small controls: the questions chip on the left, lined up with
+   the chat column's left edge, and ↓ latest on the right. When a floated card
+   sits below it in the stack the row rides on top of the card, so neither
+   covers the other. */
+.floatRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  flex: none;
+  /* Pushes the row's left end in to where the 68ch chat column starts on a
+     wide window; on a phone the column fills the width and this is zero. */
+  padding-left: max(0px, calc((100% - 68ch) / 2));
+  pointer-events: none;
+}
+
+.floatRow > * {
+  pointer-events: auto;
+}
+
+/* With nothing floated under it, the row stands a little off the composer. */
+.floatRow:last-child {
+  margin-bottom: var(--space-4);
+}
+
 /* --- ↓ latest ------------------------------------------------------------ */
 
 .jumpPill {
-  position: absolute;
-  right: var(--space-4);
-  /* Clears the composer: input row + the toolbar row above it. */
-  bottom: calc(var(--space-8) + 118px + env(safe-area-inset-bottom));
+  /* Right end of the strip's row, whatever else is in it. */
+  margin-left: auto;
   min-height: var(--tap-target);
   padding: 0 var(--space-4);
   border: 1px solid var(--border-soft);
@@ -916,6 +1165,14 @@
   font-size: var(--font-size-sm);
 }
 
+/* News, not an error — same place and size as .sendError, in the quiet colour. */
+.sendNotice {
+  max-width: 68ch;
+  margin: 0 auto var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
 .composerRow {
   display: flex;
   align-items: flex-end;
@@ -1003,11 +1260,19 @@
 /* --- The old toolbar, same colors and placement (PhoneTerminal.module.css:
    .toolbar/.toolBtn — hard twilight-indigo, never theme-swapped) ----------- */
 
+/* One row that scrolls sideways when it holds more buttons than fit. Few
+   buttons stretch to fill the row, as before; many keep a readable width and
+   the rest are a swipe to the right. Stop stays in view (.toolBtnPinned).
+   Prompt: "make it scrollable to the right if I want more buttons". */
 .toolbar {
   display: flex;
   gap: 5px;
   max-width: 68ch;
   margin: 0 auto;
+  overflow-x: auto;
+  /* A sideways swipe here scrolls the row and nothing behind it. */
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
   /* Nothing above — the composer's own padding is the gap to the border, and
      stacking a second one there just pushed the whole bar up the screen. The
      space below is on the scale (8, not 5) so the toolbar and the input read
@@ -1015,11 +1280,18 @@
   padding: 0 0 var(--space-2);
 }
 
+.toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Grows to share spare room, never shrinks below its own label: that is what
+   makes the row overflow, and scroll, instead of squeezing every button. */
 .toolBtn {
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
+  min-width: var(--tap-target);
   min-height: var(--tap-target);
-  padding: 0;
+  padding: 0 var(--space-2);
+  white-space: nowrap;
   background: #1a1a2e;
   border: 1px solid #2a2a4a;
   border-radius: var(--radius-md);
@@ -1059,6 +1331,22 @@
 .toolBtn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* Stop, held at the right end of the row however far it is scrolled — the
+   one button that must never be a swipe away. This is a sticky element: it
+   scrolls with the row until it would leave, then stays put, and the shadow
+   on its left says more buttons pass beneath it. Dimmed by colour rather
+   than by fading when it's off, so the buttons under it don't show through. */
+.toolBtnPinned {
+  position: sticky;
+  right: 0;
+  box-shadow: -6px 0 6px -2px var(--card-bg);
+}
+
+.toolBtnPinned:disabled {
+  opacity: 1;
+  color: #4a4a66;
 }
 
 /* Journal paused (off the record): the same drained language as composerOff —

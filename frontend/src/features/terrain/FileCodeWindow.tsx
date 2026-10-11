@@ -1,53 +1,72 @@
 import { useEffect, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import { IconButton } from '../../ui';
 import { FileCodeBody } from './FileCodeBody';
+import type { CodeMentions } from './codeMentions';
+import { soloCodeHref } from '../../shell/solo';
+import type { ThemeInk } from './terrainCanvas';
 import styles from './FileCodeWindow.module.css';
 
 /**
- * FileCodeWindow — tap a file on the map and read it right there: a frosted
- * pane that floats OVER the terrain instead of replacing it. The map stays
- * visible (and blurred) behind the glass, so the file never stops being a
- * place on the map you're looking into.
+ * FileCodeWindow — tap a file on the map and read it: an opaque pane INSIDE
+ * the terrain page, with the file's name and path across the top and one ×
+ * (or Esc) that goes BACK — to the map exactly as it was, or to the table
+ * card the file was opened from. The open file lives in the map's address
+ * (codeFileSearch.ts), so the × is the same move as the browser's back
+ * button, and a refresh keeps the file open. Beside the × sits a ↗
+ * that pops the same file out into its own browser tab, where it is the
+ * only pane (the /code page in solo mode — shell/solo.ts).
  *
- * It replaced a plain modal, and the two differences are the whole point:
+ * This file is the frame. The contents are FileCodeBody, shared with the
+ * /code page; TerrainPage.tsx opens the pane and hands it what the map knows.
  *
- *   - NO SCRIM. Every other overlay in the app dims the page behind it in 40%
- *     black. This one doesn't — that wash is exactly what would turn the
- *     frost into an ordinary dialog with the map hidden behind it.
- *   - ONE SCROLLER. The old modal capped its code block at 55vh and scrolled
- *     it inside a sheet that also scrolled. Here the window's body is the
- *     only vertical scroll region and the code flows into it (FileCodeBody's
- *     `uncapCode`); the code block keeps its own HORIZONTAL scroll for long
- *     lines, which is the one thing it can't inherit.
+ * Where it sits: over the whole terrain panel it was opened from, and only
+ * that panel (FileCodeWindow.module.css .pane). On a single screen that is
+ * the full page; when the screen is split in two or three it is the
+ * terrain's own tile. It never reaches over a neighbouring panel, and the
+ * map is hidden behind it until × — to read a different file, close and tap
+ * another dot.
  *
- * Opening it never touches the canvas element, the d3-force sim, or the zoom
- * transform — it's portalled onto document.body, so the map underneath isn't
- * re-laid-out or re-simulated, only covered. Close and you're exactly where
- * you left off.
+ * Opening it never touches the d3-force sim, the zoom transform, or the
+ * canvas's size, so closing it drops you back onto exactly the map you left.
  *
- * The body is shared with the /code page (FileCodeBody); this file is the
- * frame and the frost. `children` is what the map knows that the file itself
- * doesn't — which agents touched it, and the footprint control for each.
- *
- * Prompt that produced it: "i want to be able to tap on a file to open it in
- * another frosted window overlaid onto the terrain page with the code on it,
- * scrollable."
+ * Her ask: "it should only cover the window it's open on. like if the screen
+ * is split into 2 or 3, it should cover only in the one i'm opening it into."
  */
 export function FileCodeWindow({
   repo,
   path,
   onClose,
   children,
+  mentions,
+  windowSeconds,
+  runWindowSeconds,
+  ink,
 }: {
   repo: string | null;
   path: string | null;
   onClose: () => void;
-  /** What touched this file — rendered under the code, inside the same scroll. */
+  /** What the map knows that the file itself doesn't — which agents touched
+   * it, and the footprint control for each. Rendered under the code, inside
+   * the same scroll. */
   children?: ReactNode;
+  /** Set when the file was opened from a table's card: where in it that table
+   * is named. Handed straight to the body, which lights them and gives her a
+   * strip to step between them. */
+  mentions?: CodeMentions;
+  /** The map's live heat window (breath included), handed straight through
+   * to the body so its red-edits toggle paints lines on the same lens the
+   * dots outside the pane are wearing. */
+  windowSeconds?: number;
+  /** The map's live gold window, handed straight through to the body the
+   * same way, for its gold-ran toggle. */
+  runWindowSeconds?: number;
+  /** The map's theme ink, handed straight through to the body, for the same
+   * ember ramp the dots use. */
+  ink?: ThemeInk;
 }) {
   const open = repo !== null && path !== null;
 
+  // Close on Esc. The key listener is only attached while the pane is open.
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -59,36 +78,62 @@ export function FileCodeWindow({
 
   if (!open) return null;
 
-  // The tail of the path is the title — a deep path would ellipsize the actual
-  // filename away — and the full path gets its own line under it.
+  // Take the filename off the end of the path, for the title. A deep path
+  // would ellipsize the actual filename away, so the name gets the title
+  // line and the full path gets its own line under it.
   const name = path.split('/').filter(Boolean).slice(-1)[0] ?? path;
 
-  return createPortal(
-    <div className={styles.catcher} onClick={onClose} role="presentation">
-      <div
-        className={styles.window}
-        role="dialog"
-        aria-modal="true"
-        aria-label={name}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className={styles.header}>
-          <div className={styles.heading}>
-            <h2 className={styles.name}>{name}</h2>
-            {/* &lrm; keeps the RTL truncation from dragging leading
-                punctuation to the wrong end of the visible tail. */}
-            <div className={styles.path}>&lrm;{path}</div>
-          </div>
-          <IconButton aria-label="Close" onClick={onClose}>
-            &times;
-          </IconButton>
+  return (
+    <div className={styles.pane} role="dialog" aria-label={name}>
+      <div className={styles.header}>
+        <div className={styles.heading}>
+          <h2 className={styles.name}>{name}</h2>
+          {/* Keep the path's punctuation where it belongs. The path line is
+              set right-to-left so it truncates from the LEFT
+              (FileCodeWindow.module.css .path); &lrm; keeps that from
+              dragging leading punctuation to the wrong end of the visible
+              tail. */}
+          <div className={styles.path}>&lrm;{path}</div>
         </div>
-        <div className={styles.body}>
-          <FileCodeBody repo={repo} path={path} uncapCode />
-          {children}
-        </div>
+        {/* Pop the file out into its own browser tab. It opens the /code page
+            in solo mode (shell/solo.ts), where the file is the only pane — no
+            workspace, no app tabs. A normal browser tab, not a sized popup:
+            no window features are passed, which is what makes the browser
+            choose a tab, and she can drag it out into a window herself. The
+            pane here stays open; × still closes it. `_blank` (not a named
+            target) so each press gives a NEW tab and two files can be open at
+            once. Called straight from the click, because an installed PWA
+            blocks window.open from anywhere else. A public visitor gets it
+            too: /code is open to them (public_config.PRESENTABLE_PATHS) and
+            reads through the same app-code-only lock as this pane.
+            Her ask: "open a code window in a new browser window by clicking
+            a button, where it becomes the only pane… next to the x button",
+            then: "I think I want it to be a normal browser tab." */}
+        <IconButton
+          aria-label="Open in a new tab"
+          title="Open in a new tab"
+          data-track="terrain-code-popout"
+          onClick={() => window.open(soloCodeHref(repo, path, mentions), '_blank')}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 4h6v6" />
+            <path d="M20 4l-9 9" />
+            <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+          </svg>
+        </IconButton>
+        <IconButton aria-label="Close" onClick={onClose}>
+          &times;
+        </IconButton>
       </div>
-    </div>,
-    document.body,
+      {/* The pane's one scroll region: the code, then what touched the file.
+          The pane body is the only vertical scroller and the code flows into
+          it at full height (FileCodeBody's `uncapCode`); the code block keeps
+          its own HORIZONTAL scroll for long lines, which is the one thing it
+          can't inherit. */}
+      <div className={styles.body}>
+        <FileCodeBody repo={repo} path={path} uncapCode mentions={mentions} windowSeconds={windowSeconds} runWindowSeconds={runWindowSeconds} ink={ink ?? undefined} />
+        {children}
+      </div>
+    </div>
   );
 }

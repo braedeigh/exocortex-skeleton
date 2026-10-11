@@ -23,6 +23,7 @@ import { DevNotesSection } from './DevNotesSection';
 import { NotificationsSection } from './NotificationsSection';
 import { PhaseCard } from './PhaseCard';
 import { ProfileSection } from './ProfileSection';
+import { ThemeModeTiles } from './ThemeModeTiles';
 import { saveTheme } from './settingsApi';
 import {
   buildSavePayload,
@@ -33,12 +34,7 @@ import {
 } from './settingsHelpers';
 import styles from './SettingsPage.module.css';
 
-const MODE_OPTIONS: ReadonlyArray<{ value: ThemeMode; label: string }> = [
-  { value: 'auto', label: 'Auto — lavender by day, indigo at night' },
-  { value: 'light', label: 'Light (lavender)' },
-  { value: 'dark', label: 'Dark (indigo)' },
-  { value: 'sky', label: 'Color runway (full day cycle)' },
-];
+const ADVANCED_STORAGE_KEY = 'settingsAdvancedColorsOpen';
 
 const OFFSET_ROWS: ReadonlyArray<[OffsetKey, string, 'sunrise' | 'sunset']> = [
   ['dawnStart', 'Dawn start', 'sunrise'],
@@ -60,13 +56,24 @@ const ACCENT_LABELS: ReadonlyArray<[AccentKey, string]> = [
 type SaveStatus = '' | 'unsaved' | 'saving…' | 'saved' | 'save failed';
 
 /**
- * /settings — native port of templates/settings.html + static/js/settings.js:
- * theme mode, sky-theme master toggle, per-phase colors with live preview,
- * phase timing offsets, accent colors, cross-tab dev notes, profile
- * (owner name/email/app name), and account.
- * Edits accumulate in a local draft; Save persists via POST /api/theme/save
- * then commits through the theme engine (re-skins this document and
- * broadcasts 'theme-changed' to every mounted legacy iframe).
+ * /settings — theme, chat surface, reduced effects, usage heat, cross-tab dev
+ * notes, profile (owner name/email/app name), notifications, Claude login and
+ * account.
+ *
+ * The theme section shows one thing: four mode tiles (ThemeModeTiles), with
+ * Auto as the default. All the tuning — the runway toggle, the seven phase
+ * palettes, the phase timing offsets, the accent colors — lives behind a
+ * single "Advanced colors" disclosure that stays shut until she opens it
+ * (remembered in localStorage).
+ *
+ * Theme edits accumulate in a local draft; Save persists via POST
+ * /api/theme/save then commits through the theme engine (re-skins this
+ * document and broadcasts 'theme-changed' to every mounted legacy iframe).
+ * The mode tiles are the exception — they preview live on click.
+ *
+ * Prompt behind this shape: "in my settings there is not a good colour theme
+ * setting — I want auto colour theme, advanced colour settings accessible with
+ * a click into the UI, and otherwise only theme mode." 
  */
 export function SettingsPage() {
   const [draft, setDraft] = useState<ThemeDraft>(() => draftFromOverrides(getThemeOverrides()));
@@ -108,6 +115,25 @@ export function SettingsPage() {
     setEffectsReduced(on);
   }
 
+  // Advanced colours stay shut unless she opened them before — same
+  // localStorage-remembered disclosure idiom as the collapsible cards.
+  const [advancedOpen, setAdvancedOpen] = useState(() => {
+    try {
+      return localStorage.getItem(ADVANCED_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  function onAdvancedToggle(open: boolean) {
+    setAdvancedOpen(open);
+    try {
+      localStorage.setItem(ADVANCED_STORAGE_KEY, open ? '1' : '0');
+    } catch {
+      // storage denied — it just won't persist
+    }
+  }
+
   // Chat tab surface: terminal (default) or the Keeper bot's observatory.
   const [chatBots, setChatBots] = useState(chatSurfaceIsObservatory);
   function onChatSurfaceChange(on: boolean) {
@@ -145,10 +171,18 @@ export function SettingsPage() {
   }
 
   function onModeChange(mode: ThemeMode) {
-    update((d) => ({ ...d, mode }));
+    // Choosing "Color runway" IS switching the runway on. Without this, the
+    // separate `enabled` toggle buried in Advanced silently wins and the tile
+    // does nothing visible — the mode picker has to mean what it says.
+    const enable = mode === 'sky' ? true : undefined;
+    update((d) => ({ ...d, mode, ...(enable ? { enabled: true } : {}) }));
     // Live preview immediately (legacy parity): swap the in-memory overrides'
     // mode and re-skin this document — the rest still applies only on Save.
-    previewThemeOverrides({ ...getThemeOverrides(), mode });
+    previewThemeOverrides({
+      ...getThemeOverrides(),
+      mode,
+      ...(enable ? { enabled: true } : {}),
+    });
     rememberThemeMode(mode);
   }
 
@@ -191,7 +225,7 @@ export function SettingsPage() {
     const payload = buildSavePayload(draft);
     setSaving(true);
     setStatus('saving…');
-    rememberThemeMode(payload.mode ?? 'sky');
+    rememberThemeMode(payload.mode ?? 'auto');
     try {
       await saveTheme(payload);
       setDirty(false);
@@ -240,125 +274,140 @@ export function SettingsPage() {
         </div>
 
         <section className={styles.section}>
-          <h2 className={styles.heading}>Theme mode</h2>
+          <h2 className={styles.heading}>Theme</h2>
           <div className={styles.sub}>
-            Auto follows Austin sunrise/sunset — lavender by day, indigo at night. Or pick a fixed
-            look.
+            Auto follows Austin sunrise and sunset. Pick a fixed look instead, or let the color
+            drift through the whole day.
           </div>
-          <select
-            className={styles.modeSelect}
-            value={draft.mode}
-            onChange={(e) => onModeChange(e.target.value as ThemeMode)}
-            aria-label="Theme mode"
+          <ThemeModeTiles draft={draft} onChange={onModeChange} />
+
+          {/* Everything below is the sky-runway machinery — 60-odd colour
+              pickers and timing offsets that only matter if she's tuning the
+              palette. One disclosure, shut by default, state remembered, so
+              the page reads as "pick a theme" and nothing else. */}
+          <details
+            className={styles.advanced}
+            open={advancedOpen}
+            onToggle={(e) => onAdvancedToggle(e.currentTarget.open)}
           >
-            {MODE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </section>
-
-        <section className={styles.section}>
-          <h2 className={styles.heading}>Sky theme</h2>
-          <div className={styles.sub}>
-            Used only in &ldquo;Color runway&rdquo; mode. Colors shift through the day based on
-            Austin sunrise/sunset.
-          </div>
-          <label className={styles.toggleRow}>
-            <span>
-              <span className={styles.toggleLabel}>Enable sky theme</span>
-              <span className={styles.toggleDesc}>
-                When off, colors stay frozen at the CSS defaults.
+            <summary className={styles.advancedSummary}>
+              <span className={styles.advancedChevron} aria-hidden="true">
+                &#9656;
               </span>
-            </span>
-            <input
-              type="checkbox"
-              className={styles.toggleInput}
-              checked={draft.enabled}
-              onChange={(e) => update((d) => ({ ...d, enabled: e.target.checked }))}
-            />
-          </label>
-        </section>
+              <span>
+                <span className={styles.advancedLabel}>Advanced colors</span>
+                <span className={styles.advancedDesc}>
+                  Per-phase palettes, when each phase starts, and the accent colors
+                </span>
+              </span>
+            </summary>
 
-        <section className={styles.section}>
-          <h2 className={styles.heading}>Phase colors</h2>
-          <div className={styles.sub}>
-            Each phase has six colors that the page blends between. Click a phase to expand.
-            Disable a phase to make it inherit the next one&rsquo;s colors.
-          </div>
-          {PHASE_ORDER.map((phase) => (
-            <PhaseCard
-              key={phase}
-              phase={phase}
-              draft={draft}
-              onColorChange={onColorChange}
-              onToggleEnabled={onTogglePhase}
-              onReset={onResetPhase}
-            />
-          ))}
-        </section>
-
-        <section className={styles.section}>
-          <h2 className={styles.heading}>Phase timing</h2>
-          <div className={styles.sub}>
-            Boundaries are offsets in hours, relative to sunrise or sunset. Negative means before,
-            positive means after.
-          </div>
-          <div className={styles.rulesCard}>
-            {OFFSET_ROWS.map(([key, label, anchor]) => {
-              const val = effectiveOffset(draft, key);
-              return (
-                <div key={key} className={styles.ruleRow}>
-                  <label className={styles.ruleLabel} htmlFor={`offset-${key}`}>
-                    {label}
-                  </label>
-                  <span className={styles.ruleAnchor}>{anchor}</span>
-                  <span className={styles.ruleFormula}>
-                    {anchor} + {val} hr
+            <div className={styles.advancedBody}>
+              <div className={styles.subsection}>
+                <h3 className={styles.subheading}>Color runway</h3>
+                <div className={styles.sub}>
+                  Only used in &ldquo;Color runway&rdquo; mode. Colors shift through the day
+                  based on Austin sunrise/sunset.
+                </div>
+                <label className={styles.toggleRow}>
+                  <span>
+                    <span className={styles.toggleLabel}>Enable the runway</span>
+                    <span className={styles.toggleDesc}>
+                      When off, colors stay frozen at the CSS defaults.
+                    </span>
                   </span>
                   <input
-                    id={`offset-${key}`}
-                    type="number"
-                    step={0.25}
-                    className={styles.ruleInput}
-                    value={val}
-                    onChange={(e) => onOffsetChange(key, e.target.value)}
+                    type="checkbox"
+                    className={styles.toggleInput}
+                    checked={draft.enabled}
+                    onChange={(e) => update((d) => ({ ...d, enabled: e.target.checked }))}
                   />
-                </div>
-              );
-            })}
-          </div>
-        </section>
+                </label>
+              </div>
 
-        <section className={styles.section}>
-          <h2 className={styles.heading}>Accent colors</h2>
-          <div className={styles.sub}>
-            Static colors used for habit-section headers and dot fills. These don&rsquo;t shift
-            with the day.
-          </div>
-          <div className={styles.accentsCard}>
-            <div className={styles.accentPreview}>
-              {ACCENT_LABELS.map(([key, label]) => (
-                <span
-                  key={key}
-                  className={styles.swatchPill}
-                  style={{ background: effectiveAccent(draft, key) }}
-                >
-                  <span className={styles.swatchDot} />
-                  {label}
-                </span>
-              ))}
+              <div className={styles.subsection}>
+                <h3 className={styles.subheading}>Phase colors</h3>
+                <div className={styles.sub}>
+                  Each phase has six colors that the page blends between. Click a phase to
+                  expand. Disabling a phase only affects Color runway mode &mdash; the runway
+                  slides past it wearing the next phase&rsquo;s colors. Light, Dark and Auto
+                  always use the palettes as you set them here.
+                </div>
+                {PHASE_ORDER.map((phase) => (
+                  <PhaseCard
+                    key={phase}
+                    phase={phase}
+                    draft={draft}
+                    onColorChange={onColorChange}
+                    onToggleEnabled={onTogglePhase}
+                    onReset={onResetPhase}
+                  />
+                ))}
+              </div>
+
+              <div className={styles.subsection}>
+                <h3 className={styles.subheading}>Phase timing</h3>
+                <div className={styles.sub}>
+                  Boundaries are offsets in hours, relative to sunrise or sunset. Negative means
+                  before, positive means after.
+                </div>
+                <div className={styles.rulesCard}>
+                  {OFFSET_ROWS.map(([key, label, anchor]) => {
+                    const val = effectiveOffset(draft, key);
+                    return (
+                      <div key={key} className={styles.ruleRow}>
+                        <label className={styles.ruleLabel} htmlFor={`offset-${key}`}>
+                          {label}
+                        </label>
+                        <span className={styles.ruleAnchor}>{anchor}</span>
+                        <span className={styles.ruleFormula}>
+                          {anchor} + {val} hr
+                        </span>
+                        <input
+                          id={`offset-${key}`}
+                          type="number"
+                          step={0.25}
+                          className={styles.ruleInput}
+                          value={val}
+                          onChange={(e) => onOffsetChange(key, e.target.value)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className={styles.subsection}>
+                <h3 className={styles.subheading}>Accent colors</h3>
+                <div className={styles.sub}>
+                  Static colors used for habit-section headers and dot fills. These don&rsquo;t
+                  shift with the day.
+                </div>
+                <div className={styles.accentsCard}>
+                  <div className={styles.accentPreview}>
+                    {ACCENT_LABELS.map(([key, label]) => (
+                      <span
+                        key={key}
+                        className={styles.swatchPill}
+                        style={{ background: effectiveAccent(draft, key) }}
+                      >
+                        <span className={styles.swatchDot} />
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                  {ACCENT_LABELS.map(([key, label]) => (
+                    <ColorField
+                      key={key}
+                      label={label}
+                      value={effectiveAccent(draft, key)}
+                      onChange={(v) => onAccentChange(key, v)}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
-            {ACCENT_LABELS.map(([key, label]) => (
-              <ColorField
-                key={key}
-                label={label}
-                value={effectiveAccent(draft, key)}
-                onChange={(v) => onAccentChange(key, v)}
-              />
-            ))}
-          </div>
+          </details>
         </section>
 
         <section className={styles.section}>

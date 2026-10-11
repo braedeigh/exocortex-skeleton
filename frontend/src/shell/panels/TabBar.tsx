@@ -15,6 +15,7 @@ import { buildBar, closeTab, pruneStale, touchTab, urlsOnBar, type BarItem, type
 import { useLiveSessions } from './useLiveSessions';
 import { urlForIntent } from './panelIntents';
 import { useTabSets } from './useTabSets';
+import { useMenuFit } from '../menuFit';
 import styles from './TabBar.module.css';
 
 /**
@@ -108,6 +109,12 @@ export function TabBar({
   const liveSessions = useLiveSessions();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  /* This menu is the longest thing in the app's chrome — every set, then every
+     section — and it opens inside a panel, which clips (PanelFrame.module.css).
+     Sized to the window it lost its bottom rows outright; sized to the panel
+     they're a scroll away. See menuFit.ts. */
+  const [menuBtn, setMenuBtn] = useState<HTMLButtonElement | null>(null);
+  const menuFit = useMenuFit(menuBtn, menuOpen);
   const [drag, setDrag] = useState<{ from: number; over: number } | null>(null);
   /* Which bin is currently asking "Sure?". One at a time, and it gives up on
      its own after a few seconds — an armed delete left sitting there is a trap
@@ -251,6 +258,7 @@ export function TabBar({
       <div className={styles.menuWrap} ref={menuRef}>
         <button
           type="button"
+          ref={setMenuBtn}
           className={styles.menuBtn}
           onClick={() => setMenuOpen((v) => !v)}
           aria-expanded={menuOpen}
@@ -262,7 +270,11 @@ export function TabBar({
           <span aria-hidden="true">&#9662;</span>
         </button>
         {menuOpen ? (
-          <div className={styles.menu} role="menu">
+          <div
+            className={[styles.menu, menuFit?.flipUp ? styles.menuUp : ''].filter(Boolean).join(' ')}
+            role="menu"
+            style={menuFit ? { maxHeight: menuFit.maxHeight } : undefined}
+          >
             <div className={styles.groupLabel}>Sets</div>
             {sets.map((s, i) => {
               const isActive = s.id === activeSetId;

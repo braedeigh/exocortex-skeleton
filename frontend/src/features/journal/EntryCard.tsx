@@ -1,8 +1,27 @@
+/**
+ * One journal card: a single thing said, by you or the Keeper, with its time,
+ * tags, and chips (thread, counter, the conversation it came from). Reading,
+ * its words are rendered as light markdown with people and threads
+ * highlighted, and any photos in it show as a thumbnail row underneath
+ * (CardPhotos.tsx). Editing, it becomes a text box with Save/Cancel, a
+ * timestamp button, tag editing, and a delete that asks first. An entry
+ * that's been changed wears an "edited" chip opening its history
+ * (EditHistorySheet.tsx). In search
+ * results it's read-only, with the matching words lit (searchMarks.ts).
+ *
+ * Touches: `markdown.ts` + `entityHighlight.ts` (rendering the words),
+ * `photoRefs.ts` + `CardPhotos.tsx` (the photos), `CardStream.tsx` (which
+ * lays the cards out and passes every handler in).
+ */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, IconButton, Sheet } from '../../ui';
 import type { EntityMatcher } from './entityHighlight';
 import { highlightEntities } from './entityHighlight';
 import { mdToHtml } from './markdown';
+import { CardPhotos } from './CardPhotos';
+import { EditHistorySheet } from './EditHistorySheet';
+import { splitPhotos } from './photoRefs';
+import { marksToHtml, stripMarks } from './searchMarks';
 import { insertAtCursor, timestampMarker } from './timestampInsert';
 import type { Card } from './types';
 import styles from './EntryCard.module.css';
@@ -40,9 +59,21 @@ export interface EntryCardProps {
   onAddTag?: (id: string, tag: string) => void;
   /** Edit-mode tag editor: remove one tag. */
   onRemoveTag?: (id: string, tag: string) => void;
+  /** Read-only: no edit pencil. The search results use this — changes are
+   * made on the card's own day, never from a list of results. */
+  readOnly?: boolean;
+  /** The card's text with search hits wrapped in searchMarks.ts markers;
+   * when given, it's rendered in place of `card.body` with the hits lit. */
+  markedBody?: string;
 }
 
 /** "8:46 AM" from "YYYY-MM-DD HH:MM:SS" — string ops only, no Date/timezone games. */
+/** "Sep 24" from an `edited` stamp ("YYYY-MM-DD HH:MM:SS") — display only. */
+function formatEditedDay(stamp: string): string {
+  const date = new Date(`${stamp.slice(0, 10)}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? stamp.slice(0, 10) : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 function cardClock(ts: string): string {
   const h = parseInt(ts.slice(11, 13), 10);
   const m = ts.slice(14, 16);
@@ -85,10 +116,13 @@ export function EntryCard({
   onOpenSession,
   onAddTag,
   onRemoveTag,
+  readOnly = false,
+  markedBody,
 }: EntryCardProps) {
   const [draft, setDraft] = useState(card.body);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
 
   // What she types becomes a slug the pool accepts ("Dating & Romance" ->
@@ -118,17 +152,50 @@ export function EntryCard({
     insertAtCursor(el, draft, timestampMarker(), setDraft);
   }
 
-  const bodyHtml = useMemo(() => highlightEntities(mdToHtml(card.body), matcher), [card.body, matcher]);
+  // Split the photos out of the words: the words render as text, the photos
+  // as thumbnails below them. Editing still shows the raw markers. A search
+  // result's hit markers ride through the markdown step and become <mark>s
+  // at the end (searchMarks.ts); they're wiped from the photo names, which
+  // go to the server as file names.
+  const { text: bodyText, photos } = useMemo(() => {
+    const split = splitPhotos(markedBody ?? card.body);
+    if (markedBody === undefined) return split;
+    return {
+      text: split.text,
+      photos: split.photos.map((p) => ({ name: stripMarks(p.name), caption: stripMarks(p.caption) })),
+    };
+  }, [markedBody, card.body]);
+  const bodyHtml = useMemo(() => {
+    const html = highlightEntities(mdToHtml(bodyText), matcher);
+    return markedBody === undefined ? html : marksToHtml(html);
+  }, [bodyText, matcher, markedBody]);
   const isContext = card.kind === 'context';
-  const isK = card.who === 'K';
+  // The speaker badge: each of the three speakers has its own look, so a
+  // system reminder never passes for her words or the keeper's.
+  const whoClass = card.who === 'K' ? styles.who_K : card.who === 'S' ? styles.who_S : styles.who_B;
 
   const classes = [styles.card, isContext ? styles.context : '', editing ? styles.editing : ''].filter(Boolean).join(' ');
 
   return (
     <div className={classes} data-card-id={card.id}>
       <div className={styles.meta}>
-        <span className={`${styles.who} ${isK ? styles.who_K : styles.who_B}`}>{card.who}</span>
+        <span className={`${styles.who} ${whoClass}`} title={card.who === 'S' ? 'System reminder' : undefined}>
+          {card.who}
+        </span>
         <span className={styles.time}>{cardClock(card.ts)}</span>
+        {/* The entry was changed after it was written: say when, and open
+            what it used to say. The time above stays the original one. */}
+        {card.edited ? (
+          <button
+            type="button"
+            className={styles.editedChip}
+            onClick={() => setHistoryOpen(true)}
+            title="See what it said before"
+            data-track="card-edited-chip"
+          >
+            &#9998; edited {formatEditedDay(card.edited)}
+          </button>
+        ) : null}
         {card.tags
           .filter((t) => threadNames?.has(t))
           .map((t) => (
@@ -170,7 +237,7 @@ export function EntryCard({
           </button>
         ) : null}
         <span className={styles.spacer} />
-        {!editing ? (
+        {!editing && !readOnly ? (
           <IconButton aria-label="Edit entry" onClick={() => onEdit(card.id)} data-track="card-edit">
             &#9998;
           </IconButton>
@@ -268,12 +335,24 @@ export function EntryCard({
               <span className={styles.replyContextSnippet}>&#8220;{card.reply_context.snippet}&#8221;</span>
             </button>
           ) : null}
-          <div
-            className={`${styles.body} ${isK ? styles.body_K : ''} ${isContext ? styles.body_context : ''}`}
-            dangerouslySetInnerHTML={{ __html: bodyHtml }}
-          />
+          {bodyText || !photos.length ? (
+            <div
+              className={`${styles.body} ${card.who === 'K' ? styles.body_K : ''} ${isContext ? styles.body_context : ''}`}
+              dangerouslySetInnerHTML={{ __html: bodyHtml }}
+            />
+          ) : null}
+          <CardPhotos photos={photos} />
         </>
       )}
+
+      {card.edited ? (
+        <EditHistorySheet
+          cardId={card.id}
+          currentBody={card.body || stripMarks(markedBody ?? '')}
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+        />
+      ) : null}
 
       <Sheet open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Delete this entry?">
         <p className={styles.confirmPreview}>{card.body.slice(0, 80)}{card.body.length > 80 ? '…' : ''}</p>

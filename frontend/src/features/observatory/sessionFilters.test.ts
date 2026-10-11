@@ -77,6 +77,20 @@ describe('unread', () => {
     });
     expect(matchesFilter(gated, ago(1 * MIN), 'unread', NOW)).toBe(true);
   });
+
+  it('reads a done session by its final output, not later housekeeping', () => {
+    // Marked done 30 min ago; a peer's FYI woke it 5 min ago.
+    const done = session('a', { done_at: ago(31 * MIN), final_at: ago(30 * MIN), last_at: ago(5 * MIN) });
+    expect(sessionIs(done, ago(20 * MIN), 'unread', NOW)).toBe(false);
+    expect(sessionIs(done, ago(40 * MIN), 'unread', NOW)).toBe(true);
+    expect(sessionIs(done, undefined, 'unread', NOW)).toBe(true);
+  });
+
+  it('reads a retired session by its handoff', () => {
+    const retired = session('a', { retired: true, retired_at: ago(30 * MIN), last_at: ago(5 * MIN) });
+    expect(sessionIs(retired, ago(20 * MIN), 'unread', NOW)).toBe(false);
+    expect(sessionIs(retired, ago(40 * MIN), 'unread', NOW)).toBe(true);
+  });
 });
 
 describe('error', () => {
@@ -157,15 +171,27 @@ describe('cardState', () => {
     const busyAndUnread = session('b', { running: true, last_at: ago(1 * MIN) });
     expect(cardState(busyAndUnread, ago(90 * MIN), NOW)).toBe('running');
 
-    // Unread AND inside the hour — orange wins, because it wants something
-    // from her and 'recent' doesn't.
+    // Unread AND inside the hour — unread wins (a grey card with an orange
+    // dot), because it wants something from her and 'recent' doesn't.
     const unreadAndRecent = session('c', { last_at: ago(2 * MIN) });
     expect(cardState(unreadAndRecent, ago(90 * MIN), NOW)).toBe('unread');
   });
 
   it('keeps a session that stopped to ask orange even once opened', () => {
     const asking = session('a', { awaiting_input: 'which one?', last_at: ago(2 * MIN) });
-    expect(cardState(asking, ago(0), NOW)).toBe('unread');
+    expect(cardState(asking, ago(0), NOW)).toBe('asking');
+  });
+
+  it('keeps orange for asking — a reply merely unread is its own quieter state', () => {
+    const gated = session('a', { awaiting_approval: { command: 'rm -rf x' } as SessionMeta['awaiting_approval'] });
+    expect(cardState(gated, undefined, NOW)).toBe('asking');
+    expect(cardState(session('b'), undefined, NOW)).toBe('unread');
+  });
+
+  it('lets the orange button return both the asking cards and the unread ones', () => {
+    const asking = session('a', { awaiting_input: 'which?' });
+    const unread = session('b');
+    expect(applyFilter([asking, unread], {}, ['unread'], NOW)).toHaveLength(2);
   });
 
   it('reads the opened stamp for the session it belongs to', () => {
@@ -263,6 +289,14 @@ describe('a button returns only cards wearing its colour', () => {
  * broke was feeding them the raw payload, which carries sessions no room on the
  * page draws. */
 describe('roomRoster', () => {
+  it('keeps a retired session off the front page while it wears orange', () => {
+    const asking = session('asking', { retired: true, awaiting_input: 'q' });
+    const unread = session('unread', { retired: true });
+    const quiet = session('quiet', { retired: true });
+    const opened = { quiet: ago(0) };
+    expect(roomRoster([asking, unread, quiet], opened, NOW).map((s) => s.id)).toEqual(['quiet']);
+  });
+
   it('drops the pinned Keeper and every night-crew worker', () => {
     const kept = roomRoster([
       session('keeper', { pinned: true }),
@@ -270,6 +304,16 @@ describe('roomRoster', () => {
       session('mine'),
     ]);
     expect(kept.map((s) => s.id)).toEqual(['mine']);
+  });
+
+  it('leaves a saved-for-later session out of the rooms and the orange count', () => {
+    const rooms = roomRoster(
+      [session('parked', { saved_at: ago(0), awaiting_input: 'q' }), session('mine')],
+      {},
+      NOW,
+    );
+    expect(rooms.map((s) => s.id)).toEqual(['mine']);
+    expect(filterCounts(rooms, { mine: ago(0) }, NOW).unread).toBe(0);
   });
 
   it('keeps a session whose lane no longer has a room', () => {

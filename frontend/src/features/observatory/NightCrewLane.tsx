@@ -67,8 +67,8 @@ export interface NightRun {
   note_text: string;
   status: 'ready' | 'working' | 'failed' | 'parked' | 'merged' | 'reverted' | 'picked';
   branch?: string;
-  /** Pick-only mode: why the crew proposed this note ("oldest never-answered
-   * note that passes the gate — #2 of 61 candidates"). The info she aims her
+  /** Pick-only mode: why the crew proposed this note ("newest never-answered
+   * note from the last 7 days that passes the gate — #2 of 6 candidates"). The info she aims her
    * picking-policy feedback at. */
   pick_reason?: string;
   /** When the picked note was written — age is the current policy's whole

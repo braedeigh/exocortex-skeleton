@@ -1,5 +1,6 @@
 import { ObservatoryPage } from '../features/observatory/ObservatoryPage';
 import { RosterPage } from '../features/observatory/RosterPage';
+import { useSessionMountKey } from '../features/observatory/sessionMountKey';
 import styles from './KeeperPane.module.css';
 
 /**
@@ -18,7 +19,9 @@ import styles from './KeeperPane.module.css';
  * "show this conversation" always means the same thing wherever it came from.
  *
  * Keying the room on the id means each conversation remounts clean — exactly
- * what the routed page gets from its own `key`.
+ * what the routed page gets from its own `key` — except the session a blank
+ * compose just created, which the page adopts and keeps streaming into
+ * (sessionMountKey.ts).
  *
  * The room stays mounted while she's in the roster (a reply may be streaming
  * into it); the roster is mounted only while shown, since it polls and
@@ -39,6 +42,7 @@ export function KeeperPane({
    * the open session's title (see SplitLayout). */
   onRoomTitle?: (title: string | null) => void;
 }) {
+  const mount = useSessionMountKey(conv ?? undefined);
   return (
     <>
       <div className={roster ? styles.hidden : styles.slot}>
@@ -46,10 +50,11 @@ export function KeeperPane({
           <div className={styles.loading} />
         ) : (
           <ObservatoryPage
-            key={conv ?? 'new'}
+            key={mount.key}
             botId="keeper"
             convId={conv ?? undefined}
             onOpenConversation={onOpenConversation}
+            onSessionCreated={mount.adopt}
             onTitleChange={onRoomTitle}
           />
         )}

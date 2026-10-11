@@ -7,7 +7,7 @@ import { openSessionInTerminal } from '../../shell/sessionIntent';
 import { ToastStack } from '../../ui';
 import { NotesPill } from '../todos/NotesPill';
 import { useThread, useThreads, useThreadsTree, useToasts } from '../journal/useJournalData';
-import { startThreadTalk, talkLabel, type TalkState } from '../journal/threadTalk';
+import { startThreadTalk, talkLabel, threadTalkOffered, type TalkState } from '../journal/threadTalk';
 import type { Thread, ThreadSource } from '../journal/types';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
 import type { Front } from '../fronts/useFronts';
@@ -600,7 +600,7 @@ function ThreadBody({ id, fronts, frontsList, alsoUnderNames, grandchildren, onJ
 
       {grandchildNote}
 
-      {!isPublicMode() ? (
+      {threadTalkOffered() ? (
         <button type="button" className={styles.talkBtn} onClick={talk} disabled={talkState === 'sending'}>
           {talkLabel(talkState)}
         </button>

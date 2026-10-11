@@ -224,6 +224,83 @@ def test_sync_sessions_makes_the_footprints_joinable(data_dir, tmp_path):
     assert _rows("SELECT first_seen FROM files WHERE path = 'uncommitted.py'") == [(None,)]
 
 
+def test_a_session_that_read_a_deleted_file_does_not_bring_it_back(data_dir, tmp_path):
+    """A folder of files is deleted and committed; sessions that once read
+    them are still in the footprints. The files must stay off the map through
+    every later sync — and a row an older sync already revived is put right."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "briefs/one/BRIEF.md", "one\n")
+    _commit(repo, "briefs/two/BRIEF.md", "two\n")
+    _commit(repo, "kept.py", "x\n")
+    _git(repo, "rm", "-rq", "briefs")
+    _git(repo, "commit", "-q", "-m", "briefs live in the database now")
+    (store.DATA_DIR / "bot_chats").mkdir(exist_ok=True)
+    store.write("bot_chats/index", {"conv-1": {"title": "Read the briefs"}})
+    store.write("bot_chats/footprints", {"conv-1": {"files": {
+        str(repo / "briefs/one/BRIEF.md"): {"writes": 1, "reads": 4, "creates": 1,
+                                            "last": "2026-06-01T09:30:00"},
+        str(repo / "kept.py"): {"writes": 0, "reads": 1, "creates": 0, "last": None},
+    }}})
+
+    codestore.rebuild(_repos(repo))
+    codestore.sync_sessions(_repos(repo))
+    assert set(codestore.touches("skeleton")) == {"kept.py"}
+    # The session's touch is still on record, on the deleted file's own row.
+    assert _rows("SELECT sf.reads FROM session_files sf JOIN files f ON f.id = sf.file_id"
+                 " WHERE f.path = 'briefs/one/BRIEF.md'") == [(4,)]
+
+    # A row revived by the old sync (deleted_at wiped) is buried again, with
+    # the time of the commit that deleted it.
+    conn = sqlite3.connect(store.DATA_DIR / "exo.db")
+    conn.execute("UPDATE files SET deleted_at = NULL WHERE path LIKE 'briefs/%'")
+    conn.commit()
+    conn.close()
+    codestore.sync_sessions(_repos(repo))
+    assert set(codestore.touches("skeleton")) == {"kept.py"}
+    deleted = _rows("SELECT f.deleted_at, c.authored_at FROM files f, commits c"
+                    " WHERE f.path LIKE 'briefs/%' AND c.subject LIKE 'briefs live%'")
+    assert len(deleted) == 2 and all(at == when for at, when in deleted)
+
+    # A file git never saw (written and removed between commits) that is not
+    # on disk is not alive either, and stays that way sync after sync.
+    store.write("bot_chats/footprints", {"conv-1": {"files": {
+        str(repo / "briefs/one/BRIEF.md"): {"writes": 1, "reads": 4, "creates": 1,
+                                            "last": "2026-06-01T09:30:00"},
+        str(repo / "briefs/never/BRIEF.md"): {"writes": 1, "reads": 0, "creates": 1,
+                                              "last": "2026-06-01T09:30:00"}}}})
+    for _ in range(2):
+        codestore.sync_sessions(_repos(repo))
+        assert _rows("SELECT deleted_at FROM files WHERE path = 'briefs/never/BRIEF.md'"
+                     ) == [("2026-06-01T09:30:00",)]
+
+    # Written again but not yet committed: it is on disk, so it is alive.
+    (repo / "briefs/one").mkdir(parents=True)
+    (repo / "briefs/one/BRIEF.md").write_text("back\n")
+    codestore.sync_sessions(_repos(repo))
+    assert _rows("SELECT deleted_at FROM files WHERE path = 'briefs/one/BRIEF.md'") == [(None,)]
+
+
+def test_sessions_carry_their_real_lane_and_keeper_flag(data_dir, tmp_path):
+    # Older sessions never stored a lane — SQL used to show them blank. And
+    # every session says bot="keeper", so that column can't find the journal.
+    (data_dir / "bot_chats").mkdir()
+    store.write("bot_chats/index", {
+        "vault-old": {"bot": "keeper", "cwd": str(tmp_path / "vault")},
+        "build-old": {"bot": "keeper", "cwd": str(store.BUILD_DIR)},
+        "coding-new": {"bot": "keeper", "lane": "coding", "cwd": str(store.BUILD_DIR)},
+        "the-keeper": {"bot": "keeper", "journal": True, "cwd": str(tmp_path / "vault")},
+    })
+    store.write("bot_chats/footprints", {})
+    codestore.sync_sessions(())
+    rows = {r[0]: (r[1], r[2]) for r in _rows("SELECT id, lane, is_keeper FROM sessions")}
+    assert rows == {
+        "vault-old": ("personal", 0),
+        "build-old": ("orchestra", 0),
+        "coding-new": ("coding", 0),
+        "the-keeper": ("personal", 1),
+    }
+
+
 def test_sync_sessions_is_a_full_rederive(data_dir, tmp_path):
     repo = _make_repo(tmp_path / "repo")
     _commit(repo, "app.py", "x\n")
@@ -409,3 +486,190 @@ def test_update_and_rebuild_agree(data_dir, tmp_path):
         "SELECT f.path, cf.status FROM commit_files cf"
         " JOIN files f ON f.id = cf.file_id ORDER BY cf.sha, f.path")
     assert incremental == rebuilt
+
+
+# --- update() and the write lock ---------------------------------------------
+#
+# Terrain calls update() every time its cache expires — every few seconds while
+# a session runs — and git takes the better part of a second even when nothing
+# is new. Held across that, the write lock starved every other writer in the
+# app (swarms, the usage beacons, peer mail) into "database is locked".
+
+def _someone_else_can_write():
+    """Can another connection take the write lock right now, without waiting?"""
+    conn = sqlite3.connect(store.DATA_DIR / "exo.db", timeout=0, isolation_level=None)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("ROLLBACK")
+        return True
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        conn.close()
+
+
+def test_update_leaves_the_database_writable_while_git_runs(data_dir, tmp_path, monkeypatch):
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "a.py", "a\n")
+    codestore.update(_repos(repo))
+    _commit(repo, "b.py", "b\n")
+    seen = []
+    real_git, real_log = codestore._git, codestore._log_over
+
+    def git_watching(*args, **kwargs):
+        seen.append(_someone_else_can_write())
+        return real_git(*args, **kwargs)
+
+    def log_watching(*args, **kwargs):
+        seen.append(_someone_else_can_write())
+        return real_log(*args, **kwargs)
+
+    monkeypatch.setattr(codestore, "_git", git_watching)
+    monkeypatch.setattr(codestore, "_log_over", log_watching)
+    assert codestore.update(_repos(repo)) == {"skeleton": 1}
+    assert seen and all(seen)
+
+
+def test_update_racing_another_update_indexes_each_commit_once(data_dir, tmp_path, monkeypatch):
+    """Git is read outside the lock, so another update can land the same
+    commits in between; the slower one must notice, not apply them twice."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "a.py", "a\n")
+    codestore.update(_repos(repo))
+    _commit(repo, "a.py", "a2\n")
+    _git(repo, "rm", "-q", "a.py")
+    _git(repo, "commit", "-q", "-m", "drop")
+    real_log = codestore._log_over
+    raced = []
+
+    def log_then_race(*args, **kwargs):
+        if not raced:
+            raced.append(True)
+            monkeypatch.setattr(codestore, "_log_over", real_log)
+            codestore.update(_repos(repo))
+        return real_log(*args, **kwargs)
+
+    monkeypatch.setattr(codestore, "_log_over", log_then_race)
+    assert codestore.update(_repos(repo)) == {"skeleton": 0}
+    assert _rows("SELECT COUNT(*) FROM commits")[0][0] == 3
+    assert _rows("SELECT COUNT(*) FROM commit_files")[0][0] == 3
+
+
+# --- when a file was last really EDITED ---------------------------------------
+#
+# folder_edit_times answers "when did she last work on this", which is NOT the
+# newest touch: the vault's backup cron commits whatever it finds each hour, so
+# an import or a machine migration lands as one commit across dozens of pages.
+# Taking that as an edit draws a flat band meaning "a commit passed through
+# here", which is the exact thing the coils exist to stop showing. These pin
+# the rule that separates the two, and the fallback that keeps every file
+# dated — an undated dot goes on a coil's outer tip, which is a worse lie than
+# an approximate time.
+
+def _commit_many(repo, paths, message, date):
+    """One commit touching several files at once — a sweep, if it's wide."""
+    for relpath, content in paths.items():
+        path = repo / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        _git(repo, "add", relpath)
+    _git(repo, "commit", "-q", "-m", message,
+         env={"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date})
+
+
+def _at(repo, rel):
+    return codestore.folder_edit_times("skeleton", rel, sweep_min=3)
+
+
+def test_edit_times_read_the_newest_real_touch(data_dir, tmp_path):
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "pages/a.md", "one", date="2026-06-01T10:00:00")
+    _commit(repo, "pages/a.md", "two", date="2026-07-01T10:00:00")
+    codestore.rebuild(_repos(repo))
+
+    at = _at(repo, "pages/")
+
+    assert time.strftime("%Y-%m-%d", time.localtime(at["pages/a.md"])) == "2026-07-01"
+
+
+def test_a_commit_that_sweeps_the_folder_is_not_an_edit(data_dir, tmp_path):
+    """The backup cron catching up a backlog moved these; she didn't write
+    them. The real edit underneath is what the coil should show."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "pages/a.md", "one", date="2026-06-01T10:00:00")
+    _commit(repo, "pages/b.md", "one", date="2026-06-02T10:00:00")
+    _commit(repo, "pages/c.md", "one", date="2026-06-03T10:00:00")
+    _commit_many(repo, {"pages/a.md": "x", "pages/b.md": "x", "pages/c.md": "x"},
+                 "Auto-backup 2026-09-01_0500", "2026-09-01T05:00:00")
+    codestore.rebuild(_repos(repo))
+
+    at = _at(repo, "pages/")
+
+    assert time.strftime("%Y-%m-%d", time.localtime(at["pages/a.md"])) == "2026-06-01"
+    assert time.strftime("%Y-%m-%d", time.localtime(at["pages/c.md"])) == "2026-06-03"
+
+
+def test_a_commit_touching_few_of_this_folder_still_counts(data_dir, tmp_path):
+    """Counted PER FOLDER: a backup sweeping the whole vault but only two
+    files here really did edit those two."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "pages/a.md", "one", date="2026-06-01T10:00:00")
+    _commit_many(repo, {"pages/a.md": "x", "other/1.md": "x", "other/2.md": "x",
+                        "other/3.md": "x", "other/4.md": "x"},
+                 "Auto-backup 2026-09-01_0500", "2026-09-01T05:00:00")
+    codestore.rebuild(_repos(repo))
+
+    at = _at(repo, "pages/")
+
+    # Wide commit, but it only moved ONE page here — that's an edit.
+    assert time.strftime("%Y-%m-%d", time.localtime(at["pages/a.md"])) == "2026-09-01"
+
+
+def test_a_file_only_ever_swept_falls_back_to_when_it_was_created(data_dir, tmp_path):
+    """Imported in a batch and never touched since. Its creation is the only
+    honest thing left to say, and saying nothing would strand it on the tip."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit_many(repo, {"pages/a.md": "x", "pages/b.md": "x", "pages/c.md": "x"},
+                 "Initial commit", "2026-03-26T15:00:00")
+    codestore.rebuild(_repos(repo))
+
+    at = _at(repo, "pages/")
+
+    assert set(at) == {"pages/a.md", "pages/b.md", "pages/c.md"}
+    assert time.strftime("%Y-%m-%d", time.localtime(at["pages/a.md"])) == "2026-03-26"
+
+
+def test_edit_times_cover_every_living_file_in_the_folder(data_dir, tmp_path):
+    """The promise the fallback exists to keep: never undated."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit_many(repo, {f"pages/{i}.md": "x" for i in range(6)},
+                 "Initial commit", "2026-03-26T15:00:00")
+    _commit(repo, "pages/0.md", "edited", date="2026-08-01T10:00:00")
+    codestore.rebuild(_repos(repo))
+
+    at = _at(repo, "pages/")
+
+    assert len(at) == 6
+    assert all(isinstance(v, int) for v in at.values())
+
+
+def test_edit_times_ignore_a_subfolders_files(data_dir, tmp_path):
+    """A coil is a statement about the folder's OWN files."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "pages/a.md", "one", date="2026-06-01T10:00:00")
+    _commit(repo, "pages/shots/b.png", "one", date="2026-06-02T10:00:00")
+    codestore.rebuild(_repos(repo))
+
+    assert set(_at(repo, "pages/")) == {"pages/a.md"}
+
+
+def test_a_deleted_file_keeps_no_edit_time(data_dir, tmp_path):
+    """Deleted files stay off the map, the same way touches() holds it."""
+    repo = _make_repo(tmp_path / "repo")
+    _commit(repo, "pages/a.md", "one", date="2026-06-01T10:00:00")
+    _commit(repo, "pages/b.md", "one", date="2026-06-02T10:00:00")
+    _git(repo, "rm", "-q", "pages/b.md")
+    _git(repo, "commit", "-q", "-m", "drop")
+    codestore.rebuild(_repos(repo))
+
+    assert set(_at(repo, "pages/")) == {"pages/a.md"}

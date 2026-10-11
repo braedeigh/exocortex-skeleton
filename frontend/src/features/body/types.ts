@@ -4,7 +4,7 @@ export type SafetyTag = 'safe' | 'suspect' | 'inflammatory';
 
 /** One row of server.py's load_health_data() (habits.csv), as the Body tab
  * reads it. `nose_spray` arrives as a real boolean (data_helpers.py casts it),
- * unlike the todos feature's numeric SymptomLevels payload we *send*. */
+ * unlike the numeric SymptomPayload we *send* (bodyApi.ts). */
 export interface BodyHealthDay {
   date: string;
   /** "Jul 09" — used for the dot-grid column headers. */

@@ -5,8 +5,8 @@ is the rule for which folder each one stands in, so they stop editing each
 other's files, plus how their work gets back into the running site.
 
 Cross-file by nature — the parts live in `worktrees.py`, `routes/spinoff.py`,
-`routes/observatory.py` and `claude-commands/spinoff.md`, so the decision lives
-here and those files just point at it.
+`routes/branches.py`, `routes/observatory.py` and `scripts/nightcrew_run.py`, so
+the decision lives here and those files just point at it.
 
 ## The problem this solves
 
@@ -28,12 +28,18 @@ commit them.
 |---|---|---|
 | **Personal** | the parent of both repos | hers; sees code and vault as peers |
 | **Coding** | the real checkout | hers; gunicorn serves this folder, so she edits and refreshes |
-| **Orchestra** | its own git worktree | unattended; nobody is watching it |
+| **Night crew** | its own git worktree (`scripts/nightcrew_run.py`) | unattended; nobody is watching it |
+| **Steward** | a worktree on the existing `agent/*` branch it was woken on | that branch's work lives nowhere else |
 
-Only Orchestra moves. The two rooms she works in keep the live edit-refresh
-loop, because that's the whole reason they exist.
+**Spinoffs no longer get a worktree.** Until 2026-09-25 every Orchestra spinoff
+was minted its own copy on a fresh `agent/<slug>-<date>` branch; that is in the
+shed (`shed/orchestra-2026-09-25/SHED.md`). A spinoff now lands in Coding or
+Personal and works in that room's ground, the shared checkout included, so
+the collision this file describes is possible again between two spinoffs.
+The guard that's left is sequencing: `/spinoff` must not spawn two sessions
+that edit the same files.
 
-The trade an Orchestra session makes: **it cannot see its change in a browser.**
+The trade a worktree session makes: **it cannot see its change in a browser.**
 Gunicorn serves the real checkout, not the copy. Its proof is a test run.
 
 ## The topology is a hub, not a chain
@@ -41,7 +47,7 @@ Gunicorn serves the real checkout, not the copy. Its proof is a test run.
 ```
               ┌──  her sessions      (the real checkout)
 main ─────────┤
- (integration)└──  agent/<slug>-<date>   (Orchestra worktrees)
+ (integration)└──  agent/…   (night crew + steward worktrees)
 ```
 
 Everything is cut from `main` and merged back to `main`.
@@ -60,7 +66,7 @@ a cleverer branch graph.
 
 A conversation's `cwd` is fixed at birth. Claude Code stores conversations per
 directory and `--resume` from anywhere else fails, which is why the worktree is
-minted at session-create time and can't be bolted on later.
+cut at session-create time and can't be bolted on later.
 
 It's also why **`sweep()` keys on the conversation being archived, never on
 age.** A worktree is a live session's cwd. Deleting one because it looks old
@@ -119,7 +125,7 @@ sessions are the entire point here.
 
 ## Reporting back
 
-`/spinoff` hands work out as a `BRIEF.md`. It comes back as a **message in the
+`/spinoff` hands work out as a brief. It comes back as a **message in the
 session**, not a document: what changed, what it could break, what the agent
 isn't sure about, and what it actually ran.
 
@@ -146,27 +152,23 @@ gates belongs with the merge tap, which isn't built yet.
 
 ## What a brief's life looks like
 
-The `BRIEF.md` is the opposite case to the report, and the reasoning that
+The brief is the opposite case to the report, and the reasoning that
 removed the report deliberately does **not** transfer to it. A report was
 output with no reader. A brief is *input*, with a guaranteed reader: the child
 session, at spawn, every time — `routes/spinoff.py` won't even mint a session
 without one.
 
-- **Written** by `/spinoff` in the sending session, to `SPINOFF_DIR/<slug>/`.
-- **Read once**, at the kickoff. Nothing in the app reads it after that; the
-  content lives in the session's transcript from then on. A live or resumed
-  session can still go back to the file, which is why it isn't consumed.
-- **Filed on close.** `archive_spinoff()` moves it to `SPINOFF_ARCHIVE_DIR`,
-  hung off the same moment the worktree is reaped. **Keyed on the conversation
-  being archived, never on a clock** — same rule, same reason as `sweep()`: a
-  timer can delete a brief out from under a session that is still standing on
-  it. Slugs get reused, so a collision numbers the incoming one rather than
-  clobbering the record already there.
+Briefs are rows in the database, not files: [`spinoff-briefs.md`](spinoff-briefs.md).
+
+- **Saved** by `/spinoff` in the sending session, through
+  `scripts/spinoff_brief.py`, under the job's slug.
+- **Sent once**, as the kickoff. Its row then names the session it started and
+  is never changed; the session's "brief" page reads it back.
 - **Never deleted.** A brief is the only thing that records what a session was
   *asked* to do, including which forks the owner had already ruled on. Git can
   reconstruct what changed and never what was wanted.
 
-The `.kickoffs/` folder beside them is the opposite again: pure plumbing. The
+The kickoff folder (`store.SPINOFF_KICKOFF_DIR`, outside the data dir) is the opposite again: pure plumbing. The
 `.txt` is one fixed sentence handed across a process boundary so the brief path
 never touches a shell, and `spinoff_runner.py` deletes it the moment it's read.
 The `.log` catches a detached runner's stderr and is the only trace when a spawn

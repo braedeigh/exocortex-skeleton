@@ -151,6 +151,16 @@
   min-width: 160px;
 }
 
+/* A category the Log expense card filled in from what she typed: a soft accent
+   tint says "guessed for you"; picking one by hand returns it to plain. */
+.selectGuessed {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  transition:
+    background-color 200ms ease-out,
+    border-color 200ms ease-out;
+}
+
 .wAmount {
   width: 110px;
 }
@@ -176,6 +186,11 @@
 
 .outlineBtn:hover {
   background: color-mix(in srgb, var(--ongoing) 10%, transparent);
+}
+
+/* The "Upload a CSV" button, on its own line above the file list. */
+.csvUpload {
+  margin-bottom: var(--space-3);
 }
 
 .fileBtn {
@@ -545,7 +560,7 @@
 }
 
 .drillSelect {
-  min-height: 36px;
+  min-height: 40px;
   padding: 2px 4px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -556,6 +571,16 @@
 }
 
 /* ---- income gauge ---- */
+
+.leftOutNote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: 8px;
+  font-size: var(--font-size-sm);
+}
 
 .gaugeWrap {
   margin-bottom: 14px;
@@ -571,9 +596,9 @@
 
 .gaugeBar {
   position: relative;
-  height: 14px;
+  height: 18px;
   background: color-mix(in srgb, #7f7f7f 10%, transparent);
-  border-radius: 7px;
+  border-radius: 9px;
   overflow: hidden;
   font-size: 0;
   white-space: nowrap;
@@ -582,6 +607,25 @@
 .gaugeSeg {
   height: 100%;
   display: inline-block;
+  cursor: pointer;
+}
+
+.gaugeSeg:hover {
+  filter: brightness(1.15);
+}
+
+.gaugeFocus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gaugeSwatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+  border: 1px solid var(--border);
 }
 
 .gaugeUnspent {
@@ -592,6 +636,7 @@
 
 .gaugeMarker {
   position: absolute;
+  pointer-events: none;
   top: -2px;
   bottom: -2px;
   width: 2px;
@@ -641,50 +686,294 @@
   margin-top: 2px;
 }
 
-/* ---- CSV preview ---- */
+/* ---- CSV preview: the statement, split by month, one card-like row per
+   transaction (shaped like the receipt scanner's rows in kitchen/). ---- */
 
 .csvScroll {
-  overflow-x: auto;
-  max-height: 600px;
+  max-height: 640px;
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
+  background: var(--bg);
 }
 
-.csvTable {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
+/* Confirmation progress line above the list. */
+.stmtProgress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
 }
 
-.csvTable thead {
+.stmtProgressWaiting,
+.stmtProgressDone {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.stmtProgressWaiting {
+  color: var(--orange);
+}
+
+.stmtProgressDone {
+  color: var(--green);
+}
+
+/* Month header: sticks to the top of the list while its rows scroll by. */
+.stmtMonth {
   position: sticky;
   top: 0;
-  background: var(--card-bg);
   z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
 }
 
-.csvTable th {
-  padding: 6px 8px;
-  font-weight: 600;
-  text-align: left;
+.stmtMonthName {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+}
+
+.stmtMonthTotals {
+  font-size: 13px;
   color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One transaction. Orange tint + left rule = waiting on her to confirm. */
+.stmtRow {
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--border);
+  border-left: 4px solid transparent;
+  background: var(--card-bg);
+  cursor: pointer;
+  transition:
+    background-color 200ms ease-out,
+    border-color 200ms ease-out,
+    opacity 200ms ease-out;
+}
+
+.stmtRowWaiting {
+  background: color-mix(in srgb, var(--orange) 14%, var(--card-bg));
+  border-left-color: var(--orange);
+}
+
+.stmtRowOff {
+  opacity: 0.45;
+}
+
+.stmtTop {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.stmtRaw {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+/* The bank's own text: secondary, so the name below reads as the answer. */
+.stmtDesc {
+  font-size: 13px;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.stmtMeta {
   font-size: var(--font-size-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
 }
 
-.csvTable td {
-  padding: 5px 8px;
-  border-top: 1px solid var(--border);
+.stmtTapHint {
+  color: var(--orange);
+  font-weight: 700;
 }
 
-.csvRowWarn {
-  background: color-mix(in srgb, var(--red) 10%, transparent);
+.stmtAmount {
+  padding-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-.csvRowDim {
-  opacity: 0.4;
+.stmtIn {
+  color: var(--green);
+}
+
+/* "What is it?" + category, indented to line up past the checkbox. */
+.stmtFields {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding-left: calc(40px + var(--space-2));
+}
+
+.stmtName {
+  flex: 2;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.stmtName::placeholder {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.stmtSelect {
+  flex: 1.4;
+  min-width: 0;
+  max-width: none;
+}
+
+/* Phone width: the fields wrap instead of squeezing. The name takes a whole
+   line under the bank text, with the category and + beneath it; the indent
+   shrinks so neither box is cut short. */
+@media (max-width: 560px) {
+  .stmtFields {
+    flex-wrap: wrap;
+    padding-left: var(--space-3);
+  }
+
+  .stmtName {
+    flex: 1 1 100%;
+  }
+
+  .stmtSelect {
+    flex: 1;
+  }
+}
+
+/* ---- One-time thing (OneTimeFields.tsx) ----
+   A quiet pill until it's on; on, it takes the accent tint so a marked row
+   reads as different at a glance. The detail line (what was it + shelf) sits
+   under the row's fields at the same indent. */
+.oneTimeChip {
+  flex: none;
+  /* the same width ticked or not, so the amounts beside it don't shift */
+  min-width: 128px;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-md);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 180ms ease-out,
+    border-color 180ms ease-out,
+    color 180ms ease-out;
+}
+
+.oneTimeChip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.oneTimeChipOn {
+  background: color-mix(in srgb, var(--accent) 16%, var(--card-bg));
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.stmtOneTime {
+  margin-top: var(--space-2);
+  padding-left: calc(40px + var(--space-2));
+}
+
+.oneTimeDetail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.oneTimeLine {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.oneTimeHint {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.shelfWrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+
+/* Keep it / Used up: a two-way segmented switch. */
+.shelfToggle {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.shelfBtn {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: none;
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-md);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 180ms ease-out,
+    color 180ms ease-out;
+}
+
+.shelfBtn + .shelfBtn {
+  border-left: 1px solid var(--border);
+}
+
+.shelfBtnOn {
+  background: color-mix(in srgb, var(--accent) 16%, var(--card-bg));
+  color: var(--text);
+  font-weight: 600;
+}
+
+.oneTimeFiled {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  justify-content: space-between;
+}
+
+@media (max-width: 560px) {
+  .stmtOneTime {
+    padding-left: var(--space-3);
+  }
+
+  .oneTimeLine {
+    flex-wrap: wrap;
+  }
 }
 
 /* include checkbox: compact box, comfy hit area */
@@ -711,15 +1000,6 @@
   padding: 1px 6px;
   border-radius: 4px;
   margin-left: 4px;
-  white-space: nowrap;
-}
-
-.csvDesc {
-  font-size: var(--font-size-sm);
-}
-
-.csvAmount {
-  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -832,4 +1112,97 @@
 .dueChipOverdue {
   color: var(--red);
   font-weight: 600;
+}
+
+/* ---- Spending by month: the split by kind ----
+   A row of small figures between the gauge and the category bars: a muted
+   label over a bold amount. Uncoloured, so it doesn't compete with the bars. */
+.kindSplit {
+  display: grid;
+  /* four across on a wide screen, two by two on a phone — never a lone orphan */
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-3) 0 var(--space-4);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.kindFigure dt {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+
+.kindFigure dd {
+  margin: 2px 0 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.kindPct {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* ---- Recent expenses: one line per expense ----
+   What it was (name over date · category) on the left, then the amount, the
+   one-time chip and ×. The one-time line opens underneath. */
+.recentList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recentItem {
+  border-bottom: 1px solid var(--border);
+}
+
+.recentRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 56px;
+  padding: var(--space-1) 0;
+}
+
+.recentWhat {
+  flex: 1;
+  min-width: 0;
+}
+
+.recentName {
+  font-size: var(--font-size-md);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recentMeta {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.recentAmount {
+  flex: none;
+  font-size: var(--font-size-md);
+}
+
+.recentOneTime {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 6%, var(--card-bg));
+}
+
+.recentActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }

@@ -24,6 +24,10 @@ Environment=EXOCORTEX_IDEAS_FILE=<VAULT_DIR>/docs/IDEAS.md
 # PLUG-IN(OWNER_NAME): display name shown in the app header/footer.
 Environment="EXOCORTEX_OWNER_NAME=<OWNER_NAME>"
 Environment=EXOCORTEX_APP_NAME=Exocortex
+# PLUG-IN(PUBLIC_ONLY): uncomment on a read-only public mirror (a portfolio copy
+# on a public host). Every request is served in the frosted "public" view no
+# matter what cookie it carries, and /login answers 404 — see config.public_only.
+#Environment=EXOCORTEX_PUBLIC_ONLY=1
 Restart=always
 
 [Install]

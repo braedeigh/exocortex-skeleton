@@ -18,6 +18,10 @@ import pytest
 import sqlstore
 import store
 
+# The migration ladder is under test here, so every test climbs it for real
+# instead of starting from the test template (see tests/conftest.py).
+pytestmark = pytest.mark.fresh_db
+
 
 def _db_row(data_dir, name):
     conn = sqlite3.connect(data_dir / "exo.db")

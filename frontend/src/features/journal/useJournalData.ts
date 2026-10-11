@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { ToastItem } from '../../ui';
@@ -15,6 +15,7 @@ import {
   getPeople,
   removeJournalDevNote,
   saveJournalDay,
+  searchJournal,
   updateCard,
   addCard,
   deleteCard as deleteCardRequest,
@@ -23,8 +24,10 @@ import {
 } from '../../api/endpoints';
 import type {
   JournalDayBundle,
+  SearchFilters,
   ThreadDetail,
   ThreadJournalResponse,
+  ThreadSummariesResponse,
   ThreadsResponse,
   ThreadsTreeResponse,
 } from './types';
@@ -70,6 +73,25 @@ export function useServerDate() {
   return useQuery({
     queryKey: ['journal', 'serverDate'],
     queryFn: ({ signal }) => getAppData(signal),
+  });
+}
+
+/** The journal search results, a page at a time — the results pane asks
+ * for the next page as she scrolls near the bottom. Keeps the last results on
+ * screen while a new search loads, so typing doesn't flash the pane empty.
+ * Idle until there's a query. */
+export function useJournalSearch(filters: SearchFilters) {
+  return useInfiniteQuery({
+    queryKey: ['journal', 'search', filters.q, filters.who, filters.from, filters.to],
+    queryFn: ({ pageParam, signal }) => searchJournal(filters, pageParam, signal),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((n, page) => n + page.hits.length, 0);
+      return loaded < last.total ? loaded : undefined;
+    },
+    enabled: filters.q.length > 0,
+    placeholderData: keepPreviousData,
+    retry: false,
   });
 }
 
@@ -153,6 +175,21 @@ export function useThreadJournal(id: string | null) {
   });
 }
 
+/** GET /api/thread/<slug>/summaries — the summaries written of the thread,
+ * newest first. */
+function getThreadSummaries(id: string, signal?: AbortSignal): Promise<ThreadSummariesResponse> {
+  return api.get(`/api/thread/${encodeURIComponent(id)}/summaries`, signal);
+}
+
+/** The stack of summaries at the top of a thread's page. */
+export function useThreadSummaries(id: string | null) {
+  return useQuery({
+    queryKey: ['journal', 'threadSummaries', id ?? ''],
+    queryFn: ({ signal }) => getThreadSummaries(id as string, signal),
+    enabled: !!id,
+  });
+}
+
 export function useBacklinks(name: string | null) {
   return useQuery({
     queryKey: ['journal', 'backlinks', name ?? ''],
@@ -230,8 +267,10 @@ export function useUpdateCard(date: string, onError: (message: string) => void) 
   return useMutation({
     mutationFn: (vars: { id: string; body: string }) => updateCard(vars.id, vars.body),
     onError: (err) => onError(errorMessage(err, 'Save failed')),
-    onSuccess: () => {
+    onSuccess: (_card, vars) => {
       void queryClient.invalidateQueries({ queryKey: journalDayKey(date) });
+      // The save added a version to the entry's edit history.
+      void queryClient.invalidateQueries({ queryKey: ['journal', 'card-history', vars.id] });
     },
   });
 }

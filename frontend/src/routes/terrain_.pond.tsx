@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { PondView } from '../features/pond/PondView';
+import { PondView } from '../features/terrain/pond/PondView';
 import { useDeactivateFrames } from '../shell/useIframeView';
 
 /**
@@ -13,7 +13,7 @@ import { useDeactivateFrames } from '../shell/useIframeView';
  * queries the `cards` table cardstore.py already mirrors out of the pool.
  *
  * Un-nested (the `terrain_.` prefix), same as the other rooms: the map unmounts
- * and this owns the screen, "← Terrain" walks back. Same auth guard as the map
+ * and this owns the screen, "← Rooms" reopens the hallway. Same auth guard as the map
  * — this one names her journal, so it must never render in public view.
  */
 export const Route = createFileRoute('/terrain_/pond')({

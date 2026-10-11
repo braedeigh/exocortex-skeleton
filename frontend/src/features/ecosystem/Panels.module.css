@@ -1,0 +1,263 @@
+/* Panels.module.css — shared look for the source panel and the Foods panel
+   (SourcePanel.tsx, FoodsPanel.tsx). Same card language as SourceList. */
+
+.card {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  background: var(--card-bg);
+}
+
+.cardActive {
+  border-color: var(--accent);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.kicker {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex: 1;
+}
+
+.count {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.closeBtn {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.section {
+  margin-top: 14px;
+}
+
+.sectionTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.note {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.muted {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+button.chip {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.chipOn {
+  border-color: var(--accent);
+  background: rgba(124, 92, 191, 0.12);
+}
+
+.dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* where the information came from */
+.origin {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  background: var(--bg);
+}
+
+.originHead {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.originMeaning {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.originDetail {
+  font-size: 14px;
+  color: var(--text);
+  margin-top: 6px;
+}
+
+.originLink {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+/* USDA's per-county figures */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table td {
+  padding: 5px 4px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text);
+}
+
+.table td:last-child {
+  text-align: right;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* a list row: a food, a link, a recipe */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.rowName {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+
+a.rowName:hover {
+  text-decoration: underline;
+}
+
+.rowSub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.btn {
+  flex: none;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btnAccent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btnDanger {
+  border-color: #e0b4b4;
+  color: #c0392b;
+}
+
+.iconBtn {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.search {
+  width: 100%;
+  box-sizing: border-box;
+  height: var(--tap-target);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.list {
+  max-height: 520px;
+  overflow-y: auto;
+}

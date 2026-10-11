@@ -59,7 +59,7 @@ def main():
     except OSError as e:
         print(f"could not read kickoff: {e}", file=sys.stderr)
         return 2
-    # Consumed. The file existed only to carry one sentence across a process
+    # Consumed. The file existed only to carry the kickoff across a process
     # boundary without it ever touching a shell, and it has now done that —
     # keeping it would just leave one more thing behind per spawn. The kickoff
     # also stays staged on the conversation as draft+autostart, so the fallback
@@ -98,4 +98,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # Put this run on the runtime map (runtime_sensor.py): which of our
+    # files actually execute, and which call which. Inside __main__ rather
+    # than at import, because some of these modules are also imported BY
+    # the web app, and only the standalone run is a process of its own.
+    import runtime_sensor
+    runtime_sensor.attach()
     sys.exit(main())

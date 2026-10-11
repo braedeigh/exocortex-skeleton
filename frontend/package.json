@@ -14,12 +14,17 @@
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-router": "^1.170.17",
+    "@zxing/browser": "^0.2.1",
+    "@zxing/library": "^0.23.0",
     "d3-force": "^3.0.0",
     "d3-selection": "^3.0.0",
     "d3-zoom": "^3.0.0",
+    "elkjs": "^0.11.1",
     "leaflet": "^1.9.4",
+    "pdfjs-dist": "^5.7.284",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "shiki": "^4.4.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

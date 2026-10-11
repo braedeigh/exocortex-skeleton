@@ -39,6 +39,10 @@ from routes import observatory, terminal
 from routes import terrain
 
 
+# The real journal mint, kept before the bot_client fixture swaps in its recorder.
+_REAL_CAPTURE = terminal._capture_journal
+
+
 STUB = """#!/usr/bin/env python3
 import sys, json
 text = sys.stdin.read()
@@ -90,10 +94,11 @@ def bot_client(data_dir, tmp_path, monkeypatch):
     mints = []
     mint_calls = []
 
-    def _fake_mint(body, typed, tags=None, who="B", session=None, reply_to=None):
+    def _fake_mint(body, typed, tags=None, who="B", session=None, reply_to=None,
+                   ts=None):
         mints.append((who, body))
         mint_calls.append({"who": who, "body": body, "tags": tags,
-                           "session": session, "reply_to": reply_to})
+                           "session": session, "reply_to": reply_to, "ts": ts})
         return f"2026-08-01.120{len(mint_calls)}{who.lower()}"
 
     monkeypatch.setattr(terminal, "_capture_journal", _fake_mint)
@@ -275,6 +280,97 @@ def test_off_record_in_a_workshop_session_writes_no_breadcrumb(bot_client):
     assert not (store.CONTENT_DIR / ".keeper" / "off_record.jsonl").exists()
 
 
+def _restore(client, conv_id, **body):
+    return client.post(f"/api/observatory/conversation/{conv_id}/journal-restore",
+                       json=body)
+
+
+def test_restoring_an_off_record_message_mints_it_once_at_its_send_time(bot_client):
+    # She sends two messages off the record with the same words, then taps the
+    # SECOND one back into the journal — twice. One B card, her words, stamped
+    # with the time the log says she sent it; the first message stays out.
+    conv_id = _journal_conv(bot_client)
+    for _ in range(2):
+        _sse_events(_send(bot_client, text="a private line", record=False,
+                          conversation_id=conv_id))
+    assert bot_client._mints == []
+    sent_at = [e for e in _conv_log(conv_id) if e["type"] == "user"][1]["ts"]
+
+    first = _restore(bot_client, conv_id, user=1, text="a private line")
+    again = _restore(bot_client, conv_id, user=1, text="a private line")
+
+    assert first.status_code == 200 and again.status_code == 200
+    assert again.get_json()["card"] == first.get_json()["card"]
+    assert bot_client._mints == [("B", "a private line")]
+    call = bot_client._mint_calls[0]
+    assert call["ts"] == sent_at.replace("T", " ")
+    # an ordinary card: no session stamp, no parent, nothing saying "restored"
+    assert call["session"] is None and call["reply_to"] is None
+    marks = [e for e in _conv_log(conv_id) if e["type"] == "journal-restore"]
+    assert [m["user"] for m in marks] == [1]
+    # the other message can still be put back, as its own card
+    _restore(bot_client, conv_id, user=0, text="a private line")
+    assert len(bot_client._mints) == 2
+
+
+def test_restore_refuses_a_message_that_was_never_off_the_record(bot_client):
+    # An on-record message already has its card; restoring it would make a twin.
+    conv_id = _journal_conv(bot_client)
+    _sse_events(_send(bot_client, text="a journal line", conversation_id=conv_id))
+    resp = _restore(bot_client, conv_id, user=0, text="a journal line")
+    assert resp.status_code == 409
+    assert bot_client._mints == [("B", "a journal line")]   # only the send's own
+
+
+def test_a_failed_restore_leaves_the_message_off_the_record(bot_client, monkeypatch):
+    # No card, so no mark in the log: the message still shows dashed and she
+    # can tap it again.
+    conv_id = _journal_conv(bot_client)
+    _sse_events(_send(bot_client, text="a private line", record=False,
+                      conversation_id=conv_id))
+    monkeypatch.setattr(terminal, "_capture_journal", lambda *a, **k: None)
+    assert _restore(bot_client, conv_id, user=0, text="a private line").status_code == 502
+    assert not [e for e in _conv_log(conv_id) if e["type"] == "journal-restore"]
+
+
+def test_a_restored_card_lands_in_the_pool_backdated_and_the_fallback_door_stands_down(
+        bot_client, monkeypatch):
+    # The real thing end to end: the real mint (stream.py, in a temp vault),
+    # then the reconciler meeting the same words in claude's transcript. The
+    # card sits at the send time, the day view shows it, and no twin appears.
+    from routes import cards
+    monkeypatch.syspath_prepend(str(pathlib.Path(observatory.__file__).parent.parent / "tools" / "stream"))
+    import stream
+    import reconcile_transcripts
+    vault = store.CONTENT_DIR
+    vault.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("TULKU_STREAM_ROOT", str(vault))
+    monkeypatch.setattr(cards, "_stream_py",
+                        lambda: pathlib.Path(stream.__file__))
+    conv_id = _journal_conv(bot_client)
+    _sse_events(_send(bot_client, text="a private line", record=False,
+                      conversation_id=conv_id))
+    # Age the send, so "at its send time" is told apart from "now".
+    path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    lines = path.read_text().splitlines()
+    first = json.loads(lines[0])
+    first["ts"] = "2026-08-01T09:31:07"
+    path.write_text("\n".join([json.dumps(first)] + lines[1:]) + "\n")
+    monkeypatch.setattr(terminal, "_capture_journal", _REAL_CAPTURE)
+
+    resp = _restore(bot_client, conv_id, user=0, text="a private line")
+
+    assert resp.status_code == 200
+    card = stream.read_card(resp.get_json()["card"])
+    assert (card.who, card.body.strip(), card.ts) == ("B", "a private line", "2026-08-01 09:31:07")
+    assert card.id.startswith("2026-08-01.0931b")
+    assert "a private line" in (stream.daily_dir() / "2026-08-01.md").read_text()
+    assert reconcile_transcripts._already_captured(
+        "a private line", datetime(2026, 8, 1, 9, 31, 7).astimezone())
+    # a backdated mint is not a fresh prompt: no hook-dedup hash left behind
+    assert not (vault / ".keeper" / "ui_captured.jsonl").exists()
+
+
 def test_approval_resume_logs_the_command_not_a_blank_gap(bot_client):
     # Her Approve/Deny tap fires an off-record resume send carrying the decision.
     # It must never journal (control, not a life moment) but must name the exact
@@ -329,6 +425,22 @@ def test_conversation_endpoint_round_trips(bot_client):
     roster = bot_client.get("/api/observatory").get_json()["bots"]
     keeper = next(b for b in roster if b["id"] == "keeper")
     assert any(c["id"] == conv_id for c in keeper["conversations"])
+
+
+def test_lean_conversation_drops_tool_results_but_keeps_her_messages(bot_client):
+    events = _sse_events(_send(bot_client, text="hello there"))
+    conv_id = events[0]["conversation_id"]
+    # A tool-result echo, as claude writes one into the log mid-turn.
+    path = store.DATA_DIR / "bot_chats" / f"{conv_id}.jsonl"
+    with path.open("a") as f:
+        f.write(json.dumps({"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "content": "x" * 5000}]}}) + "\n")
+    full = bot_client.get(f"/api/observatory/conversation/{conv_id}").get_json()["events"]
+    lean = bot_client.get(f"/api/observatory/conversation/{conv_id}?lean=1").get_json()["events"]
+    assert any("message" in e for e in full if e.get("type") == "user")
+    assert not any(e.get("type") == "user" and "text" not in e for e in lean)
+    assert lean[0]["text"] == "hello there"
+    assert len(lean) == len(full) - 1
 
 
 def test_never_sent_session_opens_with_its_staged_draft(bot_client):
@@ -429,6 +541,33 @@ def test_roster_orders_by_creation_not_activity(bot_client):
     convs = bot_client.get("/api/observatory").get_json()["bots"][0]["conversations"]
     ids = [c["id"] for c in convs]
     assert ids.index(newer) < ids.index(older)
+
+
+def test_roster_marks_a_session_that_handed_on_as_retired(bot_client):
+    # A session a continuation took over from is retired — even once the
+    # successor itself is archived — so the rooms can sink it to the bottom.
+    parent = bot_client.post("/api/observatory/keeper/conversations",
+                             json={"title": "parent"}).get_json()["id"]
+    child = bot_client.post("/api/observatory/keeper/conversations",
+                            json={"title": "child"}).get_json()["id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index[child].update(spawned_from=parent, spawned_via="continue",
+                            archived="2026-09-27T20:00:00")
+    roster = {c["id"]: c for c in bot_client.get("/api/observatory").get_json()["sessions"]}
+    assert roster[parent].get("retired") is True
+
+
+def test_a_retired_sessions_final_output_ends_when_its_successor_starts(bot_client):
+    # The unread dot on a retired card keys on retired_at, not last_at.
+    parent = bot_client.post("/api/observatory/keeper/conversations",
+                             json={"title": "parent"}).get_json()["id"]
+    child = bot_client.post("/api/observatory/keeper/conversations",
+                            json={"title": "child"}).get_json()["id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index[child].update(spawned_from=parent, spawned_via="continue",
+                            started="2026-09-27T20:00:00")
+    roster = {c["id"]: c for c in bot_client.get("/api/observatory").get_json()["sessions"]}
+    assert roster[parent]["retired_at"] == "2026-09-27T20:00:00"
 
 
 def test_sending_into_an_archived_session_brings_it_back(bot_client):
@@ -542,6 +681,41 @@ def test_a_multi_line_ask_survives_whole(bot_client):
     assert _conv_from_roster(bot_client, conv_id)["last_prompt"] == ask
 
 
+def test_a_handoff_brief_never_lands_on_the_card(bot_client):
+    # A spinoff's first message is a machine-written brief opening with an H1;
+    # on the card it read as her voice. The previous real ask stays up.
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "work"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="rework the roster card layout",
+                      conversation_id=conv_id))
+    _sse_events(_send(bot_client, text="# Continuing \u201cwork\u201d\n\nYou are taking over "
+                      "from Observatory session `2026-09-27.213148`",
+                      conversation_id=conv_id))
+    assert _conv_from_roster(bot_client, conv_id)["last_prompt"] == \
+        "rework the roster card layout"
+
+
+def test_an_upload_reads_as_a_word_not_a_path(bot_client):
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "work"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="[uploaded: /tmp/uploads/20260809_IMG_2926.PNG] "
+                      "this button is cut off on my phone",
+                      conversation_id=conv_id))
+    assert _conv_from_roster(bot_client, conv_id)["last_prompt"] == \
+        "📷 image this button is cut off on my phone"
+
+
+def test_a_bare_upload_leaves_the_previous_ask_up(bot_client):
+    conv_id = bot_client.post("/api/observatory/keeper/conversations",
+                              json={"title": "work"}).get_json()["id"]
+    _sse_events(_send(bot_client, text="rework the roster card layout",
+                      conversation_id=conv_id))
+    _sse_events(_send(bot_client, text="[uploaded: /tmp/uploads/20260809_IMG_2926.png]",
+                      conversation_id=conv_id))
+    assert _conv_from_roster(bot_client, conv_id)["last_prompt"] == \
+        "rework the roster card layout"
+
+
 # --- model_effective: what the card shows a session is running on -----------
 # Nearly every session pins no model and inherits the CLI's default, so a card
 # reading the raw field would answer "unset" for almost all of them. The roster
@@ -650,7 +824,7 @@ def test_highlight_mints_the_quote_in_the_voice_that_said_it(bot_client):
     # One card, the keeper's voice, stamped with the room it came out of.
     assert bot_client._mint_calls == [
         {"who": "K", "body": "echo: hello", "tags": None,
-         "session": conv_id, "reply_to": None},
+         "session": conv_id, "reply_to": None, "ts": None},
     ]
 
 
@@ -1216,7 +1390,15 @@ def test_terrain_returns_200_with_missing_sidecars(terrain_client, tmp_path, mon
     resp = terrain_client.get("/api/observatory/terrain")
     assert resp.status_code == 200
     data = resp.get_json()
-    assert set(data.keys()) == {"generated_at", "window_days", "file_cap", "repos", "sessions"}
+    # Every key the payload carries, named — so a new one has to be added here
+    # deliberately rather than appearing unnoticed. `coils` is the folder
+    # listings the spirals are built from (empty here: no such folders inside
+    # these fake repo roots), and `generated_ts` is generated_at restated as a
+    # unix second for a visitor in another timezone.
+    assert set(data.keys()) == {"generated_at", "generated_ts", "window_days",
+                                "file_cap", "pond_days", "coils", "repos",
+                                "sessions"}
+    assert data["coils"] == []
     assert data["window_days"] is None   # whole history — no server-side horizon
     assert [r["id"] for r in data["repos"]] == ["skeleton", "vault"]
     assert all(r["files"] == [] for r in data["repos"])
@@ -1253,14 +1435,21 @@ def test_footprint_merge_maps_abs_path_to_repo_relative(terrain_client, tmp_path
                                            "last": "2026-01-02T00:00:00Z"},
                 str(skeleton / "uncommitted.py"): {"writes": 1, "reads": 0,
                                                    "last": "2026-01-02T00:00:00Z"},
+                str(skeleton / "old-briefs/job/BRIEF.md"): {
+                    "writes": 1, "reads": 2, "last": "2026-01-01T00:00:00Z"},
             },
             "extracted_at": "2026-01-02T00:00:00",
         },
     })
+    (skeleton / "uncommitted.py").write_text("x = 1\n")
 
     data = terrain_client.get("/api/observatory/terrain").get_json()
     skel_out = next(r for r in data["repos"] if r["id"] == "skeleton")
     by_path = {f["path"]: f for f in skel_out["files"]}
+
+    # a file the session once wrote that is no longer on disk (and that git
+    # doesn't list as living) is not drawn: the map shows what exists
+    assert "old-briefs/job/BRIEF.md" not in by_path
 
     # abs path -> repo-relative path, git touches present
     assert by_path["app.py"]["sessions"] == [
@@ -1279,6 +1468,22 @@ def test_footprint_merge_maps_abs_path_to_repo_relative(terrain_client, tmp_path
         {"id": "conv-1", "title": "Gist Title", "bot": None,
          "running": False, "open": True, "lane": "orchestra", "last": None},
     ]
+
+
+def test_terrain_files_carry_their_size_on_disk(terrain_client, tmp_path, monkeypatch):
+    # The map sizes each file dot by the file's bytes, so every file sent
+    # says how big it is — and a file git remembers but the disk no longer
+    # has says None rather than a guess.
+    skeleton = _make_git_repo(tmp_path / "skeleton")
+    _commit_file(skeleton, "big.py", "x" * 5000)
+    _commit_file(skeleton, "gone.py", "y\n")
+    (skeleton / "gone.py").unlink()
+    _set_terrain_repos(monkeypatch, skeleton, tmp_path / "empty-vault")
+
+    data = terrain_client.get("/api/observatory/terrain").get_json()
+    skel_out = next(r for r in data["repos"] if r["id"] == "skeleton")
+    by_path = {f["path"]: f for f in skel_out["files"]}
+    assert (by_path["big.py"]["bytes"], by_path["gone.py"]["bytes"]) == (5000, None)
 
 
 def test_live_touches_merge_for_a_running_session(terrain_client, tmp_path, monkeypatch):
@@ -2270,84 +2475,6 @@ def test_nothing_derives_into_coding(bot_client):
                                    "lane": "coding"}) == "coding"
 
 
-# --- searching the archive (08-03) -----------------------------------------
-# "a way to see past sessions and the contents of them ... search inside of it".
-# One walk over the transcripts; no index to drift from the record.
-
-
-def _seed_speech(conv_id, lines, **meta):
-    """A conversation with a real jsonl behind it. `lines` is (who, text) —
-    'B' becomes her typed user event, 'K' an assistant message. (Distinct from
-    the preview tests' _seed_transcript above, which writes raw events.)"""
-    chats = store.DATA_DIR / "bot_chats"
-    chats.mkdir(parents=True, exist_ok=True)
-    with open(chats / f"{conv_id}.jsonl", "w", encoding="utf-8") as fh:
-        for who, text in lines:
-            if who == "B":
-                fh.write(json.dumps({"type": "user", "text": text}) + "\n")
-            else:
-                fh.write(json.dumps({"type": "assistant", "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": text}]}}) + "\n")
-    with store.mutate("bot_chats/index", {}) as index:
-        index[conv_id] = dict({"title": conv_id, "last_at": "2026-08-01T00:00:00"}, **meta)
-
-
-def test_search_finds_words_in_a_transcript_with_a_snippet(bot_client):
-    _seed_speech("conv-a", [("B", "what should I do about the balcony door"),
-                                ("K", "Seal it before winter.")])
-    data = bot_client.get("/api/observatory/search?q=balcony").get_json()
-    hit = data["results"][0]["hits"][0]
-    assert data["results"][0]["id"] == "conv-a"
-    assert hit["who"] == "B"
-    # The client marks the words using the offset rather than re-finding the
-    # query in trimmed, ellipsised text — so the offset has to be right.
-    assert hit["text"][hit["at"]:hit["at"] + hit["len"]].lower() == "balcony"
-
-
-def test_search_ignores_tool_machinery_and_only_reads_speech(bot_client):
-    # A user event carrying `message` is claude echoing a tool result to
-    # itself. Matching it would bury the one moment she actually meant under
-    # every file the agent happened to touch.
-    chats = store.DATA_DIR / "bot_chats"
-    chats.mkdir(parents=True, exist_ok=True)
-    (chats / "conv-tool.jsonl").write_text(json.dumps({
-        "type": "user", "message": {"role": "user", "content": [
-            {"type": "text", "text": "balcony.py"}]}}) + "\n")
-    with store.mutate("bot_chats/index", {}) as index:
-        index["conv-tool"] = {"title": "tooling", "last_at": "2026-08-01T00:00:00"}
-    assert bot_client.get("/api/observatory/search?q=balcony").get_json()["results"] == []
-
-
-def test_search_covers_archived_and_journalled_sessions(bot_client):
-    # The archive's whole job is the sessions the roster hides, and the Keeper
-    # (journalled) is where most of what she'd go looking for was said.
-    _seed_speech("conv-old", [("B", "the mattress arrives thursday")],
-                     archived="2026-07-01T00:00:00")
-    _seed_speech("conv-diary", [("B", "the mattress finally came")], journal=True)
-    found = {r["id"]: r for r in
-             bot_client.get("/api/observatory/search?q=mattress").get_json()["results"]}
-    assert set(found) == {"conv-old", "conv-diary"}
-    # Flagged, not withheld — the client marks a diary hit so she's never
-    # surprised which surface a line came off.
-    assert found["conv-diary"]["journal"] is True
-    assert found["conv-old"]["archived"] is True
-
-
-def test_search_matches_a_session_by_name_alone(bot_client):
-    # "the housing one" is a real way to look for a conversation, and it may
-    # never say the word inside.
-    _seed_speech("conv-h", [("B", "ok")], title="housing search")
-    result = bot_client.get("/api/observatory/search?q=housing").get_json()["results"][0]
-    assert result["title_hit"] is True and result["hits"] == []
-
-
-def test_search_needs_more_than_one_character(bot_client):
-    _seed_speech("conv-a", [("B", "anything at all")])
-    data = bot_client.get("/api/observatory/search?q=a").get_json()
-    assert data["results"] == [] and data["scanned"] == 0
-
-
 def test_root_dir_is_the_parent_the_two_repos_share(tmp_path, monkeypatch):
     # The live layout: skeleton/ and personal/ side by side under one parent.
     root = tmp_path / "exocortex"
@@ -2614,7 +2741,7 @@ def test_create_tags_the_session_with_its_front(bot_client):
 
 def test_create_seeds_the_session_with_the_front_brief(bot_client):
     """Seeding points system_prompt_file at the front's brief, which
-    observatory feeds to --append-system-prompt at spawn — so the conversation
+    observatory hands to --append-system-prompt-file at spawn — so the conversation
     opens already knowing which part of her life it's in."""
     import store
     from pathlib import Path
@@ -2844,3 +2971,126 @@ def test_the_heartbeat_does_not_resurrect_a_stopped_turn(bot_client, tmp_path, m
     b"".join(it)
     meta = _wait_not_running(conv_id)
     assert meta["running"] is False
+
+
+# --- the pond tile's month ---------------------------------------------------
+# The map draws the journal as one square of water, a bar per day. Those bars
+# used to be counted from the card FILES in the payload, which is cut to the
+# hottest N per repo — so most of the pool never arrived and the month drew
+# short, with holes on days she had written on. The counts come from the card
+# table now; these pin that down.
+
+def _seed_cards(rows):
+    """A minimal `cards` table in the isolated data dir — just the columns
+    _pond_days reads."""
+    import sqlite3 as _sqlite3
+    conn = _sqlite3.connect(store.DATA_DIR / "exo.db")
+    with conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS cards
+                        (id TEXT PRIMARY KEY, day TEXT, ts TEXT, deleted_at TEXT)""")
+        conn.executemany("INSERT INTO cards (id, day, ts, deleted_at) VALUES (?,?,?,?)", rows)
+    conn.close()
+
+
+def test_pond_days_counts_the_journal_not_the_capped_card_files(terrain_client, tmp_path, monkeypatch):
+    today = datetime.now().date()
+    day = today.isoformat()
+    yesterday = (today - timedelta(days=1)).isoformat()
+    _seed_cards([
+        ("a", day, "09:00", None),
+        ("b", day, "12:00", None),
+        ("c", yesterday, "22:32", None),
+    ])
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+
+    days = terrain_client.get("/api/observatory/terrain").get_json()["pond_days"]
+    assert len(days) == terrain._POND_TILE_DAYS
+    assert [d["day"] for d in days] == sorted(d["day"] for d in days)   # oldest first
+    assert days[-1]["day"] == day
+    by_day = {d["day"]: d["touches"] for d in days}
+    assert len(by_day[day]) == 2
+    assert len(by_day[yesterday]) == 1
+    # Real times on the local clock, so the heat lens can compare them against
+    # git's unix seconds.
+    assert by_day[yesterday][0] == int(
+        datetime.strptime(f"{yesterday} 22:32", "%Y-%m-%d %H:%M").timestamp())
+
+
+def test_pond_days_is_dense_so_a_quiet_day_is_never_a_missing_one(terrain_client, tmp_path, monkeypatch):
+    today = datetime.now().date()
+    _seed_cards([("a", today.isoformat(), "09:00", None)])
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+
+    days = terrain_client.get("/api/observatory/terrain").get_json()["pond_days"]
+    assert sum(1 for d in days if d["touches"] == []) == terrain._POND_TILE_DAYS - 1
+
+
+def test_pond_days_excludes_deleted_cards(terrain_client, tmp_path, monkeypatch):
+    day = datetime.now().date().isoformat()
+    _seed_cards([("a", day, "09:00", None), ("b", day, "10:00", "2026-08-01T00:00:00")])
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+
+    days = terrain_client.get("/api/observatory/terrain").get_json()["pond_days"]
+    assert len(days[-1]["touches"]) == 1
+
+
+def test_pond_days_degrades_rather_than_500ing_without_a_journal_mirror(terrain_client, tmp_path, monkeypatch):
+    """An install with no vault has no card table to read. The map still
+    builds; the client falls back to counting card files."""
+    with pytest.MonkeyPatch.context() as no_db:
+        no_db.setattr(store, "DATA_DIR", tmp_path / "no-such-dir")
+        assert terrain._pond_days() == []
+
+    # And through the route, where the isolated data dir does have an exo.db
+    # (sqlstore makes one) but nothing has ever written a card into it: a full
+    # month of empty days, which is the truth, not a hole.
+    _set_terrain_repos(monkeypatch, tmp_path / "a", tmp_path / "b")
+    resp = terrain_client.get("/api/observatory/terrain")
+    assert resp.status_code == 200
+    days = resp.get_json()["pond_days"]
+    assert len(days) == terrain._POND_TILE_DAYS
+    assert all(d["touches"] == [] for d in days)
+
+
+# ---- starting a session inside a swarm (the '+' on a swarm's page) ----
+
+def _a_swarm(monkeypatch):
+    """Two sessions that have messaged each other — one live swarm."""
+    import peermail
+    import swarm_helper
+    import swarms
+    monkeypatch.setattr(swarm_helper, "_spawn", lambda *a, **k: True)
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    with store.mutate("bot_chats/index", {}) as index:
+        index["a"] = {"title": "A", "lane": "coding"}
+        index["b"] = {"title": "B", "lane": "coding"}
+    peermail.send("b", "hello", from_conv="a")
+    peermail.send("a", "hello back", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
+    [swarm_id] = swarms.sync()
+    return swarm_id
+
+
+def test_a_session_started_in_a_swarm_is_a_member_before_it_speaks(bot_client, monkeypatch):
+    import swarms
+    swarm_id = _a_swarm(monkeypatch)
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "new", "lane": "coding", "swarm": swarm_id}
+                              ).get_json()["id"]
+    swarms.sync()    # a later sync must keep it, message or no message
+    assert swarms.swarm_of(conv_id) == swarm_id
+
+
+def test_a_session_started_in_a_swarm_is_told_about_it(bot_client, monkeypatch):
+    swarm_id = _a_swarm(monkeypatch)
+    conv_id = bot_client.post("/api/observatory/conversations",
+                              json={"title": "new", "lane": "coding", "swarm": swarm_id}
+                              ).get_json()["id"]
+    seed = pathlib.Path(store.read("bot_chats/index", {})[conv_id]["system_prompt_file"])
+    assert "`a` A" in seed.read_text() and "peers.py swarm" in seed.read_text()
+
+
+def test_starting_a_session_in_an_unknown_swarm_is_refused(bot_client):
+    resp = bot_client.post("/api/observatory/conversations",
+                           json={"title": "new", "lane": "coding", "swarm": 999})
+    assert resp.status_code == 400

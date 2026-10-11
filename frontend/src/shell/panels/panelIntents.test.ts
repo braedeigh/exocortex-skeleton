@@ -17,7 +17,7 @@ describe('what a tile catches, from the page it shows', () => {
 
   it('an ordinary page catches nothing', () => {
     expect(intentKindsForUrl('/todos')).toEqual([]);
-    expect(intentKindsForUrl('/terrain/map')).toEqual([]);
+    expect(intentKindsForUrl('/terrain/files')).toEqual([]);
     expect(intentKindsForUrl('/')).toEqual([]);
   });
 
@@ -33,6 +33,15 @@ describe('what a tile catches, from the page it shows', () => {
 
 describe('where a caught thing sends the tile', () => {
   it('builds a code url with both parameters escaped', () => {
+    expect(
+      urlForIntent({
+        kind: 'code',
+        repo: 'skeleton',
+        path: 'sqlstore.py',
+        mentions: [4, 9, 30],
+        mentionsOf: 'todos',
+      }),
+    ).toBe('/code?repo=skeleton&path=sqlstore.py&mentions=4%2C9%2C30&of=todos');
     expect(urlForIntent({ kind: 'code', repo: 'skeleton', path: 'routes/observatory.py' })).toBe(
       '/code?repo=skeleton&path=routes%2Fobservatory.py',
     );

@@ -864,3 +864,19 @@
     bottom: calc(100% + var(--space-2));
   }
 }
+
+/* "Edit rooms" — the desktop app's way into the room editor (RoomsDialog).
+   A quiet outlined button under the rooms, a full tap target tall. */
+.editRoomsBtn {
+  align-self: flex-start;
+  min-height: var(--tap-target);
+  margin-bottom: var(--space-4);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}

@@ -252,6 +252,13 @@
   font-style: italic;
 }
 
+/* S — a reminder the app sent; outlined, same as the journal's EntryCard. */
+.who_S {
+  color: var(--text-secondary);
+  border: 1px dashed var(--border);
+  background: transparent;
+}
+
 .metaTime {
   display: inline-flex;
   align-items: center;

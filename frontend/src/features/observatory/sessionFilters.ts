@@ -7,7 +7,9 @@
  *
  *   purple  RUNNING — a turn is in flight this second (the breathing one)
  *   purple  ACTIVE  — running, or it did anything in the last hour (steady)
- *   orange  UNREAD  — output she hasn't opened, or a session stopped to ask her
+ *   orange  UNREAD  — a session stopped to ask her (an orange card), or output
+ *                     she hasn't opened (a grey card with an orange dot) — for
+ *                     a done or retired session, only its final output counts
  *   red     ERROR   — the last turn ended in failure / was aborted
  *
  * RUNNING nests inside ACTIVE rather than competing with it — same colour, and
@@ -86,14 +88,33 @@ export function sessionIs(
       if (Number.isNaN(last)) return false;
       return nowMs - last <= ACTIVE_WINDOW_MS;
     }
-    case 'unread':
+    case 'unread': {
       // A session that stopped to ask counts as unread even if she has opened
       // it since: the ask is still standing there unanswered.
-      if (meta.awaiting_input || meta.awaiting_approval) return true;
-      return isUnread(meta.last_at, openedAt);
+      if (isAsking(meta)) return true;
+      // A done or retired session is unread only while its FINAL output is:
+      // the turn that marked it done, or the handoff before its successor
+      // started. Anything it did after — answering a peer's FYI, a job
+      // waking it — moves last_at but isn't something she has to read.
+      const finalAt = finalOutputAt(meta);
+      return isUnread(finalAt ?? meta.last_at, openedAt);
+    }
     case 'error':
       return typeof meta.last_error === 'string' && meta.last_error !== '';
   }
+}
+
+/** When a finished session's last output worth reading ended — a retired
+ * session's handoff (`retired_at`), or a done session's closing turn
+ * (`final_at`, falling back to `done_at` for a stamp still mid-turn).
+ * Undefined for a session still at work. [prompt: "I don't want an orange
+ * dot to display on the front card if the session is done/retired and I
+ * haven't opened it, just an orange dot if i didn't ever read its final
+ * output."] */
+export function finalOutputAt(meta: SessionMeta): string | undefined {
+  if (meta.retired) return meta.retired_at;
+  if (meta.done_at) return meta.final_at ?? meta.done_at;
+  return undefined;
 }
 
 /** What a card WEARS. Same three predicates as the buttons, read in precedence
@@ -103,13 +124,21 @@ export function sessionIs(
  *
  *   error    red     the last turn failed — broken beats everything
  *   running  purple  a turn is going right now; the card breathes
- *   unread   orange  she hasn't read it, or it stopped to ask — her move
+ *   asking   orange  it stopped to ask her something, or a command waits for
+ *                    her Approve/Deny — the only state that's truly orange
+ *   unread   grey    a reply she hasn't opened: a grey card with an orange dot
  *   recent   purple  used inside the hour but idle and read — warm, still
  *   rest     grey    cold
  *
  * ONE state per card, because a card can honestly be several of these at once
  * and stacking their glows would just muddy all of them. The order is by
  * urgency: what's broken beats what's busy beats what wants her.
+ *
+ * `asking` and `unread` used to be one orange state. Orange is now kept for
+ * the sessions that can't move until she answers; a reply merely waiting to be
+ * read goes quiet — grey, with only its dot still orange so it's findable.
+ * [prompt: "i want the orange ones to only be those that need input. if they
+ * are unread ... make them grey with an orange circle or something."]
  *
  * `recent` is the rung that was missing. The purple button counted these and
  * the card showed them grey — so the rail said "3 active" and the roster looked
@@ -121,7 +150,14 @@ export function sessionIs(
  * activated by the filter, like active within the last hour, glow purple also
  * on the cards and tied together procedurally".
  */
-export type CardState = 'error' | 'running' | 'unread' | 'recent' | 'rest';
+export type CardState = 'error' | 'running' | 'asking' | 'unread' | 'recent' | 'rest';
+
+/** Is this session stopped on her — a question it filed, or a gated command
+ * waiting for her tap. What makes a card orange, and what floats it to the top
+ * of its room (roomOrder.ts). */
+export function isAsking(meta: Pick<SessionMeta, 'awaiting_input' | 'awaiting_approval'>): boolean {
+  return Boolean(meta.awaiting_input || meta.awaiting_approval);
+}
 
 export function cardState(
   meta: SessionMeta,
@@ -130,6 +166,7 @@ export function cardState(
 ): CardState {
   if (sessionIs(meta, openedAt, 'error', nowMs)) return 'error';
   if (sessionIs(meta, openedAt, 'running', nowMs)) return 'running';
+  if (isAsking(meta)) return 'asking';
   if (sessionIs(meta, openedAt, 'unread', nowMs)) return 'unread';
   // Everything the purple button counts EXCEPT the running half, which already
   // has its own louder state above.
@@ -168,7 +205,8 @@ export function cardState(
 const FILTER_PAINT: Record<StateFilter, CardState[]> = {
   running: ['running'],
   active: ['running', 'recent'],
-  unread: ['unread'],
+  // Both carry orange: the asking card is orange, the unread card's dot is.
+  unread: ['asking', 'unread'],
   error: ['error'],
 };
 
@@ -198,6 +236,18 @@ export function matchesFilter(
  *   origin helper     button-fired jobs (triage, recipe/receipt parses, person
  *                     impressions), which belong to the Helpers room at the
  *                     bottom of the roster and are reached through its door
+ *   retired + orange  a session that handed its work on but is still asking or
+ *                     unread (retiredOrange, below) — work that moved on
+ *   lane research     her research desk and the dispatched research workers,
+ *                     which belong to the Research room behind its own door
+ *                     (ResearchDoor → /observatory/research); matched on the
+ *                     lane OR the `research` origin, same as the server's list
+ *   lane linear       sessions working in Linear with her, which belong to the
+ *                     Linear room behind its own door (LinearDoor →
+ *                     /observatory/linear)
+ *   saved_at          sessions she saved for later, which sit in the shut
+ *                     Saved for later section at the foot of the roster
+ *                     (SavedLane.tsx) and ask nothing of her until picked up
  *
  * WHY THIS IS A FUNCTION AND NOT A LINE IN THE PAGE. It used to be a line in
  * the page — inside the room split only — while the counts were taken over the
@@ -210,8 +260,33 @@ export function matchesFilter(
  *
  * [prompt: "why does the orange one say 32 when i don't have that many open and
  * why does the red one say 3 when i don't see any"] */
-export function roomRoster(sessions: SessionMeta[]): SessionMeta[] {
-  return sessions.filter((s) => !s.pinned && s.origin !== 'nightcrew' && s.origin !== 'helper');
+export function roomRoster(
+  sessions: SessionMeta[],
+  opened: Record<string, string> = {},
+  nowMs: number = Date.now(),
+): SessionMeta[] {
+  return sessions.filter(
+    (s) =>
+      !s.pinned &&
+      s.origin !== 'nightcrew' &&
+      s.origin !== 'helper' &&
+      s.origin !== 'research' &&
+      s.lane !== 'research' &&
+      s.lane !== 'linear' &&
+      !s.saved_at &&
+      !retiredOrange(s, opened[s.id], nowMs),
+  );
+}
+
+/** A retired session still wearing orange: it handed its work on, yet it's
+ * asking or has an unread reply. Kept off the front page, and out of the
+ * rail's counts, since that work has already moved on. Its swarm's page and the
+ * session itself still show it.
+ * [prompt: "make any retired one with an orange not display on the front
+ * page's card"] */
+function retiredOrange(meta: SessionMeta, openedAt: string | undefined, nowMs: number): boolean {
+  if (meta.retired !== true) return false;
+  return isAsking(meta) || cardState(meta, openedAt, nowMs) === 'unread';
 }
 
 /** How many sessions sit under each button — the number on its face, and (for

@@ -16,9 +16,13 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { geoSourceInfo, isShapeSource, metaLabel, txInfo } from './axes';
-import { featuresFor, geometryToLatLngs, getGeo, loadGeo } from './geo';
+import { embedFitPadding } from './embedLayout';
+import { featuresFor, geometryToLatLngs, getGeo, loadGeo, loadRegions } from './geo';
+import { CHECK_WORDS, proposalPaint, regionCodes } from './proposals';
+import type { EcoProposal } from './proposals';
+import { homeCluster } from './homeCluster';
 import type { GeoFeature } from './geo';
-import { TILE_ATTRIBUTION, TILE_URLS, currentTileKey } from './themeColor';
+import { cartoKey, currentTileKey, tileLayersFor } from './themeColor';
 import type { TileKey } from './themeColor';
 import type { EcoDraft, EcoSource } from './types';
 import { HOME_LAT, HOME_LNG } from '../../ownerHome';
@@ -37,12 +41,20 @@ export interface EcoMapHandle {
   /** Zoom + center tightly on one source (frame its shape/region exactly, or
    * zoom in close on an exact spot), open its popup, scroll the map into view. */
   focusSource: (id: string) => void;
-  /** Zoom + center over the whole currently-visible set. One match → the tight
-   * single-item framing; several → fit them all; none → leave the view be. */
+  /** Center over the whole currently-visible set with all of it in view at
+   * once (dots and their outlines/regions). One match → the tight
+   * single-item framing; none → leave the view be. */
   fitVisible: () => void;
-  /** Frame a traced recipe's matched source points (once per selection). */
+  /** The opening view: center over the visible sources near home (the home
+   * country — homeCluster.ts), all of them in view, outlines included. With
+   * no home configured or nothing near it, this is fitVisible. */
+  fitHome: () => void;
+  /** Frame a traced recipe's matched source points (once per selection, on
+   * the full page only — the exhibit stays on the everything view). */
   fitRecipePoints: (pts: [number, number][]) => void;
+  /** "My region" = the home cluster, same as the opening view. */
   setRegionView: () => void;
+  /** "Whole world" = every source at once. */
   setWorldView: () => void;
   setView: (lat: number, lng: number, zoom: number) => void;
   panTo: (lat: number, lng: number) => void;
@@ -58,12 +70,20 @@ export interface EcoMapProps {
   visibleIds: Set<string> | null;
   draft: EcoDraft | null;
   canEdit: boolean;
+  /** The exhibit: fills its frame, opens on the world, and the first markers
+   * rise in one after another. */
+  embed?: boolean;
   /** Tap-to-place while adding/editing (only fired while a draft is active). */
   onMapClick: (lat: number, lng: number) => void;
   /** The draggable draft pin was dropped somewhere new. */
   onDraftMove: (lat: number, lng: number) => void;
   onEditSource: (id: string) => void;
   onDeleteSource: (id: string, name: string) => void;
+  /** Open the source's panel (the popup's "Details"). Absent → no button. */
+  onOpenSource?: (id: string) => void;
+  /** The machine's proposals to draw, in their own dashed layer under her
+   * sources. Absent or empty → none. */
+  proposals?: EcoProposal[];
 }
 
 /** Mouse/trackpad devices get the popup on hover — no tap required at a desk.
@@ -93,6 +113,7 @@ function makePopup(
   canEdit: boolean,
   onEdit: (id: string) => void,
   onDelete: (id: string, name: string) => void,
+  onOpen: ((id: string) => void) | null,
 ): HTMLElement {
   const tx = txInfo(s);
   const g = geoSourceInfo(s);
@@ -100,20 +121,20 @@ function makePopup(
   root.style.minWidth = '170px';
 
   const title = document.createElement('div');
-  title.style.cssText = 'font-size:14px;font-weight:700;margin-bottom:2px';
+  title.style.cssText = 'font-size:15px;font-weight:700;margin-bottom:2px;color:var(--text)';
   title.textContent = s.name;
   root.appendChild(title);
 
   if (s.note) {
     const note = document.createElement('div');
-    note.style.cssText = 'font-size:12px;color:#555;margin-bottom:4px';
+    note.style.cssText = 'font-size:13px;color:var(--text-secondary);margin-bottom:4px';
     note.textContent = s.note;
     root.appendChild(note);
   }
 
   const showGeoLine = !!s.geo_source && s.geo_source !== 'unrated';
   const meta = document.createElement('div');
-  meta.style.cssText = `font-size:11px;color:#888;margin-bottom:${showGeoLine ? '4px' : '8px'}`;
+  meta.style.cssText = `font-size:12px;color:var(--text-muted);margin-bottom:${showGeoLine ? '4px' : '8px'}`;
   const chip = document.createElement('span');
   chip.style.cssText = `display:inline-block;width:9px;height:9px;border-radius:50%;background:${tx.color};margin-right:5px;vertical-align:middle`;
   meta.appendChild(chip);
@@ -122,11 +143,21 @@ function makePopup(
 
   if (showGeoLine) {
     const geoLine = document.createElement('div');
-    geoLine.style.cssText = 'font-size:11px;color:#999;margin-bottom:8px';
+    geoLine.style.cssText = 'font-size:12px;color:var(--text-muted);margin-bottom:8px';
     geoLine.textContent =
       `${g.icon} ${g.label}` +
       (s.geo_source === 'proxy' ? " — generally grown here, not necessarily this item's source" : '');
     root.appendChild(geoLine);
+  }
+
+  // Details opens the source's panel — its origin, foods and recipes.
+  if (onOpen) {
+    const detailsBtn = document.createElement('button');
+    detailsBtn.textContent = 'Details';
+    detailsBtn.style.cssText =
+      'width:100%;height:40px;margin-bottom:6px;border-radius:8px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer';
+    detailsBtn.addEventListener('click', () => onOpen(s.id));
+    root.appendChild(detailsBtn);
   }
 
   if (canEdit) {
@@ -135,16 +166,44 @@ function makePopup(
     const editBtn = document.createElement('button');
     editBtn.textContent = 'Edit';
     editBtn.style.cssText =
-      'flex:1;height:30px;border-radius:6px;border:1px solid #ccc;background:#fff;color:#333;font-size:12px;font-weight:600;cursor:pointer';
+      'flex:1;height:36px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:13px;font-weight:600;cursor:pointer';
     editBtn.addEventListener('click', () => onEdit(s.id));
     const delBtn = document.createElement('button');
     delBtn.textContent = 'Delete';
     delBtn.style.cssText =
-      'flex:1;height:30px;border-radius:6px;border:1px solid #e0b4b4;background:#fff;color:#c0392b;font-size:12px;font-weight:600;cursor:pointer';
+      'flex:1;height:36px;border-radius:8px;border:1px solid #e0b4b4;background:transparent;color:#c0392b;font-size:13px;font-weight:600;cursor:pointer';
     delBtn.addEventListener('click', () => onDelete(s.id, s.name));
     row.appendChild(editBtn);
     row.appendChild(delBtn);
     root.appendChild(row);
+  }
+  return root;
+}
+
+/** A proposal's popup: what it says, that it's the machine's, what the
+ * checker made of it, and — when it failed — why. Read-only. */
+function makeProposalPopup(p: EcoProposal): HTMLElement {
+  const root = document.createElement('div');
+  root.style.minWidth = '190px';
+  root.style.maxWidth = '280px';
+  const line = (text: string, css: string) => {
+    const el = document.createElement('div');
+    el.style.cssText = css;
+    el.textContent = text;
+    root.appendChild(el);
+  };
+  line("Machine's proposal · " + CHECK_WORDS[p.check_status], 'font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:2px');
+  line(p.name, 'font-size:15px;font-weight:700;margin-bottom:4px;color:var(--text)');
+  const where = p.regions?.length ? p.regions.map((r) => r.name).join(', ') : p.region_name || '';
+  if (where) line(where + (p.country ? ` · ${p.country}` : ''), 'font-size:13px;color:var(--text-secondary);margin-bottom:4px');
+  if (p.geo_source) {
+    line(
+      p.geo_source === 'proxy' ? 'Proxy — where this is generally grown, not necessarily this item' : 'Guess — the best reading of the evidence',
+      'font-size:12px;color:var(--text-muted);margin-bottom:4px',
+    );
+  }
+  if (p.check_status === 'failed' && p.check_reason) {
+    line('Why it failed: ' + p.check_reason, 'font-size:12px;color:var(--text-secondary)');
   }
   return root;
 }
@@ -169,9 +228,17 @@ function bindPopup(layer: L.Layer, content: HTMLElement): void {
 export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(props, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const userMovedRef = useRef(false);
   const layerRef = useRef<L.LayerGroup | null>(null);
+  const proposalLayerRef = useRef<L.LayerGroup | null>(null);
+  const lastProposalsKeyRef = useRef<string | null>(null);
+  // Bumped when world region outlines arrive, so proposals drawn as circles
+  // in the meantime get redrawn as their regions.
+  const [regionsVersion, setRegionsVersion] = useState(0);
   const markersRef = useRef<Record<string, L.Layer>>({});
-  const tilesRef = useRef<L.TileLayer | null>(null);
+  // The basemap is one or two tile layers (Esri = base + labels), swapped as a
+  // unit when the theme flips.
+  const tilesRef = useRef<L.TileLayer[]>([]);
   const tilesKeyRef = useRef<TileKey | null>(null);
   const lastSourcesKeyRef = useRef<string | null>(null);
   const tempMarkerRef = useRef<L.Marker | null>(null);
@@ -184,19 +251,24 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
   // Latest props, readable from imperative handlers without re-binding.
   const propsRef = useRef(props);
   propsRef.current = props;
+  const mountedAt = useRef(Date.now());
 
   function syncTiles() {
     const map = mapRef.current;
     if (!map) return;
     const key = currentTileKey();
     if (tilesKeyRef.current === key) return;
-    if (tilesRef.current) map.removeLayer(tilesRef.current);
-    tilesRef.current = L.tileLayer(TILE_URLS[key], {
-      attribution: TILE_ATTRIBUTION,
-      subdomains: 'abcd',
-      maxZoom: 19,
-    }).addTo(map);
-    tilesRef.current.bringToBack();
+    tilesRef.current.forEach((t) => map.removeLayer(t));
+    // Provider (CARTO with a key, Esri without) is decided in themeColor.ts.
+    // Layers go on in order, then the whole stack drops behind the markers.
+    tilesRef.current = tileLayersFor(key, cartoKey()).map((spec) =>
+      L.tileLayer(spec.url, {
+        attribution: spec.attribution,
+        maxNativeZoom: spec.maxNativeZoom,
+        maxZoom: 19,
+      }).addTo(map),
+    );
+    tilesRef.current.slice().reverse().forEach((t) => t.bringToBack());
     tilesKeyRef.current = key;
   }
 
@@ -204,8 +276,20 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const map = L.map(el, { zoomControl: true }).setView(ECO_HOME, ECO_REGION_ZOOM);
+    // zoomSnap 0.25: a fit may land on a quarter-zoom, so "frame everything"
+    // fills the box and sits centered instead of snapping out to the next
+    // whole zoom and leaving the sources huddled off-center. Before the first
+    // data lands the exhibit shows the world; the page shows the region.
+    const map = propsRef.current.embed
+      ? L.map(el, { zoomControl: false, zoomSnap: 0.25 }).setView([20, 0], 2)
+      : L.map(el, { zoomControl: true, zoomSnap: 0.25 }).setView(ECO_HOME, ECO_REGION_ZOOM);
     mapRef.current = map;
+    // Once the visitor has moved the map themselves, no automatic fit may
+    // yank it back (the late boundary-file refit below checks this).
+    map.on('dragstart', () => { userMovedRef.current = true; });
+    el.addEventListener('wheel', () => { userMovedRef.current = true; }, { passive: true });
+    // Proposals go on first, so her own sources always sit on top of them.
+    proposalLayerRef.current = L.layerGroup().addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
     map.on('click', (e: L.LeafletMouseEvent) => {
       // only places a pin while adding/editing
@@ -227,8 +311,10 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
       map.remove();
       mapRef.current = null;
       layerRef.current = null;
+      proposalLayerRef.current = null;
+      lastProposalsKeyRef.current = null;
       markersRef.current = {};
-      tilesRef.current = null;
+      tilesRef.current = [];
       tilesKeyRef.current = null;
       lastSourcesKeyRef.current = null;
       tempMarkerRef.current = null;
@@ -237,6 +323,56 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // --- The machine's proposals: dashed outlines, circles or dots -----------
+  // Their own layer, redrawn only when the proposals (or their outlines)
+  // change. A named state/province or USDA counties draw as outlines once
+  // loaded; until then, and for everything else, a dashed circle or a dot.
+  const proposals = props.proposals;
+  useEffect(() => {
+    const layer = proposalLayerRef.current;
+    if (!layer) return;
+    const list = proposals || [];
+    const key = JSON.stringify(list.map((p) => [p.id, p.check_status])) + '|' + regionsVersion + '|' + geoVersion;
+    if (lastProposalsKeyRef.current === key) return;
+    lastProposalsKeyRef.current = key;
+    layer.clearLayers();
+    loadRegions(regionCodes(list)).then((arrived) => {
+      if (arrived) setRegionsVersion((v) => v + 1);
+    });
+    if (!getGeo() && list.some((p) => p.area_kind === 'counties')) {
+      loadGeo().then(() => setGeoVersion((v) => v + 1)).catch(() => {});
+    }
+    list.forEach((p) => {
+      if (typeof p.lat !== 'number' || typeof p.lng !== 'number') return;
+      const paint = proposalPaint(p);
+      const style = { color: paint.color, weight: 1.5, fillColor: paint.color, fillOpacity: paint.fillOpacity, opacity: paint.opacity, dashArray: paint.dashArray };
+      try {
+        const feats = featuresFor(
+          { area_kind: p.area_kind ?? undefined, counties: p.counties.map((c) => c.fips), region_name: p.region_name ?? undefined, regions: p.regions },
+          getGeo(),
+        );
+        let host: L.Layer | null = null;
+        if (feats.length) {
+          const group = L.featureGroup();
+          feats.forEach((f) => {
+            const rings = geometryToLatLngs(f.geometry);
+            if (rings) L.polygon(rings as L.LatLngExpression[][], style).addTo(group);
+          });
+          if (group.getLayers().length) host = group;
+        }
+        if (!host && (p.radius_km || 0) > 0) {
+          host = L.circle([p.lat, p.lng], { ...style, radius: (p.radius_km || 0) * 1000 });
+        }
+        if (!host) host = L.circleMarker([p.lat, p.lng], { ...style, radius: 6, fillOpacity: 0.5 });
+        host.addTo(layer);
+        bindPopup(host, makeProposalPopup(p));
+      } catch (e) {
+        // One bad proposal must not hide the rest.
+        console.error(`ecosystem: failed to draw proposal ${p.id} "${p.name}":`, e);
+      }
+    });
+  }, [proposals, regionsVersion, geoVersion]);
 
   // --- Source dots + circles + region shapes (synced only when the data
   //     actually changes, so an open popup isn't yanked on every 5s poll) ----
@@ -259,13 +395,22 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     markersRef.current = {};
     // County/state regions need the boundary GeoJSON. Load it once, then
     // re-sync (until it's here those sources stand in as dots).
+    // When they land, frame everything again (shapes can reach past their
+    // anchor dots), unless the visitor has already taken the wheel.
     if (!getGeo() && sources.some(isShapeSource)) {
       loadGeo()
-        .then(() => setGeoVersion((v) => v + 1))
+        .then(() => {
+          setGeoVersion((v) => v + 1);
+          if (!userMovedRef.current) fitHome();
+        })
         .catch(() => {});
     }
     const onEdit = (id: string) => propsRef.current.onEditSource(id);
     const onDelete = (id: string, name: string) => propsRef.current.onDeleteSource(id, name);
+    const onOpen = propsRef.current.onOpenSource
+      ? (id: string) => propsRef.current.onOpenSource?.(id)
+      : null;
+    const hosts: L.Layer[] = [];
     sources.forEach((s) => {
       if (!hasCoords(s)) return;
       if (visibleIds && !visibleIds.has(s.id)) return; // filtered out — don't draw it
@@ -278,7 +423,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
           fillColor: col,
           fillOpacity: 0.95,
         }).addTo(layer);
-        bindPopup(d, makePopup(s, canEdit, onEdit, onDelete));
+        bindPopup(d, makePopup(s, canEdit, onEdit, onDelete, onOpen));
         return d;
       };
       // Each source draws in isolation: a single bad shape must NOT abort the
@@ -299,7 +444,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
             });
             if (grp.getLayers().length) {
               grp.addTo(layer);
-              bindPopup(grp, makePopup(s, canEdit, onEdit, onDelete)); // anywhere in the region
+              bindPopup(grp, makePopup(s, canEdit, onEdit, onDelete, onOpen)); // anywhere in the region
               host = grp;
             }
           }
@@ -314,7 +459,7 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
             opacity: 0.45,
             dashArray: '4 4',
           }).addTo(layer);
-          bindPopup(c, makePopup(s, canEdit, onEdit, onDelete));
+          bindPopup(c, makePopup(s, canEdit, onEdit, onDelete, onOpen));
           host = c;
         }
         if (!host) host = dot(); // exact point, or shapes not loaded yet
@@ -329,8 +474,27 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
           host = null;
         }
       }
-      if (host) markersRef.current[s.id] = host;
+      if (host) {
+        markersRef.current[s.id] = host;
+        hosts.push(host);
+      }
     });
+    // THE REVEAL, exhibit only: for the first few seconds after mount (the
+    // first draw, and the redraw when the outlines land) each shape rises in
+    // ~90ms after the last, timed to arrive as the recipe flight settles.
+    // After that window a redraw is just a redraw — a poll must not replay it.
+    if (propsRef.current.embed && Date.now() - mountedAt.current < 4000) {
+      const paths = (l: L.Layer): L.Path[] =>
+        l instanceof L.FeatureGroup ? (l.getLayers() as L.Path[]) : [l as L.Path];
+      hosts.forEach((h, i) => {
+        paths(h).forEach((pth) => {
+          const el = pth.getElement() as SVGElement | null;
+          if (!el) return;
+          el.classList.add(styles.rise);
+          el.style.animationDelay = `${1400 + i * 90}ms`;
+        });
+      });
+    }
   }, [sources, visibleIds, canEdit, geoVersion]);
 
   // --- Draft pin (the one being added/edited): a draggable divIcon marker,
@@ -422,27 +586,70 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
     containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  /** The box every listed source occupies: its dot, plus its county/state
+   * outline or its circle region when it has one. Null when none have coords. */
+  function boundsOf(list: EcoSource[]): L.LatLngBounds | null {
+    let bounds: L.LatLngBounds | null = null;
+    const add = (b: L.LatLngBounds) => { bounds = bounds ? bounds.extend(b) : L.latLngBounds(b.getSouthWest(), b.getNorthEast()); };
+    list.forEach((s) => {
+      if (!hasCoords(s)) return;
+      add(L.latLngBounds([s.lat, s.lng], [s.lat, s.lng]));
+      const feats = isShapeSource(s) ? featuresFor(s, getGeo()) : [];
+      if (feats.length) add(L.geoJSON(featureCollection(feats)).getBounds());
+      else if (s.precision === 'area' && (s.radius_km || 0) > 0) add(L.latLng(s.lat, s.lng).toBounds((s.radius_km || 0) * 2000));
+    });
+    return bounds;
+  }
+
+  /** Room the fit leaves around the sources: on the page a thin margin; in
+   * the exhibit whatever its overlays need at the frame's size
+   * (embedLayout.ts — the frame's own window IS the card). */
+  function fitPadding(): L.FitBoundsOptions {
+    if (!propsRef.current.embed) return { paddingTopLeft: [24, 24], paddingBottomRight: [24, 24] };
+    return embedFitPadding(window.innerWidth, window.innerHeight);
+  }
+
+  /** Center over the whole currently-visible set, all of it in view at once.
+   * One match → the tight single-item framing; none → leave the view be.
+   * Prompt: "center over everything showing all at once". */
+  function fitVisible() {
+    const map = mapRef.current;
+    if (!map) return;
+    map.invalidateSize(false);
+    const { sources: src, visibleIds: vis } = propsRef.current;
+    frame(src.filter((s) => hasCoords(s) && (!vis || vis.has(s.id))));
+  }
+
+  /** Frame a list: one → the tight single-item view; several → all of them
+   * with their outlines, padded for the overlays. */
+  function frame(pts: EcoSource[]) {
+    const map = mapRef.current;
+    if (!map || !pts.length) return;
+    if (pts.length === 1) {
+      focusSource(pts[0].id);
+      return;
+    }
+    const b = boundsOf(pts);
+    if (b) map.fitBounds(b, fitPadding());
+  }
+
+  /** The opening view: the visible sources near home, all in view at once.
+   * Prompt: "make it center over the US stuff actually" — generically, the
+   * cluster within HOME_RADIUS_KM of the configured home. */
+  function fitHome() {
+    const map = mapRef.current;
+    if (!map) return;
+    map.invalidateSize(false);
+    const { sources: src, visibleIds: vis } = propsRef.current;
+    const shown = src.filter((s) => !vis || vis.has(s.id));
+    const home: [number, number] | null = HOME_LAT !== undefined && HOME_LNG !== undefined ? [HOME_LAT, HOME_LNG] : null;
+    frame(homeCluster(shown, home));
+  }
+
   useImperativeHandle(ref, (): EcoMapHandle => ({
     focusSource,
-    fitVisible() {
-      const map = mapRef.current;
-      if (!map) return;
-      map.invalidateSize(false);
-      const { sources: src, visibleIds: vis } = propsRef.current;
-      const pts = src.filter((s) => hasCoords(s) && (!vis || vis.has(s.id)));
-      if (!pts.length) return;
-      if (pts.length === 1) {
-        focusSource(pts[0].id);
-        return;
-      }
-      // Dots-only: frame the points themselves (no shape/region geometry).
-      let bounds: L.LatLngBounds | null = null;
-      pts.forEach((s) => {
-        const b = L.latLngBounds([s.lat!, s.lng!], [s.lat!, s.lng!]);
-        bounds = bounds ? bounds.extend(b) : b;
-      });
-      if (bounds) map.fitBounds((bounds as L.LatLngBounds).pad(0.15));
-    },
+    fitVisible,
+    fitHome,
     fitRecipePoints(pts) {
       const map = mapRef.current;
       if (!map) return;
@@ -451,13 +658,15 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
       else if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 7 });
     },
     setRegionView() {
-      mapRef.current?.setView(ECO_HOME, ECO_REGION_ZOOM);
+      fitHome();
     },
     setWorldView() {
+      // "World" = every source at once, shapes included; the bare globe only
+      // when nothing has coordinates yet.
       const map = mapRef.current;
       if (!map) return;
-      const pts = propsRef.current.sources.filter(hasCoords).map((s) => [s.lat, s.lng] as [number, number]);
-      if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 6 });
+      const b = boundsOf(propsRef.current.sources);
+      if (b) map.fitBounds(b, fitPadding());
       else map.setView([20, 0], 2);
     },
     setView(lat, lng, zoom) {
@@ -484,5 +693,10 @@ export const EcoMap = forwardRef<EcoMapHandle, EcoMapProps>(function EcoMap(prop
   // contents — nothing here re-renders on the poll. isolation:isolate (in the
   // CSS module) scopes Leaflet's internal z-index stack (panes/controls run up
   // to 1000) into its own stacking context so it can't paint over the shell.
-  return <div ref={containerRef} className={styles.map} />;
+  return (
+    <div
+      ref={containerRef}
+      className={[styles.map, props.embed ? styles.mapEmbed : ''].filter(Boolean).join(' ')}
+    />
+  );
 });

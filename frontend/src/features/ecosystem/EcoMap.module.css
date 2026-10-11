@@ -11,3 +11,60 @@
   background: var(--bg);
   isolation: isolate;
 }
+
+/* The exhibit: no card edges — the map IS the frame. */
+.mapEmbed {
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Popups and the attribution line wear the theme, not Leaflet's white. */
+.map :global(.leaflet-popup-content-wrapper) {
+  background: color-mix(in srgb, var(--card-bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--text);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  box-shadow: var(--shadow-card);
+}
+.map :global(.leaflet-popup-tip) {
+  background: var(--card-bg);
+}
+.map :global(.leaflet-popup-content) {
+  margin: 12px 14px;
+  line-height: 1.4;
+}
+.map :global(.leaflet-popup-close-button) {
+  color: var(--text-muted);
+}
+.map :global(.leaflet-control-attribution) {
+  background: color-mix(in srgb, var(--bg) 75%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.map :global(.leaflet-control-attribution a) {
+  color: var(--text-secondary);
+}
+
+/* The reveal (exhibit only, see EcoMap.tsx): each shape scales up from its
+   own centre. transform-box makes the SVG path scale about itself rather
+   than the map's origin. */
+.rise {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rise 500ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

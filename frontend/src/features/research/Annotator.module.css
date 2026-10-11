@@ -12,19 +12,14 @@
   flex: 1;
 }
 
+/* The document column's scroll box; the typography and mark colours come
+ * from AnnotatedText.module.css, which renders inside it. */
 .text {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 16px 20px;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  line-height: 1.7;
-  font-size: 14px;
-  color: var(--text);
-  -webkit-user-select: text;
-  user-select: text;
 }
 
 .list {
@@ -47,22 +42,6 @@
     border-left: none;
     border-top: 1px solid var(--border);
   }
-}
-
-.mark {
-  background: rgba(212, 168, 10, 0.3);
-  color: inherit;
-  border-radius: 3px;
-  cursor: pointer;
-  padding: 1px 0;
-}
-
-.markReviewed {
-  background: rgba(58, 158, 140, 0.28);
-}
-
-.markActive {
-  outline: 2px solid var(--accent);
 }
 
 .row {

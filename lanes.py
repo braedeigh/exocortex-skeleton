@@ -1,0 +1,113 @@
+"""Which room (lane) an Observatory session lives in — one rule, one place.
+
+**What this is, in plain English.** Every session sits in one of six rooms:
+Personal, Coding, Orchestra, Research, Linear, Fairy. New sessions have the room written on
+them; older ones (about 40% of them on this install) never did, and the app
+works it out from the folder the session was started in. That rule used to
+live only inside routes/observatory.py, so the SQL copy of the sessions table
+(codestore.py) couldn't use it and showed those older rooms as blank. Now both
+read it from here, so the app and the database can't disagree about a room.
+
+Touches: `routes/observatory.py` (_conv_lane delegates here — the gates and
+defaults a lane hands a session still live there), `codestore.py` (the
+`sessions` table's `lane` column), `tests/test_lanes.py`.
+
+Prompt that produced this: "I saw that everything is marked keeper section
+there. Wanting personal, coding, etc to be there."
+"""
+from pathlib import Path
+
+import config
+import store
+
+LANES = ("orchestra", "personal", "coding", "research", "linear", "fairy")
+
+# The desktop app's first rooms, until the person adds, renames or removes
+# some (standalone_app.py keeps the list; see standalone_rooms below).
+STANDALONE_ROOMS = ({"id": "personal", "name": "Personal"}, {"id": "coding", "name": "Code"})
+
+
+def standalone_rooms():
+    """The desktop app's rooms, in the order they are shown: [{id, name}].
+
+    There the rooms are a list the person edits, not the fixed six. It is
+    kept in the data folder's `standalone` file (written by
+    standalone_app.py's room doors) and read here so that this module — which
+    the routes and the database copy both ask — needs nothing but the store.
+    A list that is missing or empty reads as the two starting rooms.
+
+    Prompt that produced it: "2 rooms, personal and code, with the option to
+    add more or delete or rename."
+    """
+    stored = store.read("standalone", {}).get("rooms")
+    rooms = [{"id": room["id"], "name": room["name"]} for room in stored or ()
+             if isinstance(room, dict) and isinstance(room.get("id"), str)
+             and isinstance(room.get("name"), str)]
+    return rooms or [dict(room) for room in STANDALONE_ROOMS]
+
+
+def known(lane):
+    """Is this a room a session may be put in? One of the fixed six — or, in
+    the desktop app, any room on the person's own list."""
+    if lane in LANES:
+        return True
+    return config.standalone() and any(room["id"] == lane for room in standalone_rooms())
+
+
+def derive_lane(entry):
+    """Which room a session lives in. Assigned at creation; DERIVED for every
+    entry that predates lanes, so nothing needs migrating: a session rooted
+    somewhere OTHER than the app checkout (the vault, the shared root) is
+    Personal. That matches how the two kinds were actually created — builder
+    sessions got store.BUILD_DIR, the legacy Keeper ones got the vault.
+
+    Nothing derives to CODING, and that's deliberate: Coding shares its ground
+    with Orchestra, so a folder can't tell the two apart, and guessing wrong
+    would hand an unwatched session Coding's ungated autonomy. A session only
+    lands there because she put it there — the ✎ picker, or a fresh create.
+
+    An entry we can't place — no cwd, or a path that won't resolve — derives
+    to ORCHESTRA, the gated lane: an unknown-derives-to-personal would quietly
+    *widen* a session's autonomy, and the whole gate exists on the principle
+    that a wrong guess should cost a tap, not a mistake. Fail toward ask."""
+    cwd = entry.get("cwd")
+    # A session standing in the Fairy room is in the Fairy room, whatever its
+    # record says: that room is walled (fairywall.py), and renaming a
+    # session's room must not take the wall down.
+    if cwd:
+        try:
+            if Path(cwd).resolve() == Path(store.FAIRY_ROOM_DIR).resolve():
+                return "fairy"
+        except (OSError, ValueError, RuntimeError):
+            pass
+    lane = entry.get("lane")
+    # And the other way round: a record that says "fairy" on a session
+    # standing somewhere else is not walled, so it is not in the Fairy room.
+    # It derives to the gated room below.
+    if lane == "fairy":
+        return "orchestra"
+    if known(lane):
+        return lane
+    if not cwd:
+        return "orchestra"
+    # Place the session by the ground it stands on. The research and Linear
+    # rooms are their own folders, so a session rooted in one can only be
+    # that room; the app checkout is Orchestra (never Coding — see above);
+    # anywhere else is Personal.
+    try:
+        resolved = Path(cwd).resolve()
+        if resolved == Path(store.RESEARCH_ROOM_DIR).resolve():
+            return "research"
+        if resolved == Path(store.LINEAR_ROOM_DIR).resolve():
+            return "linear"
+        return ("orchestra" if resolved == Path(store.BUILD_DIR).resolve()
+                else "personal")
+    except (OSError, ValueError, RuntimeError):
+        return "orchestra"
+
+
+def is_keeper(entry):
+    """A real Keeper session: one that journals. The `bot` field says "keeper"
+    on nearly every session (a leftover default from when the Keeper was the
+    only bot), so it can't answer this — `journal: true` can."""
+    return entry.get("journal") is True

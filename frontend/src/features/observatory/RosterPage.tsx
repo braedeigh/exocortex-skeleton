@@ -1,16 +1,29 @@
+/**
+ * RosterPage.tsx — the Sessions page: every observatory session, in its room,
+ * with the Keeper hoisted above them and the colour rail to filter by state.
+ * The long note on RosterPage below is the page's design history. Touches
+ * api.ts (the shared roster query and the session calls), SessionLane.tsx (the
+ * cards), sessionFilters.ts (the rail), and the doors to the sub-rooms.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  LANE_LABEL,
-  ROOMS,
+  laneBlurb,
+  laneLabel,
   closeConversation,
   createSession,
   getHelpers,
-  getSessions,
+  getLinearRoom,
+  getResearchRoom,
   isRoom,
+  strayRoom,
   toLane,
   updateConversation,
+  useSessionRoster,
   type HelpersState,
+  type LinearRoomState,
+  type ResearchRoomState,
+  type Lane,
   type Room,
   type SessionMeta,
 } from './api';
@@ -21,12 +34,22 @@ import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
 import { NightCrewDoor } from './NightCrewDoor';
 import { HelpersDoor } from './HelpersDoor';
-import { fetchNightState, type NightState } from './NightCrewPage';
+import { LinearDoor } from './LinearDoor';
+import { ResearchDoor } from './ResearchDoor';
+import { SpinoffTreeDoor } from './SpinoffTreeDoor';
+import { TokenBurnDoor } from './TokenBurnDoor';
+import { SavedLane } from './SavedLane';
+import { RoomsDialog } from './RoomsDialog';
+import { useRooms } from './roomsApi';
+import { WorktreeMapDoor } from './WorktreeMapDoor';
+import { SudoRequests } from '../sudo/SudoRequests';
 import { MemoryMeter } from '../runqueue/MemoryMeter';
 import { useTerrain } from '../terrain/api';
 import { NotesPill } from '../todos/NotesPill';
 import { useToasts } from '../journal/useJournalData';
 import { ToastStack } from '../../ui';
+import { isStandalone, pageIsOffered } from '../../shell/standalone';
+import { ChatFinder } from './ChatFinder';
 import styles from './RosterPage.module.css';
 
 // The roster's sort order — by creation time, so cards never churn on
@@ -50,6 +73,10 @@ function readStoredSort(): RosterSort {
  * makes the hoist safe if there's ever more than one pinned session: they'd
  * arrive in the Keeper slot in a fixed order rather than whatever order the
  * roster payload happened to have. */
+// Stable empties, so the memos below don't recompute while the roster loads.
+const NO_SESSIONS: SessionMeta[] = [];
+const NO_MODELS: string[] = [];
+
 function sortRoster(sessions: SessionMeta[], dir: RosterSort): SessionMeta[] {
   const sign = dir === 'oldest' ? 1 : -1;
   return [...sessions].sort((a, b) => {
@@ -120,6 +147,15 @@ const LANE_INTRO: Record<Room, string> = {
     'You, building, in real time. Rooted in the app code so it stands where the work is — and it just acts, same as Personal, because you’re still here.',
 };
 
+/** The introduction under a room's heading. The site's two rooms get the
+ * prose above, which is about the owner's own machine. The desktop app says
+ * only where the room's sessions work (api.ts laneBlurb), which is true for a
+ * room with any name. */
+function roomIntro(lane: Lane): string {
+  if (isStandalone()) return laneBlurb(lane);
+  return LANE_INTRO[lane as Room] ?? '';
+}
+
 /**
  * /observatory — the Sessions page. A session is a SPACE, not a persona: she
  * summons whichever voices she wants inside it with slash commands (/spark,
@@ -160,8 +196,9 @@ const LANE_INTRO: Record<Room, string> = {
  * here and the least like the rest: this page is for scanning what's live, and
  * night crew is finished work read once in the morning off cards with diffs,
  * screenshots and merge buttons. It's /observatory/nightcrew now, and what's
- * left in its old spot is a door carrying its census (NightCrewDoor). This page
- * still fetches /api/nightcrew — once, for that census, never polled.
+ * left in its old spot is a plain door (NightCrewDoor). This page fetches
+ * nothing from /api/nightcrew — that call is slow, so it waits until she
+ * actually walks through the door.
  *
  * THE KEEPER STANDS OUTSIDE ALL OF IT (her 08-03 ask). The one pinned session
  * is hoisted above the rooms into a slot of its own: no lane, no heading, no
@@ -189,6 +226,11 @@ const LANE_INTRO: Record<Room, string> = {
  * as the 07-27 ordering call applied to a wider set. The ordering survived
  * night crew becoming a page: the door kept the spot the section held.
  *
+ * IN THE DESKTOP APP (shell/standalone.ts) some doors aren't drawn: each door
+ * asks pageIsOffered() for its own address, and the ones that lead to rooms
+ * only the owner's install has — Worktrees, Night crew, Helpers, Research,
+ * Linear — answer no there. The notes pill goes the same way.
+ *
  * DOCKED MODE (07-25): also the Sessions view of the desktop split's left
  * pane (shell/KeeperPane.tsx). `onOpenConversation` is the seam — opening a
  * card hands the id to the pane instead of routing the whole app.
@@ -196,11 +238,21 @@ const LANE_INTRO: Record<Room, string> = {
 export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convId: string) => void } = {}) {
   const navigate = useNavigate();
   const { toasts, push, dismiss } = useToasts();
-  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  // The roster itself: the shared roster query (api.ts useSessionRoster), live
+  // so a busy dot flips to ready on its own — a turn runs detached from any
+  // one HTTP connection, so nothing else here would notice it finishing. The
+  // tab bars ride the same query, so this page adds no second poller, and
+  // React Query stops polling while the tab is hidden.
+  const roster = useSessionRoster(true);
+  const sessions = roster.data?.sessions ?? NO_SESSIONS;
   // Model aliases the server will accept — it stays the authority on the
   // list; an empty one just hides the picker.
-  const [modelChoices, setModelChoices] = useState<string[]>([]);
-  const [failed, setFailed] = useState(false);
+  const modelChoices = roster.data?.model_choices ?? NO_MODELS;
+  // A create/edit/close that failed shows the same banner as a failed load,
+  // until the next successful read clears it.
+  const [actionFailed, setActionFailed] = useState(false);
+  useEffect(() => setActionFailed(false), [roster.dataUpdatedAt]);
+  const failed = roster.isError || actionFailed;
 
   const [sortDir, setSortDir] = useState<RosterSort>(readStoredSort);
   // Which colours of the floating rail are pressed. Any number at once, empty
@@ -217,42 +269,29 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // whole roster and genuinely can't know, so it opens 'unset' — and the sheet
   // makes her pick rather than seeding one, because the room fixes where the
   // session RUNS, permanently. Her call, 08-21: no guessing on that field.
-  const [creating, setCreating] = useState<Room | 'unset' | null>(null);
+  const [creating, setCreating] = useState<Lane | 'unset' | null>(null);
+  // The rooms to draw: the fixed two on the site, the person's own list in
+  // the desktop app (roomsApi.ts), where "Edit rooms" opens their editor.
+  const rooms = useRooms();
+  const [editingRooms, setEditingRooms] = useState(false);
   const [editTarget, setEditTarget] = useState<SessionMeta | null>(null);
 
-  const refresh = () => {
-    getSessions()
-      .then(({ sessions: list, model_choices }) => {
-        setSessions(list);
-        if (model_choices) setModelChoices(model_choices);
-        setFailed(false);
-      })
-      .catch(() => setFailed(true));
-  };
+  // Re-read the roster now, after she changes something on it.
+  const refresh = () => void roster.refetch();
 
-  useEffect(() => {
-    refresh();
-    // Gentle poll so a busy dot flips to ready on its own — a turn runs
-    // detached from any one HTTP connection, so nothing else here would
-    // notice it finishing.
-    const id = setInterval(refresh, 5500);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
-  // The night crew's census, for the DOOR only — the page itself owns the runs
-  // and every action on them now (NightCrewPage). One fetch on mount, never
-  // polled: nothing over there changes while she's looking at this page.
-  const [night, setNight] = useState<NightState | null>(null);
-  useEffect(() => {
-    void fetchNightState().then(setNight);
-  }, []);
-
-  // The Helpers door's census — same one-fetch-on-mount shape as the night
-  // crew's; the page behind the door owns the list.
+  // The Helpers door's census — one fetch on mount, never polled; the page
+  // behind the door owns the list.
   const [helpersState, setHelpersState] = useState<HelpersState | null>(null);
+  const [researchState, setResearchState] = useState<ResearchRoomState | null>(null);
+  const [linearState, setLinearState] = useState<LinearRoomState | null>(null);
   useEffect(() => {
+    // The desktop app has none of these three rooms (shell/standalone.ts),
+    // so it doesn't ask for their counts.
+    if (isStandalone()) return;
     void getHelpers().then(setHelpersState).catch(() => setHelpersState(null));
+    void getResearchRoom().then(setResearchState).catch(() => setResearchState(null));
+    void getLinearRoom().then(setLinearState).catch(() => setLinearState(null));
   }, []);
 
   // ONE terrain poll for the whole page, passed down to both lanes — two
@@ -268,7 +307,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // ONE list, so a count can't describe a population the page doesn't draw.
   // roomRoster (sessionFilters.ts) owns what's eligible and why; it's a function
   // there rather than a line here precisely because the two used to disagree.
-  const roomable = roomRoster(ordered);
+  const roomable = roomRoster(ordered, opened);
 
   // Recomputed every render, which is what keeps the hour window and the unread
   // comparison honest as the poll ticks.
@@ -299,6 +338,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // watching the door to her day disappear would break the "always at the top"
   // promise the moment she used a filter.
   const keeper = ordered.filter((s) => s.pinned);
+  // Sessions she saved for later: out of the rooms (roomRoster drops them) and
+  // into their own shut section under them. Read off `ordered` like the Keeper,
+  // so the rail's colours never narrow them away or count them.
+  const saved = ordered.filter((s) => s.saved_at && !s.pinned);
   // The lane is server-resolved (it derives one for every session that predates
   // the field), so this is a straight split, not a guess. What's eligible at all
   // was already decided upstream by `roomable` — the Keeper isn't drawn twice
@@ -314,10 +357,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // stands on the same ground (the app checkout). What it DOES is unaffected:
   // the gate is resolved server-side from its own lane, so an Orchestra session
   // drawn here still stops and asks.
-  const byLane = (room: Room) =>
+  const byLane = (room: Lane) =>
     shown.filter((s) => {
       const lane = toLane(s.lane);
-      return lane === room || (room === 'coding' && !isRoom(lane));
+      return lane === room || (room === strayRoom() && !isRoom(lane));
     });
 
   // What an empty lane says while the rail is narrowing it — "tap + to start
@@ -355,7 +398,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   };
 
   const onCreate = (draft: SessionDraft) => {
-    createSession(draft.name, draft.journal, draft.model, draft.lane)
+    return createSession(draft.name, draft.journal, draft.model, draft.lane)
       .then(({ id }) => {
         setCreating(null);
         // An explicit asks-first choice is a second call: creation takes the
@@ -365,7 +408,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         }
         open(id);
       })
-      .catch(() => setFailed(true));
+      .catch(() => setActionFailed(true));
   };
 
   const onEdit = (draft: SessionDraft) => {
@@ -382,13 +425,13 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         setEditTarget(null);
         refresh();
       })
-      .catch(() => setFailed(true));
+      .catch(() => setActionFailed(true));
   };
 
   const onCloseSession = (convId: string) => {
     closeConversation(convId)
       .then(refresh)
-      .catch(() => setFailed(true));
+      .catch(() => setActionFailed(true));
   };
 
   return (
@@ -415,6 +458,12 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             <h1 className={styles.title}>Observatory</h1>
             <MemoryMeter />
           </div>
+          {/* Find a chat again: search every session, and under the empty box
+              the ones she opened last. First thing under the title, so it's in
+              reach before any scrolling. */}
+          <ChatFinder onOpen={open} />
+          {/* Agents waiting on her sudo password — orange, first thing in the room. */}
+          <SudoRequests />
           {failed ? <div className={styles.pageError}>Couldn&rsquo;t load sessions.</div> : null}
 
           {keeper.length > 0 ? (
@@ -434,13 +483,18 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             />
           ) : null}
 
-          {ROOMS.map((lane) => (
+          {/* Which agents are working in which copy of the code — at the top,
+              just under the Keeper, so it's the first thing seen above the rooms. */}
+          {pageIsOffered('/observatory/worktrees') ? <WorktreeMapDoor /> : null}
+
+          {rooms.map(({ id: lane, name }) => (
             <SessionLane
               key={lane}
               laneKey={lane}
-              heading={LANE_LABEL[lane]}
-              blurb={LANE_INTRO[lane]}
+              heading={name}
+              blurb={roomIntro(lane)}
               sessions={byLane(lane)}
+              roster={ordered}
               terrain={terrain}
               opened={opened}
               emptyNote={emptyNote}
@@ -453,20 +507,48 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             />
           ))}
 
+          {/* The desktop app's rooms are the person's own list: this opens
+              the sheet where they rename, delete and add them. */}
+          {isStandalone() ? (
+            <button type="button" className={styles.editRoomsBtn} onClick={() => setEditingRooms(true)}>
+              Edit rooms
+            </button>
+          ) : null}
+          {isStandalone() ? (
+            <RoomsDialog open={editingRooms} onClose={() => setEditingRooms(false)} onChanged={refresh} />
+          ) : null}
+
+          {/* Parked sessions, shut by default, right under the rooms they
+              came from (SavedLane.tsx). */}
+          <SavedLane sessions={saved} onOpen={open} onChanged={refresh} />
+
           {/* Night crew is a PAGE now, and this is the way in — left exactly
               where its section used to sit, because that's where she already
-              scrolls to look for it. The row carries the census so a place she
-              can't see into still says what's waiting on her. */}
-          <NightCrewDoor
-            runs={night?.runs ?? []}
-            queued={night?.queue?.length ?? 0}
-            spendUsd={night?.spend?.night_usd ?? 0}
-          />
+              scrolls to look for it. It carries no census: that call is slow, so
+              the crew loads only once she clicks through. */}
+          {pageIsOffered('/observatory/nightcrew') ? <NightCrewDoor /> : null}
 
           {/* The button-fired jobs (triage, recipe/receipt parses, person
-              impressions) — a door like the night crew's, carrying a census,
+              impressions) — a door like the night crew's, but carrying a census,
               where the "System agents — coming later" note used to sit. */}
-          <HelpersDoor state={helpersState} />
+          {pageIsOffered('/observatory/helpers') ? <HelpersDoor state={helpersState} /> : null}
+
+          {/* The research room — her desk sessions and the dispatched research
+              workers, which left tmux for this lane. A door like the two
+              above; the sessions themselves stay out of the rooms
+              (sessionFilters.roomRoster). */}
+          {pageIsOffered('/observatory/research') ? <ResearchDoor state={researchState} /> : null}
+
+          {/* The Linear room — sessions that work in Linear with her. A door
+              like Research's, and its sessions stay out of the rooms too. */}
+          {pageIsOffered('/observatory/linear') ? <LinearDoor state={linearState} /> : null}
+
+          {/* The spinoff family tree — which session came from which. */}
+          <SpinoffTreeDoor />
+
+          {/* What the agents spend — tokens by model, session, room and kind,
+              and when. A plain door: the numbers load once she walks in. */}
+          {pageIsOffered('/observatory/burn') ? <TokenBurnDoor /> : null}
 
           {/* Seeded from the '+' she actually pressed, and NOT seeded at all
               from the rail's — that one gets a null lane, which makes the sheet
@@ -479,7 +561,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
             open={creating !== null}
             title={
               creating && creating !== 'unset'
-                ? `New session in ${LANE_LABEL[creating]}`
+                ? `New session in ${laneLabel(creating)}`
                 : 'New session'
             }
             lane={creating === 'unset' ? null : creating}
@@ -603,14 +685,22 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
           Docked, it tucks into the PANE's bottom-right corner rather than the
           viewport's — that one already holds the other pane's pill, and a
           second there would land on top of it.
+          It files under 'terminal' — the same list the 📝 button on every
+          session shows (shell/TermNotesPanel) — so the Observatory has one set
+          of notes whichever button she reaches for.
           [prompt: "i also want the dev notes button on this page too"; "put the
-          dev notes on the right corner and the other buttons on the left"] */}
+          dev notes on the right corner and the other buttons on the left";
+          "make the notes button on both every session and the roster page
+          contain the same notes"] */}
       <ToastStack toasts={toasts} onDismiss={dismiss} />
-      <NotesPill
-        tab="observatory"
-        onError={push}
-        anchor={onOpenConversation ? 'splitPane' : 'viewport'}
-      />
+      {/* Not in the desktop app: the notes are the owner's own build notes. */}
+      {isStandalone() ? null : (
+        <NotesPill
+          tab="terminal"
+          onError={push}
+          anchor={onOpenConversation ? 'splitPane' : 'viewport'}
+        />
+      )}
     </div>
   );
 }

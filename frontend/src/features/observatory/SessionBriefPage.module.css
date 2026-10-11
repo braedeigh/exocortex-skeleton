@@ -1,0 +1,58 @@
+/* A session's brief page. Page chrome comes from NightCrewPage.module.css and
+   the sections from SwarmPage.module.css; these are the few things that are
+   this page's own. */
+
+/* The line under the title: the job's name and its dates. */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* The job's name, set apart as the tag it is. */
+.slug {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+}
+
+/* The brief is the page's main text: give it room before it scrolls inside
+   itself, and wrap its long lines rather than scroll sideways. */
+.body {
+  max-height: 70vh;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A link to another session, as a button tall enough to tap. */
+.link {
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.path {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+}
+
+/* One folded part's title line: its name, and its size pushed to the far side. */
+.partTitle {
+  flex: 1;
+  padding-left: var(--space-2);
+}
+
+.partSize {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}

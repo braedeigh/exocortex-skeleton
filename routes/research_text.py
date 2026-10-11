@@ -2,24 +2,26 @@
 `source` entry's full text (or best-effort page text) so it can be resolved
 by `docstore.py` as `entry:<id>` and annotated.
 
-Three strategies, first hit wins, ALL network before any write (house rule —
+Four strategies, first hit wins, ALL network before any write (house rule —
 never hold `store`'s lock across a network call, and don't half-succeed):
 
   a. a PMC id already sitting in the entry's url (`paperclients.extract_pmcid`)
      -> `paperclients.fetch_pmc_fulltext` (papers: full text, clean)
   b. `entry["meta"]["doi"]` (written by routes/research_sources.py's annotate)
      -> `paperclients.lookup_pmcid` -> `paperclients.fetch_pmc_fulltext`
-  c. `paperclients.fetch_page_text(entry["url"])` (docs pages, blogs — most
-     of the corpus that isn't a paper)
+  c. `entry["meta"]["pdf_url"]` (Unpaywall's open-access PDF, or the PMC render
+     link — also written by annotate) -> `paperclients.fetch_pdf_text`
+  d. `paperclients.fetch_url_text(entry["url"])` — the url itself, whatever it
+     is: a PDF goes through pdftotext, a docs page or blog through the HTML
+     extractor (most of the corpus that isn't a paper)
 
-If every strategy misses, the route returns 502 with the last error code,
-remapping `"not_html"` (fetch_page_text's signal that the url wasn't a page —
-almost always a PDF) to the more legible `"pdf_extraction_unavailable"`.
-`# TODO(2): once paperclients gets a pypdf/pdftotext layer, this path
-disappears — PDF urls will just work.`
+If every strategy misses, the route returns 502 with the last error code as
+paperclients reported it — for PDFs that means `pdftotext_missing`,
+`pdf_too_large`, `pdf_extract_failed` or `pdf_no_text`, each of which names
+the actual problem.
 
     POST /api/research/entry/fetch-text {"id"} ->
-      {"ok": True, "doc": "entry:<id>", "chars": int, "strategy": "pmc"|"page"}
+      {"ok": True, "doc": "entry:<id>", "chars": int, "strategy": "pmc"|"pdf"|"page"}
     GET /api/research/texts -> {"ok": True, "docs": ["entry:<id>", ...]}
       (which source entries already have fetched text, so the UI can label
       fetch buttons without N requests)
@@ -40,7 +42,9 @@ def _fetch_entry_text(entry):
     or (None, None, error_code) when every strategy misses. No I/O beyond the
     network clients in paperclients — never writes anything."""
     url = (entry.get("url") or "").strip()
-    doi = (entry.get("meta") or {}).get("doi")
+    meta = entry.get("meta") or {}
+    doi = meta.get("doi")
+    pdf_url = (meta.get("pdf_url") or "").strip()
     last_error = None
 
     pmcid = paperclients.extract_pmcid(url) if url else None
@@ -60,15 +64,22 @@ def _fetch_entry_text(entry):
         else:
             last_error = looked_up.get("error")
 
+    # The annotator's PDF link, tried before the entry's own url. Skipped when
+    # it IS the entry's url — the url strategy below sniffs PDFs itself, and
+    # fetching the same file twice would be rude to the host.
+    if pdf_url and pdf_url != url:
+        text, error = paperclients.fetch_pdf_text(pdf_url)
+        if text is not None:
+            return text, "pdf", None
+        last_error = error
+
     if url:
-        r = paperclients.fetch_page_text(url)
+        r = paperclients.fetch_url_text(url)
         if r.get("ok"):
-            return r["text"], "page", None
+            return r["text"], "pdf" if r.get("kind") == "pdf" else "page", None
         last_error = r.get("error")
 
-    if last_error == "not_html":
-        last_error = "pdf_extraction_unavailable"
-    return None, None, last_error or "pdf_extraction_unavailable"
+    return None, None, last_error or "not_found"
 
 
 def register(app):

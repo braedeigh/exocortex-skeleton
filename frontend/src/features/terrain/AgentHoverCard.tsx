@@ -69,12 +69,14 @@ import styles from './AgentHoverCard.module.css';
  * message into it, and then you can scroll down to see what it said last".
  */
 
-/** The dot's five states, in the roster's own vocabulary. Same names, same
+/** The dot's six states, in the roster's own vocabulary. Same names, same
  * colours, decided by the same predicate (sessionFilters.cardState) — the point
- * of the exercise is that a colour means ONE thing across the whole app. */
+ * of the exercise is that a colour means ONE thing across the whole app. Asking
+ * and unread share the orange dot, exactly as the roster's cards do. */
 const DOT_CLASS: Record<CardState, string> = {
   error: 'dotError',
   running: 'dotRunning',
+  asking: 'dotUnread',
   unread: 'dotUnread',
   recent: 'dotRecent',
   rest: 'dotRest',

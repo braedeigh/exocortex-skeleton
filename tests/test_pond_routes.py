@@ -32,7 +32,7 @@ CREATE TABLE card_tags (
   tag TEXT NOT NULL, PRIMARY KEY (card_id, tag));
 CREATE TABLE sessions (
   id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', bot TEXT, lane TEXT,
-  started TEXT, last_at TEXT);
+  started TEXT, last_at TEXT, is_keeper INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE session_turns (
   session_id TEXT NOT NULL, seq INTEGER NOT NULL, ts TEXT NOT NULL,
   journaled INTEGER NOT NULL DEFAULT 0,
@@ -131,11 +131,21 @@ def test_shape_counts_one_row_per_day_splitting_hers_from_the_keepers(pond_db, c
 
     got = client.get("/api/pond/shape").get_json()
     assert got["days"] == [
-        {"day": "2026-07-06", "cards": 3, "owner": 2},
-        {"day": "2026-07-08", "cards": 1, "owner": 0},
+        {"day": "2026-07-06", "cards": 3, "owner": 2, "system": 0},
+        {"day": "2026-07-08", "cards": 1, "owner": 0, "system": 0},
     ]
     # The total is the drawing's own scale — it must count cards, not days.
     assert got["cards"] == 4
+
+
+def test_shape_never_counts_a_system_reminder_as_hers(pond_db, client):
+    """`owner` once meant "not the Keeper's", which would have put every S
+    card — a reminder the app sent — in her column."""
+    pond_db("a", "2026-10-16", ts="09:00", who="B")
+    pond_db("r", "2026-10-16", ts="18:00", who="S")
+    pond_db("k", "2026-10-16", ts="18:01", who="K")
+    got = client.get("/api/pond/shape").get_json()
+    assert got["days"] == [{"day": "2026-10-16", "cards": 3, "owner": 1, "system": 1}]
 
 
 def test_shape_excludes_deleted_and_honours_the_window(pond_db, client):
@@ -146,7 +156,7 @@ def test_shape_excludes_deleted_and_honours_the_window(pond_db, client):
     pond_db("outside", "2026-07-09")
 
     got = client.get("/api/pond/shape?from=2026-07-06&to=2026-07-07").get_json()
-    assert got["days"] == [{"day": "2026-07-06", "cards": 1, "owner": 1}]
+    assert got["days"] == [{"day": "2026-07-06", "cards": 1, "owner": 1, "system": 0}]
 
 
 def test_shape_is_empty_rather_than_erroring_on_an_empty_pond(pond_db, client):
@@ -200,7 +210,7 @@ def test_sizes_honour_the_window_and_skip_deleted_like_every_other_read(pond_db,
     pond_db("outside", "2026-07-09", body="x" * 77)
 
     days = client.get("/api/pond/shape?sizes=1&to=2026-07-07").get_json()["days"]
-    assert days == [{"day": "2026-07-06", "cards": 1, "owner": 1, "chars": [40]}]
+    assert days == [{"day": "2026-07-06", "cards": 1, "owner": 1, "system": 0, "chars": [40]}]
 
 
 def test_an_empty_card_still_gets_a_length_rather_than_vanishing(pond_db, client):
@@ -264,10 +274,10 @@ def working_db(pond_db, data_dir):
     conn = sqlite3.connect(data_dir / "exo.db")
     next_file = [1]
 
-    def session(sid, started, last_at, title="A session", lane=None):
+    def session(sid, started, last_at, title="A session", lane=None, is_keeper=0):
         conn.execute(
-            "INSERT INTO sessions (id, title, bot, lane, started, last_at)"
-            " VALUES (?,?,?,?,?,?)", (sid, title, "keeper", lane, started, last_at))
+            "INSERT INTO sessions (id, title, bot, lane, is_keeper, started, last_at)"
+            " VALUES (?,?,?,?,?,?,?)", (sid, title, "keeper", lane, is_keeper, started, last_at))
         conn.commit()
 
     def turn(sid, ts, seq=None, journaled=0):
@@ -396,6 +406,15 @@ def test_a_session_open_across_the_window_is_kept(working_db, client):
     working_db.session("long", "2026-08-01T10:00:00", "2026-08-05T10:00:00")
     got = client.get("/api/pond/working?from=2026-08-03&to=2026-08-04").get_json()
     assert [s["id"] for s in got["sessions"]] == ["long"]
+
+
+def test_sessions_carry_their_lane_and_whether_they_are_the_keeper(working_db, client):
+    working_db.session("journal", "2026-08-08T03:00:00", "2026-08-08T23:00:00",
+                       lane="personal", is_keeper=1)
+    working_db.session("build", "2026-08-08T10:00:00", "2026-08-08T11:00:00", lane="coding")
+    got = {s["id"]: (s["lane"], s["is_keeper"])
+           for s in client.get("/api/pond/working").get_json()["sessions"]}
+    assert got == {"journal": ("personal", True), "build": ("coding", False)}
 
 
 def test_working_is_empty_not_broken_on_a_fresh_install(pond_db, client):

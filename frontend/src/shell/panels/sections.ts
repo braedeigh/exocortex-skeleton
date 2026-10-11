@@ -1,4 +1,5 @@
 import { TAB_ROUTES, VALID_TABS } from '../tabs';
+import { SETUP_PATH, isStandalone, standaloneSectionIds } from '../standalone';
 
 /**
  * sections.ts — what a tab stands for.
@@ -15,15 +16,25 @@ import { TAB_ROUTES, VALID_TABS } from '../tabs';
  * /terrain — and it does, because Pond's claim is longer. Getting this
  * backwards would make the Pond tab impossible to ever show as active.
  *
+ * WHEN TWO CLAIMS ARE THE SAME LENGTH, the one listed first wins. That's why
+ * Ecosystem, Kitchen and Money sit ABOVE Dashboard below: each shares an exact
+ * claim with Dashboard, and if Dashboard came first their tabs could never light up. Move it and
+ * sections.test.ts will say so.
+ *
  * A section with NO claims is a pure shortcut: it can be pinned and clicked,
  * but it never lights up. The Keeper is one — it's a particular conversation
  * inside the Observatory rather than a place of its own, so while you're
  * reading it the tab that's active is Observatory, wearing that conversation's
  * name.
  *
+ * THE DESKTOP APP HOLDS FEWER. There, only the Observatory and Terrain exist
+ * (shell/standalone.ts), so SECTIONS is cut down to the ids that file names,
+ * plus Setup, which exists nowhere else. See sectionsFor below.
+ *
  * Touches: tabSets.ts (which sections a bar holds), TabBar.tsx (draws them),
  * routes/tabsets.py (stores the ids, and never interprets them — adding a
- * section is a change to this file alone).
+ * section is a change to this file alone), standalone.ts (the desktop app's
+ * list).
  */
 
 export interface Section {
@@ -36,19 +47,38 @@ export interface Section {
   claims: string[];
 }
 
-export const SECTIONS: Section[] = [
+/** Every section there is, on either kind of install. */
+export const ALL_SECTIONS: Section[] = [
   { id: 'observatory', label: 'Observatory', icon: '🔭', home: '/observatory', claims: ['/observatory'] },
   // A conversation, not a place — see the header note on shortcuts.
   // `?conv=latest` resolves to the pinned Keeper session server-side.
   { id: 'keeper', label: 'Keeper', icon: '🕯', home: '/observatory/session?conv=latest', claims: [] },
-  { id: 'research', label: 'Research', icon: '🔎', home: '/research', claims: ['/research'] },
-  { id: 'terrain', label: 'Terrain', icon: '🗺', home: '/terrain/map', claims: ['/terrain'] },
+  { id: 'research', label: 'Research', icon: '🔎', home: '/research/claims', claims: ['/research'] },
+  { id: 'terrain', label: 'Terrain', icon: '🗺', home: '/terrain/files', claims: ['/terrain'] },
   { id: 'pond', label: 'Pond', icon: '🐟', home: '/terrain/pond', claims: ['/terrain/pond'] },
   { id: 'flow', label: 'Flow', icon: '🫧', home: '/terrain/flow', claims: ['/terrain/flow'] },
   { id: 'workshop', label: 'Workshop', icon: '🛠', home: '/terrain/workshop', claims: ['/terrain/workshop'] },
+  { id: 'activity', label: 'Activity', icon: '🧾', home: '/terrain/activity', claims: ['/terrain/activity'] },
   { id: 'journal', label: 'Journal', icon: '📓', home: '/journal', claims: ['/journal'] },
+  // The Food area — the map, every food, one food's page, the review list —
+  // as one tab. Its id stays 'ecosystem' because saved tab sets store it.
+  // Has to stay ahead of Dashboard, which claims /food too (see the header);
+  // /ecosystem is still claimed because it redirects here.
+  // Prompts: "i want to be able to access my ecosystem map on my tabs on the
+  // right side of the split screen"; then "remaking the frontend to be in one
+  // place" — the map, food profiles and research as one Food area.
+  { id: 'ecosystem', label: 'Food', icon: '🌱', home: '/food', claims: ['/food', '/ecosystem'] },
+  // Kitchen, promoted the same way and for the same reason — it has to stay
+  // ahead of Dashboard too. Prompt: "currently can't see my kitchen view from
+  // the desktop. add a tab to the desktop please such that i can click into it
+  // from there"
+  { id: 'kitchen', label: 'Kitchen', icon: '🍳', home: '/kitchen', claims: ['/kitchen'] },
+  // Money, promoted the same way — ahead of Dashboard for the same reason.
+  // Prompt: "add my money tab to my dropdown menu on desktop"
+  { id: 'money', label: 'Money', icon: '💰', home: '/money', claims: ['/money'] },
   // The dashboard is fifteen routes wearing one name (tabs.ts), and its own
-  // sub-tab row is how you move between them.
+  // sub-tab row is how you move between them. Ecosystem, Kitchen and Money are
+  // claimed above too; they stay in this list so the Dashboard's sub-tab row still works there.
   {
     id: 'dashboard',
     label: 'Dashboard',
@@ -58,14 +88,33 @@ export const SECTIONS: Section[] = [
   },
   { id: 'code', label: 'Code', icon: '📄', home: '/code', claims: ['/code'] },
   { id: 'threads', label: 'Threads', icon: '🧵', home: '/threads', claims: ['/threads'] },
-  { id: 'notes', label: 'Notes', icon: '📝', home: '/notes', claims: ['/notes'] },
   { id: 'files', label: 'Files', icon: '🗂️', home: '/files', claims: ['/files'] },
-  { id: 'scratchpad', label: 'Scratchpad', icon: '✏️', home: '/scratchpad', claims: ['/scratchpad'] },
   { id: 'sql', label: 'SQL lab', icon: '🗃', home: '/sql', claims: ['/sql'] },
-  { id: 'recordings', label: 'Recordings', icon: '🎙️', home: '/recordings', claims: ['/recordings'] },
-  { id: 'build', label: 'Build', icon: '🔨', home: '/build', claims: ['/build'] },
+  // Transcripts, Notes, Scratchpad, Recordings and Build are set down in shed/unvisited-2026-10-10.
   { id: 'settings', label: 'Settings', icon: '⚙️', home: '/settings', claims: ['/settings'] },
+  // The desktop app's first-run screen, opened again. Desktop app only.
+  { id: 'setup', label: 'Setup', icon: '🧰', home: SETUP_PATH, claims: [SETUP_PATH] },
 ];
+
+/**
+ * The sections one kind of install offers.
+ *
+ * The normal site gets everything except Setup. The desktop app gets only
+ * the ids standalone.ts lists (`sectionIds`, passed in by tests), in that
+ * file's order. Everything else in this
+ * file reads SECTIONS, so a section that isn't offered can't be pinned, can't
+ * light up, and is skipped if a saved tab set still names it.
+ */
+export function sectionsFor(standalone: boolean, sectionIds: readonly string[] = standaloneSectionIds()): Section[] {
+  if (!standalone) return ALL_SECTIONS.filter((section) => section.id !== 'setup');
+  return sectionIds
+    .map((id) => ALL_SECTIONS.find((section) => section.id === id))
+    .filter((section): section is Section => Boolean(section));
+}
+
+/** The sections THIS install offers. Decided once, when the page loads: the
+ * server's flag is already in the page by then and never changes. */
+export const SECTIONS: Section[] = sectionsFor(isStandalone());
 
 export function sectionById(id: string): Section | undefined {
   return SECTIONS.find((s) => s.id === id);

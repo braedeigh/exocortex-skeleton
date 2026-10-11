@@ -23,6 +23,10 @@ import pytest
 import sqlstore
 import store
 
+# These tests are about opening a FRESH database (the WAL switch, the ladder race),
+# so they climb the real migration ladder instead of copying the test template.
+pytestmark = pytest.mark.fresh_db
+
 
 def test_busy_timeout_stays_short_enough_to_not_stall_the_worker():
     """The C-level wait is a floor for incidental contention, not the strategy.
@@ -102,6 +106,40 @@ def test_a_lock_that_never_clears_still_raises(data_dir, monkeypatch):
             except sqlite3.OperationalError:
                 pass
             conn.close()
+
+
+def test_connect_survives_a_writer_holding_a_fresh_database(data_dir):
+    """The flaky half of the test below, made deterministic.
+
+    `PRAGMA journal_mode=WAL` does NOT honour busy_timeout — against a database
+    someone else is mid-write on it fails instantly rather than waiting. On a
+    fresh (still `delete`-mode) database that made _connect() a coin flip
+    whenever another connection was climbing the migration ladder. Here the
+    competing writer is held open deliberately, so a regression fails every
+    time instead of two runs in five.
+    """
+    holder = sqlite3.connect(str(sqlstore._db_path()), timeout=0.25,
+                             isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")
+    holder.execute("CREATE TABLE probe (x)")
+    try:
+        opened = []
+
+        def connect():
+            conn = sqlstore._connect()
+            opened.append(conn.execute("PRAGMA journal_mode").fetchone()[0])
+            conn.close()
+
+        t = threading.Thread(target=connect)
+        t.start()
+        time.sleep(0.3)          # long past the 250ms busy_timeout
+        holder.execute("COMMIT")
+        t.join(timeout=10)
+
+        assert not t.is_alive(), "connect() never returned"
+        assert opened == ["wal"]
+    finally:
+        holder.close()
 
 
 def test_many_connections_can_migrate_a_fresh_database_at_once(data_dir):

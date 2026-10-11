@@ -20,7 +20,7 @@ agents/crickets/
   _base.md        — shared field guide every cricket reads first (target-date rule,
                     read-only discipline, the staged-approval protocol).
   _template.md    — copy this to start a new cricket.
-  todos.md, food.md, contacts.md, cards.md, thread-scout.md
+  todos.md, food.md, contacts.md, cards.md, thread-scout.md, memory-scout.md
                   — the active, generic crickets (ship `on` in roster).
   front-health.md — a "front tender" cricket, ships `off`; a worked example of the
                     pattern for a different kind of cricket (see PLUG-IN(FRONT) note
@@ -71,12 +71,12 @@ proposal turns into a real write.
    scripts/cricket_swarm.sh 2026-07-03 <id>                     # actually run it
    ```
    Single-cricket mode (the third argument) runs by id regardless of the roster's
-   on/off state — that's also how the weekly `thread-scout` cricket is invoked from
-   its own cron line rather than the nightly swarm loop.
+   on/off state — that's also how the weekly `thread-scout` and `memory-scout` crickets are invoked,
+   each from its own cron line rather than the nightly swarm loop.
 5. Flip the roster row to `on` once you're happy with what it stages/writes.
 
 ## Cron wiring
 
 Not part of this module — see `deploy/crontab.template.txt` for the actual cron lines
-(nightly swarm at 2 AM, weekly housekeeper Monday 4 AM, thread-scout Sunday 5 AM) and
+(nightly swarm at 2 AM, weekly housekeeper Monday 4 AM, thread-scout Sunday 5 AM, memory-scout Sunday 5:20 AM) and
 `deploy/README.md` for the placeholder substitutions.

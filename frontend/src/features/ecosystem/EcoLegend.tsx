@@ -18,8 +18,9 @@ export function EcoLegend() {
         ))}
       </div>
       <div className={styles.blurb}>
-        Crisp dot = exact spot &middot; shaded shape = a region (real county/state outlines from
-        USDA where known; a soft circle when only roughly known).
+        Crisp dot = exact spot &middot; shaded shape = a region (real county, state or province
+        outlines where known; a soft circle when only roughly known) &middot; dashed = the
+        machine&rsquo;s proposal, not yours; faint grey dashes failed its check.
       </div>
     </>
   );

@@ -107,12 +107,14 @@ def test_root_injects_app_meta():
     "/map", "/kitchen", "/inventory", "/money", "/media",
     "/body", "/ideas", "/ecosystem", "/people",
     # native standalone pages (ported from their Flask templates)
-    "/person/some-slug", "/personality", "/scratchpad", "/vscode", "/food-map", "/about",
+    "/person/some-slug", "/personality", "/scratchpad", "/vscode", "/food-map", "/about", "/demo/swarm",
+    # the Food area: the map, every food, one food's page, the review list
+    "/food", "/food/foods", "/food/foods/green%20beans", "/food/review",
     # session-visualization surfaces (born native)
     "/terrain", "/atlas", "/sessions", "/automations",
     # rooms inside terrain — child routes, so the catch-all has to serve the
     # shell for them too or a pasted link 404s instead of opening the room
-    "/terrain/usage", "/terrain/sql",
+    "/terrain/files", "/terrain/map", "/terrain/usage", "/terrain/sql",
     # the database's own page, also reachable as a terrain room
     "/sql",
     # one file, read-only — where a session card's file list opens into
@@ -137,6 +139,28 @@ def test_asset_returns_200_and_is_immutably_cached():
 def test_unknown_asset_404s():
     r = _client().get("/assets/does-not-exist.js")
     assert r.status_code == 404
+
+
+# --- /geo/<boundary file> — the Ecosystem map's county/state outlines --------------
+
+def test_geo_counties_served_as_json_and_cached():
+    # Before this route existed the fetch got a 404 page and every county
+    # source on the map silently drew as a dot.
+    r = _client().get("/geo/us-counties.geojson")
+    assert r.status_code == 200
+    assert "max-age" in r.headers["Cache-Control"]
+    assert json.loads(r.get_data())["type"] == "FeatureCollection"
+
+
+def test_geo_states_served():
+    r = _client().get("/geo/us-states.geojson")
+    assert r.status_code == 200
+    assert json.loads(r.get_data())["type"] == "FeatureCollection"
+
+
+def test_geo_only_serves_geojson():
+    assert _client().get("/geo/anything.json").status_code == 404
+    assert _client().get("/geo/missing.geojson").status_code == 404
 
 
 # --- root-level PWA files ---------------------------------------------------------
@@ -188,3 +212,28 @@ def test_legacy_unknown_tab_redirects_to_todos():
     r = _client().get("/legacy/nonsense")
     assert r.status_code == 302
     assert r.headers["Location"] == "/todos"
+
+
+# --- /api/build: which build the server holds ----------------------------------
+
+def test_build_route_names_the_scripts_the_served_page_loads():
+    """The page compares this answer with the script and stylesheet names in
+    its own document, so the two must be built from the same names."""
+    import re
+
+    client = _client()
+    served = client.get("/").get_data(as_text=True)
+    names = sorted(set(re.findall(r"/assets/(index-[\w-]+\.(?:js|css))", served)))
+    assert names, "the built page loads no index-* script"
+
+    r = client.get("/api/build")
+    assert r.status_code == 200
+    assert r.headers["Cache-Control"] == "no-store"
+    assert r.get_json() == {"build": "+".join(names)}
+
+
+def test_build_route_answers_blank_while_a_build_is_being_written(monkeypatch, tmp_path):
+    """Mid-build there is no index.html; the page must read that as "unknown",
+    not as a new build."""
+    monkeypatch.setattr(spa, "INDEX_PATH", tmp_path / "index.html")
+    assert _client().get("/api/build").get_json() == {"build": ""}

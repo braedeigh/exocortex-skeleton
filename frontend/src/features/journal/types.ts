@@ -13,7 +13,9 @@ export interface JournalDay {
   error?: string;
 }
 
-export type CardWho = 'B' | 'K';
+/** Who a card is from: B = the owner, K = the Keeper, S = the system (a
+ * reminder the app sent into the Keeper's chat — neither of theirs). */
+export type CardWho = 'B' | 'K' | 'S';
 
 export interface Card {
   id: string;
@@ -48,6 +50,12 @@ export interface Card {
    * ⟨session⟩" chip that opens the room back up.
    */
   session?: string | null;
+  /**
+   * When the card's text was last changed ("YYYY-MM-DD HH:MM:SS"), or
+   * null/absent if it never was. Shown as an "edited" chip that opens the
+   * card's history (EditHistorySheet.tsx); the old text lives in the edit log.
+   */
+  edited?: string | null;
 }
 
 export interface CardsResponse {
@@ -72,6 +80,29 @@ export interface CardsResponse {
    * the web weave of the rendered markdown's "⏹ retired day count" lines.
    */
   retirements?: StreakRetirement[];
+  /**
+   * Edits made on this day to entries from other days (routes/cards.py
+   * _edits_made_on) — woven into the stream as "✎ edited an entry from …"
+   * rows that jump to the entry.
+   */
+  edits?: CardEdit[];
+}
+
+/** One "✎ edited an entry from …" row in the day stream. */
+export interface CardEdit {
+  card_id: string;
+  /** The edited entry's own day. */
+  card_day: string;
+  /** When the edit was made, "YYYY-MM-DD HH:MM:SS". */
+  edited_at: string;
+  /** The start of the entry's new text. */
+  snippet: string;
+}
+
+/** GET /api/cards/<id>/history — every change to one card, oldest first. */
+export interface CardHistoryResponse {
+  id: string;
+  versions: { edited_at: string; by: string | null; before: string; after: string }[];
 }
 
 /** One "⏹ retired day count" row in the day stream. */
@@ -293,6 +324,26 @@ export interface ThreadJournalResponse {
   entries: ThreadJournalEntry[];
 }
 
+/** One summary written of a thread (routes/threads.py thread_summaries). */
+export interface ThreadSummary {
+  id: number;
+  /** "keeper", or "cricket:<name>" for a night helper. */
+  author: string;
+  /** "YYYY-MM-DDTHH:MM:SS", local time — sliced as a string, never Date-parsed. */
+  written_at: string;
+  body: string;
+  /** Card ids ("2026-07-08.1841b") and bare days it was based on. */
+  based_on: string[];
+  /** The status the thread moved to ("dormant", "retired", "active"), when
+   * that move is why this summary was written; otherwise null. */
+  status: string | null;
+}
+
+/** GET /api/thread/<slug>/summaries — newest first. */
+export interface ThreadSummariesResponse {
+  summaries: ThreadSummary[];
+}
+
 export interface DevNote {
   id: string;
   text: string;
@@ -336,4 +387,41 @@ export function resolveDayMode(bundle: JournalDayBundle): DayMode {
   if (cards.editable && cards.cards.length > 0) return 'cards';
   if (cards.editable && cards.cards.length === 0 && !journal.content.trim()) return 'empty';
   return 'blob';
+}
+
+/** One piece of a search hit's excerpt — `hit` pieces are the words that
+ * matched, bolded by the search sheet (cardsearch.py _split_snippet). */
+export interface SearchSnippetPiece {
+  text: string;
+  hit: boolean;
+}
+
+/** One card the journal search found (GET /api/journal/search). */
+export interface SearchHit {
+  id: string;
+  day: string;
+  ts: string | null;
+  who: CardWho;
+  kind: string | null;
+  tags: string[];
+  snippet: SearchSnippetPiece[];
+  /** The card's whole text with each matching word wrapped in the
+   * searchMarks.ts markers — what the results pane renders. */
+  marked_body: string;
+}
+
+export interface SearchResponse {
+  q: string;
+  total: number;
+  hits: SearchHit[];
+}
+
+export type SearchWho = '' | CardWho;
+
+/** What the journal is searching for — mirrors the /journal URL's q/who/from/to. */
+export interface SearchFilters {
+  q: string;
+  who: SearchWho;
+  from: string;
+  to: string;
 }

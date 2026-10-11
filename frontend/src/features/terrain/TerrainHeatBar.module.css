@@ -1,38 +1,85 @@
-/* TerrainHeatBar — the heat half-life slider (TerrainHeatBar.tsx), now the TOP
-   block of the map's bottom-left stack with the agent bar under it. Same visual
+/* TerrainHeatBar — the map's two fire bars (TerrainHeatBar.tsx), the TOP block
+   of the map's bottom-left stack with the agent bar under it. Same visual
    language as TerrainDials: no background of its own, every text bit carrying
    --ink-halo so it reads over whatever the terrain puts behind it, a 40px grab
    strip and a 28px thumb.
 
-   Two things depart from the dials on purpose. The track carries the map's own
-   colour ramp (--heat-ramp, computed per render in the component) instead of a
-   neutral line — the control doubles as the legend — and it's 10px rather than
-   6px, because a 6px line is a hairline to grab but a *sliver* to read colour
-   from, and this one now has to do both. The per-day ruler is etched over the
-   ramp in white rather than drawn in --text, since --text on a red gradient is
-   mud in either theme. */
+   Two things depart from the dials on purpose. Each track carries its fire's
+   own colour ramp (handed in inline, computed per render in the component)
+   instead of a neutral line — the control doubles as the legend — and it's
+   10px rather than 6px, because a 6px line is a hairline to grab but a *sliver*
+   to read colour from, and these have to do both. The rulers are etched over
+   the ramps in white rather than drawn in --text, since --text on a red or
+   gold gradient is mud in either theme.
+
+   THE TWO ROWS ARE BUILT IDENTICALLY, on purpose: one class set serves both,
+   because Heat and Active are the same instrument pointed at different fires.
+   There used to be a second, thinner gold band crammed onto the Heat row with
+   a ring instead of a thumb, and a bare grey track down on Active — all of
+   that is gone. */
 
 .bar {
   display: flex;
   flex-direction: column;
   padding-bottom: var(--space-1);
+  /* The bar measures ITSELF for the narrow rules at the bottom of this file,
+     not the window: the map is often a panel beside the Guide or another page,
+     so a wide screen can still hand it a narrow strip. */
+  container-type: inline-size;
 }
 
-/* Label beside the track, matching TerrainDials' first column width so the
-   two sliders line up down the page even though they're separate components. */
+/* Switch, track, readout, All time. The first column matches TerrainDials'
+   label width so every slider on the page lines up down the left even though
+   they're separate components. The third holds the bar's own number, and it is
+   a FIXED width rather than auto: auto sizes each row to its own contents, so
+   "365d" and "45m" would end their tracks in different places and leave the
+   stack ragged down the right. 3.75rem fits the longest either readout gets
+   ("365d" at 14px, with its dot). The fourth is the All time button, the same
+   words on both rows, so auto lines them up on its own. */
 .row {
   display: grid;
-  grid-template-columns: 3.25rem 1fr;
+  grid-template-columns: 3.25rem 1fr 3.75rem auto;
   align-items: center;
   column-gap: var(--space-2);
 }
 
-.label {
-  font-size: var(--font-size-md);
-  font-weight: 600;
+/* A bar whose fire is switched off (note 8 in the .tsx): the ramp and the
+   readout fade back so the row reads as "not painting". The switch itself
+   stays at full strength — it's the way back on — and the slider still works,
+   so nothing here is disabled, only quieted. */
+.rowOff .ramp,
+.rowOff .ticks,
+.rowOff .readout {
+  opacity: 0.3;
+}
+
+/* Each bar's name, which is also its fire's on/off switch (note 8 in the
+   .tsx). Lit — tinted — means that fire is painting on the map; outlined
+   means it's off. Sized to the same first column as TerrainDials' labels so every
+   slider on the page still lines up, and to the house 40px tap target. */
+.cutButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
   color: var(--text-secondary);
   text-shadow: var(--ink-halo, none);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
   cursor: pointer;
+}
+
+/* Lit: the same tint a chosen preset wears, so "this control is doing
+   something" reads the same everywhere on this bar. */
+.cutOn {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
+  color: var(--text);
 }
 
 .track {
@@ -44,9 +91,9 @@
 
 /* --- the ramp -----------------------------------------------------------
 
-   The map's own colour ramp, hot at the near end and cold at the month end,
-   handed in as an inline background because it's recomputed for the current
-   half-life on every render. Its own element rather than a background on the
+   That fire's own colour ramp, hot at the near end and running out at the
+   thumb, handed in as an inline background because it's recomputed for the
+   current window on every render. Its own element rather than a background on the
    input's track pseudo-element, so the thumb still draws over it and over the
    ruler. Inert to pointers — the slider above owns every gesture here. */
 .ramp {
@@ -62,37 +109,39 @@
   pointer-events: none;
 }
 
-/* --- the per-day ruler --------------------------------------------------
+/* --- the rulers -----------------------------------------------------------
 
-   Etched over the ramp, under the thumb. Ticks crowd toward the long end
-   because the track is logarithmic; that crowding is the point, so they're
-   drawn at full density rather than thinned. Inert to pointers so the ruler
-   can never eat a drag meant for the slider. */
+   Etched over a band, under the thumb. Ticks crowd toward the long end
+   because both tracks are logarithmic; that crowding is the point, so they're
+   drawn at full density rather than thinned. Inert to pointers so a ruler can
+   never eat a drag meant for the slider. One ruler per bar, centred on that
+   bar's band — the two rulers count in different units (days to a year up
+   top, minutes to a week below), which is why each bar carries its own. */
 .ticks {
   position: absolute;
   left: 0;
   right: 0;
   top: 50%;
-  height: 16px;
+  height: 12px;
   transform: translateY(-50%);
   pointer-events: none;
 }
 
-/* Kept inside the 10px ramp and kept faint — the gradient is the message here
+/* Kept inside the 8px band and kept faint — the gradient is the message here
    and the ruler is an annotation on it, not a competing pattern. */
 .tick {
   position: absolute;
   top: 50%;
   width: 1px;
-  height: 6px;
+  height: 4px;
   transform: translate(-50%, -50%);
   background: rgba(255, 255, 255, 0.22);
 }
 
-/* The three preset days (1 / 7 / 30) stand brighter and tall enough to break
-   the ramp's edges, so the anchors the buttons jump to stay findable. */
+/* The anchors (the preset days above; the hour and the day below) stand
+   brighter and tall enough to break the band's edges, so they stay findable. */
 .tickAnchor {
-  height: 16px;
+  height: 12px;
   width: 2px;
   background: rgba(255, 255, 255, 0.65);
 }
@@ -158,7 +207,8 @@
    ABOVE the track now, and still indented to the track's own column rather
    than the label's, so they read as belonging to the slider they move. The
    negative margin pulls the two into one object instead of two stacked rows —
-   they're one control, and the gap was reading as a divider. */
+   they're one control, and the gap was reading as a divider. The window
+   presets sit in one segmented control; Types stands outside it. */
 .presets {
   display: flex;
   align-items: center;
@@ -175,7 +225,7 @@
   min-height: 40px;
   padding: 0 var(--space-2);
   border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--card-bg) 55%, transparent);
   color: var(--text-secondary);
   font-size: var(--font-size-md);
@@ -190,73 +240,109 @@
   background: color-mix(in srgb, var(--accent) 18%, var(--card-bg));
 }
 
-/* --- Dynamic, lit ------------------------------------------------------
+/* The window presets as one rectangle split by lines — a segmented control,
+   because exactly one of them is chosen at a time (note 4 in the .tsx). The
+   outline and rounding belong to the group; each segment is square-edged and
+   draws only the line on its left, so the dividers are single hairlines. The
+   group clips its children so a lit end segment follows the rounded corner.
+   That corner is 10px (radius-lg), the one corner every button on the map
+   shares — squarer than a pill, rounder than a card's inner box — so the
+   strip and the buttons around it match. */
+.segmented {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  overflow: hidden;
+}
 
-   The button breathes on the same 10s clock as the half-life it just handed
-   to the breath, so the control performs the mode instead of only naming it.
+.segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-left: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
 
-   Three things it deliberately copies from breathHalfLife() rather than
-   inventing: the 10s period, the 4-in / 6-out split (the swell owns the first
-   40% of the timeline, the settle the remaining 60%), and easing at both
-   turns — a linear glow arrives at the top with velocity and reads as a
-   blink. The one thing it does NOT copy is the log interpolation; that's
-   there so the map's *memory* feels even, and opacity is already perceptually
-   flat enough that the eye doesn't need it.
+.segment:first-child {
+  border-left: none;
+}
 
-   It's a glow on a pseudo-element with only `opacity` animating — the pill's
-   own background never changes, so nothing here can touch layout or repaint
-   the text. */
+.segmentOn {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 22%, var(--card-bg));
+}
+
+/* Dynamic, lit, breathes on the same ten-second clock as the windows it
+   drives (terrainGraph.ts BREATH_PERIOD_MS), so the button shows the mode is
+   running without her having to watch the map. Held still for reduced
+   motion. */
 .presetBreathing {
-  position: relative;
-  isolation: isolate;
+  animation: segmentBreath 10s ease-in-out infinite;
 }
 
-.presetBreathing::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  z-index: -1;
-  border-radius: var(--radius-pill);
-  background: var(--accent);
-  opacity: 0.14;
-  animation: presetBreath 10s infinite;
-}
-
-@keyframes presetBreath {
-  0% {
-    opacity: 0.14;
-    animation-timing-function: ease-in-out;
+@keyframes segmentBreath {
+  0%,
+  100% {
+    background: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
   }
   40% {
-    opacity: 0.5;
-    animation-timing-function: ease-in-out;
-  }
-  100% {
-    opacity: 0.14;
+    background: color-mix(in srgb, var(--accent) 34%, var(--card-bg));
   }
 }
 
-/* Held at the swell's midpoint rather than switched off — the lit state still
-   has to look distinctly lit when the motion is gone. */
 @media (prefers-reduced-motion: reduce) {
-  .presetBreathing::after {
+  .presetBreathing {
     animation: none;
-    opacity: 0.32;
   }
 }
 
+/* Set the Types switch apart from the window presets. It shares the row and
+   the button shape, but it isn't a fifth window — the gap is what says so. */
+.presetApart {
+  margin-left: var(--space-3);
+}
+
+/* The number for the bar it sits beside. */
 .readout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
   font-size: var(--font-size-md);
   color: var(--text-muted);
   text-shadow: var(--ink-halo, none);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* A dot in that row's fire colour before its number, so a window is tied to
+   its fire without leaning on the row's label. Both rows use it — the ring
+   that used to mark the Active readout is gone with the gold band it echoed. */
+.readoutDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   margin-left: var(--space-1);
+}
+.readoutDot:first-child {
+  margin-left: 0;
 }
 
 @media (max-width: 430px) {
   .row {
-    grid-template-columns: 2.75rem 1fr;
+    grid-template-columns: 2.75rem 1fr 3.5rem auto;
     column-gap: var(--space-1);
   }
 
@@ -264,9 +350,37 @@
     margin-left: calc(2.75rem + var(--space-1));
   }
 
-  /* The readout is the first thing to go when the three presets and the
-     number can't share a line — the slider position already says it. */
+  /* The readouts STAY at this width. They used to be dropped here, back when
+     they shared a line with the presets and the row wrapped without them; each
+     one now sits in its own row's third column, where it costs a short string
+     and nothing else. A window she can only discover by switching it on is
+     worse than a slightly shorter track. */
   .readout {
-    display: none;
+    gap: 2px;
+  }
+}
+
+/* A narrow bar — the map in a side panel, or beside the open Guide. The
+   segmented control can't wrap without breaking its one rectangle, so it gives
+   up the track indent and tightens its segments instead of running off the
+   edge; the All time buttons tighten the same way so the tracks keep their
+   length. Still 40px tall throughout. */
+@container (max-width: 480px) {
+  .presets {
+    margin-left: 0;
+  }
+
+  .segment,
+  .row .preset {
+    padding: 0 var(--space-1);
+  }
+}
+
+/* Narrower still — the map squeezed beside the Guide in a split screen. The
+   segment labels drop to the 12px floor so all five still fit inside the one
+   rectangle rather than running off under the colour key. */
+@container (max-width: 320px) {
+  .segment {
+    font-size: var(--font-size-sm);
   }
 }

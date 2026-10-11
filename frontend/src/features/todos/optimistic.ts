@@ -2,7 +2,7 @@ import { habitKey } from '../habits/habitMath';
 import { addDays } from './todoHelpers';
 import { isFrosted } from './types';
 import type { ReminderDef, SubTask, TodayData, TodoItem, TodoSection } from './types';
-import type { BulkTodoAction, SymptomLevels } from '../../api/endpoints';
+import type { BulkTodoAction } from '../../api/endpoints';
 
 function withSections(data: TodayData, fn: (sections: TodoSection[]) => TodoSection[]): TodayData {
   if (isFrosted(data.todos)) return data;
@@ -267,19 +267,6 @@ export function applyActivityLog(data: TodayData, date: string, type: string): T
 
 export function applyActivityRemove(data: TodayData, date: string, type: string): TodayData {
   return { ...data, activity_log: data.activity_log.filter((e) => !(e.date === date && e.type === type)) };
-}
-
-/** Merge a symptom log into the health_data row for `date` (inserting the row
- * if it's missing) — mirrors /api/symptoms' upsert, so the symptom card flips
- * to its logged state without waiting for the poll. */
-export function applySymptomLog(data: TodayData, date: string, symptoms: SymptomLevels): TodayData {
-  const rows = data.health_data;
-  if (!Array.isArray(rows)) return data;
-  const exists = rows.some((r) => r.date === date);
-  const next = exists
-    ? rows.map((r) => (r.date === date ? { ...r, ...symptoms } : r))
-    : [...rows, { date, ...symptoms }];
-  return { ...data, health_data: next };
 }
 
 /** Streaks are keyed by stable id (routes/streaks.py back-fills them). */

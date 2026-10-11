@@ -108,8 +108,9 @@ def test_fork_stages_a_spinoff_seeded_with_the_write_surface(fork_client):
     assert entry["title"].startswith("spin: fork-")
     assert entry["autostart"] is True and entry["draft"]
 
-    # the BRIEF was written with the write surface in it
-    brief = (store.SPINOFF_DIR / entry["spinoff_slug"] / "BRIEF.md").read_text()
+    # the brief was saved with the write surface in it
+    import briefstore
+    brief = briefstore.get(entry["spinoff_brief"])["body"]
     assert "routes/existing.py" in brief
     assert "clean-context take-over" in brief
 
@@ -127,6 +128,17 @@ def test_a_fork_lands_in_the_room_of_the_session_it_takes_over(fork_client):
     body = fork_client.post("/api/observatory/conversation/c3/fork").get_json()
     assert body["lane"] == "personal"
     assert store.read("bot_chats/index", {})[body["conversation_id"]]["lane"] == "personal"
+
+
+def test_a_fork_records_the_session_it_takes_over_as_its_parent(fork_client):
+    # Minted inside a request, so there's no calling session to read — the
+    # route names the forked conversation as the parent outright.
+    skeleton = fork_client._skeleton
+    _seed_running("c4", skeleton)
+    _write_jsonl("c4", [_edit(skeleton / "routes" / "existing.py")])
+    body = fork_client.post("/api/observatory/conversation/c4/fork").get_json()
+    entry = store.read("bot_chats/index", {})[body["conversation_id"]]
+    assert (entry["spawned_from"], entry["spawned_via"]) == ("c4", "fork")
 
 
 def test_fork_400s_a_session_with_no_write_surface(fork_client):

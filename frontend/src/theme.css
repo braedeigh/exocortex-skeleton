@@ -89,6 +89,10 @@
   --evening: #6a7acc;
   --ongoing: #3a9e8c;
   --green: #3a9e8c;
+  /* The swarm helper's message lines. Blue, so they read apart from green
+     talk; it holds up on both the light and the dark theme. One token, read
+     by the Observatory's swarm drawing and by the Terrain map's canvas. */
+  --helper-blue: #4f8fe6;
   --red: #d44035;
   --orange: #d4700a;
   --yellow: #d4a80a;

@@ -8,6 +8,45 @@ import json
 import re
 import uuid
 import store
+from routes.inventory import file_purchase
+
+# What a budget category's spending is like, for the monthly split in Spending
+# by month: a need that comes back every month, something she could spend
+# less on, or spending that won't come back (therapy for a stretch, household
+# set-up), which Spending by month can leave out of the month's total.
+# "" = not sorted yet. Separate from `type` (variable/fixed/savings), which
+# decides whether a category counts against the monthly budget.
+CATEGORY_KINDS = {"recurring", "cut_back", "one_time", ""}
+
+
+def _apply_one_time(expense, one_time):
+    """Mark an expense as a one-time thing (or not), filing it into Inventory once.
+
+    `one_time` is {"name": what was bought, "shelf": "durables"|"consumables"}
+    to mark it, or falsy to unmark it. Filing happens only the first time: an
+    expense that already has an inventory link keeps it. Unmarking leaves the
+    inventory item where it is (she may still own the thing), and only drops
+    the flag and the link.
+    Prompt: "i kind of want it as a 'thing' so i can know it was a 'one time
+    purchase' vs. something that is recurring" / "i want it to also add
+    something to my inventory"."""
+    if not one_time:
+        expense.pop("one_time", None)
+        expense.pop("inventory", None)
+        return
+    expense["one_time"] = True
+    if expense.get("inventory"):
+        return
+    shelf = one_time.get("shelf") if one_time.get("shelf") in ("durables", "consumables") else "durables"
+    link = file_purchase(
+        one_time.get("name") or expense.get("title") or "",
+        shelf,
+        cost=f"{abs(float(expense.get('amount') or 0)):.2f}",
+        date=expense.get("date", ""),
+        where=expense.get("title", ""),
+    )
+    if link:
+        expense["inventory"] = link
 
 
 def register(app):
@@ -45,11 +84,32 @@ def register(app):
         except (ValueError, TypeError):
             return jsonify({"error": "Invalid planned amount"}), 400
         ctype = data.get("type", "variable")  # variable | fixed | savings
+        kind = data.get("kind", "")
+        if kind not in CATEGORY_KINDS:
+            return jsonify({"error": "Invalid kind"}), 400
         bdata = store.read("budget.json", {"income_monthly": 0, "categories": []})
         if any(c["name"].lower() == name.lower() for c in bdata["categories"]):
             return jsonify({"error": "Category already exists"}), 400
-        bdata["categories"].append({"name": name, "planned": planned, "type": ctype})
+        category = {"name": name, "planned": planned, "type": ctype}
+        if kind:
+            category["kind"] = kind
+        bdata["categories"].append(category)
         store.write("budget.json", bdata)
+        return jsonify({"ok": True})
+
+    # Set a category's kind: recurring need, can cut back, not recurring, or unsorted ("").
+    @app.route("/api/budget/category/update", methods=["POST"])
+    def update_category():
+        data = request.json or {}
+        name = data.get("name", "")
+        kind = data.get("kind", "")
+        if kind not in CATEGORY_KINDS:
+            return jsonify({"error": "Invalid kind"}), 400
+        with store.mutate("budget.json", {"income_monthly": 0, "categories": []}) as bdata:
+            cat = next((c for c in bdata["categories"] if c["name"] == name), None)
+            if cat is None:
+                return jsonify({"error": "No such category"}), 404
+            cat["kind"] = kind
         return jsonify({"ok": True})
 
     @app.route("/api/budget/category/remove", methods=["POST"])
@@ -111,6 +171,8 @@ def register(app):
                     i["comments"] = data["comments"]
                 if "date" in data:
                     i["date"] = data["date"]
+                if "one_time" in data:
+                    _apply_one_time(i, data["one_time"])
                 if "title" in data:
                     i["title"] = data["title"]
                     # If learn_as_rule is set, save as a merchant_labels rule for future matches
@@ -198,7 +260,9 @@ def register(app):
     def auto_detect_subscriptions():
         """Scan expenses with category 'Subscriptions', group by merchant, add recurring ones."""
         expenses = store.read("expenses.json", {"items": []}).get("items", [])
-        sub_expenses = [e for e in expenses if (e.get("category", "").lower() == "subscriptions")]
+        # Charges only: a refund is stored negative and isn't a renewal.
+        sub_expenses = [e for e in expenses
+                        if e.get("category", "").lower() == "subscriptions" and (e.get("amount") or 0) > 0]
         if not sub_expenses:
             return jsonify({"added": 0, "skipped": 0})
 
@@ -298,6 +362,8 @@ def register(app):
     # --- CSV Import (rules-based with learning loop) ---
 
     CSV_DIR = DATA_DIR / "bank_csvs"
+    # Categories that aren't spending: money in, and moving her own money around.
+    _NOT_SPENDING = {"income", "transfer (in)", "savings/transfer"}
 
     def _load_merchant_rules():
         return store.read("merchant_categories.json", {"patterns": []})
@@ -307,28 +373,34 @@ def register(app):
 
     def _categorize(desc, amount, rules):
         d = desc.lower()
-        # Income / transfers — special signals, not categories
+        # Income / transfers — special signals, not categories. A refund is the
+        # exception: money back from a merchant goes to that merchant's category
+        # (found by the same rules as a purchase), so it comes off that spending.
         if amount > 0:
             if "transfer from" in d:
                 return "Transfer (in)"
-            return "Income"
-        if "transfer to" in d:
+            if "refund" not in d:
+                return "Income"
+        elif "transfer to" in d:
             return "Savings/Transfer"
         for p in rules.get("patterns", []):
             if p["match"].lower() in d:
                 return p["category"]
         return "Uncategorized"
 
-    def _label_for(desc):
-        """Return a saved label (title) for this merchant, if any."""
+    def _label_for(desc, ldata=None):
+        """Return a saved label (title) for this merchant, if any. Pass `ldata`
+        (the merchant_labels collection) when labelling many rows, so it's read once."""
         if not desc:
             return ""
-        ldata = store.read("merchant_labels.json", {"patterns": []})
+        if ldata is None:
+            ldata = store.read("merchant_labels.json", {"patterns": []})
+        # Pick the newest label that fits: labels are appended as she teaches them,
+        # so the last key found in the line wins, and a precise "id:uber" taught
+        # today beats an older, broader "paypal des:inst".
         d = desc.lower()
-        for p in ldata.get("patterns", []):
-            if p["match"].lower() in d:
-                return p.get("title", "")
-        return ""
+        hits = [p for p in ldata.get("patterns", []) if p.get("match") and p["match"].lower() in d]
+        return hits[-1].get("title", "") if hits else ""
 
     def _parse_boa_csv(path):
         """Parse Bank of America-style CSV. Return list of {date, desc, amount}."""
@@ -369,6 +441,42 @@ def register(app):
         files = sorted([p.name for p in CSV_DIR.iterdir() if p.is_file() and p.suffix.lower() == ".csv"])
         return jsonify({"files": files})
 
+    # Save a CSV picked in the browser into bank_csvs/, so it joins the list.
+    # The name is cut down to safe characters; an identical re-upload reuses its
+    # file, and a different file with a taken name gets -2, -3… added. A file the
+    # Bank of America reader finds no transactions in is refused and not kept —
+    # otherwise it would sit in the list and open to an empty preview.
+    # Prompt: "make it such that i can upload a csv"
+    CSV_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
+
+    @app.route("/api/csv/upload", methods=["POST"])
+    def upload_csv():
+        f = request.files.get("file")
+        if not f or not f.filename:
+            return jsonify({"error": "No file provided"}), 400
+        if Path(f.filename).suffix.lower() != ".csv":
+            return jsonify({"error": "That isn't a .csv file"}), 400
+        content = f.read(CSV_UPLOAD_MAX_BYTES + 1)
+        if len(content) > CSV_UPLOAD_MAX_BYTES:
+            return jsonify({"error": "That CSV is over 5 MB"}), 400
+
+        stem = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(f.filename).stem).strip("._") or "upload"
+        CSV_DIR.mkdir(parents=True, exist_ok=True)
+        target = CSV_DIR / f"{stem}.csv"
+        suffix_number = 2
+        while target.exists() and target.read_bytes() != content:
+            target = CSV_DIR / f"{stem}-{suffix_number}.csv"
+            suffix_number += 1
+        already_there = target.exists()
+        target.write_bytes(content)
+
+        if not _parse_boa_csv(target):
+            if not already_there:
+                target.unlink()
+            return jsonify({"error": "No transactions found — this reader only understands "
+                                     "Bank of America exports (a Date,Description,Amount header)"}), 400
+        return jsonify({"ok": True, "filename": target.name})
+
     @app.route("/api/csv/parse", methods=["POST"])
     def parse_csv():
         data = request.json
@@ -381,21 +489,11 @@ def register(app):
         # Annotate with auto-category + default include flag
         for r in rows:
             r["category"] = _categorize(r["desc"], r["amount"], rules)
-            # Default include logic:
-            #   - Expenses (negative): include unless internal transfer
-            #   - Vidala paychecks (positive + "vidala"): include (needed for tax tracking)
-            #   - Other income / transfers: skip by default
-            desc_lower = (r["desc"] or "").lower()
-            if r["amount"] < 0:
-                r["include"] = r["category"] not in ("Savings/Transfer", "Transfer (in)")
-            elif "vidala" in desc_lower or "cashout" in desc_lower or "des:cashout" in desc_lower:
-                # Auto-include real income / reimbursements (paychecks, Venmo cashouts)
-                r["include"] = True
-                if r["category"] == "Income" and "cashout" in desc_lower:
-                    # Tag cashouts so the Set Aside section knows they're not paycheck-style income
-                    pass  # Keep as Income; user can recategorize if needed
-            else:
-                r["include"] = False
+            # Decide which rows start ticked: money out, money in, and refunds all
+            # do, so paychecks from any employer, payouts, and cashouts are counted
+            # without ticking each one. Left unticked: moving her own money between
+            # her accounts, in either direction.
+            r["include"] = r["category"] not in ("Savings/Transfer", "Transfer (in)")
         # Detect already-imported rows (match by date+amount+desc)
         existing = store.read("expenses.json", {"items": []}).get("items", [])
         existing_keys = {(e.get("date"), abs(e.get("amount", 0)), e.get("comments", "")) for e in existing}
@@ -404,18 +502,27 @@ def register(app):
             r["already_imported"] = key in existing_keys
             if r["already_imported"]:
                 r["include"] = False
+        # Name each row from the learned merchant labels, so a merchant identified
+        # once arrives already identified. `titles` is every name she has taught,
+        # offered as suggestions in the preview's "what is it?" box.
+        ldata = store.read("merchant_labels.json", {"patterns": []})
+        for r in rows:
+            r["title"] = _label_for(r["desc"], ldata)
+        known_titles = sorted({p.get("title", "") for p in ldata.get("patterns", [])} - {""})
         # Get list of all known categories (from budget + existing rules + observed)
         budget_cats = [c["name"] for c in store.read("budget.json", {"categories": []}).get("categories", [])]
         rule_cats = sorted({p["category"] for p in rules.get("patterns", [])})
         all_cats = sorted(set(budget_cats) | set(rule_cats) | {r["category"] for r in rows})
-        return jsonify({"rows": rows, "categories": all_cats})
+        return jsonify({"rows": rows, "categories": all_cats, "titles": known_titles})
 
     @app.route("/api/csv/import", methods=["POST"])
     def import_csv():
         data = request.json
         selections = data.get("selections", [])
         learn_rules = data.get("learn_rules", [])  # [{match, category}, ...]
+        learn_labels = data.get("learn_labels", [])  # [{match, title}, ...]
         edata = store.read("expenses.json", {"items": []})
+        ldata = store.read("merchant_labels.json", {"patterns": []})
         added = 0
         merged_with_receipt = 0
         for s in selections:
@@ -426,11 +533,22 @@ def register(app):
             comments = s.get("desc", "").strip()
             row_date = s.get("date") or datetime.now().strftime("%Y-%m-%d")
             row_amount = abs(amount)
+            # Store a refund as a negative amount in its spending category. Money in
+            # filed under anything but Income or a transfer is money back, so it
+            # subtracts from that category's spending and never counts as income.
+            # Prompt: "refund should come off of spending and not be counted
+            # towards monthly in or out"
+            is_refund = amount > 0 and (s.get("category") or "").strip().lower() not in _NOT_SPENDING
+            if is_refund:
+                row_amount = -row_amount
+            # Name the expense: the name she gave the row in the preview wins,
+            # else whatever an already-learned merchant label says.
+            title = (s.get("title") or "").strip() or _label_for(comments, ldata)
             # Receipt-link dedup: if an existing entry is a receipt-import with the same
             # date + amount (and same category if both have one), merge bank info INTO that
             # entry instead of creating a duplicate. The receipt keeps its photo + items,
             # the bank's title/comments overwrite the placeholder.
-            match = next(
+            match = None if is_refund else next(
                 (e for e in edata["items"]
                  if e.get("source") == "receipt_import"
                  and e.get("date") == row_date
@@ -440,20 +558,24 @@ def register(app):
             )
             if match:
                 match["comments"] = comments or match.get("comments", "")
-                match["title"] = _label_for(comments)
+                match["title"] = title
                 if s.get("category"):
                     match["category"] = s["category"]
                 match["bank_matched"] = True
                 merged_with_receipt += 1
                 continue
-            edata["items"].append({
+            expense = {
                 "id": str(uuid.uuid4()),
                 "date": row_date,
                 "amount": row_amount,
                 "category": s.get("category", ""),
                 "comments": comments,
-                "title": _label_for(comments),
-            })
+                "title": title,
+            }
+            # A row she marked "One-time thing" is filed into Inventory as it lands.
+            if s.get("one_time") and not is_refund:
+                _apply_one_time(expense, s["one_time"])
+            edata["items"].append(expense)
             added += 1
         store.write("expenses.json", edata)
 
@@ -471,6 +593,21 @@ def register(app):
             learned += 1
         if learned:
             _save_merchant_rules(rules)
+
+        # Learn merchant→name labels, so the next statement arrives identified.
+        # A re-taught merchant replaces its old name (same as the title editor in
+        # update_expense does), instead of being skipped like a category rule.
+        labels_learned = 0
+        for lr in learn_labels:
+            match = (lr.get("match") or "").strip().lower()
+            title = (lr.get("title") or "").strip()
+            if len(match) < 3 or not title:
+                continue
+            ldata["patterns"] = [p for p in ldata["patterns"] if p["match"].lower() != match]
+            ldata["patterns"].append({"match": match, "title": title})
+            labels_learned += 1
+        if labels_learned:
+            store.write("merchant_labels.json", ldata)
 
         # Auto-create budget categories that don't exist yet (with planned=0)
         bdata = store.read("budget.json", {"income_monthly": 0, "categories": []})
@@ -492,6 +629,7 @@ def register(app):
             "added": added,
             "merged_with_receipt": merged_with_receipt,
             "rules_learned": learned,
+            "labels_learned": labels_learned,
             "categories_added": new_cats_added,
         })
 

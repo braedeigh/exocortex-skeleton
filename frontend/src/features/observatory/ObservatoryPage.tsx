@@ -1,17 +1,23 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { openActivity } from '../terrain/activity/openActivity';
+import { sessionLocation } from './sessionLocation';
+import { useHelperOf } from './swarmApi';
 import { uploadedPathsMessage } from '../phone/phoneLogic';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
 import { ConversationApprovals } from '../approvals/ConversationApprovals';
+import { ChatApprovalCard } from './ChatApprovalCard';
+import { QuestionsBlock, QuestionsCard, QuestionsChip, QuestionsFloating, type QuestionsFloat } from './QuestionsCard';
+import { CloseSourcePrompt, SpinoffOffer } from './SpinoffOffer';
 import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
-import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, stopConversation, streamSend } from './api';
+import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, noteSessionOpened, journalRestore, openQuestions, stopConversation, streamSend, useSessionRoster } from './api';
 import { MemoryPrompt } from '../runqueue/MemoryPrompt';
 import { enqueueConversation, fetchHeadroom } from '../runqueue/api';
 import { shouldPrompt } from '../runqueue/memoryPrompt';
 import type { Headroom } from '../runqueue/memoryPrompt';
-import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
+import { applyEvent, assistantText, lastUserTurnIndex, openQuestionSet, questionsState, turnsFromHistory, userOrdinal, userTurn, type Turn } from './events';
 import { HighlightPill, HighlightSheet } from './JournalHighlight';
 import { useJournalHighlight } from './useJournalHighlight';
 import { useComposerBox } from './useComposerBox';
@@ -22,12 +28,33 @@ import { Reply, StreamingReply, UserMessage } from './replyViews';
 import { useTurnStats } from './useTurnStats';
 import { useWordFlow } from './useWordFlow';
 import { useScrollContract } from './useScrollContract';
+import { usePlaceInView } from './usePlaceInView';
+import { useFloatRoom } from './useFloatRoom';
 import { useStepBack, useStepBackDismiss } from './useStepBack';
+import { PeerCard } from './PeerCard';
 import { useMessageQueue } from './useMessageQueue';
+import { messageWasRecorded, sendFailureKind } from './sendFailure';
+import { QueuedRows } from './QueuedRows';
+import { arrivedNote } from './queuedMessages';
 import { usePhotoAttach, AttachChips, DropVeil, UploadOverlay } from './photoAttach';
 import { useReattach } from './useReattach';
 import { useKeeperRollover } from './useKeeperRollover';
 import styles from './ObservatoryPage.module.css';
+
+/** How many exchanges (her message plus what answered it) a session opens
+ * showing, and how many more each "Show earlier" adds. Drawing a long
+ * session's every reply at once was most of what made opening one slow. */
+const EXCHANGES_SHOWN = 20;
+
+/** Where the drawn window starts: the index of her `exchanges`-th message
+ * counting back from the newest, or 0 when the whole history fits. */
+function firstShownTurn(turns: Turn[], exchanges: number): number {
+  let seen = 0;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].role === 'user' && ++seen === exchanges) return i;
+  }
+  return 0;
+}
 
 /**
  * The observatory (bot-surface-design §5, Sunflower spec 07-23): not a
@@ -90,16 +117,31 @@ import styles from './ObservatoryPage.module.css';
  * ("the session I just created", "the fresh Keeper the rollover woke") hand
  * the id to the pane instead, and the app's route never moves. Everything
  * else about the page is identical in both homes.
+ *
+ * A SESSION IT JUST MADE STAYS THIS PAGE (09-28). Both homes key the page on
+ * the conversation id, so pointing them at the session a blank compose just
+ * created would remount it mid-reply and cut the live stream. `onSessionCreated`
+ * fires first, and the home keeps this mount (sessionMountKey.ts) — which is
+ * what lets the history load's same-mount fast path actually happen.
  */
 export function ObservatoryPage({
   botId,
   convId,
+  cameFrom,
   onOpenConversation,
+  onSessionCreated,
   onTitleChange,
 }: {
   botId: string;
   convId?: string;
+  /** The chat a spinoff Go brought her here from (`?from=`), which this page
+   * offers to close. See SpinoffOffer.tsx. */
+  cameFrom?: string;
   onOpenConversation?: (convId: string) => void;
+  /** Told the id of a session this page just created, right before the page
+   * points its home at it — so the home keeps this mount instead of
+   * remounting (sessionMountKey.ts). */
+  onSessionCreated?: (convId: string) => void;
   /** Docked mode: report this session's title so the pane's tab can wear it
    * instead of a generic label. null while it's still unresolved. */
   onTitleChange?: (title: string | null) => void;
@@ -122,15 +164,22 @@ export function ObservatoryPage({
   const [roomTitle, setRoomTitle] = useState<string | null>(null);
   const roomLabel = roomTitle ?? 'Observatory';
   const [turns, setTurns] = useState<Turn[]>([]);
+  // How many of her messages (each with its reply) the transcript draws,
+  // counted from the newest. The whole history is still loaded and reduced —
+  // only drawing is windowed — so every turn keeps its true index, which is
+  // what journal highlights are addressed by. "Show earlier" widens it.
+  const [shownExchanges, setShownExchanges] = useState(EXCHANGES_SHOWN);
+  const firstShown = firstShownTurn(turns, shownExchanges);
   const [streaming, setStreaming] = useState(false);
-  // Messages sent while a turn is still writing — the Claude Code queued-
-  // prompt gesture: they wait as removable rows and fire when the turn ends.
-  // Gate for that firing: false until the history load tells us whether a
-  // turn is still running server-side (fire into a busy conversation and
-  // the server would refuse it).
+  // False until the history load tells us whether a turn is still running
+  // server-side — the spinoff auto-start waits on it (see canFire).
   const [histLoaded, setHistLoaded] = useState(false);
   const [offRecord, setOffRecord] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // A plain-news line in the composer ("Queued — it starts when there's
+  // room"). Kept apart from sendError because it isn't one: it isn't drawn
+  // red, and it doesn't hold back the spinoff auto-start the way an error does.
+  const [sendNotice, setSendNotice] = useState<string | null>(null);
   // The "not enough room" prompt. `pending` is the message she was trying to
   // send, held here so Cancel gives it back and Queue can hand it over — a
   // refusal must never eat what she typed. `bypass` is set by "Start anyway"
@@ -154,6 +203,8 @@ export function ObservatoryPage({
   // landing in old sessions to READ far more often than to revive one.
   // Cleared on send, so the note never outlives the thing it warned about.
   const [sessionArchived, setSessionArchived] = useState(false);
+  // Whether this session was spun off on a brief: it then gets a "brief" button.
+  const [sessionHasBrief, setSessionHasBrief] = useState(false);
   // Explicit journal state of this session (null until meta loads). Nothing
   // announces it in the composer — she knows which sessions are journaled; it
   // only gates the off-the-record toggle, which exists in journaled sessions.
@@ -220,10 +271,17 @@ export function ObservatoryPage({
 
   const turnStats = useTurnStats(streaming);
 
+  // The record, re-read: draw it, and put it in turnsRef in the same breath —
+  // sendMessage reads the ref straight after a re-attach, before React has
+  // rendered, to see whether her message made it into the record.
+  const showRecord = useCallback((recorded: Turn[]) => {
+    turnsRef.current = recorded;
+    setTurns(recorded);
+  }, []);
   const reattachApi = useReattach({
     convRef,
     mountedRef,
-    onTurns: setTurns,
+    onTurns: showRecord,
     // the token/thought counts died with the old stream
     onStart: turnStats.reset,
     onGiveUp: setSendError,
@@ -245,6 +303,33 @@ export function ObservatoryPage({
     writing,
   });
 
+  // The questions waiting on her, and the switch that floats them. The open
+  // set is the newest one in the chat she hasn't answered, or failing that the
+  // roster's (a set filed before sets were logged; the roster query is the
+  // shared one, so this adds no poll). She floats it by tapping it and sends
+  // it back by tapping again. What's remembered is WHICH set she floated, by
+  // its key, so the switch falls back to "in its place" by itself once that
+  // set is answered or replaced, and after a reload. See QuestionsCard.tsx.
+  // Prompt: "tap to bring up the card floating around and tap again to send it
+  // back to where it sits in the chat. Don't want it constantly scrolling with
+  // the chat."
+  const { data: roster, dataUpdatedAt: rosterReadAt } = useSessionRoster(true, Boolean(convId));
+  const rosterQuestions = openQuestions((roster?.sessions ?? []).find((s) => s.id === convId));
+  const openSet = convId ? openQuestionSet(turns, rosterQuestions) : null;
+  const [floatedKey, setFloatedKey] = useState<string | null>(null);
+  const questionsFloated = openSet !== null && floatedKey === openSet.key;
+  const [questionsPlaceRef, questionsPlaceInView] = usePlaceInView(scrollContract.scrollRef);
+  // Keeps the floated card inside the visible space above the message box,
+  // keyboard open or not (useFloatRoom.ts).
+  const floatDockRef = useFloatRoom();
+  const questionsFloat: QuestionsFloat | undefined = openSet
+    ? {
+        floated: questionsFloated,
+        onToggle: () => setFloatedKey(questionsFloated ? null : openSet.key),
+        placeRef: questionsPlaceRef,
+      }
+    : undefined;
+
   // Step back to watch the terrain (useStepBack.ts): pull past the end of the
   // conversation and it recedes to a strip while the map takes the screen,
   // clean and captioned. It borrows the contract's bottom-pin rather than
@@ -255,6 +340,13 @@ export function ObservatoryPage({
   // window at once (backdropPref.ts). With no map behind the page, stepping
   // back would uncover a blank screen — so the gesture goes away with it.
   const backdropOn = useTerrainBackdropOn();
+
+  // The helper this session answers to, for the button in the composer
+  // toolbar: its swarm's helper, else its room's (routes/swarms.py helper_of).
+  // null — no helper over it, or it IS the room helper — means no button.
+  // A chat that is itself a helper's gets a "context" button beside it.
+  const { data: helperOf } = useHelperOf(convId);
+  const helperLink = helperOf?.helper;
   const stepBack = useStepBack({
     scrollRef: scrollContract.scrollRef,
     pageRef,
@@ -313,6 +405,7 @@ export function ObservatoryPage({
         setSessionJournal(data.meta?.journal === true ? true : data.meta?.journal === false ? false : null);
         setSessionPinned(data.meta?.pinned === true);
         setSessionArchived(Boolean(data.meta?.archived));
+        setSessionHasBrief(typeof data.meta?.spinoff_brief === 'number');
         setSessionSpend(data.meta?.tokens ? formatSessionTokens(data.meta.tokens) : null);
         setSessionSummary(data.meta?.summary ?? null);
         if (data.meta?.title) setRoomTitle(data.meta.title);
@@ -337,6 +430,9 @@ export function ObservatoryPage({
         // Capture the stamp BEFORE it's overwritten — this open's own
         // freshness can't be judged against a mark this same open just made.
         const prevOpened = markConversationOpened(convId);
+        // Also tell the server, which keeps the Recently opened list every
+        // device shares (the stamp above is this browser's own, for the dots).
+        noteSessionOpened(convId);
         // Reopened onto a turn that's still writing (the PWA was closed
         // mid-reply and the turn kept going) — pick it back up.
         if (data.meta?.running === true) void reattachApi.reattach(convId);
@@ -371,6 +467,32 @@ export function ObservatoryPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convId, reattachApi.reattach, scrollContract.pinToBottom, scrollContract.pinToAnchor]);
 
+  // Notice a turn she didn't start. The app starts turns in an open chat by
+  // itself — a watch firing, a finished job's wake, a room notice, an agent's
+  // mail — and nothing told this page, so it sat showing the old transcript
+  // with the composer set to "send" rather than "queue". The roster this page
+  // already re-reads every five seconds says which sessions are running; when
+  // it says this one is and the page is idle, re-attach — the turn prints as
+  // it goes, and anything she sends meanwhile goes to the mailbox. (A send
+  // that still slips in ahead of the next roster read is caught by the busy
+  // refusal — see sendMessage's catch.)
+  // A roster read from before this page's own turn ended would still say
+  // "running" about that turn, so only a read newer than the moment the page
+  // went idle counts.
+  const serverRunning = (roster?.sessions ?? []).find((s) => s.id === convId)?.running === true;
+  const idleSinceRef = useRef(0);
+  useEffect(() => {
+    if (!writing) idleSinceRef.current = Date.now();
+  }, [writing]);
+  useEffect(() => {
+    if (!convId || !serverRunning || !histLoaded) return;
+    if (writing || wordFlow.pacing || busyRef.current) return;
+    if (rosterReadAt <= idleSinceRef.current) return;
+    void reattachApi.reattach(convId);
+    // reattachApi.reattach is stable (useCallback, [] deps).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convId, serverRunning, rosterReadAt, histLoaded, writing, wordFlow.pacing]);
+
   // Docked mode: hand the title to the pane holding us, so its tab reads as the
   // session she's actually in. Fires with null on mount too — the pane remounts
   // this page per conversation, so that's what clears the previous session's
@@ -393,9 +515,39 @@ export function ObservatoryPage({
     [],
   );
 
+  // Point this page's home at a session it just created: the URL catches up
+  // as soon as the session exists, not once the reply finishes — a reload
+  // mid-turn lands back here instead of a blank compose that would try to
+  // create a second session. Docked in the split pane there's no URL to catch
+  // up; the pane takes the id instead. onSessionCreated goes first, so either
+  // home keeps this mount rather than remounting it mid-reply.
+  const pointAtNewSession = useCallback(
+    (conv: string) => {
+      onSessionCreated?.(conv);
+      if (onOpenConversation) onOpenConversation(conv);
+      else
+        void navigate({
+          to: '/observatory/$botId',
+          params: { botId },
+          search: { conv },
+          replace: true,
+        });
+    },
+    [botId, navigate, onOpenConversation, onSessionCreated],
+  );
+
+  // Her messages waiting in the session's mailbox (useMessageQueue.ts). Up
+  // here because sendMessage hands a message over when the server turns out
+  // to be busy.
+  const messageQueue = useMessageQueue({ botId, convId });
+
   const sendMessage = useCallback(
     async (text: string, sendOffRecord: boolean) => {
+      // One send at a time. Claimed before the first await (the headroom
+      // check), so a second tap or the auto-start inside that gap can't slip
+      // a duplicate through.
       if (busyRef.current) return;
+      busyRef.current = true;
 
       // Ask BEFORE anything moves. The box holds about three sessions at once,
       // and the server only hard-refuses at its own floor — so without this the
@@ -404,16 +556,17 @@ export function ObservatoryPage({
       // first, while cancelling still costs nothing. A headroom call that fails
       // returns null and sends exactly as before.
       if (!bypassHeadroomRef.current) {
-        const headroom = await fetchHeadroom();
+        const headroom = await fetchHeadroom().catch(() => null);
         if (shouldPrompt(headroom)) {
+          busyRef.current = false;
           setMemPrompt({ headroom, serverRefused: false, pending: { text, offRecord: sendOffRecord } });
           return;
         }
       }
       bypassHeadroomRef.current = false;
 
-      busyRef.current = true;
       setSendError(null);
+      setSendNotice(null);
 
       // This send IS the un-archive (server-side), so the note goes with it.
       setSessionArchived(false);
@@ -446,30 +599,27 @@ export function ObservatoryPage({
           const created = await createSession(text.slice(0, 40), false);
           conv = created.id;
           convRef.current = conv;
-          // The URL catches up as soon as the session exists, not once the
-          // reply finishes — a reload mid-turn lands back here instead of a
-          // blank compose that would try to create a second session. Docked
-          // in the split pane there's no URL to catch up; the pane takes the
-          // id instead (same effect: a reload resolves back to this session).
-          if (onOpenConversation) onOpenConversation(conv);
-          else
-            void navigate({
-              to: '/observatory/$botId',
-              params: { botId },
-              search: { conv },
-              replace: true,
-            });
+          pointAtNewSession(conv);
         }
+        // Only a `done` frame means the reply is finished. The stream can also
+        // just stop — the server closes it after half an hour, and a deploy
+        // or a dropped connection ends it with no error — while the turn
+        // carries on writing server-side. Treating that as the end left the
+        // reply cut off on screen, so a stream that ends without `done` goes
+        // back to watching the record instead.
+        let sawDone = false;
         await streamSend(
           conv,
           text,
           { record: !sendOffRecord, signal: ctrl.signal },
           (event) => {
+            if (event.type === 'done') sawDone = true;
             applyEvent(turnsRef.current, event);
             setTurns([...turnsRef.current]);
             turnStats.apply(event, Date.now());
           },
         );
+        if (!sawDone) await reattachApi.reattach(conv);
         markConversationOpened(conv);
       } catch (e) {
         if (ctrl.signal.aborted) {
@@ -500,17 +650,44 @@ export function ObservatoryPage({
             serverRefused: true,
             pending: { text, offRecord: sendOffRecord },
           });
-        } else if (convRef.current) {
-          // The turn is known server-side and keeps writing without us
-          // (closed PWA, dropped proxy) — don't unsay her message; go find
-          // the reply in the record instead.
-          await reattachApi.reattach(convRef.current);
         } else {
-          // Never reached the server: restore so nothing is eaten (photo
-          // refs are text lines now, so they come back with the message).
-          composerBox.restore(text);
-          setSendError(e instanceof Error ? e.message : 'Send failed — message restored.');
-          setTurns(turnsRef.current.filter((t, i) => !(i === next.length - 1 && t.role === 'user')));
+          // The send didn't start a turn. The box is already empty and her
+          // message already drawn, so each case has to say where her words go
+          // (sendFailure.ts) — none of them may drop them.
+          const conv = convRef.current;
+          const withoutHers = () =>
+            turnsRef.current.filter((t, i) => !(i === next.length - 1 && t.role === 'user'));
+          const giveBack = (why: string) => {
+            composerBox.restore(text);
+            setSendError(why);
+          };
+          const failure = sendFailureKind(e);
+          if (failure === 'busy' && conv) {
+            // A turn she didn't start is running here — a watch firing, a
+            // job's wake, a room notice, an agent's mail — and this page
+            // hadn't seen it yet. Her message goes to the mailbox, which
+            // hands it to that turn; it shows as a waiting row until it's
+            // read. Then watch the turn that got in first.
+            setTurns(withoutHers());
+            messageQueue.enqueue(text, sendOffRecord);
+            await reattachApi.reattach(conv);
+          } else if (failure === 'unknown' && conv) {
+            // No answer from the server (closed PWA, dropped proxy): the turn
+            // may well be running without us, so go find it in the record.
+            // If the record turns out not to have her message, the send never
+            // arrived — give it back.
+            await reattachApi.reattach(conv);
+            if (mountedRef.current && !messageWasRecorded(turnsRef.current, next.length - 1, text)) {
+              giveBack('That message didn’t reach the server — it’s back in the box.');
+            }
+          } else {
+            // The server said no (or there's no session to ask): nothing is
+            // running and nothing will. Take her message back out of the
+            // transcript and put it in the box with the reason (photo refs
+            // are text lines now, so they come back with the message).
+            setTurns(withoutHers());
+            giveBack(e instanceof Error ? e.message : 'Send failed — message restored.');
+          }
         }
       } finally {
         abortRef.current = null;
@@ -521,9 +698,8 @@ export function ObservatoryPage({
     // The functions below are stable (useCallback, [] deps in their own hooks).
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
-      botId,
-      navigate,
-      onOpenConversation,
+      pointAtNewSession,
+      messageQueue.enqueue,
       reattachApi.reattach,
       wordFlow.begin,
       turnStats.start,
@@ -537,10 +713,10 @@ export function ObservatoryPage({
   const photo = usePhotoAttach();
 
   // canFire: nothing running server-side, no turn actively streaming/
-  // pacing/reattaching, and no unresolved send error — see
-  // useMessageQueue.ts for why each of these gates the auto-fire.
+  // pacing/reattaching, and no unresolved send error — the gate for the
+  // spinoff auto-start below. (Her queued messages don't wait on it any more:
+  // the server's mailbox delivers them — see useMessageQueue.ts.)
   const canFire = histLoaded && !writing && !wordFlow.pacing && !sendError;
-  const messageQueue = useMessageQueue({ botId, convId, canFire, onFire: sendMessage });
 
   // Auto-start a spun-off session: once history has loaded and nothing else is
   // running (canFire), fire the staged kickoff exactly once through the normal
@@ -548,6 +724,9 @@ export function ObservatoryPage({
   // clears draft+autostart on that send so a reopen can't re-fire it.
   useEffect(() => {
     if (pendingAutostart == null || !canFire || autoStartFiredRef.current) return;
+    // A send she started is still in its headroom check — wait for it; the
+    // turn it starts flips canFire and brings this back round.
+    if (busyRef.current) return;
     autoStartFiredRef.current = true;
     const kickoff = pendingAutostart;
     setPendingAutostart(null);
@@ -563,10 +742,11 @@ export function ObservatoryPage({
     const text = paths.length
       ? uploadedPathsMessage(paths) + (typed ? `\n${typed}` : '')
       : typed;
-    if (writing) {
-      // A turn is still going — queue this one to fire the moment it ends
-      // (the Claude Code gesture). Each queued message keeps the record
-      // state it was written under.
+    if (writing || busyRef.current) {
+      // A turn is still going (or a send is just starting one) — send it to
+      // the session's mailbox, which hands it to the agent at its next step
+      // (useMessageQueue.ts). Each message keeps the record state it was
+      // written under.
       messageQueue.enqueue(text, offRecord);
       return;
     }
@@ -609,8 +789,18 @@ export function ObservatoryPage({
   // else; with nothing running it does nothing at all. The handler is kept in
   // a ref that's refreshed every render, so the window listener binds once and
   // still always sees current state.
+  //
+  // Only the page she's looking at answers. Every mounted page listens on the
+  // window, and the docked one stays mounted while hidden behind the roster or
+  // the terminal — so a hidden page (display:none, no layout boxes) ignores the
+  // key, and when focus sits inside one chat page, the others ignore it too.
   const escapeRef = useRef<() => void>(() => {});
   escapeRef.current = () => {
+    const page = pageRef.current;
+    if (!page || page.getClientRects().length === 0) return;
+    const focused = document.activeElement instanceof Element ? document.activeElement : null;
+    const focusedPage = focused?.closest('[data-observatory-page]');
+    if (focusedPage && focusedPage !== page) return;
     if (panel) {
       setPanel(null);
       return;
@@ -669,9 +859,38 @@ export function ObservatoryPage({
     }
   }, []);
 
+  // Put an off-the-record message of hers back into the journal. Same two
+  // steps as a reply: a tap on the message arms the pill under it, a tap on
+  // the pill sends it. The server mints the card at the time she sent the
+  // message, and the message stops showing as off the record.
+  const tapOffRecord = useCallback((i: number) => {
+    const t = turnsRef.current[i];
+    if (!t || !t.offRecord || !convRef.current) return;
+    // Finishing a text selection also fires this click — the highlight pill wins.
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.toString().trim()) return;
+    setJournalArmed((a) => (a === i ? null : i));
+  }, []);
+
+  const restoreMessage = useCallback(async (i: number) => {
+    const conv = convRef.current;
+    const t = turnsRef.current[i];
+    if (!conv || !t || !t.offRecord) return;
+    try {
+      await journalRestore(conv, { user: userOrdinal(turnsRef.current, i), text: t.text });
+      t.offRecord = false;
+      setTurns([...turnsRef.current]);
+    } catch {
+      setSendError('Could not put that message in the journal.');
+    } finally {
+      setJournalArmed(null);
+    }
+  }, []);
+
   return (
     <div
       ref={pageRef}
+      data-observatory-page=""
       className={[styles.page, stepBack.active ? styles.pageStepBack : ''].filter(Boolean).join(' ')}
     >
       {/* The terrain map behind the conversation, and the step-back view that
@@ -683,28 +902,66 @@ export function ObservatoryPage({
 
       <div ref={scrollContract.scrollRef} className={styles.scroll}>
         <div ref={scrollContract.columnRef} className={styles.column}>
+          {convId && cameFrom && cameFrom !== convId ? <CloseSourcePrompt convId={convId} from={cameFrom} /> : null}
+          {firstShown > 0 ? (
+            <button
+              type="button"
+              className={styles.showEarlier}
+              onClick={() => setShownExchanges((n) => n + EXCHANGES_SHOWN)}
+            >
+              Show earlier messages
+            </button>
+          ) : null}
           {turns.length === 0 ? (
             <div className={styles.empty}>
               <div className={styles.emptyName}>{roomLabel}</div>
               <div className={styles.emptyHint}>Whenever you&rsquo;re ready.</div>
             </div>
           ) : (
-            turns.map((t, i) => {
+            turns.slice(firstShown).map((t, shownIndex) => {
+              // Keys and indices stay absolute (the turn's place in the whole
+              // history), never its place in the window.
+              const i = firstShown + shownIndex;
+              // Leave out a helper's wake-up it had nothing to say to (events.ts).
+              if (t.silent) return null;
               if (t.role === 'user') {
+                // A message that waited in the mailbox says where it landed,
+                // on its own line beneath — outside the message element, so the
+                // highlight offsets into her words stay exact.
                 return (
-                  <UserMessage
-                    key={i}
-                    index={i}
-                    text={t.text}
-                    offRecord={t.offRecord}
-                    highlights={t.highlights}
-                  />
+                  <Fragment key={i}>
+                    <UserMessage
+                      index={i}
+                      text={t.text}
+                      offRecord={t.offRecord}
+                      highlights={t.highlights}
+                      onTap={t.offRecord ? tapOffRecord : undefined}
+                    />
+                    {t.arrived ? <div className={styles.arrivedNote}>{arrivedNote(t.arrived)}</div> : null}
+                    {/* The pill that puts an off-the-record message back in the
+                        journal. Outside the message element, like the note
+                        above, so highlight offsets into her words stay exact. */}
+                    {t.offRecord && journalArmed === i ? (
+                      <button type="button" className={styles.restoreBtn} onClick={() => void restoreMessage(i)}>
+                        ✦ put this in the journal
+                      </button>
+                    ) : null}
+                  </Fragment>
                 );
               }
               if (t.role === 'gap') {
                 return (
                   <div key={i} className={styles.gap}>
                     — off the record —
+                  </div>
+                );
+              }
+              if (t.role === 'context') {
+                // Journal context the app loaded for a name she mentioned —
+                // a small grey line, so she knows what the agent was handed.
+                return (
+                  <div key={i} className={styles.contextLoaded}>
+                    {t.text}
                   </div>
                 );
               }
@@ -724,6 +981,46 @@ export function ObservatoryPage({
                     </code>
                   </div>
                 );
+              }
+              if (t.role === 'reminder') {
+                // A System message the app sent — a Coming up reminder at its
+                // set time, or a background job reporting back — labelled with
+                // where it came from, so it never reads as her words.
+                return (
+                  <div key={i} className={styles.reminder}>
+                    <span className={styles.reminderLabel}>
+                      {t.source === 'job'
+                        ? '⚙ Background job finished'
+                        : t.source === 'wake'
+                        ? '◌ Room change · sent by the app'
+                        : t.source === 'watch'
+                        ? '◉ Watch fired · set by this helper'
+                        : t.source === 'linear'
+                        ? '◆ Linear news · sent by the app'
+                        : `⏰ System reminder · set by ${t.source === 'keeper' ? 'the keeper' : 'you'}`}
+                    </span>
+                    <span className={styles.reminderText}>{t.text}</span>
+                  </div>
+                );
+              }
+              if (t.role === 'questions' && t.questions) {
+                // Questions the agent filed for her, kept where they were
+                // asked — open until she replies or the agent withdraws them
+                // (her answer came by another route), then settled in place
+                // for good. Only the open set gets the float switch. See
+                // QuestionsCard.tsx.
+                return (
+                  <QuestionsBlock
+                    key={i}
+                    questions={t.questions}
+                    state={questionsState(turns, i)}
+                    answeredElsewhere={t.answeredElsewhere}
+                    float={openSet?.turnIndex === i ? questionsFloat : undefined}
+                  />
+                );
+              }
+              if (t.role === 'peer' && t.peer) {
+                return <PeerCard key={i} peer={t.peer} text={t.text} />;
               }
               if (t.role === 'error') {
                 return (
@@ -754,6 +1051,7 @@ export function ObservatoryPage({
                   tool={t.tool}
                   journaled={t.journaled}
                   highlights={t.highlights}
+                  closedSwarms={t.closedSwarms}
                   armed={journalArmed === i}
                   onBodyTap={tapReply}
                   onJournalTap={journalReply}
@@ -773,20 +1071,29 @@ export function ObservatoryPage({
               latest words — Approve / edit / Deny in place. Not the
               window-wide sheet: features/approvals/ConversationApprovals. */}
           {convId ? <ConversationApprovals convId={convId} /> : null}
-          {messageQueue.queued.map((q, i) => (
-            <div key={i} className={styles.queuedRow}>
-              <span className={styles.queuedTag}>queued</span>
-              <span className={styles.queuedText}>{q.text}</span>
-              <button
-                type="button"
-                className={styles.queuedX}
-                aria-label="Remove queued message"
-                onClick={() => messageQueue.removeAt(i)}
-              >
-                ×
-              </button>
-            </div>
-          ))}
+          {/* ...and a command the gate stopped, Approve / Deny in place — the
+              same card the room view shows. */}
+          {convId ? <ChatApprovalCard convId={convId} /> : null}
+          {/* A /spinoff this agent staged shows up as a Go card here, under its
+              latest words: features/observatory/SpinoffOffer. */}
+          {convId ? <SpinoffOffer convId={convId} writing={writing} pinned={sessionPinned === true} /> : null}
+          {/* Open questions the transcript has no line for (filed before sets
+              were logged): their place is here, at the end of the chat. Sets
+              that are logged draw in place, above:
+              features/observatory/QuestionsCard. */}
+          {openSet && openSet.turnIndex === null && questionsFloat ? (
+            <QuestionsCard set={openSet} float={questionsFloat} />
+          ) : null}
+          {/* Her messages waiting for the agent, each saying why it's still
+              waiting, with send now. One the server refused says "not sent"
+              instead of vanishing — the composer was already cleared, so this
+              row is the only copy (QueuedRows.tsx, useMessageQueue.ts). */}
+          <QueuedRows
+            rows={messageQueue.queued}
+            status={messageQueue.status}
+            onRemove={messageQueue.remove}
+            onSendNow={messageQueue.sendNow}
+          />
         </div>
       </div>
 
@@ -858,19 +1165,47 @@ export function ObservatoryPage({
         sessionNames={schedSessions}
       />
 
-      {/* showJump alone covers a live reply scrolled out of view; catchingUp
-          covers the open-at-unread anchor's idle side — a conversation
-          that isn't writing at all still has an unread reply waiting below
-          her anchored message, so the pill stays offered until she either
-          scrolls near it herself or taps this. */}
-      {scrollContract.showJump || scrollContract.catchingUp ? (
-        <button type="button" className={styles.jumpPill} onClick={scrollContract.jumpToLatest}>
-          ↓ latest
-        </button>
-      ) : null}
+      {/* The strip just above the message box, for what floats over the chat
+          (.floatDock in the stylesheet). Top row: the "questions" chip, shown
+          only while the open set's place in the chat is out of sight and so
+          can't be tapped, and the ↓ latest pill. Under the row, the questions
+          card itself once she has floated it. The strip is always mounted
+          (it has no height), so useFloatRoom can keep measuring the room the
+          card may take.
+          The pill: showJump alone covers a live reply scrolled out of view;
+          catchingUp covers the open-at-unread anchor's idle side — a
+          conversation that isn't writing at all still has an unread reply
+          waiting below her anchored message, so the pill stays offered until
+          she either scrolls near it herself or taps this. */}
+      {(() => {
+        const showChip = openSet !== null && !questionsFloated && !questionsPlaceInView;
+        const showPill = scrollContract.showJump || scrollContract.catchingUp;
+        return (
+          <div ref={floatDockRef} className={styles.floatDock}>
+            <div className={styles.floatStack}>
+              {showChip || showPill ? (
+                <div className={styles.floatRow}>
+                  {showChip && openSet ? (
+                    <QuestionsChip count={openSet.questions.length} onFloat={() => setFloatedKey(openSet.key)} />
+                  ) : null}
+                  {showPill ? (
+                    <button type="button" className={styles.jumpPill} onClick={scrollContract.jumpToLatest}>
+                      ↓ latest
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              {questionsFloated && openSet ? (
+                <QuestionsFloating questions={openSet.questions} onPutBack={() => setFloatedKey(null)} />
+              ) : null}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className={[styles.composer, offRecord ? styles.composerOff : ''].filter(Boolean).join(' ')}>
         {sendError ? <div className={styles.sendError}>{sendError}</div> : null}
+        {sendNotice ? <div className={styles.sendNotice}>{sendNotice}</div> : null}
         {/* Same rule as the off-the-record note below: say exactly what the
             machinery does. Reading a closed session is free; sending reopens
             it and starts spending — she should know that before she types,
@@ -893,7 +1228,9 @@ export function ObservatoryPage({
         {/* The old bottom bar's toolbar row, same colors and placement —
             directly above the input, twilight-indigo like the terminal
             chrome. Notes/timer/jumps moved in from the corner cluster; the
-            journal pause (●/◌) appears only where the journal is live. */}
+            journal pause (●/◌) appears only where the journal is live. The
+            row scrolls sideways when it holds more than fit; stop, last, is
+            pinned to its right end. */}
         <div className={styles.toolbar}>
           <button type="button" className={styles.toolBtn} onClick={photo.openPicker}>
             photo
@@ -944,6 +1281,68 @@ export function ObservatoryPage({
                 colour of the off state actually lands on the glyph. */}
             {backdropOn ? '▦' : '▢'}
           </button>
+          {/* This session's steps, live — every tool call with its output
+              (features/terrain/activity/). Beside the session on a wide screen,
+              its own page on a phone. */}
+          <button
+            type="button"
+            className={styles.toolBtn}
+            disabled={!convId}
+            title="Watch this session's activity"
+            aria-label="Watch this session's activity"
+            onClick={() => {
+              const conv = convRef.current ?? convId;
+              if (!conv) return;
+              openActivity(conv, () => void navigate({ to: '/terrain/activity', search: { agent: conv } }));
+            }}
+          >
+            activity
+          </button>
+          {/* Go to this session's helper — its swarm's, or its room's. Docked
+              in the split pane it opens there, like every other session jump
+              from this page. */}
+          {helperLink ? (
+            <button
+              type="button"
+              className={styles.toolBtn}
+              title={`Open ${helperLink.title}`}
+              aria-label={`Open ${helperLink.title}`}
+              onClick={() => {
+                if (onOpenConversation) onOpenConversation(helperLink.conv);
+                else void navigate(sessionLocation(helperLink.conv));
+              }}
+            >
+              {helperLink.kind === 'swarm' ? 'swarm helper' : 'room helper'}
+            </button>
+          ) : null}
+          {/* In a helper's own chat: open what it is working from — the
+              document each turn starts with, and her standing rules for it
+              (HelperContextPage.tsx). A full page, so it leaves the chat. */}
+          {/* In a spun-off session's chat: open what it was asked to do, the
+              files it was handed and any handoffs (SessionBriefPage.tsx). A
+              full page, so it leaves the chat. */}
+          {sessionHasBrief && convId ? (
+            <button
+              type="button"
+              className={styles.toolBtn}
+              title="What this session was asked to do, the files it was handed, and its handoffs"
+              aria-label="This session's brief"
+              onClick={() => void navigate({ to: '/observatory/brief/$convId', params: { convId } })}
+            >
+              brief
+            </button>
+          ) : null}
+          {helperOf?.is_helper && convId ? (
+            <button
+              type="button"
+              className={styles.toolBtn}
+              title="What this helper is working from, and your standing rules for it"
+              aria-label="What this helper is working from"
+              onClick={() => void navigate({ to: '/observatory/context/$convId', params: { convId } })}
+            >
+              context
+            </button>
+          ) : null}
           <button
             ref={notesBtnRef}
             type="button"
@@ -966,7 +1365,7 @@ export function ObservatoryPage({
           </button>
           <button
             type="button"
-            className={styles.toolBtn}
+            className={[styles.toolBtn, styles.toolBtnPinned].join(' ')}
             // Live through the post-turn drain too: while the word flow is
             // still printing, stop skips to the end of the reply.
             disabled={!writing && !wordFlow.pacing}
@@ -1058,15 +1457,19 @@ export function ObservatoryPage({
             // A brand-new compose has no session yet, so queueing has to mint
             // one first — otherwise there'd be nothing for the dispatcher to
             // send into when a slot opens.
+            // The new session gets its URL like a sent one does, so a reload
+            // comes back to it rather than to a blank compose.
             let conv = convRef.current;
             if (!conv) {
               const created = await createSession(p.text.slice(0, 40), false);
               conv = created.id;
               convRef.current = conv;
+              pointAtNewSession(conv);
             }
             await enqueueConversation(conv, p.text);
             setMemPrompt(null);
-            setSendError('Queued — it starts when there’s room.');
+            setSendError(null);
+            setSendNotice('Queued — it starts when there’s room.');
           } catch (err) {
             setSendError(err instanceof Error ? err.message : 'Could not queue that.');
           }

@@ -16,11 +16,15 @@ import { DESKTOP_QUERY } from '../shell/useMediaQuery';
  */
 export const Route = createFileRoute('/')({
   beforeLoad: () => {
-    if (
-      typeof window !== 'undefined' &&
-      window.VIEW_MODE === 'public' &&
-      !window.matchMedia(DESKTOP_QUERY).matches
-    ) {
+    if (typeof window !== 'undefined' && window.VIEW_MODE === 'public') {
+      // Since 2026-09-17 the one public page is the Terrain map
+      // (public_config.PRESENTABLE_PATHS) — the dashboard is closed to
+      // visitors, so "/" goes to the map. On the public-only mirror that is
+      // the whole site, every screen size; on the private site's logged-out
+      // view a phone still gets the FakeTerminal landing first.
+      if (window.PUBLIC_ONLY || window.matchMedia(DESKTOP_QUERY).matches) {
+        throw redirect({ to: '/terrain/files' });
+      }
       return;
     }
     throw redirect({ to: '/todos' });

@@ -7,8 +7,10 @@ scripts/run_dispatcher.py says go. The admission tests that used to live here
 (slot math, one-per-tick, oldest-first, dead-worker recovery) moved to
 tests/test_run_dispatcher.py, where that logic now lives for every crew.
 
-tmux is never invoked — `shared.tmux`, `send_prompt` and `capture_session_id`
-are all monkeypatched, the same pattern test_prompt_dispatcher.py uses.
+Nothing is spawned for real: a worker is minted as a research-room
+conversation (routes/research_room.py) and its kickoff written to a file, and
+the run dispatcher's runner — the only process-starter — is monkeypatched
+away in the end-to-end test.
 """
 import fcntl
 import sys
@@ -69,7 +71,7 @@ def test_a_queued_worker_session_lands_in_the_shared_queue(data_dir):
     assert len(runs) == 1
     assert runs[0]["lane"] == "research"
     assert runs[0]["kind"] == "research_worker"
-    assert runs[0]["spawn"] == {"type": "tmux_worker", "session_id": "s1",
+    assert runs[0]["spawn"] == {"type": "research_worker", "session_id": "s1",
                                 "mode": "regular", "target_id": "q-s1"}
 
 
@@ -203,127 +205,105 @@ def test_main_runs_without_arguments(data_dir, monkeypatch):
 
 # --- the spawn path (called BY the run dispatcher) ---------------------------
 
-def test_spawning_flips_the_research_record_to_running(data_dir, monkeypatch):
+@pytest.fixture
+def room(data_dir, tmp_path, monkeypatch):
+    """The research-room folder and the two skill folders, all under tmp — the
+    worker's skill file exists, the distiller's is left missing on purpose."""
+    folder = tmp_path / "research-room"
+    folder.mkdir()
+    monkeypatch.setattr(store, "RESEARCH_ROOM_DIR", folder)
+    worker_dir = tmp_path / "research-worker"
+    worker_dir.mkdir()
+    (worker_dir / "CLAUDE.md").write_text("# worker\n")
+    monkeypatch.setattr(store, "RESEARCH_WORKER_DIR", worker_dir)
+    monkeypatch.setattr(store, "RESEARCH_DISTILLER_DIR", tmp_path / "research-distiller")
+    return folder
+
+
+def _index():
+    return store.read("bot_chats/index", {})
+
+
+def _question(id, text):
+    return {"id": id, "kind": "question", "text": text, "topics": [], "created": "2026-07-07 09:00"}
+
+
+def test_spawning_flips_the_research_record_to_running(room):
     """The research page reads this status and knows nothing about the run
     queue — leaving it `queued` while its worker is live would make it lie."""
-    monkeypatch.setattr(dispatcher.shared, "ensure_claude_session", lambda *a, **k: True)
-    monkeypatch.setattr(dispatcher.shared, "send_prompt", lambda *a, **k: None)
-    monkeypatch.setattr(dispatcher.time, "sleep", lambda s: None)
-    monkeypatch.setattr(dispatcher.research_ctl, "capture_session_id", lambda *a, **k: False)
     _write([_session("s1")])
-
-    dispatcher.spawn_worker("s1", "regular", "q1")
-
+    dispatcher.spawn_worker("s1", "regular", "q-s1", run_id="rq-1")
     assert _sessions()[0]["status"] == "running"
 
 
-def test_spawn_worker_sends_prompt_blocking(data_dir, monkeypatch):
-    """The caller exits right after spawning — a daemon-thread send dies with
-    the process before typing, so spawn_worker must pass block=True.
-    (Bit us live: the first admitted worker sat at an empty prompt forever.)"""
-    monkeypatch.setattr(dispatcher.shared, "ensure_claude_session", lambda *a, **k: True)
-    sends = []
-    monkeypatch.setattr(dispatcher.shared, "send_prompt",
-                        lambda session, text, **kw: sends.append((session, kw)))
-    monkeypatch.setattr(dispatcher.time, "sleep", lambda s: None)
-    monkeypatch.setattr(dispatcher.research_ctl, "capture_session_id", lambda *a, **k: False)
-    dispatcher.spawn_worker("s1", "regular", "q1")
-    assert len(sends) == 1
-    assert sends[0][1].get("block") is True
+def test_the_trace_closes_in_both_directions_at_spawn(room):
+    """THE CLOSED TRACE. The conversation names the research session, the
+    research session names the conversation AND the run — all written by
+    code at spawn, so nothing sleeps and scrapes for an id later and nothing
+    depends on the worker remembering to report itself."""
+    _write([_session("s1")], entries=[_question("q-s1", "Does   X cause Y?")])
+
+    minted = dispatcher.spawn_worker("s1", "regular", "q-s1", run_id="rq-1")
+
+    entry = _index()[minted["conv_id"]]
+    assert entry["lane"] == "research"
+    assert entry["origin"] == "research"
+    assert entry["research_session_id"] == "s1"
+    assert entry["title"] == "Does X cause Y?"
+    assert entry["cwd"] == str(store.RESEARCH_ROOM_DIR)
+    assert entry["system_prompt_file"] == str(store.RESEARCH_WORKER_DIR / "CLAUDE.md")
+    session = _sessions()[0]
+    assert session["conv_id"] == minted["conv_id"]
+    assert session["run_id"] == "rq-1"
 
 
-# --- sessionId capture tail ---------------------------------------------------
-
-def test_spawn_worker_captures_session_id_after_send(data_dir, monkeypatch):
-    """After the blocking send, spawn_worker resolves+stamps its own live
-    sessionId before the short-lived caller exits — its only chance, and
-    without it the run's token receipt has no transcript to read."""
-    monkeypatch.setattr(dispatcher.shared, "ensure_claude_session", lambda *a, **k: True)
-    monkeypatch.setattr(dispatcher.shared, "send_prompt", lambda *a, **k: None)
-    monkeypatch.setattr(dispatcher.time, "sleep", lambda s: None)
-    captures = []
-    monkeypatch.setattr(
-        dispatcher.research_ctl, "capture_session_id",
-        lambda tmux_name, session_id: captures.append((tmux_name, session_id)),
-    )
-
-    dispatcher.spawn_worker("s1", "regular", "q1")
-
-    assert captures == [("rw-s1", "s1")]
+def test_the_kickoff_is_the_old_prompt_without_the_pane(room):
+    """Same SESSION/MODE line, same verbatim APPLY command — and nothing about
+    tmux, because there is no terminal to close any more."""
+    _write([_session("s1")], entries=[_question("q-s1", "why")])
+    minted = dispatcher.spawn_worker("s1", "regular", "q-s1", run_id="rq-1")
+    prompt = open(minted["text_file"], encoding="utf-8").read()
+    assert prompt == minted["prompt"]
+    assert prompt.startswith("SESSION=s1 MODE=regular\n")
+    assert "APPLY:" in prompt and "worker_apply_result.py" in prompt and "--session s1" in prompt
+    assert "TMUX" not in prompt and "tmux" not in prompt
+    assert "TOPIC=" not in prompt
+    assert minted["text_file"].endswith("rq-1.txt")
 
 
-def test_spawn_worker_capture_failure_never_crashes(data_dir, monkeypatch):
-    """The hard rule: a capture blow-up must never crash (or, via a stuck
-    sleep, meaningfully delay beyond the deliberate ~7s) the spawn."""
-    monkeypatch.setattr(dispatcher.shared, "ensure_claude_session", lambda *a, **k: True)
-    monkeypatch.setattr(dispatcher.shared, "send_prompt", lambda *a, **k: None)
-    monkeypatch.setattr(dispatcher.time, "sleep", lambda s: None)
-
-    def _boom(*a, **k):
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(dispatcher.research_ctl, "capture_session_id", _boom)
-
-    dispatcher.spawn_worker("s1", "regular", "q1")  # must not raise
-
-
-# --- mode switch: distill sessions target a topic, not a question ------------
-
-def test_spawn_worker_uses_distiller_dir_and_topic_prompt_for_distill_mode(data_dir, monkeypatch):
-    """spawn_worker itself, for mode=='distill', spawns in
-    RESEARCH_DISTILLER_DIR (not RESEARCH_WORKER_DIR) and builds a prompt
-    carrying SESSION/TOPIC/TMUX/APPLY — looking the topic's name up from
-    research.json since the session only carries its id."""
+def test_a_distill_worker_names_its_topic_and_carries_the_distiller_skill(room):
+    """mode=='distill' targets a topic, not a question: the card says which,
+    the prompt carries TOPIC=<id>: <name> looked up from research.json, and
+    the missing distiller CLAUDE.md writes NO system_prompt_file rather than
+    a reference the turn would trip on."""
     store.write("research.json", {
-        "topics": [{"id": "hair-care", "name": "Hair & Scalp Care", "status": "active", "created": "2026-07-07 09:00"}],
-        "entries": [], "sessions": [],
+        "topics": [{"id": "hair-care", "name": "Hair & Scalp Care", "status": "active",
+                    "created": "2026-07-07 09:00"}],
+        "entries": [], "sessions": [_session("d1", mode="distill", entry_ids=[], topics=["hair-care"])],
     })
-    spawn_calls = []
-    monkeypatch.setattr(dispatcher.shared, "ensure_claude_session",
-                        lambda name, path, **kw: spawn_calls.append((name, path)))
-    sends = []
-    monkeypatch.setattr(dispatcher.shared, "send_prompt",
-                        lambda session, text, **kw: sends.append((session, text, kw)))
-    monkeypatch.setattr(dispatcher.time, "sleep", lambda s: None)
-    monkeypatch.setattr(dispatcher.research_ctl, "capture_session_id", lambda *a, **k: False)
 
-    dispatcher.spawn_worker("d1", "distill", "hair-care")
+    minted = dispatcher.spawn_worker("d1", "distill", "hair-care", run_id="rq-2")
 
-    assert len(spawn_calls) == 1
-    tmux_name, spawn_path = spawn_calls[0]
-    assert tmux_name == "rw-d1"
-    assert spawn_path == store.RESEARCH_DISTILLER_DIR
-    assert spawn_path != store.RESEARCH_WORKER_DIR
-
-    assert len(sends) == 1
-    sent_session, prompt, kw = sends[0]
-    assert sent_session == "rw-d1"
-    assert "SESSION=d1" in prompt
-    assert "TOPIC=hair-care: Hair & Scalp Care" in prompt
-    assert "TMUX=rw-d1" in prompt
-    assert "APPLY:" in prompt
-    assert "worker_apply_result.py" in prompt
-    assert "--session d1" in prompt
-    assert kw.get("block") is True
+    entry = _index()[minted["conv_id"]]
+    assert entry["title"] == "Distill: Hair & Scalp Care"
+    assert "system_prompt_file" not in entry
+    assert "SESSION=d1 TOPIC=hair-care: Hair & Scalp Care" in minted["prompt"]
+    assert "research/edge/hair-care.md" in minted["prompt"]
+    assert "APPLY:" in minted["prompt"] and "--session d1" in minted["prompt"]
 
 
-def test_spawn_worker_regular_mode_still_uses_worker_dir(data_dir, monkeypatch):
-    """Non-distill modes are unaffected by the mode switch: still
-    RESEARCH_WORKER_DIR, still the MODE=<mode> prompt shape."""
-    spawn_calls = []
-    monkeypatch.setattr(dispatcher.shared, "ensure_claude_session",
-                        lambda name, path, **kw: spawn_calls.append((name, path)))
-    sends = []
-    monkeypatch.setattr(dispatcher.shared, "send_prompt",
-                        lambda session, text, **kw: sends.append((session, text, kw)))
-    monkeypatch.setattr(dispatcher.time, "sleep", lambda s: None)
-    monkeypatch.setattr(dispatcher.research_ctl, "capture_session_id", lambda *a, **k: False)
+def test_a_pinned_model_on_the_research_session_reaches_the_conversation(room):
+    _write([_session("s1", model="haiku")], entries=[_question("q-s1", "why")])
+    minted = dispatcher.spawn_worker("s1", "regular", "q-s1")
+    assert _index()[minted["conv_id"]]["model"] == "haiku"
 
-    dispatcher.spawn_worker("s1", "regular", "q1")
 
-    assert spawn_calls[0][1] == store.RESEARCH_WORKER_DIR
-    assert "MODE=regular" in sends[0][1]
-    assert "TOPIC=" not in sends[0][1]
+def test_a_worker_with_no_run_id_still_gets_a_kickoff_file(room):
+    """Called outside the queue (a hand run), the file is named by the
+    conversation instead — never a bare 'None.txt'."""
+    _write([_session("s1")])
+    minted = dispatcher.spawn_worker("s1", "regular", "q-s1")
+    assert minted["text_file"].endswith(f"{minted['conv_id']}.txt")
 
 
 def test_send_prompt_block_true_types_before_returning(monkeypatch):
@@ -337,6 +317,27 @@ def test_send_prompt_block_true_types_before_returning(monkeypatch):
     assert any("send-keys" in c for c in typed)
 
 
+# --- dead-worker recovery knows both generations ------------------------------
+
+def test_recovery_leaves_a_room_worker_alone_while_its_conversation_runs(data_dir):
+    """The doctor's sweep used to judge a stuck worker by its tmux pane. A room
+    worker has no pane, so without this it would requeue every live one."""
+    _write([_session("s1", status="running", conv_id="c1")])
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    store.write("bot_chats/index", {"c1": {"running": True}})
+    data = store.read("research.json")
+    assert dispatcher.recover_dead_workers(data, live_names=set()) == []
+    assert data["sessions"][0]["status"] == "running"
+
+
+def test_recovery_requeues_a_room_worker_whose_conversation_stopped_without_a_reply(data_dir):
+    _write([_session("s1", status="running", conv_id="c1")])
+    data = store.read("research.json")
+    assert dispatcher.recover_dead_workers(data, live_names=set(),
+                                           index={"c1": {"running": False}}) == ["s1"]
+    assert data["sessions"][0]["status"] == "queued"
+
+
 # --- the run dispatcher can actually drive this adapter ----------------------
 
 def test_the_run_dispatcher_spawns_an_enqueued_research_worker(data_dir, monkeypatch):
@@ -346,9 +347,21 @@ def test_the_run_dispatcher_spawns_an_enqueued_research_worker(data_dir, monkeyp
     _tick()
 
     spawned = []
-    monkeypatch.setattr(dispatcher, "spawn_worker",
-                        lambda sid, mode, target: spawned.append((sid, mode, target)))
+
+    def fake_spawn(sid, mode, target, run_id=None):
+        spawned.append((sid, mode, target, run_id))
+        return {"conv_id": "c1", "text_file": "/tmp/kick.txt", "prompt": "go"}
+
+    monkeypatch.setattr(dispatcher, "spawn_worker", fake_spawn)
+    launched = []
+    monkeypatch.setattr(rd, "_spawn_observatory_turn", lambda run: launched.append(run))
     rd.run_once(meminfo=lambda: 4000, probe=lambda run: {"alive": True},
                 receipt_fn=lambda run, now=None: {}, ledger_fn=lambda e: None)
 
-    assert spawned == [("s1", "regular", "q-s1")]
+    run_id = _queued_runs()[0]["id"]
+    assert spawned == [("s1", "regular", "q-s1", run_id)]
+    # The minted conversation is handed to the same runner every queued
+    # observatory turn uses, and written back onto the queue entry.
+    assert launched[0]["conv_id"] == "c1" and launched[0]["spawn"]["text_file"] == "/tmp/kick.txt"
+    assert _queued_runs()[0]["conv_id"] == "c1"
+    assert _queued_runs()[0]["spawn"]["text_file"] == "/tmp/kick.txt"

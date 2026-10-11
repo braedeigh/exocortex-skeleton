@@ -34,6 +34,22 @@ import fcntl
 BUILD_DIR = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("EXOCORTEX_DATA_DIR", BUILD_DIR / "data"))
 UPLOAD_DIR = DATA_DIR / "uploads"  # personal uploads live in the data layer, not the code dir
+# Where an upload goes once it ages out of the inbox above. Uploads are KEPT,
+# never deleted — the sweep that empties `uploads/` files them here instead of
+# unlinking them (see data_helpers.sweep_uploads). That makes this archive
+# complete BY CONSTRUCTION: everything ever handed to the terminal is in it,
+# because nothing else was ever a possible destination. A SIBLING of UPLOAD_DIR
+# rather than a folder inside it, so the sweep never walks its own output.
+# Env-overridable like the other blob roots — it is the largest thing this app
+# accumulates, so it is the one most likely to get pointed at another disk.
+UPLOAD_ARCHIVE_DIR = Path(os.environ.get(
+    "EXOCORTEX_UPLOAD_ARCHIVE_DIR", DATA_DIR / "uploads-archive"))
+# Small cached copies of uploaded photos, for the journal's thumbnails
+# (routes/photos.py makes them on first request). A pure cache: delete the
+# folder and every thumbnail is remade from the original on its next view. A
+# hidden folder in the data dir by default; the vault's .gitignore keeps it out
+# of the hourly backup, since backing up a cache only doubles the photos.
+THUMB_DIR = Path(os.environ.get("EXOCORTEX_THUMB_DIR", DATA_DIR / ".thumbs"))
 # Markdown content (habits, journal, meetings, intro). Defaults to the data dir so a new
 # user is self-contained; override with EXOCORTEX_CONTENT_DIR to point at an existing
 # content store (e.g. a separate journaling system that also reads/writes these files).
@@ -63,15 +79,20 @@ RECORDINGS_DIR = Path(os.environ.get("EXOCORTEX_RECORDINGS_DIR", DATA_DIR / "rec
 # this folder (its CLAUDE.md is the skill). Defaults to a `triage/` at the
 # deployment root (sibling of the data dir), next to recipes/; override via env.
 TRIAGE_DIR = Path(os.environ.get("EXOCORTEX_TRIAGE_DIR", DATA_DIR.parent / "triage"))
-# Spinoff: the shared spawn door for /spinoff — briefs live one per slug at
-# SPINOFF_DIR/<slug>/BRIEF.md. Under DATA_DIR (not a sibling like TRIAGE_DIR):
-# briefs are personal data and should ride the vault's hourly git backup.
+# Spinoff: where brief FOLDERS lived before briefs became rows in the database
+# (briefstore.py, docs/spinoff-briefs.md) — one <slug>/ per job, each with its
+# BRIEF.md. Nothing is written here now; it is read only to take in a brief an
+# old session still writes as a file, and by the one-time import.
 SPINOFF_DIR = Path(os.environ.get("EXOCORTEX_SPINOFF_DIR", DATA_DIR / "spinoffs"))
-# Where a brief goes when its session is closed. Briefs are KEPT, never deleted
-# — a brief is the only record of what a session was actually asked to do, and
-# git can show what changed but never what was wanted. They just stop cluttering
-# the live folder, so `ls spinoffs/` answers "what is in flight" instead of
-# "everything ever spun off". A SIBLING of SPINOFF_DIR rather than a folder
+# Where the spawn door (routes/spinoff.py) keeps each start-up's log. Outside
+# the data dir on purpose: these are throwaway logs, not the owner's data, so
+# they don't belong in a folder that gets backed up. /var/tmp like the detached
+# jobs' logs (scripts/run_detached.py): it survives a reboot, plain /tmp doesn't.
+SPINOFF_KICKOFF_DIR = Path(os.environ.get("EXOCORTEX_SPINOFF_KICKOFF_DIR")
+                           or "/var/tmp/exo-spinoff-kickoffs")
+# Where an old brief FOLDER goes when its session is closed (only sessions born
+# before briefs moved to the database have one). Moved, never deleted. A
+# SIBLING of SPINOFF_DIR rather than a folder
 # inside it, because everything inside is a slug and an archive is not one.
 # Env-overridable like the rest: point it at the vault's own `reference/` shelf
 # if that's where retired things live in a given install.
@@ -112,6 +133,21 @@ RESEARCH_WORKER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_WORKER_DIR", DATA_
 # reviewed answers into research/edge/<topic-id>.md instead of answering one
 # question.
 RESEARCH_DISTILLER_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_DISTILLER_DIR", DATA_DIR.parent / "research-distiller"))
+# Research room: the owner's own research desk in the Observatory (lane
+# `research`, routes/research_room.py) and the ground every dispatched research
+# worker now stands on instead of a tmux pane. Its CLAUDE.md is the skill —
+# same idea as RESEARCH_WORKER_DIR; deploy copies agents/research-room/ here.
+RESEARCH_ROOM_DIR = Path(os.environ.get("EXOCORTEX_RESEARCH_ROOM_DIR", DATA_DIR.parent / "research-room"))
+# Linear room: the Observatory lane whose sessions work in Linear (the issue
+# tracker, reached through the `linear` MCP server) with the owner
+# (routes/linear_room.py). Its CLAUDE.md — which team, which plan, what may
+# and may not go into an outside service — is hers, so the folder lives in
+# the vault, same idea as RESEARCH_ROOM_DIR.
+LINEAR_ROOM_DIR = Path(os.environ.get("EXOCORTEX_LINEAR_ROOM_DIR", DATA_DIR.parent / "linear-room"))
+# Fairy room: the one folder a walled session may write in (lane `fairy`,
+# fairywall.py). It sits beside the vault, not in it, so nothing the fairy
+# writes rides the vault's backup and deleting the folder deletes it all.
+FAIRY_ROOM_DIR = Path(os.environ.get("EXOCORTEX_FAIRY_ROOM_DIR", DATA_DIR.parent.parent / "fairy"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -180,6 +216,7 @@ SQL_COLLECTIONS = frozenset((
     "buy_list",
     "car_maintenance",
     "car_notes",
+    "coming_up",
     "contacts",
     "deity_profiles",
     "dev_notes",
@@ -247,6 +284,37 @@ def _key(name: str) -> str:
 
 def _sql_backed(name: str) -> bool:
     return not _SQL_OFF and _key(name) in SQL_COLLECTIONS
+
+
+# Collections whose rows live in TYPED TABLES rather than as one blob row in
+# `docs` — notestore.py owns the two notes collections, researchstore.py owns
+# research and annotations. A subset of SQL_COLLECTIONS on purpose: they are
+# still SQL-backed (the creek's traffic map and the usage doctor both read that
+# set to say how a collection is stored), they are simply stored as rows. Being
+# a subset also means EXOCORTEX_SQL_OFF=1 still drops them all the way back to
+# plain files, which stays safe because the mirror is written after every
+# commit.
+TYPED_COLLECTIONS = frozenset(("dev_notes", "idea_notes", "research", "annotations"))
+_TYPED_MODULES = {
+    "dev_notes": "notestore", "idea_notes": "notestore",
+    "research": "researchstore", "annotations": "researchstore",
+}
+
+
+def _backend(name):
+    """Which module owns this collection's storage — None means a plain file.
+
+    The one place the three-way choice is made, so read/write/mutate each ask
+    once instead of growing their own copy of it. Both modules expose the same
+    get/put/mutate contract, which is what lets the callers stay identical.
+    """
+    if not _sql_backed(name):
+        return None
+    if _key(name) in TYPED_COLLECTIONS:
+        import importlib
+        return importlib.import_module(_TYPED_MODULES[_key(name)])
+    import sqlstore
+    return sqlstore
 
 
 # --- Per-collection op counters (architecture telemetry) ---------------------
@@ -452,9 +520,9 @@ def read(name, default=None):
 def _read(name, default=None):
     """read() minus the telemetry hook — mutate()'s internal read path (a
     mutate counts as ONE write, not a read + two writes)."""
-    if _sql_backed(name):
-        import sqlstore
-        return sqlstore.get(_key(name), default)
+    backend = _backend(name)
+    if backend is not None:
+        return backend.get(_key(name), default)
     path = _path(name)
     if not path.exists():
         return {} if default is None else default
@@ -528,9 +596,9 @@ def _write(name, data):
     """write() minus the telemetry hook — mutate()'s internal write path."""
     import schemas
     schemas.validate(_key(name), data)
-    if _sql_backed(name):
-        import sqlstore
-        sqlstore.put(_key(name), data)
+    backend = _backend(name)
+    if backend is not None:
+        backend.put(_key(name), data)
         return
     write_file(name, data)
 
@@ -591,11 +659,11 @@ def mutate(name, default=None):
     busiest SQL collection by far, is 0% redundant).
     """
     wl_on = _writelog_enabled()
-    if _sql_backed(name):
+    backend = _backend(name)
+    if backend is not None:
         _stats_count(name, "writes")
-        import sqlstore
         import schemas
-        with sqlstore.mutate(_key(name), default) as data:
+        with backend.mutate(_key(name), default) as data:
             wl_before, wl_ok = _writelog_snapshot_copy(data) if wl_on else (None, False)
             _stats_enter_mutate()
             try:

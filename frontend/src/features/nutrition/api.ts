@@ -1,0 +1,135 @@
+/**
+ * api.ts — the nutrition endpoints (routes/nutrition.py) over the shared client.
+ */
+import { api, ApiError } from '../../api/client';
+import type {
+  FdcFood,
+  HighlightedFood,
+  MealItem,
+  Measure,
+  NutrientDetail,
+  NutrientRanking,
+  NutritionDay,
+  NutritionPlan,
+  LabelDraft,
+  LabelJob,
+  PackagedFood,
+  RankPer,
+  SexSetting,
+} from './types';
+
+export function getDay(signal?: AbortSignal) {
+  return api.get<NutritionDay>('/api/nutrition/day', signal);
+}
+
+/** USDA foods by name; singleOnly keeps single foods (nutrition.is_single_food). */
+export function searchFoods(text: string, singleOnly: boolean, signal?: AbortSignal) {
+  const query = new URLSearchParams({ q: text });
+  if (singleOnly) query.set('single', '1');
+  return api.get<{ foods: FdcFood[] }>(`/api/nutrition/search?${query}`, signal);
+}
+
+/**
+ * Every USDA food ranked by one nutrient; lowHistamine keeps only the foods SIGHI
+ * rates 0, singleOnly only single foods (nutrition.is_single_food).
+ */
+export function rankFoods(
+  key: string,
+  per: RankPer,
+  words: string,
+  limit: number,
+  lowHistamine: boolean,
+  singleOnly: boolean,
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams({ per, q: words, limit: String(limit) });
+  if (lowHistamine) query.set('histamine', 'low');
+  if (singleOnly) query.set('single', '1');
+  return api.get<NutrientRanking>(`/api/nutrition/rank/${encodeURIComponent(key)}?${query}`, signal);
+}
+
+export function saveMeal(name: string, items: MealItem[]) {
+  return api.post<{ ok: boolean }>(`/api/nutrition/meals/${encodeURIComponent(name)}`, { items });
+}
+
+export function deleteMeal(name: string) {
+  return api.delete<{ ok: boolean }>(`/api/nutrition/meals/${encodeURIComponent(name)}`);
+}
+
+/** How many of a meal she eats a day; 0 takes it out of the day but keeps it saved. */
+export function saveServings(name: string, servings: number) {
+  return api.post<{ ok: boolean }>(`/api/nutrition/servings/${encodeURIComponent(name)}`, { servings });
+}
+
+export function saveSettings(settings: { sex?: SexSetting; age?: number }) {
+  return api.post<{ ok: boolean }>('/api/nutrition/settings', settings);
+}
+
+/** One nutrient's page: her day's total for it, and the NIH ODS fact sheet's own words. */
+export function getNutrient(key: string, signal?: AbortSignal) {
+  return api.get<NutrientDetail>(`/api/nutrition/nutrient/${encodeURIComponent(key)}`, signal);
+}
+
+export function getHighlights(signal?: AbortSignal) {
+  return api.get<{ foods: HighlightedFood[] }>('/api/nutrition/highlights', signal);
+}
+
+/** Star (on) or unstar a food she's interested in eating. */
+export function setHighlight(food: { fdc_id: number; description: string }, on: boolean) {
+  return api.post<{ ok: boolean; foods: HighlightedFood[] }>(`/api/nutrition/highlights/${food.fdc_id}`, {
+    on,
+    description: food.description,
+  });
+}
+
+/** The fewest grams a day of her starred foods that close her day's gaps (nutrition.plan_additions). */
+export function getPlan(capGrams: number, energyCap: number | null, signal?: AbortSignal) {
+  const query = new URLSearchParams({ cap: String(capGrams) });
+  if (energyCap != null) query.set('kcal', String(energyCap));
+  return api.get<NutritionPlan>(`/api/nutrition/plan?${query}`, signal);
+}
+
+/** Grams in a cup, tablespoon, egg… of each food (measures.py), keyed by USDA food id. */
+export function getMeasures(fdcIds: number[], signal?: AbortSignal) {
+  return api.get<{ measures: Record<string, Measure[]> }>(`/api/nutrition/measures?ids=${fdcIds.join(',')}`, signal);
+}
+
+/** Packaged products by name or brand; a query of 8+ digits is read as a barcode.
+ *  `open_food_facts` says whether a barcode nobody here had was found on Open Food Facts (null: not asked). */
+export function searchPackaged(text: string, signal?: AbortSignal) {
+  return api.get<{ foods: PackagedFood[]; open_food_facts: 'found' | 'missing' | 'unreachable' | null }>(`/api/nutrition/packaged?${new URLSearchParams({ q: text })}`, signal);
+}
+
+/** Every product she's saved (label photo or Open Food Facts copy), newest first. */
+export function getOwnProducts(signal?: AbortSignal) {
+  return api.get<{ foods: PackagedFood[] }>('/api/nutrition/own-products', signal);
+}
+
+/** Send label photos to be read by a helper Claude session; answers with the job to watch. */
+export async function readLabel(photos: File[], barcode: string) {
+  const form = new FormData();
+  photos.forEach((photo) => form.append('photo', photo));
+  if (barcode) form.append('barcode', barcode);
+  // Multipart, so not the shared JSON client; same 401 and error handling.
+  const res = await fetch('/api/nutrition/labels', { method: 'POST', body: form, credentials: 'include' });
+  if (res.status === 401) {
+    window.location.href = '/login';
+    throw new ApiError(401, 'Unauthorized');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.error || `Upload failed (${res.status})`);
+  return data as { job: string; photos: string[] };
+}
+
+export function getLabelJob(job: string, signal?: AbortSignal) {
+  return api.get<LabelJob>(`/api/nutrition/labels/${encodeURIComponent(job)}`, signal);
+}
+
+export function labelPhotoUrl(name: string) {
+  return `/api/nutrition/labels/${encodeURIComponent(name)}/photo`;
+}
+
+/** Save a checked label draft as her own product. */
+export function saveLabelProduct(draft: LabelDraft, photo: string) {
+  return api.post<{ food: PackagedFood }>('/api/nutrition/label-products', { draft, photo });
+}

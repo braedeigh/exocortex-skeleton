@@ -62,7 +62,7 @@ def register(app):
             "# Receipt parse\n\n## Protocol\n\n"
             f"1. Read `{RECEIPTS_DIR / 'CLAUDE.md'}` — it is the skill; follow it.\n"
             f"2. Job: transcribe the grocery receipt photo at `{target}` and write "
-            f"`{target.with_suffix('')}.parsed.json` beside it, the way the skill "
+            f"`{target}.parsed.json` beside it, the way the skill "
             "says. Then stop — nobody is waiting to chat.\n"
         )
         payload, status = helpers.mint_helper(

@@ -272,7 +272,7 @@ def steward_slug(branch):
 
 
 def _steward_brief(branch, message, ev, night):
-    """The steward's BRIEF.md: literal evidence + her message + the rails.
+    """The steward's brief: literal evidence + her message + the rails.
 
     Written fresh at every wake (a rejoin never gets this far), grounded in
     git rather than in anything a previous agent said. The honesty rail is
@@ -354,17 +354,15 @@ def open_steward(branch, message):
     slug = steward_slug(branch)
     ev = worktrees.branch_evidence(branch)
     night = _night_runs_by_branch().get(branch)
-    d = store.SPINOFF_DIR / slug
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "BRIEF.md").write_text(
-        _steward_brief(branch, message, ev, night),
-        encoding="utf-8")
+    import briefstore
+    briefstore.save(slug, _steward_brief(branch, message, ev, night))
 
     # Import at call time, not module top: spinoff imports observatory, and
     # keeping this module import-light is what lets nightcrew.py fold our
     # cards in without dragging the whole observatory machinery along.
     from routes.spinoff import open_spinoff
-    payload, status = open_spinoff(slug, lane="orchestra", branch=branch)
+    payload, status = open_spinoff(slug, lane="orchestra", branch=branch,
+                                   via="steward")
     if status != 200:
         return payload, status
     return {"ok": True, "conversation_id": payload["conversation_id"],

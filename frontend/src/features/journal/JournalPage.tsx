@@ -1,4 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+/**
+ * The journal page: one day at a time. Loads the day's cards (or its older
+ * single-document page), shows them in a stream you can edit, tag, and add
+ * to, and hosts everything that opens over it: the calendar, search, person
+ * and thread popovers, dev notes, and the "n of N" find bar. Jumps between
+ * days go through the URL (`?date=`), so back/forward work.
+ *
+ * Search mode: typing in the top bar's search box puts `?q=` (and any
+ * filters) in the URL, and the pane shows SearchResults instead of the day.
+ * Changing day, or "Open day" on a result, leaves search mode.
+ *
+ * Touches: `useJournalData.ts` (every fetch and save), `CardStream.tsx` /
+ * `EntryCard.tsx` (the cards), `JournalSearchBar.tsx` + `SearchFilterRow.tsx` +
+ * `SearchResults.tsx` (search), `CalendarOverlay.tsx`,
+ * `JournalHeader.tsx`, and the popovers beside them.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { ToastStack } from '../../ui';
@@ -16,8 +32,11 @@ import { FindBar } from './FindBar';
 import { JournalHeader } from './JournalHeader';
 import { JournalRail } from './JournalRail';
 import { PersonPopover } from './PersonPopover';
+import { JournalSearchBar } from './JournalSearchBar';
+import { SearchFilterRow } from './SearchFilterRow';
+import { SearchResults } from './SearchResults';
 import { ThreadPopover } from './ThreadPopover';
-import type { Card } from './types';
+import type { Card, SearchFilters } from './types';
 import { resolveDayMode } from './types';
 import {
   useAddCard,
@@ -81,6 +100,38 @@ export function JournalPage() {
   function goTo(date: string) {
     void navigate({ search: { date } });
   }
+
+  // What's being searched for, read from the URL ('' = not searching).
+  const filters: SearchFilters = useMemo(
+    () => ({ q: search.q ?? '', who: search.who ?? '', from: search.from ?? '', to: search.to ?? '' }),
+    [search.q, search.who, search.from, search.to],
+  );
+  const searching = filters.q !== '';
+  const activeFilterCount = [filters.who, filters.from, filters.to].filter(Boolean).length;
+  const [filtersOpen, setFiltersOpen] = useState(activeFilterCount > 0);
+
+  /** Change the search in the URL; empty values drop out of it. Starting a
+   * search adds a history step (so Back returns to the day); refining one
+   * replaces it, so Back doesn't walk through every word typed. */
+  const setSearch = useCallback(
+    (changes: Partial<SearchFilters>) => {
+      void navigate({
+        search: (prev) => {
+          const next = { ...prev, ...changes };
+          return {
+            date: prev.date,
+            q: next.q || undefined,
+            who: next.who || undefined,
+            from: next.from || undefined,
+            to: next.to || undefined,
+          };
+        },
+        replace: Boolean(search.q) && changes.q !== '',
+      });
+    },
+    [navigate, search.q],
+  );
+  const setQuery = useCallback((q: string) => setSearch({ q }), [setSearch]);
 
   /** The reply-context chip's single tap target: queue the parent card to be
    * scrolled/flashed once its day is on screen, and navigate there unless
@@ -298,6 +349,14 @@ export function JournalPage() {
     });
   }, [pendingScrollCard, bundle, currentDate, dayQuery.isFetching]);
 
+  /** Land on (and flash) one entry on its own day, leaving search mode if
+   * on — "Open day" on a search result, and a ✎ edit row. The same jump the
+   * reply-context chip makes. */
+  function openSearchDay(date: string, cardId: string) {
+    setPendingScrollCard({ date, cardId });
+    goTo(date);
+  }
+
   function onJournalMention(date: string, slug: string) {
     closeFind();
     setPendingFind({ date, slug });
@@ -362,18 +421,39 @@ export function JournalPage() {
         onPrev={() => bundle?.journal.prev && goTo(bundle.journal.prev)}
         onNext={() => bundle?.journal.next && goTo(bundle.journal.next)}
         onToday={() => serverDate && goTo(serverDate)}
+        search={
+          <JournalSearchBar
+            query={filters.q}
+            onQueryChange={setQuery}
+            filtersOpen={filtersOpen}
+            onToggleFilters={() => setFiltersOpen((open) => !open)}
+            activeFilterCount={activeFilterCount}
+          />
+        }
         onOpenCalendar={openCalendar}
         onOpenDevNotes={() => setDevNotesOpen(true)}
       />
 
+      {filtersOpen ? <SearchFilterRow filters={filters} onChange={setSearch} /> : null}
+
       <JournalRail onOpenPerson={setPopoverSlug} onError={push} />
 
       <div
-        className={`${styles.body} ${mode === 'cards' ? styles.bodyCards : ''}`}
+        className={`${styles.body} ${mode === 'cards' && !searching ? styles.bodyCards : ''}`}
         ref={bodyRef}
         onClick={onBodyClick}
       >
-        {dayQuery.isLoading ? (
+        {searching ? (
+          <SearchResults
+            filters={filters}
+            matcher={matcher}
+            threadNames={threadNames}
+            counterNames={counterNames}
+            onOpenThread={(slug) => void navigateTo({ to: '/threads/$slug', params: { slug } })}
+            onOpenCounter={openCounter}
+            onOpenDay={openSearchDay}
+          />
+        ) : dayQuery.isLoading ? (
           <div className={styles.loading}>Loading…</div>
         ) : !bundle ? (
           // Error only when there's nothing to show — a failed background poll
@@ -432,6 +512,8 @@ export function JournalPage() {
                 sessionNames={sessionNames}
                 onOpenSession={openSession}
                 retirements={dayQuery.data?.cards.retirements ?? []}
+                edits={dayQuery.data?.cards.edits ?? []}
+                onOpenEdited={openSearchDay}
                 addSaving={addCard.isPending}
                 onComposeSave={async (body) => {
                   try {

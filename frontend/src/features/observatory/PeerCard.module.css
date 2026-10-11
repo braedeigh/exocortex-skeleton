@@ -1,0 +1,83 @@
+/* A message between two agents — teal, so it reads as neither her words
+   (plain), the agent's reply (prose), a decision (green/red) nor the app's
+   reminder (dashed accent). */
+.card {
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--ongoing) 40%, transparent);
+  border-left: 3px solid var(--ongoing);
+  background: color-mix(in srgb, var(--ongoing) 8%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Held by a brake: orange, the "needs you" color. */
+.held {
+  border-color: color-mix(in srgb, var(--orange) 45%, transparent);
+  border-left-color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 8%, transparent);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.arrow {
+  color: var(--ongoing);
+  font-size: 1.1em;
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25em;
+}
+
+/* The other session's name — opens it. A real tap target, not a text link. */
+.who {
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--ongoing) 14%, transparent);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.heldRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.heldWhy {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.release {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}

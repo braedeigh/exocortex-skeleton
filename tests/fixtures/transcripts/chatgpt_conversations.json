@@ -1,0 +1,57 @@
+[
+  {
+    "title": "Sourdough starter help",
+    "create_time": 1719830000.0,
+    "update_time": 1719831000.0,
+    "conversation_id": "cg-1",
+    "current_node": "n4",
+    "default_model_slug": "gpt-4o",
+    "mapping": {
+      "root": {"id": "root", "message": null, "parent": null, "children": ["n0"]},
+      "n0": {"id": "n0", "parent": "root", "children": ["n1"], "message": {
+        "id": "n0", "author": {"role": "system"}, "create_time": null,
+        "content": {"content_type": "text", "parts": [""]},
+        "metadata": {"is_visually_hidden_from_conversation": true}}},
+      "n1": {"id": "n1", "parent": "n0", "children": ["n2", "n3"], "message": {
+        "id": "n1", "author": {"role": "user"}, "create_time": 1719830010.0,
+        "content": {"content_type": "multimodal_text", "parts": [{"content_type": "image_asset_pointer", "asset_pointer": "file-service://x"}, "Why is my starter not rising?"]},
+        "metadata": {}}},
+      "n2": {"id": "n2", "parent": "n1", "children": [], "message": {
+        "id": "n2", "author": {"role": "assistant"}, "create_time": 1719830020.0,
+        "content": {"content_type": "text", "parts": ["An abandoned first answer (regenerated)."]},
+        "metadata": {}}},
+      "n3": {"id": "n3", "parent": "n1", "children": ["n4"], "message": {
+        "id": "n3", "author": {"role": "assistant"}, "create_time": 1719830030.0,
+        "content": {"content_type": "thoughts", "thoughts": [{"content": "thinking"}]},
+        "metadata": {}}},
+      "n4": {"id": "n4", "parent": "n3", "children": [], "message": {
+        "id": "n4", "author": {"role": "assistant"}, "create_time": 1719830040.0,
+        "content": {"content_type": "text", "parts": ["It is probably too cold. Try a warmer spot."]},
+        "metadata": {}}}
+    }
+  },
+  {
+    "title": "Empty chat",
+    "create_time": 1719900000.0,
+    "update_time": 1719900000.0,
+    "conversation_id": "cg-2",
+    "current_node": "e1",
+    "mapping": {
+      "e1": {"id": "e1", "parent": null, "children": [], "message": null}
+    }
+  },
+  {
+    "title": "Python list sorting",
+    "create_time": 1720000000.0,
+    "update_time": 1720000100.0,
+    "id": "cg-3",
+    "mapping": {
+      "a": {"id": "a", "parent": null, "children": ["b"], "message": {
+        "id": "a", "author": {"role": "user"}, "create_time": 1720000010.0,
+        "content": {"content_type": "text", "parts": ["How do I sort a list of dicts by a key?"]}}},
+      "b": {"id": "b", "parent": "a", "children": [], "message": {
+        "id": "b", "author": {"role": "assistant"}, "create_time": 1720000020.0,
+        "content": {"content_type": "code", "language": "python", "text": "sorted(items, key=lambda d: d['k'])"}}}
+    }
+  }
+]

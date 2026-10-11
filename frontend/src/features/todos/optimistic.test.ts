@@ -7,7 +7,6 @@ import {
   applyBulkSnooze,
   applyStreakNotes,
   applyStreakRemove,
-  applySymptomLog,
 } from './optimistic';
 import type { TodayData, TodoItem, TodoSection } from './types';
 
@@ -107,24 +106,6 @@ describe('applyBulk', () => {
   it('passes frosted todos through untouched', () => {
     const data = baseData({ todos: { _frosted: true, shape: 'sections' } });
     expect(applyBulk(data, ['a'], { action: 'snooze', days: 3 })).toBe(data);
-  });
-});
-
-describe('applySymptomLog', () => {
-  it('merges into an existing health_data row', () => {
-    const data = baseData({ health_data: [{ date: TODAY, energy: null, headache: 1 }] });
-    const next = applySymptomLog(data, TODAY, { energy: 2, brain_fog: 1 });
-    expect(next.health_data).toEqual([{ date: TODAY, energy: 2, headache: 1, brain_fog: 1 }]);
-  });
-  it('inserts a row when the date has none', () => {
-    const data = baseData({ health_data: [{ date: '2026-07-07', energy: 3 }] });
-    const next = applySymptomLog(data, TODAY, { energy: 1 });
-    expect(next.health_data).toHaveLength(2);
-    expect(next.health_data?.[1]).toEqual({ date: TODAY, energy: 1 });
-  });
-  it('leaves data untouched when health_data is absent', () => {
-    const data = baseData();
-    expect(applySymptomLog(data, TODAY, { energy: 1 })).toBe(data);
   });
 });
 

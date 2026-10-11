@@ -284,3 +284,75 @@ def test_export_empty_collection_has_null_range(client):
     body = client.get("/api/usage/export").get_json()
     assert body["days"] == {}
     assert body["range"] == {"from": None, "to": None}
+
+
+# --- /api/usage/commands -----------------------------------------------------
+# The slash-command ledger. Unlike every other route in this file it reads
+# exo.db (filled by commandstore.py from the Claude Code transcripts), not the
+# feature_usage collection — so these tests plant a fake transcript tree and
+# ingest it rather than seeding a JSON blob.
+
+@pytest.fixture
+def transcripts(tmp_path, data_dir, monkeypatch):
+    import commandstore
+    root = tmp_path / "projects" / "-opt-exocortex"
+    root.mkdir(parents=True)
+    monkeypatch.setenv("CLAUDE_PROJECTS_DIR", str(tmp_path / "projects"))
+
+    def _write(*commands):
+        import json
+        lines = []
+        for i, name in enumerate(commands):
+            lines.append(json.dumps({
+                "type": "user", "uuid": f"u{i}", "isSidechain": False,
+                "timestamp": f"2026-08-01T1{i % 10}:00:00.000Z",
+                "sessionId": "s1", "cwd": "/opt/exocortex",
+                "message": {"content": f"<command-name>/{name}</command-name>"},
+            }))
+        (root / "a.jsonl").write_text("\n".join(lines) + "\n")
+        commandstore.ingest()
+    return _write
+
+
+def test_commands_route_reports_skill_runs(client, transcripts):
+    transcripts("spark", "spark", "terra")
+    body = client.get("/api/usage/commands").get_json()
+    assert [(c["name"], c["runs"]) for c in body["commands"]] == [
+        ("spark", 2), ("terra", 1)]
+    assert len(body["by_hour"]) == 24
+
+
+def test_commands_route_hides_builtins_by_default(client, transcripts):
+    """/clear and /compact would outrank every real skill, so they're out
+    unless explicitly asked for."""
+    transcripts("spark", "compact", "clear")
+    assert [c["name"] for c in
+            client.get("/api/usage/commands").get_json()["commands"]] == ["spark"]
+    everything = client.get("/api/usage/commands?kind=any").get_json()
+    assert {c["name"] for c in everything["commands"]} == {"spark", "compact", "clear"}
+
+
+def test_commands_route_rejects_a_bad_window(client, transcripts):
+    transcripts("spark")
+    assert client.get("/api/usage/commands?days=0").status_code == 400
+    assert client.get("/api/usage/commands?days=soon").status_code == 400
+
+
+def test_batch_events_land_in_day_file(client, data_dir):
+    """Events ride along on the batch and land as a day file plus mirror
+    rows; a bad one is dropped without failing the good ones."""
+    import time
+    import sqlstore
+    now_ms = int(time.time() * 1000)
+    res = client.post("/api/usage/batch", json={"events": [
+        {"kind": "click", "tab": "todos", "control": "card-edit", "at": now_ms},
+        {"kind": "open", "tab": "todos", "at": now_ms},
+        {"kind": "click", "tab": "todos", "control": "not valid!", "at": now_ms},
+    ]})
+    assert res.status_code == 200
+    assert (data_dir / "ui_events" / f"{today()}.jsonl").read_text().count("\n") == 2
+    conn = sqlstore.open_db()
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM ui_events").fetchone()[0] == 2
+    finally:
+        conn.close()

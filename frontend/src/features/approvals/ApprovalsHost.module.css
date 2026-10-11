@@ -40,3 +40,14 @@
   color: var(--accent);
   font-weight: 700;
 }
+
+/* Who proposed the change — same eyebrow the in-chat card wears
+   (ConversationApprovals.module.css). */
+.from {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}

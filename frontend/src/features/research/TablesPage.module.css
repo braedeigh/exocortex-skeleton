@@ -1,0 +1,330 @@
+/* TablesPage.module.css — the research tables: the grid, its opened cell, the
+ * new-table form and the hazard map. The page frame, chips and buttons come
+ * from ResearchPage.module.css and the two-column shape from
+ * ClaimsPage.module.css; this file adds what only a grid needs. Cells and
+ * rows are 40px+ tall — they are the tap targets. */
+
+/* --- Review edges: amber waiting, green confirmed, red disputed ------------ */
+
+.edgeUnreviewed {
+  box-shadow: inset 4px 0 0 var(--yellow);
+}
+
+.edgeConfirmed {
+  box-shadow: inset 4px 0 0 var(--green);
+}
+
+.edgeDisputed {
+  box-shadow: inset 4px 0 0 var(--red);
+}
+
+/* --- The grid column --------------------------------------------------- */
+
+.gridColumn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.pushRight {
+  margin-left: auto;
+}
+
+/* Scrolls sideways when the hazards outnumber the screen; the food column stays. */
+.gridScroll {
+  overflow-x: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+}
+
+.grid {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+
+.foodHead,
+.colHead {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.foodHead,
+.foodCell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--card-bg);
+}
+
+.foodCell {
+  text-align: left;
+  font-weight: 700;
+  padding: 4px 12px 4px 14px;
+  border-top: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+
+.td {
+  padding: 3px;
+  border-top: 1px solid var(--border-soft);
+  min-width: 96px;
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 10px 4px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cellEmpty {
+  background: none;
+  color: var(--text-muted);
+}
+
+.cellSelected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.cellMain {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cellSub {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.more {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: var(--border-soft);
+  border-radius: var(--radius-pill);
+  padding: 1px 7px;
+}
+
+/* --- An opened cell ------------------------------------------------------ */
+
+.entryCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 12px 18px;
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+}
+
+.entryHead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.entryWords {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.sourceBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--border);
+}
+
+.reviewRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.reviewBtn {
+  min-height: var(--tap-target);
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reviewBtn[aria-pressed='true'] {
+  border-color: transparent;
+}
+
+.groundLine {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 36px;
+  padding: 2px 10px 2px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  font-size: 14px;
+}
+
+.groundAmount {
+  font-weight: 700;
+}
+
+.history summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-muted);
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.historyLine {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.historyWhen {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.ownVerdict {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.reasoning {
+  min-height: 72px;
+  resize: vertical;
+}
+
+/* --- Forms: the new table, the hazard editor ------------------------------ */
+
+.form {
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.formButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.addRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.addRow input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* --- The hazard map ---------------------------------------------------- */
+
+.map {
+  gap: 2px;
+}
+
+.mapLine {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  padding: 4px 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mapLine:hover,
+.mapLineOpen {
+  background: var(--bg);
+}
+
+.mapName {
+  font-weight: 700;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 10px 14px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg);
+  border-radius: var(--radius-md);
+}

@@ -3,6 +3,10 @@
  * formatting (incl. the public $••• mask), month tallies, subscription
  * ordering/renewal urgency, the spending-breakdown aggregation (month bars +
  * income gauge), and the tax set-aside math.
+ *
+ * A refund is an expense with a negative amount in its spending category
+ * (routes/money.py import_csv stores it that way), so every tally here nets it
+ * off that category's spending; bar widths are floored at zero.
  */
 import type { Budget, BudgetCategory, Expense, Subscription, TaxSetasideEntry } from './types';
 
@@ -11,13 +15,15 @@ import type { Budget, BudgetCategory, Expense, Subscription, TaxSetasideEntry } 
  * bars/percentages. (money.js _m) */
 export function formatMoney(n: unknown, masked: boolean): string {
   if (masked) return '$•••';
-  return '$' + (Number(n) || 0).toFixed(2);
+  return dollars(n);
 }
 
 /** Plain, never-masked dollar figure — the auth-only Budget setup / Set Aside
  * cards printed raw values even in the old page. */
 export function dollars(n: unknown): string {
-  return '$' + (Number(n) || 0).toFixed(2);
+  const value = Number(n) || 0;
+  // A refund (negative) reads "−$16.53", with the minus ahead of the dollar sign.
+  return (value < 0 ? '−$' : '$') + Math.abs(value).toFixed(2);
 }
 
 /** YYYY-MM for `now` (money.js _thisMonthKey). */
@@ -68,7 +74,7 @@ export function thisMonthSummary(budget: Budget, monthExpenses: Expense[]): This
     const p = c.planned || 0;
     totalSpent += s;
     totalPlanned += p;
-    const pct = p > 0 ? Math.min(100, (s / p) * 100) : 0;
+    const pct = p > 0 ? Math.max(0, Math.min(100, (s / p) * 100)) : 0;
     const over = p > 0 && s > p;
     const barColor = over ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : 'var(--green)';
     return { name: c.name, spent: s, planned: p, pct, over, barColor };
@@ -183,12 +189,12 @@ export function monthBars(items: Expense[]): MonthBar[] {
   const tally = spentByCategory(items);
   const sorted = Object.entries(tally).sort((a, b) => b[1] - a[1]);
   const total = sorted.reduce((s, [, v]) => s + v, 0);
-  const max = sorted[0]?.[1] || 1;
+  const max = Math.max(sorted[0]?.[1] || 0, 1);
   return sorted.map(([category, amount]) => ({
     category,
     amount,
-    pct: (amount / max) * 100,
-    sharePct: total > 0 ? (amount / total) * 100 : 0,
+    pct: Math.max(0, (amount / max) * 100),
+    sharePct: total > 0 ? Math.max(0, (amount / total) * 100) : 0,
     color: breakdownColorFor(category),
   }));
 }
@@ -223,7 +229,7 @@ export function incomeGauge(monthItems: Expense[]): IncomeGauge {
   const tally = spentByCategory(spendingItems);
   const sortedCats = Object.entries(tally).sort((a, b) => b[1] - a[1]);
   const denom = Math.max(income, spent, 1);
-  const segments = sortedCats.map(([category, amount]) => ({
+  const segments = sortedCats.filter(([, amount]) => amount > 0).map(([category, amount]) => ({
     category,
     amount,
     pct: (amount / denom) * 100,
@@ -243,6 +249,83 @@ export function incomeGauge(monthItems: Expense[]): IncomeGauge {
     incomeMarkerPct,
     empty: income === 0 && spent === 0,
   };
+}
+
+/** Where one expense sits in the month's split: a one-time thing wins over
+ * its category; otherwise the category's kind (a "Not recurring" category
+ * lands with the one-time things); otherwise not sorted yet. */
+export type SpendingKind = 'recurring' | 'cut_back' | 'one_time' | 'unsorted';
+
+export function spendingKindOf(e: Expense, kindByCategory: Record<string, string>): SpendingKind {
+  if (e.one_time) return 'one_time';
+  const kind = kindByCategory[e.category || ''];
+  return kind === 'recurring' || kind === 'cut_back' || kind === 'one_time' ? kind : 'unsorted';
+}
+
+export const SPENDING_KIND_LABELS: Record<SpendingKind, string> = {
+  recurring: 'Recurring',
+  cut_back: 'Can cut back',
+  one_time: 'Not recurring',
+  unsorted: 'Not sorted',
+};
+
+export interface KindShare {
+  kind: SpendingKind;
+  label: string;
+  amount: number;
+  /** Share of the month's spending, 0–100. */
+  pct: number;
+}
+
+/** The month's spending split by kind — recurring needs, things she could cut
+ * back on, one-time purchases, and whatever isn't sorted yet — in that fixed
+ * order, skipping empty ones. Refunds net out inside their kind; a kind that
+ * nets to zero or below is left out.
+ * Prompt: "i want to know it was a 'one time purchase' vs. something that is
+ * recurring. vs. coffee which is something i can cut back on". */
+export function monthKindSplit(spendingItems: Expense[], categories: BudgetCategory[]): KindShare[] {
+  const kindByCategory = kindsByName(categories);
+  const totals: Record<SpendingKind, number> = { recurring: 0, cut_back: 0, one_time: 0, unsorted: 0 };
+  spendingItems.forEach((e) => {
+    totals[spendingKindOf(e, kindByCategory)] += e.amount || 0;
+  });
+  const order: SpendingKind[] = ['recurring', 'cut_back', 'one_time', 'unsorted'];
+  const positive = order.filter((k) => totals[k] > 0);
+  const sum = positive.reduce((s, k) => s + totals[k], 0);
+  return positive.map((kind) => ({
+    kind,
+    label: SPENDING_KIND_LABELS[kind],
+    amount: totals[kind],
+    pct: sum > 0 ? (totals[kind] / sum) * 100 : 0,
+  }));
+}
+
+/** Each category's kind by name, for spendingKindOf. */
+function kindsByName(categories: BudgetCategory[]): Record<string, string> {
+  const kindByCategory: Record<string, string> = {};
+  categories.forEach((c) => {
+    if (c.kind) kindByCategory[c.name] = c.kind;
+  });
+  return kindByCategory;
+}
+
+/** Split expenses into what counts toward the monthly totals and what's left
+ * out: spending that won't come back (one-time things, and categories marked
+ * "Not recurring"). Income and refunds of recurring spending always count.
+ * Prompt: "hide certain things from the monthly total like household items or
+ * therapy that will not be recurring". */
+export function leaveOutNotRecurring(
+  expenses: Expense[],
+  categories: BudgetCategory[],
+): { counted: Expense[]; leftOut: Expense[] } {
+  const kindByCategory = kindsByName(categories);
+  const counted: Expense[] = [];
+  const leftOut: Expense[] = [];
+  expenses.forEach((e) => {
+    const out = isSpendingExpense(e) && spendingKindOf(e, kindByCategory) === 'one_time';
+    (out ? leftOut : counted).push(e);
+  });
+  return { counted, leftOut };
 }
 
 export interface MonthGroup {

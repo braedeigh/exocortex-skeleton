@@ -7,22 +7,60 @@
  * can't drift apart.
  *
  * Event shapes handled (everything else is ignored on purpose):
- * - {type:'user', text, off_record?}           her message (history only —
+ * - {type:'user', text, off_record?, arrived?} her message (history only —
  *                                              the live sender pushes it
  *                                              locally via userTurn()).
  *                                              off_record: said with the
  *                                              journal paused — shown here
  *                                              like anything else she said,
- *                                              just dashed
+ *                                              just dashed. arrived: one that
+ *                                              waited in the mailbox says
+ *                                              where it landed
  * - {type:'decision', decision, command}       a gated command she approved or
  *                                              denied — shown with the command
+ * - {type:'reminder', text, source}            a Coming up reminder the app
+ *                                              sent at its set time — shown as
+ *                                              System, never as her words;
+ *                                              source = who set it (manual =
+ *                                              her, keeper = a Keeper). One
+ *                                              with source 'helper-wake' is the
+ *                                              app waking a helper because its
+ *                                              room changed: it and the reply
+ *                                              stay hidden unless the helper
+ *                                              says something (see `silent`)
+ * - {type:'peer', direction, id, from_conv,     a message between two agents —
+ *    from_title, to_conv, to_title, text,       'out' in the sender's chat, 'in'
+ *    mode, status, held_reason}                 in the recipient's; drawn as a
+ *                                              colored card
+ * - {type:'questions', questions, ts}         a set of questions the agent
+ *                                              filed for her
+ *                                              (request_input.py) — drawn as
+ *                                              an orange block where it was
+ *                                              asked, kept after she answers
+ * - {type:'questions-withdrawn', questions,    the agent took its open set
+ *    source, ts}                                down because her answer reached
+ *                                              it by another route
+ *                                              (request_input.py --answered) —
+ *                                              marks the block above it
+ *                                              answered elsewhere
+ * - {type:'peer-status', id, status}           a held agent message she let
+ *                                              through — updates its card
+ * - {type:'context-loaded', text}               the app handed the agent her
+ *                                              journal cards about a person or
+ *                                              thread she just named
+ *                                              (tools/mention_context.py) —
+ *                                              a small grey line saying whose
  * - {type:'off-record-gap'}                    a cue the app fired for her (a
  *                                              red card's resume nudge), plus
  *                                              every off-record turn logged
  *                                              before her words started being
  *                                              kept — still rendered as a hole
  * - {type:'stream_event', event}               token deltas / tool activity
- * - {type:'assistant', message}                authoritative message text
+ * - {type:'assistant', message}                authoritative message text;
+ *                                              with `swarm_closed` (a swarm's
+ *                                              number) it is the line a room
+ *                                              helper's chat gets when a
+ *                                              swarm closes
  * - {type:'user', message}                     claude's tool-result echo — not
  *                                              her; ignored
  * - {type:'result'} / {type:'done'}            turn closes
@@ -31,13 +69,29 @@
  *                                              the journal — matched by text
  * - {type:'journal-highlight', turn,start,end} a span she highlighted into the
  *                                              journal — matched by turn index
+ * - {type:'journal-restore', user}             an off-the-record message she
+ *                                              put back in the journal — matched
+ *                                              by its place among her messages
  */
 
+import type { Arrival } from './queuedMessages';
+
 export interface Turn {
-  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision';
+  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision' | 'reminder' | 'peer' | 'questions' | 'context';
   /** user/error: the text. assistant: committed markdown (authoritative).
-   * decision: the exact command she approved/denied. */
+   * decision: the exact command she approved/denied. reminder: what it says. */
   text: string;
+  /** reminder only: who set it — 'manual' (her), 'keeper', 'job' (a
+   * background job reporting back — scripts/run_detached.py), 'watch' (a
+   * helper's watch that fired — watches.py), 'wake' (the app waking a helper
+   * because its room changed — helper_chat.py) or 'linear' (what someone else
+   * did in Linear, handed to the Linear helper — linear_feed.py). */
+  source?: 'manual' | 'keeper' | 'job' | 'watch' | 'wake' | 'linear';
+  /** A helper's wake-up it had nothing to say to: set on the wake reminder and
+   * on the reply after it, and cleared on both the moment the reply holds
+   * anything but HELPER_SILENT. The page leaves a silent turn out. The turn
+   * stays in the array, because journal highlights address turns by index. */
+  silent?: boolean;
   /** assistant only: in-flight delta text not yet confirmed by a message. */
   buffer: string;
   /** assistant only: still streaming. */
@@ -45,18 +99,53 @@ export interface Turn {
   /** user only: sent with the journal paused — kept in the chat log and
    * rendered dashed, but never minted into the journal. */
   offRecord: boolean;
+  /** user only: a message that waited in the mailbox, and where it landed
+   * (read mid-turn after step N, sent now, or started the next turn). */
+  arrived?: Arrival;
   /** assistant only: current tool activity label ("reading files…"). */
   tool: string | null;
   /** assistant only: this reply was tapped into the journal (K card). */
   journaled: boolean;
   /** decision only: which way she called the gated command. */
   decision?: 'approve' | 'deny';
+  /** questions only: the set the agent filed, in its order. */
+  questions?: string[];
+  /** questions only: the agent withdrew this set because her answer reached it
+   * by another route — this is where it said her answer came from. */
+  answeredElsewhere?: string;
+  /** peer only: the agent message this card draws. */
+  peer?: PeerMessage;
   /** Spans of this turn she highlighted into the journal. Offsets are into the
    * turn's RENDERED text (what `textContent` reads), not its markdown source —
    * the selection that made them was a DOM selection, and re-lighting them is a
    * DOM walk (highlightMarks.ts). `quote` is what recovers the span when the
    * offsets drift; `card` is the journal card it minted. */
   highlights?: Highlight[];
+  /** assistant only: the swarms this reply says closed (a room helper's chat
+   * gets one line per closing — swarm_helper.py `_tell_room`). The page puts
+   * a button under the reply for each, which opens that closing's whole
+   * summary (SwarmClosingFold.tsx). */
+  closedSwarms?: ClosedSwarm[];
+}
+
+/** One swarm closing a reply announces: which swarm, and when the line was
+ * written — the same moment its closing was kept, which is how the fold picks
+ * the right one for a swarm that closed more than once. */
+export interface ClosedSwarm {
+  swarmId: number;
+  at: string;
+}
+
+/** A message between two agents (peermail.py), as its card needs it. */
+export interface PeerMessage {
+  id: number;
+  /** 'out' = this session sent it; 'in' = this session received it. */
+  direction: 'in' | 'out';
+  otherConv: string;
+  otherTitle: string;
+  mode: 'inject' | 'queue' | 'interrupt';
+  status: 'waiting' | 'held' | 'delivered' | 'cancelled';
+  heldReason: string;
 }
 
 export interface Highlight {
@@ -66,8 +155,19 @@ export interface Highlight {
   card: string;
 }
 
+/** What a helper replies, alone, when the app woke it and it has nothing to
+ * say — the same words as helper_chat.SILENT. */
+export const HELPER_SILENT = '(nothing to say)';
+
 function turn(role: Turn['role'], text = ''): Turn {
   return { role, text, buffer: '', open: false, offRecord: false, tool: null, journaled: false };
+}
+
+function arrivalOf(raw: unknown): Arrival | undefined {
+  const a = raw as { how?: unknown; after_step?: unknown } | null;
+  if (!a || typeof a !== 'object') return undefined;
+  if (a.how !== 'injected' && a.how !== 'interrupt' && a.how !== 'next-turn') return undefined;
+  return typeof a.after_step === 'number' ? { how: a.how, after_step: a.after_step } : { how: a.how };
 }
 
 export function userTurn(text: string, offRecord: boolean): Turn {
@@ -80,7 +180,9 @@ export function assistantText(t: Turn): string {
   return t.buffer ? (t.text ? `${t.text}\n\n${t.buffer}` : t.buffer) : t.text;
 }
 
-function messageText(message: unknown): string {
+/** The words in a message: its text blocks, joined as paragraphs. `joiner` ''
+ * gives them run together instead, which is how the deltas carried them. */
+function messageText(message: unknown, joiner = '\n\n'): string {
   const content = (message as { content?: unknown })?.content;
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -90,7 +192,7 @@ function messageText(message: unknown): string {
       (b as { type?: unknown }).type === 'text' &&
       typeof (b as { text?: unknown }).text === 'string')
     .map((b) => b.text)
-    .join('\n\n');
+    .join(joiner);
 }
 
 /** Friendly label for a tool_use block — presence, not a debug trace. */
@@ -106,9 +208,40 @@ function toolLabel(name: unknown): string {
 function openAssistant(turns: Turn[]): Turn {
   const last = turns[turns.length - 1];
   if (last && last.role === 'assistant' && last.open) return last;
-  const fresh = { ...turn('assistant'), open: true };
+  const fresh: Turn = { ...turn('assistant'), open: true };
+  // A reply to a wake-up starts hidden, and stays so until it says something.
+  if (wakeBefore(turns, turns.length)) fresh.silent = true;
   turns.push(fresh);
   return fresh;
+}
+
+/** The wake reminder this place in the chat answers, if it answers one: the
+ * reminder above it, when that is a wake-up and nothing but this same turn
+ * lies between. A turn can hold several replies with agent-message cards
+ * between them, so those cards and a reply still open are stepped over; a
+ * reply already closed belongs to an earlier turn, and ends the search. */
+function wakeBefore(turns: Turn[], index: number): Turn | null {
+  for (let i = index - 1; i >= 0; i--) {
+    const t = turns[i];
+    if (t.role === 'reminder') return t.source === 'wake' ? t : null;
+    if (t.role !== 'peer' && !(t.role === 'assistant' && t.open)) return null;
+  }
+  return null;
+}
+
+/** Show a wake-up's reply once it says something. While its text could still
+ * become HELPER_SILENT (it's empty, or the start of those words) it stays
+ * hidden; the first other word reveals it and the wake reminder above it.
+ * `closing`: the turn is over, so a half-written HELPER_SILENT counts as words. */
+function revealIfSaid(turns: Turn[], closing = false): void {
+  const index = turns.length - 1;
+  const t = turns[index];
+  if (!t || t.role !== 'assistant' || !t.silent) return;
+  const said = assistantText(t).trim();
+  if (closing ? said === '' || said === HELPER_SILENT : HELPER_SILENT.startsWith(said)) return;
+  t.silent = false;
+  const wake = wakeBefore(turns, index);
+  if (wake) wake.silent = false;
 }
 
 /**
@@ -126,13 +259,21 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       if (typeof e.text === 'string') {
         // History replay carries the off-record flag through, so a reload
         // shows the same dashed message the live send put on screen.
-        turns.push(userTurn(e.text, e.off_record === true));
+        const t = userTurn(e.text, e.off_record === true);
+        const arrived = arrivalOf(e.arrived);
+        if (arrived) t.arrived = arrived;
+        turns.push(t);
       }
       // {type:'user', message} is claude echoing a tool result — ignored
       return turns;
     }
     case 'off-record-gap':
       turns.push(turn('gap'));
+      return turns;
+    case 'context-loaded':
+      // The app loaded journal context for a name she mentioned. A line of its
+      // own, so she can see what the agent was handed beyond her words.
+      turns.push(turn('context', typeof e.text === 'string' ? e.text : ''));
       return turns;
     case 'decision': {
       // She tapped Approve/Deny on a gated command. Off the record (never
@@ -141,6 +282,84 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       const t = turn('decision', typeof e.command === 'string' ? e.command : '');
       t.decision = e.decision === 'deny' ? 'deny' : 'approve';
       turns.push(t);
+      return turns;
+    }
+    case 'reminder': {
+      // A reminder the app sent into the chat at its set time. Its own turn
+      // kind so it's drawn as System — the keeper's reply follows as usual.
+      const t = turn('reminder', typeof e.text === 'string' ? e.text : '');
+      t.source = e.source === 'keeper' ? 'keeper'
+        : e.source === 'run_detached' ? 'job'
+        : e.source === 'helper-watch' ? 'watch'
+        : e.source === 'linear-feed' ? 'linear'
+        : e.source === 'helper-wake' ? 'wake' : 'manual';
+      // A wake-up is hidden until the helper answers it with something to say.
+      if (t.source === 'wake') t.silent = true;
+      turns.push(t);
+      return turns;
+    }
+    case 'peer': {
+      // A message between two agents. Its own card, colored, so she can see
+      // what her agents say to each other without it reading as her words or
+      // the agent's reply.
+      const out = e.direction === 'out';
+      const t = turn('peer', typeof e.text === 'string' ? e.text : '');
+      const mode = e.mode === 'queue' || e.mode === 'interrupt' ? e.mode : 'inject';
+      const status =
+        e.status === 'held' || e.status === 'delivered' || e.status === 'cancelled' ? e.status : 'waiting';
+      t.peer = {
+        id: typeof e.id === 'number' ? e.id : -1,
+        direction: out ? 'out' : 'in',
+        otherConv: String((out ? e.to_conv : e.from_conv) ?? ''),
+        otherTitle: String((out ? e.to_title : e.from_title) ?? ''),
+        mode,
+        // Arriving is delivery, whatever the row said when it was written.
+        status: out ? status : 'delivered',
+        heldReason: typeof e.held_reason === 'string' ? e.held_reason : '',
+      };
+      turns.push(t);
+      return turns;
+    }
+    case 'questions': {
+      // The agent filed questions for her. The block lands where it was asked,
+      // so the reply it interrupted is closed first: the words it writes after
+      // filing open a fresh reply below the block, and the reply above doesn't
+      // sit there showing "running a command…" forever (only the LAST turn is
+      // closed when the turn ends).
+      const list = Array.isArray(e.questions)
+        ? e.questions.filter((q): q is string => typeof q === 'string' && q.trim() !== '')
+        : [];
+      if (list.length === 0) return turns;
+      const last = turns[turns.length - 1];
+      if (last && last.role === 'assistant') {
+        last.open = false;
+        last.tool = null;
+      }
+      const t = turn('questions');
+      t.questions = list;
+      turns.push(t);
+      return turns;
+    }
+    case 'questions-withdrawn': {
+      // The agent took its open questions down because her answer came by
+      // another route. No new block: the newest set in the chat is the one
+      // that was open, so it's marked answered elsewhere, with the source the
+      // agent gave. A line with no source still settles the block.
+      for (let i = turns.length - 1; i >= 0; i--) {
+        if (turns[i].role !== 'questions') continue;
+        turns[i].answeredElsewhere =
+          typeof e.source === 'string' && e.source.trim() ? e.source.trim() : 'another route';
+        break;
+      }
+      return turns;
+    }
+    case 'peer-status': {
+      // A held message she released — update the card it belongs to.
+      for (const t of turns) {
+        if (t.peer && t.peer.id === e.id && t.peer.direction === 'out') {
+          t.peer = { ...t.peer, status: 'waiting', heldReason: '' };
+        }
+      }
       return turns;
     }
     case 'stream_event': {
@@ -152,6 +371,7 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
           const t = openAssistant(turns);
           t.buffer += delta.text;
           t.tool = null;
+          revealIfSaid(turns);
         }
       } else if (ev.type === 'content_block_start') {
         const block = ev.content_block as { type?: string; name?: string } | undefined;
@@ -163,15 +383,52 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
     }
     case 'assistant': {
       const t = openAssistant(turns);
-      // Fold what the deltas already put on screen, not the authoritative
-      // message text: a multi-block message joins its blocks with '\n\n'
-      // that the deltas never carried, and that reshaping shifts every
-      // later character offset — remounting the word flow's spans mid-cool
-      // (a cooled word suddenly flashes ember again). History replay logs
-      // no deltas, so buffer is empty there and the message text is used.
-      const text = t.buffer || messageText(e.message);
-      t.buffer = '';
+      // Settle the typed preview against the finished message. The message is
+      // the truth about WHAT was said; the preview (the delta buffer) is only
+      // kept where it says the same thing, because swapping one for the other
+      // reshapes the text and remounts the word flow's spans mid-cool (a
+      // cooled word suddenly flashes ember again).
+      //
+      // The preview and the message travel in two separate files
+      // (routes/observatory.py `_stream_events`), so the preview can be short
+      // of the message, or ahead of it, when the message lands:
+      //   - no words in the message (a tool call, a thought): nothing to
+      //     settle — whatever is typed stays typed, for the message it belongs to
+      //   - preview is the START of the message: its tail hadn't arrived —
+      //     take the message, which only adds to what's on screen
+      //   - preview runs PAST the message: the extra is the next message
+      //     already typing — settle this one, keep the rest typing
+      //   - preview is the message's blocks run together: same words, and the
+      //     message's '\n\n' joins would shift every later offset — keep the
+      //     preview
+      //   - anything else: the preview is damaged; the message replaces it
+      // History replay logs no deltas, so the buffer is empty there and the
+      // message text is used.
+      // Prompt: "The LLM responses keep getting cut off before they're done
+      // and sometimes send duplications."
+      const said = messageText(e.message);
+      let text = '';
+      if (said) {
+        if (t.buffer.startsWith(said)) {
+          text = said;
+          t.buffer = t.buffer.slice(said.length);
+        } else {
+          text = t.buffer !== '' && t.buffer === messageText(e.message, '') ? t.buffer : said;
+          t.buffer = '';
+        }
+      }
       if (text) t.text = t.text ? `${t.text}\n\n${text}` : text;
+      // Note which swarm this line says closed. It stays part of the reply it
+      // lands in rather than becoming a turn of its own: journal highlights
+      // address turns by index, and a new turn here would shift every one
+      // after it. A fresh array each time, so the memoized Reply sees it.
+      if (typeof e.swarm_closed === 'number') {
+        t.closedSwarms = [
+          ...(t.closedSwarms ?? []),
+          { swarmId: e.swarm_closed, at: typeof e.timestamp === 'string' ? e.timestamp : '' },
+        ];
+      }
+      revealIfSaid(turns);
       return turns;
     }
     case 'result':
@@ -180,6 +437,7 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       if (last && last.role === 'assistant') {
         last.open = false;
         last.tool = null;
+        revealIfSaid(turns, true);
       }
       return turns;
     }
@@ -227,9 +485,42 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       ];
       return turns;
     }
+    case 'journal-restore': {
+      // An off-the-record message she put back in the journal. It stops
+      // showing as off the record. Addressed by its place among HER messages
+      // (the server counts the same lines), so it survives turns of other
+      // kinds being added around it.
+      if (typeof e.user !== 'number') return turns;
+      const i = userTurnIndex(turns, e.user);
+      if (i !== -1) turns[i].offRecord = false;
+      return turns;
+    }
     default:
       return turns;
   }
+}
+
+/** Where the nth message of hers sits among the turns (n counts from 0), or
+ * -1. The inverse of userOrdinal. */
+export function userTurnIndex(turns: Turn[], ordinal: number): number {
+  let seen = 0;
+  for (let i = 0; i < turns.length; i++) {
+    if (turns[i].role !== 'user') continue;
+    if (seen === ordinal) return i;
+    seen++;
+  }
+  return -1;
+}
+
+/** A message's place among her messages: how many of hers come before the
+ * turn at `index`. This is how the server is told which message she means —
+ * its log has no turn indices, but it has the same messages in the same order. */
+export function userOrdinal(turns: Turn[], index: number): number {
+  let before = 0;
+  for (let i = 0; i < index && i < turns.length; i++) {
+    if (turns[i].role === 'user') before++;
+  }
+  return before;
 }
 
 /** Index of the last user turn, or -1 if she's never sent one. The open-at-
@@ -243,6 +534,55 @@ export function lastUserTurnIndex(turns: Turn[]): number {
   return -1;
 }
 
+/** Where a filed question set stands, read off what came after it in the chat:
+ * 'elsewhere' when the agent withdrew it because her answer reached it by
+ * another route, 'answered' once she's sent a message since, 'replaced' when
+ * the agent filed a newer set before she did (filing replaces, never appends),
+ * else 'open'. Her message wins over a later filing — it's what the set was
+ * answered by. */
+export type QuestionsState = 'open' | 'answered' | 'elsewhere' | 'replaced';
+
+export function questionsState(turns: Turn[], index: number): QuestionsState {
+  if (turns[index]?.answeredElsewhere) return 'elsewhere';
+  for (let i = index + 1; i < turns.length; i++) {
+    if (turns[i].role === 'user') return 'answered';
+    if (turns[i].role === 'questions') return 'replaced';
+  }
+  return 'open';
+}
+
+/** The one question set still waiting on her, and where it sits in the chat.
+ * `turnIndex` is its place among the turns; null means the transcript has no
+ * line for it (a set filed before sets were logged), so its place is the end
+ * of the chat. `key` names this exact set, so a remembered "she floated it"
+ * stops applying the moment the set is answered or replaced. */
+export interface OpenQuestionSet {
+  questions: string[];
+  turnIndex: number | null;
+  key: string;
+}
+
+/** Find the question set still waiting on her, if there is one. Only the
+ * newest set in the chat can be open (a later one replaces it), so that is the
+ * one checked. Failing that, the roster's open set (`rosterQuestions`) counts
+ * when the transcript holds no copy of it. A copy that is already settled
+ * means she just answered and the roster poll hasn't caught up, so nothing is
+ * open. */
+export function openQuestionSet(turns: Turn[], rosterQuestions: string[]): OpenQuestionSet | null {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const questions = turns[i].questions;
+    if (turns[i].role !== 'questions' || !questions) continue;
+    if (questionsState(turns, i) === 'open') {
+      return { questions, turnIndex: i, key: `${i}:${questions.join('\n')}` };
+    }
+    break;
+  }
+  if (rosterQuestions.length === 0) return null;
+  const joined = rosterQuestions.join('\n');
+  if (turns.some((t) => t.role === 'questions' && (t.questions ?? []).join('\n') === joined)) return null;
+  return { questions: rosterQuestions, turnIndex: null, key: `end:${joined}` };
+}
+
 /** Reduce a full history into turns (conversation GET). */
 export function turnsFromHistory(events: unknown[]): Turn[] {
   const turns: Turn[] = [];
@@ -253,6 +593,7 @@ export function turnsFromHistory(events: unknown[]): Turn[] {
   if (last && last.role === 'assistant') {
     last.open = false;
     last.tool = null;
+    revealIfSaid(turns, true);
   }
   return turns;
 }

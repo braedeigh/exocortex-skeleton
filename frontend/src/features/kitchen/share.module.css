@@ -1,0 +1,166 @@
+/* Shared recipe pages (SharedRecipePages.tsx): a visitor's view, drawn
+   without the app's shell, so the page scrolls itself and centres a column. */
+
+.page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.column {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px 16px 48px;
+}
+
+.kicker {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 4px;
+}
+
+.title {
+  font-size: 26px;
+  margin: 0 0 6px;
+}
+
+.meta {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0 0 16px;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-card);
+  margin-bottom: 16px;
+}
+
+.cardTitle {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 10px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.input,
+.select {
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+}
+
+.input {
+  width: 90px;
+}
+
+.wide {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.toggle {
+  min-height: 40px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggleOn {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.note {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 8px 0 0;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.listItem {
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 15px;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 22px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.steps li {
+  margin-bottom: 8px;
+}
+
+.recipeLink {
+  display: block;
+  min-height: 40px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.recipeName {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.recipeLine {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.warn {
+  color: var(--orange);
+  font-weight: 600;
+}
+
+.moreBtn {
+  min-height: 40px;
+  padding: 8px 14px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+}

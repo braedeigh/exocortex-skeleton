@@ -1,0 +1,440 @@
+/**
+ * FoodPage.tsx — a page per food in the Food area: where does it come from,
+ * should I buy it organic, and what do my studies say?
+ *
+ * What this file does: two pages. FoodPage (/food/foods/<name>) is one
+ * food's profile: where it comes from (a small pan-and-zoom map of every
+ * source linked to the food or one of its products, then each source with its
+ * honest labels and where that information came from, then the machine's
+ * suggested sources, marked not approved by her), the pesticide residues
+ * card computed from USDA samples (features/exposure/ExposureCard.tsx), the
+ * research verdict with
+ * its reasoning, Claude's estimate with its qualifiers, the contaminants it
+ * names, and her confirm/dispute; then every claim and measurement her
+ * research tables hold about the food, each linking to the claim on the Claims
+ * page and out to the original studies. FoodsIndex (/food/foods) lists every
+ * food in the catalog with what's known, known ones first, narrowed by the
+ * Food search box (features/ecosystem/foodSearch.ts — a food's name, or a
+ * recipe's name bringing its foods). Both wear the Food area's search box and
+ * row of doors (features/ecosystem/FoodNav.tsx). The grocery list's
+ * popup (features/kitchen/OrganicVerdict.tsx) opens FoodPage; the old
+ * /research/foods addresses redirect here.
+ *
+ * Server: routes/food.py (GET /api/food/page — its `sources` come from
+ * sourcestore.for_food —, /api/food/pages, POST
+ * /api/food/estimates/<id>/review) → estimatestore.py. Shapes live in the
+ * kitchen feature's types.ts, since the grocery list reads the same rows;
+ * the page's `proposals` are typed in features/ecosystem/proposals.ts.
+ *
+ * Prompt that produced this file: "I want for every food item to have its own
+ * page on the research section that the popup ports into." The sources card:
+ * "i want to be able to identify where foods are from and create profiles of
+ * any food."
+ */
+
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
+import { Suspense, lazy, useMemo } from 'react';
+import { getFoodIndex, getFoodPage, reviewEstimate } from '../kitchen/api';
+import type {
+  EvidenceClaim,
+  EvidenceMeasure,
+  EvidenceSource,
+  FoodPageData,
+  OrganicVerdict,
+  VerdictReview,
+} from '../kitchen/types';
+import { ECO_ORIGIN, geoSourceInfo, metaLabel, originOf, txInfo } from '../ecosystem/axes';
+import { FoodNav } from '../ecosystem/FoodNav';
+import { matchingFoodIds, normalizeQuery, textMatches, useFoodSearch } from '../ecosystem/foodSearch';
+import { useEcosystemData } from '../ecosystem/useEcosystemData';
+import { ProposalList } from '../ecosystem/ProposalList';
+import { ExposureCard } from '../exposure/ExposureCard';
+import { SourcePdf } from '../exposure/SourcePdf';
+import type { EcoProposal } from '../ecosystem/proposals';
+import pageStyles from './ResearchPage.module.css';
+import styles from './FoodPage.module.css';
+import foodAreaStyles from '../ecosystem/FoodArea.module.css';
+
+// The small map loads on demand, so Leaflet stays out of the page's bundle
+// until a food with sources is opened.
+const FoodMiniMap = lazy(() => import('../ecosystem/FoodMiniMap'));
+
+const VERDICT_CLASS: Record<OrganicVerdict, string> = {
+  organic: styles.verdictOrganic,
+  some: styles.verdictSome,
+  conventional: styles.verdictConventional,
+  open: styles.verdictOpen,
+};
+
+const REVIEW_WORDS: Record<VerdictReview, string> = {
+  unreviewed: 'not reviewed yet',
+  confirmed: 'you confirmed this',
+  disputed: 'you disputed this',
+};
+
+// --- one food ------------------------------------------------------------------
+
+export function FoodPage({ name }: { name: string }) {
+  const query = useQuery({ queryKey: ['research', 'food-page', name], queryFn: ({ signal }) => getFoodPage(name, signal) });
+  const page = query.data;
+
+  return (
+    <div className={pageStyles.page}>
+      <div className={pageStyles.pageHead}>
+        <h1 className={pageStyles.pageTitle}>{page?.name ?? name}</h1>
+        <span className={pageStyles.pageSub}>where it comes from · buy organic or not</span>
+      </div>
+      <FoodNav current="food" />
+      {query.isLoading ? (
+        <div className={pageStyles.loading}>Loading&hellip;</div>
+      ) : query.isError || !page ? (
+        <div className={styles.note}>Could not load this food.</div>
+      ) : (
+        <>
+          {!page.food ? <div className={styles.note}>This name isn’t in your food catalog yet, so it has no verdict or guess.</div> : null}
+          <SourcesCard page={page} />
+          <ExposureCard name={name} />
+          <ResearchVerdictCard page={page} />
+          <EstimateCard page={page} />
+          <EvidenceCard page={page} />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Where it comes from: a small map of every source this food (or a product
+ * of it) is linked to, then each source with its honest labels and origin
+ * record, opening on the big map; then the machine's suggested sources, with
+ * a chip to the review list. An untraced food says so and offers the map,
+ * where it can be placed. */
+function SourcesCard({ page }: { page: FoodPageData }) {
+  if (!page.food) return null;
+  const sources = page.sources || [];
+  const proposals = (page as FoodPageData & { proposals?: EcoProposal[] }).proposals ?? [];
+  const foodId = page.food.id;
+  return (
+    <section className={styles.card}>
+      <div className={styles.cardHead}>Where it comes from</div>
+      {sources.length ? (
+        <Suspense fallback={null}>
+          <FoodMiniMap sources={sources} foodId={foodId} />
+        </Suspense>
+      ) : null}
+      {sources.length ? (
+        <ul className={styles.list}>
+          {sources.map((source) => {
+            const tx = txInfo(source);
+            const geo = geoSourceInfo(source);
+            const origin = ECO_ORIGIN[originOf(source)];
+            const products = (source.links || []).filter((l) => l.food_id === foodId && l.product_name);
+            return (
+              <li key={source.id} className={styles.listItem}>
+                <div className={styles.evidenceText}>
+                  <span
+                    style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: tx.color, marginRight: 6 }}
+                  />
+                  <Link to="/food" search={{ source: source.id }} className={styles.sourceLink}>
+                    {source.name}
+                  </Link>
+                </div>
+                <div className={styles.meta}>
+                  {tx.label} · {geo.icon} {geo.label} · {metaLabel(source)}
+                </div>
+                <div className={styles.meta}>
+                  {origin.icon} {origin.label}
+                  {source.origin_date ? ` · looked up ${source.origin_date}` : ''}
+                  {source.origin_detail ? ` — ${source.origin_detail}` : ''}
+                </div>
+                {products.length ? (
+                  <div className={styles.meta}>for {products.map((l) => l.product_name).join(', ')}</div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className={styles.meta}>Not traced yet — no source on the map is linked to this food.</div>
+      )}
+      <Link to="/food" search={{ food: foodId }} className={styles.linkBtn}>
+        {sources.length ? 'Show on the map →' : 'Place it on the map →'}
+      </Link>
+      {proposals.length ? (
+        <>
+          <div className={styles.subHead}>
+            The machine’s suggestions{' '}
+            <Link to="/food/review" search={{ food: foodId }} className={styles.waitingLink}>
+              {proposals.length} waiting →
+            </Link>
+          </div>
+          <ProposalList proposals={proposals} />
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+/** Her research verdict, when there is one — it outranks the guess. */
+function ResearchVerdictCard({ page }: { page: FoodPageData }) {
+  const research = page.research;
+  if (!research) return null;
+  return (
+    <section className={styles.card}>
+      <div className={styles.cardHead}>Your research</div>
+      <div className={`${styles.verdictLine} ${VERDICT_CLASS[research.verdict]}`}>{page.vocab.verdicts[research.verdict]}</div>
+      {research.reasoning ? <p className={styles.summary}>{research.reasoning}</p> : null}
+      <div className={styles.meta}>
+        rests on {research.grounds} measurement{research.grounds === 1 ? '' : 's'} · {REVIEW_WORDS[research.review]}
+      </div>
+      <Link to="/research/tables" search={{ verdict: research.id }} className={styles.linkBtn}>
+        Open the verdict in Tables →
+      </Link>
+    </section>
+  );
+}
+
+/** Claude's estimate in full: why, qualifiers, other contaminants, and her
+ * review. Tapping the mark she already gave takes it back. */
+function EstimateCard({ page }: { page: FoodPageData }) {
+  const queryClient = useQueryClient();
+  const review = useMutation({
+    mutationFn: ({ id, mark }: { id: number; mark: VerdictReview }) => reviewEstimate(id, mark),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['research', 'food-page'] });
+      void queryClient.invalidateQueries({ queryKey: ['kitchen', 'list-verdicts'] });
+    },
+  });
+  const estimate = page.estimate;
+  if (!page.food) return null;
+  if (!estimate) {
+    return (
+      <section className={styles.card}>
+        <div className={styles.cardHead}>Claude’s guess</div>
+        <div className={styles.meta}>Not estimated yet. Add it to the grocery list and tap “Estimate” there.</div>
+      </section>
+    );
+  }
+  const used = estimate.claims.length;
+  return (
+    <section className={styles.card}>
+      <div className={styles.cardHead}>Claude’s guess</div>
+      <div className={`${styles.verdictLine} ${VERDICT_CLASS[estimate.verdict]}`}>
+        ≈ {page.vocab.verdicts[estimate.verdict]}
+        <span className={styles.confidence}> · {estimate.confidence} confidence</span>
+      </div>
+      <p className={styles.summary}>{estimate.summary}</p>
+      {used ? (
+        <div className={styles.meta}>
+          drew on {used} of your claims below
+        </div>
+      ) : null}
+      {estimate.qualifiers.length ? (
+        <div className={styles.qualifiers}>
+          {estimate.qualifiers.map((key) => (
+            <span key={key} className={styles.qualifier}>
+              {page.vocab.qualifiers[key] ?? key}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div className={styles.subHead}>What else gets into it</div>
+      {estimate.contaminants.length ? (
+        <ul className={styles.list}>
+          {estimate.contaminants.map((c) => (
+            <li key={c.name} className={styles.listItem}>
+              <div>
+                <b>{c.name}</b> — {c.known}
+              </div>
+              <div className={styles.meta}>
+                organic helps: {c.organic_helps} · evidence: {c.evidence}
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className={styles.meta}>Nothing beyond pesticide residue is known to be a particular concern here.</div>
+      )}
+      <div className={styles.reviewRow}>
+        <span className={styles.meta}>{REVIEW_WORDS[estimate.review]}</span>
+        {(['confirmed', 'disputed'] as const).map((mark) => (
+          <button
+            key={mark}
+            type="button"
+            className={`${styles.reviewBtn} ${estimate.review === mark ? styles.reviewBtnOn : ''}`}
+            disabled={review.isPending}
+            onClick={() => review.mutate({ id: estimate.id, mark: estimate.review === mark ? 'unreviewed' : mark })}
+          >
+            {mark === 'confirmed' ? 'Confirm' : 'Dispute'}
+          </button>
+        ))}
+      </div>
+      <div className={styles.footnote}>
+        From the model’s general knowledge and the claims below, not from its own measurements. Its confidence is its own rough
+        sense, not a probability.
+      </div>
+    </section>
+  );
+}
+
+/** Every claim and measurement her tables hold about the food, each with its studies. */
+function EvidenceCard({ page }: { page: FoodPageData }) {
+  const usedByGuess = page.estimate?.claims ?? [];
+  return (
+    <section className={styles.card}>
+      <div className={styles.cardHead}>Claims and studies</div>
+      {!page.claims.length && !page.measures.length ? (
+        <>
+          <div className={styles.meta}>Nothing in your research tables about this food yet.</div>
+          <Link to="/research/claims" search={{}} className={styles.linkBtn}>
+            Your claims →
+          </Link>
+        </>
+      ) : (
+        <ul className={styles.list}>
+          {page.claims.map((claim) => (
+            <ClaimRow key={claim.id} claim={claim} name={page.name} used={usedByGuess.includes(claim.id)} />
+          ))}
+          {page.measures.map((measure) => (
+            <MeasureRow key={measure.id} measure={measure} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** One claim: its sentence, its figures (naming a stand-in food), her review,
+ * its studies, and a link to it on the Claims page. */
+function ClaimRow({ claim, name, used }: { claim: EvidenceClaim; name: string; used: boolean }) {
+  const unreviewed = claim.author === 'llm' && !claim.reviewed;
+  return (
+    <li className={styles.listItem}>
+      <div className={styles.evidenceText}>{claim.text}</div>
+      {claim.values.map((value, index) => (
+        <div key={index} className={styles.meta}>
+          {value.measure}
+          {value.amount != null ? ` · ${value.amount} ${value.unit}` : ''}
+          {value.year ? ` · ${value.year}` : ''}
+          {value.subject.toLowerCase() !== name.toLowerCase() ? ` · measured on ${value.subject}` : ''}
+        </div>
+      ))}
+      <div className={styles.meta}>
+        {claim.verdict ? `you marked it ${claim.verdict}` : unreviewed ? 'found by an agent, not reviewed yet' : ''}
+        {used ? <span className={styles.usedTag}>Claude’s guess used this</span> : null}
+      </div>
+      <SourceLinks sources={claim.sources} />
+      <Link to="/research/claims" search={{ claim: claim.id }} className={styles.linkBtn}>
+        Open the claim →
+      </Link>
+    </li>
+  );
+}
+
+function MeasureRow({ measure }: { measure: EvidenceMeasure }) {
+  return (
+    <li className={styles.listItem}>
+      <div className={styles.evidenceText}>
+        {measure.hazard}: {measure.amount} {measure.unit}
+        {measure.year ? ` (${measure.year})` : ''}
+      </div>
+      <div className={styles.meta}>
+        {measure.measured_on ? `measured on ${measure.measured_on} · ` : ''}
+        {REVIEW_WORDS[measure.review]}
+      </div>
+      <SourceLinks sources={measure.sources} />
+    </li>
+  );
+}
+
+/** The studies themselves: each opens the original in a new tab, and one whose
+ * PDF the commons holds opens it here too, at the passage that backs the
+ * number (../exposure/SourcePdf.tsx). A source that argues against the claim
+ * says so. */
+function SourceLinks({ sources }: { sources: EvidenceSource[] }) {
+  if (!sources.length) return <div className={styles.meta}>no study linked</div>;
+  return (
+    <div className={styles.sources}>
+      {sources.map((source) => (
+        <div key={source.id}>
+          {source.url ? (
+            <a href={source.url} target="_blank" rel="noopener noreferrer" className={styles.sourceLink}>
+              {source.stance === 'contradicts' ? 'against: ' : ''}
+              {source.title} ↗
+            </a>
+          ) : (
+            <span className={styles.meta}>{source.title}</span>
+          )}
+          <SourcePdf sourceId={source.id} passage={source.passage} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// --- every food ------------------------------------------------------------------
+
+/** Every food in the catalog, known ones first, with a filter box. */
+export function FoodsIndex() {
+  const query = useQuery({ queryKey: ['research', 'food-index'], queryFn: ({ signal }) => getFoodIndex(signal) });
+  // Narrow the list to the Food search's words: a food's own name, or any
+  // food in a recipe whose name matches (read off the map's data).
+  const [areaSearch] = useFoodSearch();
+  const needle = normalizeQuery(areaSearch);
+  const eco = useEcosystemData();
+  const recipeFoodNames = useMemo(() => {
+    const ids = matchingFoodIds(needle, eco.data?.eco_foods ?? [], eco.data?.eco_recipes ?? []);
+    return new Set((eco.data?.eco_foods ?? []).filter((food) => ids.has(food.id)).map((food) => food.name.toLowerCase()));
+  }, [needle, eco.data]);
+  const allFoods = query.data?.foods ?? [];
+  const foods = allFoods.filter(
+    (food) => !needle || textMatches(needle, food.name) || recipeFoodNames.has(food.name.toLowerCase()),
+  );
+
+  return (
+    <div className={pageStyles.page}>
+      <div className={pageStyles.pageHead}>
+        <h1 className={pageStyles.pageTitle}>Foods</h1>
+        <span className={pageStyles.pageSub}>where it comes from and buy organic or not, food by food</span>
+        <Link to="/research/claims" search={{}} className={pageStyles.pageHeadLink} title="The claims table">
+          &#9776; Claims
+        </Link>
+      </div>
+      <FoodNav current="foods" />
+      {needle ? (
+        <p className={foodAreaStyles.searchNote}>
+          {foods.length ? `${foods.length} of ${allFoods.length} foods match “${areaSearch.trim()}”.` : `No food matches “${areaSearch.trim()}”.`}
+        </p>
+      ) : null}
+      {query.isLoading ? (
+        <div className={pageStyles.loading}>Loading&hellip;</div>
+      ) : query.isError ? (
+        <div className={styles.note}>Could not load your foods.</div>
+      ) : (
+        <ul className={styles.indexList}>
+          {foods.map((food) => {
+            const verdict = food.research ?? food.estimate?.verdict ?? null;
+            return (
+              <li key={food.id}>
+                <Link to="/food/foods/$name" params={{ name: food.name }} className={styles.indexRow}>
+                  <span className={styles.indexName}>{food.name}</span>
+                  {verdict ? (
+                    <span className={`${styles.indexVerdict} ${VERDICT_CLASS[verdict]}`}>
+                      {food.research ? '' : '≈ '}
+                      {query.data!.verdicts[verdict]}
+                    </span>
+                  ) : null}
+                  {food.evidence ? (
+                    <span className={styles.meta}>
+                      {food.evidence} finding{food.evidence === 1 ? '' : 's'}
+                    </span>
+                  ) : null}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}

@@ -16,6 +16,8 @@
  *     `: keepalive` comments) is dropped without ceremony.
  *   - a frame whose JSON won't parse is skipped, not fatal — the next frame
  *     resyncs the stream.
+ *   - when the stream closes, whatever is still carried is the last frame,
+ *     separator or not — flushSseRest parses it so it isn't dropped.
  */
 
 /** Parse everything complete in `buffer`; `rest` is the trailing partial
@@ -37,4 +39,10 @@ export function parseSseChunk(buffer: string): {
     }
   }
   return { events, rest };
+}
+
+/** Parse the carry left over when the stream ends. A server that closes
+ * without a final blank line still meant that last frame. */
+export function flushSseRest(rest: string): Record<string, unknown>[] {
+  return rest.trim() ? parseSseChunk(rest + '\n\n').events : [];
 }

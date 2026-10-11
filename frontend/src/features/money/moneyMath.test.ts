@@ -8,6 +8,8 @@ import {
   drillTransactions,
   expensesInMonth,
   formatMoney,
+  monthKindSplit,
+  leaveOutNotRecurring,
   grandTotals,
   groupByMonth,
   incomeGauge,
@@ -290,5 +292,84 @@ describe('recentExpenses', () => {
     expect(total).toBe(35);
     expect(recent).toHaveLength(30);
     expect(recent[0].date! >= recent[29].date!).toBe(true);
+  });
+});
+
+describe('refunds (negative expenses)', () => {
+  it('prints a refund with the minus ahead of the dollar sign', () => {
+    expect(dollars(-16.53)).toBe('−$16.53');
+    expect(formatMoney(-16.53, false)).toBe('−$16.53');
+  });
+
+  it('nets a refund off its category and never draws a negative bar', () => {
+    const bars = monthBars([
+      { id: '1', date: '2026-07-01', amount: 40, category: 'Recreation', comments: '' },
+      { id: '2', date: '2026-07-02', amount: -10, category: 'Recreation', comments: '' },
+      { id: '3', date: '2026-07-03', amount: -5, category: 'Subscriptions', comments: '' },
+    ] as Expense[]);
+    expect(bars.map((b) => [b.category, b.amount, b.pct >= 0])).toEqual([
+      ['Recreation', 30, true],
+      ['Subscriptions', -5, true],
+    ]);
+  });
+});
+
+describe('monthKindSplit', () => {
+  const categories = [
+    { name: 'Rent', planned: 0, kind: 'recurring' as const },
+    { name: 'Eating Out', planned: 0, kind: 'cut_back' as const },
+    { name: 'Home', planned: 0 },
+  ];
+
+  it('splits spending by kind, a one-time thing winning over its category', () => {
+    const split = monthKindSplit(
+      [
+        { id: '1', amount: 1000, category: 'Rent' },
+        { id: '2', amount: 60, category: 'Eating Out' },
+        { id: '3', amount: 499, category: 'Eating Out', one_time: true },
+        { id: '4', amount: 41, category: 'Home' },
+      ],
+      categories,
+    );
+    expect(split.map((k) => [k.kind, k.amount])).toEqual([
+      ['recurring', 1000],
+      ['cut_back', 60],
+      ['one_time', 499],
+      ['unsorted', 41],
+    ]);
+    expect(split.reduce((s, k) => s + k.pct, 0)).toBeCloseTo(100);
+  });
+
+  it('nets refunds inside their kind and drops a kind that nets to nothing', () => {
+    const split = monthKindSplit(
+      [
+        { id: '1', amount: 30, category: 'Eating Out' },
+        { id: '2', amount: -30, category: 'Eating Out' },
+        { id: '3', amount: 900, category: 'Rent' },
+      ],
+      categories,
+    );
+    expect(split.map((k) => k.kind)).toEqual(['recurring']);
+  });
+});
+
+describe('leaveOutNotRecurring', () => {
+  const categories = [
+    { name: 'Rent', planned: 0, kind: 'recurring' as const },
+    { name: 'Therapy', planned: 0, kind: 'one_time' as const },
+  ];
+
+  it('leaves out one-time things and not-recurring categories, keeping the rest', () => {
+    const { counted, leftOut } = leaveOutNotRecurring(
+      [
+        { id: 'rent', amount: 1000, category: 'Rent' },
+        { id: 'therapy', amount: 150, category: 'Therapy' },
+        { id: 'mattress', amount: 600, category: 'Home', one_time: true },
+        { id: 'pay', amount: 3000, category: 'Income' },
+      ],
+      categories,
+    );
+    expect(counted.map((e) => e.id)).toEqual(['rent', 'pay']);
+    expect(leftOut.map((e) => e.id)).toEqual(['therapy', 'mattress']);
   });
 });

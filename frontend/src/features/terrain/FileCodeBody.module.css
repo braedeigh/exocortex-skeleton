@@ -1,10 +1,9 @@
-/* One file's contents (FileCodeBody), worn by the map's tap-a-file modal, the
-   frosted map window, and the /code page. The code block is the only thing
-   allowed to scroll sideways; nothing around it ever does.
-
-   Lines render one row per line (gutter number + text) instead of a single
-   <pre> blob, so /code?...&lines=140-162 has somewhere to hang a highlight —
-   pattern lifted from workshop/WorkshopPage.module.css's .line/.lineNo. */
+/* The look of one file's contents (FileCodeBody.tsx), worn by the pond's
+   work panel, the file pane beside the map, and the /code page. Top to
+   bottom: path, summary card, size line with the "edits" toggle, the key for
+   the red, then the code block — one row per line — with the syntax colours
+   and the red edit marks. The code block is the only thing allowed to scroll
+   sideways; nothing around it ever does. */
 
 .body {
   display: flex;
@@ -12,16 +11,17 @@
   gap: var(--space-3);
 }
 
-/* Page mode: the body owns the pane's full height so the code block below can
-   take whatever's left over after the summary and meta lines. */
+/* Page mode: the body owns the pane's full height, so the code block below
+   can take whatever is left over after the lines above it. */
 .bodyFill {
   min-height: 0;
   flex: 1;
 }
 
-/* The lines around the code never grow or shrink — in page mode the code block
-   is the only flexible thing in the column, so it always gets the leftover
-   height and always has somewhere to scroll. */
+/* The lines around the code never grow or shrink (the `flex: none` on
+   .path, .meta, .metaRow, .heatKey and .hint). In page mode that leaves the
+   code block as the only flexible thing in the column, so it always gets
+   the leftover height and always has somewhere to scroll. */
 .path {
   flex: none;
   font-size: var(--font-size-md);
@@ -29,6 +29,8 @@
   word-break: break-all;
 }
 
+/* The summary card: the file's own docblock, one paragraph per <p>, on a
+   panel tinted toward the accent. */
 .summary {
   display: flex;
   flex-direction: column;
@@ -52,12 +54,106 @@
   color: var(--text-muted);
 }
 
+/* Size + line count on the left, the red-edits toggle on the right. */
+.metaRow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* The "edits" pill: the red-edits toggle. Built like the heat bar's preset
+   pill (TerrainHeatBar.module.css .preset) and lit the same way when on, but
+   in her red (#f14c4c) rather than the accent. Its dot turns that red too,
+   so the button shows the colour it's about to paint. 40px tall per the
+   house rules. */
+.heatToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.heatToggleOn {
+  border-color: #f14c4c;
+  color: var(--text);
+  background: color-mix(in srgb, #f14c4c 16%, var(--card-bg));
+}
+
+.heatToggleDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.heatToggleOn .heatToggleDot {
+  background: #f14c4c;
+}
+
+/* The "ran" pill, lit: the same pill in the map's gold. */
+.runToggleOn {
+  border-color: #c9a015;
+  color: var(--text);
+  background: color-mix(in srgb, #ffd700 18%, var(--card-bg));
+}
+
+.runToggleOn .heatToggleDot {
+  background: #ffd700;
+  box-shadow: 0 0 0 1px #8f6d10;
+}
+
+/* The key for the red, under the toggle: "now" — the ramp, hot to cold —
+   the window's edge. The ramp's gradient itself is set inline by
+   FileCodeBody.tsx. */
+.heatKey {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.heatKeyRamp {
+  flex: 0 1 160px;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.heatKeyTick {
+  flex: none;
+  min-width: 1.5em;
+}
+
+.heatKeyTick:first-child {
+  text-align: right;
+}
+
+.heatKeyNote {
+  margin-left: var(--space-2);
+}
+
+/* A quiet one-line message: loading, private, binary, truncated. */
 .hint {
   flex: none;
   font-size: var(--font-size-md);
   color: var(--text-muted);
 }
 
+/* The code block: the panel the rows sit in. This is the default frame's
+   version; .codeFill and .codeFlow below change it for page and window mode. */
 .code {
   margin: 0;
   padding: var(--space-2) 0;
@@ -65,8 +161,9 @@
   border: 1px solid var(--border);
   background: var(--code-bg, color-mix(in srgb, var(--text) 6%, var(--card-bg)));
   color: var(--text);
-  /* The one element that may scroll in both directions. Capped so a long
-     file can't push the close button off the top of the modal. */
+  /* The one element that may scroll in both directions. Capped at 55vh, so
+     a long file scrolls inside the block instead of stretching the frame
+     around it. */
   max-height: 55vh;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
@@ -77,9 +174,14 @@
   tab-size: 2;
 }
 
-/* One row per line — number gutter, then the text. white-space lives here
-   (not on .code) because each row needs it, not the scroll container. */
+/* One row per line — number gutter, then the text — rather than one <pre>,
+   so a highlight or an edit mark has a row to land on. The same row pattern
+   as workshop/WorkshopPage.module.css's .line/.lineNo. white-space lives
+   here (not on .code) because each row needs it, not the scroll container.
+   position: relative is what the edit strip (.codeLineEdited::before) pins
+   itself to. */
 .codeLine {
+  position: relative;
   display: flex;
   gap: var(--space-2);
   padding: 0 var(--space-3);
@@ -99,27 +201,172 @@
   min-width: 0;
 }
 
-/* A /code?...&lines= highlighted line — same color-mix idiom as the summary
-   card above and PondView's active-state tints, just against --accent so it
-   reads as "pointed at", not "warning". */
+/* --- syntax roles (syntax.ts) ---------------------------------------------
+
+   Colour each token by its role. Two fixed palettes, one per surface,
+   switched by .codeDark (FileCodeBody sets it from the theme's ink).
+
+   Fixed hexes rather than mixes of the theme's own accent variables,
+   because the lavender sky's page (#aba3b2) is a MID-tone, and a mid-tone
+   hue on it reads at 2–3:1. So on light every role is a deep, saturated
+   hue: measured at or above 4.5:1 on the lavender page, near 10:1 on the
+   paler morning and day pages. On dark every role is a light tint measured
+   above 7:1 on both dark pages. And the hues are spread — purple, green,
+   blue, plum, petrol — with the closest pair on light a ΔE of ~25 and on
+   dark ~19, so no two roles read as one colour. Still no red, orange or
+   gold: the map's edit ramp, the "waiting on you" tint and the run channel
+   own those.
+
+   Roles that share a colour on purpose: tags wear the keyword purple (an
+   HTML/JSX tag IS the structure), properties and attribute names wear the
+   type petrol. Fewer distinct colours, each further from the next.
+
+   Comments (and Python docstrings) are the plain-English layer of this
+   codebase, so they get the secondary text tone and italics: prose sitting
+   inside the code, readable on its own or skippable as a block.
+
+   The ask: "the contrast could be higher, both with the background and with
+   one another". */
+
+.syn_keyword,
+.syn_tag {
+  color: #441692;
+}
+
+.syn_string {
+  color: #083f33;
+}
+
+.syn_comment {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.syn_number {
+  color: #0b2c7c;
+}
+
+.syn_function {
+  color: #64105e;
+}
+
+.syn_type,
+.syn_property {
+  color: #063f57;
+}
+
+.syn_punctuation {
+  color: #3a3540;
+}
+
+.syn_heading {
+  color: #441692;
+  font-weight: 600;
+}
+
+.syn_link {
+  color: #0b2c7c;
+  text-decoration: underline;
+}
+
+.codeDark .syn_keyword,
+.codeDark .syn_tag,
+.codeDark .syn_heading {
+  color: #c9a8ff;
+}
+
+.codeDark .syn_string {
+  color: #7fe0c6;
+}
+
+.codeDark .syn_number,
+.codeDark .syn_link {
+  color: #9db8ff;
+}
+
+.codeDark .syn_function {
+  color: #f0a6e8;
+}
+
+.codeDark .syn_type,
+.codeDark .syn_property {
+  color: #8fe3ff;
+}
+
+.codeDark .syn_punctuation {
+  color: #a89cb8;
+}
+
+/* Mark a line the red-edits toggle has lit. Both marks sit in the gutter,
+   never behind the text: a strip down the row's left edge in the ramp colour
+   (--edit-ink, set inline per line) with its opacity following the heat
+   (--edit-alpha), and the number in the same colour at full strength — a
+   dot's colour, not a muted gutter's. */
+.codeLineEdited::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--edit-ink);
+  opacity: var(--edit-alpha, 1);
+}
+
+.codeLineEdited .codeLineNo {
+  color: var(--edit-ink);
+  opacity: 1;
+}
+
+/* Mark a line the gold-ran toggle has lit. A second strip just inside the
+   red one (the row's left padding is 12px: red takes 0–4, gold 5–9), in the
+   gold ramp colour (--run-ink) with its opacity following the run heat
+   (--run-alpha). The number goes gold only when the red hasn't claimed it.
+   On a light sky the ramp's hot end (#ffd700) is too pale to read as a
+   number, so there the number wears the ramp's deep middle gold instead;
+   the strip still carries the heat. */
+.codeLineRan::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--run-ink);
+  opacity: var(--run-alpha, 1);
+}
+
+.codeLineRan:not(.codeLineEdited) .codeLineNo {
+  color: #8f6d10;
+  opacity: 1;
+}
+
+.codeDark .codeLineRan:not(.codeLineEdited) .codeLineNo {
+  color: var(--run-ink);
+}
+
+/* Light up a highlighted line (/code?...&lines=). A tint mixed from
+   --accent — the same color-mix idiom as the summary card above and
+   PondView's active-state tints — so it reads as "pointed at", not
+   "warning". */
 .codeLineHot {
   background: color-mix(in srgb, var(--accent) 20%, var(--card-bg));
 }
 
-/* Page mode: no 55vh cap — there's no close button above it to protect, so the
-   code takes the rest of the pane and scrolls inside itself. */
+/* Page mode: no 55vh cap. The code takes the rest of the pane (.bodyFill
+   above) and scrolls inside itself. */
 .codeFill {
   flex: 1;
   min-height: 0;
   max-height: none;
 }
 
-/* Window mode (the frosted pane over the map): the code doesn't scroll
-   vertically at all — it flows at its full height into the window's single
+/* Window mode (the file pane beside the map): the code doesn't scroll
+   vertically at all. It flows at its full height into the pane's single
    scroll region, so one file means one scrollbar. Long LINES still need
    somewhere to go, and there's no inheriting that, so overflow-x stays.
-   The block also goes transparent: over frosted glass its own tinted panel
-   read as a second, flatter surface floating inside the first. */
+   The block also goes transparent — background and border — so its own
+   tinted panel doesn't read as a second surface floating inside the pane. */
 .codeFlow {
   max-height: none;
   overflow-x: auto;
@@ -128,4 +375,83 @@
   border-color: transparent;
   padding-left: 0;
   padding-right: 0;
+}
+
+/* The mention strip: how many times this file names the thing she came here
+   for, which one she's on, and an arrow each way.
+
+   Sticky, because stepping to a mention four hundred lines down scrolls the
+   top of the pane away and the arrow has to come with it. `top: 0` is
+   measured against whichever ancestor actually scrolls — the frame's own
+   body in window mode, nothing at all in the other two frames, where the
+   strip sits above a code block that scrolls inside itself and is therefore
+   always on screen anyway. */
+.mentions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--card-bg));
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.mentionCount {
+  flex: 1 1 auto;
+}
+
+/* The table's own name, set apart from the sentence around it. */
+.mentionLabel {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--text);
+}
+
+.mentionStep {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Comfortable to hit on a phone — the map's 40px floor, both ways. */
+.mentionArrow {
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mentionArrow:hover {
+  background: color-mix(in srgb, var(--accent) 16%, var(--card-bg));
+}
+
+.mentionAt {
+  min-width: 4.5ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.mentionLine {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* A mention she hasn't walked to yet: a bar down the gutter only, never a
+   wash across the row. The lit one (.codeLineHot) takes the whole row, so at
+   a glance the difference between "here" and "also here" is obvious. */
+.codeLineMarked {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 65%, transparent);
 }

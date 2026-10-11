@@ -1,0 +1,119 @@
+/* OrganicVerdict.module.css — the buy-organic chip on grocery rows, its
+ * popup, and the estimate bar (OrganicVerdict.tsx). Verdict colours: amber for
+ * "buy organic" (worth the extra), yellow for "some", green for "conventional
+ * is fine", muted for "open". A guess is dashed; research is solid. */
+
+.chip {
+  min-height: 36px;
+  padding: 4px 10px;
+  margin-right: 4px;
+  border-radius: 12px;
+  border: 1.5px solid currentColor;
+  background: none;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chipGuess {
+  border-style: dashed;
+}
+
+.chipDisputed {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.verdictOrganic {
+  color: var(--orange);
+}
+
+.verdictSome {
+  color: var(--yellow);
+}
+
+.verdictConventional {
+  color: var(--green);
+}
+
+.verdictOpen {
+  color: var(--text-muted);
+}
+
+/* ---- the bar above the list ---- */
+
+.estimateBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.barBtn {
+  min-height: 40px;
+  padding: 6px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--accent);
+  background: none;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.barFailures {
+  color: var(--red);
+}
+
+/* ---- the popup ---- */
+
+.section {
+  padding: 10px 0;
+}
+
+.section + .section {
+  border-top: 1px solid var(--border);
+}
+
+.verdictLine {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.meta {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.summary {
+  margin: 8px 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* The "Comes from" line between the summary and the page button. */
+.comesFrom {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.pageBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 12px;
+  border-radius: 22px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+}

@@ -25,7 +25,10 @@ export interface NotesPillNote {
   night_questions?: string;
 }
 
-function notesQueryKey(kind: NotesPillKind, tab: string) {
+// The cache key for one tab's list. Exported because the 📝 panel
+// (shell/TermNotesPanel) writes to the same tabs without going through this
+// hook, and has to be able to tell this cache its list just changed.
+export function notesQueryKey(kind: NotesPillKind, tab: string) {
   return ['notesPill', kind, tab] as const;
 }
 

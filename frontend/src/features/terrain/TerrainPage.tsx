@@ -1,21 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { Sheet } from '../../ui';
 import { subscribeTheme } from '../../theme';
 import { TermNotesPanel } from '../../shell/TermNotesPanel';
 import { SchedulePanel } from '../../shell/SchedulePanel';
 import { openConversationInPane } from '../../shell/paneConversation';
+import { isEmbed } from '../../shell/embed';
 import { dispatchIntent } from '../../shell/panels/windowBus';
-import { useFlow } from '../flow/api';
+import { useCreek } from './creek/api';
+import { useFlow } from './flow/api';
 import { useSessionPreview, useSessionRoster } from '../observatory/api';
 import { isUnread, openedMap } from '../observatory/readReceipts';
 import { cardState, type CardState } from '../observatory/sessionFilters';
 import { sessionLocation } from '../observatory/sessionLocation';
-import { useTerrain, type TerrainData } from './api';
+import { useTerrain, useTerrainTableActivity, useTerrainTables, type TerrainData } from './api';
 import type { FileTouchKind, TerrainNode } from './terrainGraph';
+import { buildThreads, heatThreads } from './terrainThreads';
 import {
   agentTouchRings,
-  breathHalfLife,
+  sessionTouchRings,
+  alternatingBreath,
+  RUN_WINDOW_SECONDS,
   BREATH_INHALE_FRACTION,
   buildTerrainGraph,
   changedFileIds,
@@ -23,30 +28,62 @@ import {
   BREATH_TICK_MS,
   fileLastTouch,
   filterTerrainData,
+  filesOutsideRange,
   relativeAge,
   sessionFootprint,
   sessionFootprintByRecency,
+  sessionFootprintFiles,
   sessionLastSeconds,
+  terrainEarliestRun,
   terrainEarliestTouch,
   terrainFileLoaded,
   terrainFileTotal,
   heatKeyTicks,
+  HEAT_DAYS_MIN,
+  windowToHalfLife,
   SESSION_NODE_PREFIX,
 } from './terrainGraph';
 import { TerrainDials } from './TerrainDials';
+import { ACTIVE_MAX_SECONDS, ACTIVE_MIN_SECONDS } from './activeScale';
+import { TerrainSearch } from './TerrainSearch';
+import { searchTerrainFiles, SEARCH_LABEL_CAP, type TerrainSearchHit } from './terrainSearch';
 import { TerrainHeatBar } from './TerrainHeatBar';
 import type { AgentPool, AgentSection } from './TerrainAgentBar';
 import { TerrainAgentBar } from './TerrainAgentBar';
 import { FileCodeWindow } from './FileCodeWindow';
+import { mentionsFromSearch, type CodeMentions } from './codeMentions';
+import { codeFileNode, searchWithCodeFile, searchWithoutCodeFile, type CodeFileSearch } from './codeFileSearch';
 import { AgentHoverCard } from './AgentHoverCard';
+import { CoilHoverCard } from './CoilHoverCard';
+import { useCoilCard } from './useCoilCard';
 import { TerrainRoomsIndex } from './TerrainRoomsIndex';
+import { JourneyPanel, type ReplayRequest } from './JourneyPanel';
+import { beatNodeIds, scheduleFrames, type Beat } from './journeyReplay';
+import type { TerrainThread } from './terrainThreads';
 import { PondLandmark } from './PondLandmark';
+import { TerrainGuide } from './TerrainGuide';
+import { BuildReport } from './BuildReport';
+import { markGuideDismissed, readGuideDismissed, shouldOpenGuideOnLoad } from './guideOpenPref';
 import { collapseToPondTile, localDayISO, parseCardPath, POND_TILE_PATH } from './pondNodes';
+import { coilWindowLabel, windowCoils } from './coilFolders';
+import { fileLastEdits, gridFolders } from './fileGrids';
+import { addTableNodes, tableNodeId } from './tableNodes';
+import { callLinks, tableCodeLinks } from './tableMentions';
+import { lineageLinks } from './terrainLineage';
+import { swarmGroups } from './terrainSwarms';
+import { messageThreads } from './terrainMessages';
+import { pointedAgent, subscribeAgentHover } from '../../shell/panels/agentHoverBus';
+import { shownSwarms, useClosedSwarmsShown, useSwarms } from '../observatory/swarmApi';
+import { tapStage } from './hoverSelection';
+import { TerrainTableWindow } from './TerrainTableWindow';
+import { fileTypeCounts, OTHER_FILE_TYPE } from './fileTypes';
+import { setTypeColorsOn, useTypeColorsOn } from './typeColorPref';
+import { setAgentsHiddenOn, useAgentsHiddenOn } from './agentsHiddenPref';
 import {
   readThemeInk,
   TerrainCanvas,
-  HEAT_RAMP_DARK,
-  HEAT_RAMP_LIGHT,
+  heatRamps,
+  typeDotColor,
   type AgentHover,
   type PondAnchor,
   type ThemeInk,
@@ -54,30 +91,58 @@ import {
 import styles from './TerrainPage.module.css';
 
 /**
+ * Journey replay (the ⚡ chip): a captured trace — every file a tap, its
+ * requests, the turn and the agent's tool calls crossed — played back on this
+ * map. Beats come from journeyReplay.ts; the panel is JourneyPanel.tsx; here
+ * it is only timers, `engine.flash` on each beat's dot and a thread from the
+ * dot it came from, with the journey's files pinned onto the map for the
+ * duration. Arrive with `?journey=<id>` to open on a capture.
+ */
+/**
  * The color key — a compact panel pinned to the canvas's bottom-right whose
- * whole job is explaining the colors: the terminal-red heat ramp (just
- * edited #f14c4c at the top, down through #cd3131 to black = old) with age
+ * whole job is explaining the colors: the ember ramp (just edited #f14c4c at
+ * the top, down to ash = old on the dark surface, black on light) with age
  * ticks generated from the heat bar's current half-life, plus one row
  * decoding the session-orb ring. pointer-events: none throughout — pan/zoom
  * passes straight through; it hides while the sheet is up so it never fights
  * the modal.
+ *
+ * While the "Types" toggle is on the ramp would be explaining colours that
+ * aren't on the map, so the key swaps it for the file types that ARE: one
+ * swatch and name per type, most common first.
  */
+/** How many named types the key lists before the rest are left to "Other" —
+ * enough for the types that make up a map, short enough to stay a corner. */
+const KEY_TYPE_ROWS = 8;
+
 function TerrainKey({
-  halfLife,
+  windowSeconds,
   ink,
   hidden,
   showAgents,
+  typeRows,
+  filterNote,
 }: {
-  /** Half-life in seconds — the ticks are derived from it (heatKeyTicks), not
-   * looked up from a fixed set, because the bar is continuous now. */
-  halfLife: number;
+  /** The heat WINDOW in seconds (what the bar sets) — the ticks are derived
+   * from it (heatKeyTicks): now, the midpoint, the edge. */
+  windowSeconds: number;
   ink: ThemeInk;
   hidden: boolean;
   /** Drops the orb row from the key when the agents are toggled off — a
    * legend shouldn't decode something that isn't on the map. */
   showAgents: boolean;
+  /** The file types on the map right now, most common first — set only while
+   * the "Types" toggle is on, and the key lists these instead of the ramp. */
+  typeRows: { label: string; color: string }[] | null;
+  /** Set only while something is hiding dots — the date range, the heat cut,
+   * the active cut, or several at once, named in the order they sit on screen.
+   * Heads the key, because it changes what every row under it is describing,
+   * and its count is what tells an empty map from a broken one. */
+  filterNote: { title: string; count: string } | null;
 }) {
-  const ramp = ink.dark ? HEAT_RAMP_DARK : HEAT_RAMP_LIGHT;
+  // On the dark surface this is two stops, ash → her red; light keeps the
+  // five-step ramp. Same lookup the dots use, so the key can't drift.
+  const ramp = heatRamps(ink).ember;
   const gradient = `linear-gradient(to bottom, ${[...ramp].reverse().join(', ')})`;
   const orb = ink.accent; // agents (and their tethers) wear the app --accent — matches the engine
   return (
@@ -85,16 +150,33 @@ function TerrainKey({
       className={[styles.key, hidden ? styles.keyHidden : ''].filter(Boolean).join(' ')}
       aria-hidden="true"
     >
-      <div className={styles.keyScale}>
-        <div className={styles.keyBar} style={{ background: gradient }} />
-        <div className={styles.keyTicks}>
-          {heatKeyTicks(halfLife).map((tick) => (
-            <span key={tick} className={styles.keyTick}>
-              {tick}
-            </span>
+      {filterNote ? (
+        <div className={styles.keyNote}>
+          <span className={styles.keyNoteTitle}>{filterNote.title}</span>
+          <span className={styles.keyTick}>{filterNote.count}</span>
+        </div>
+      ) : null}
+      {typeRows ? (
+        <div className={styles.keyTypes}>
+          {typeRows.map((row) => (
+            <div key={row.label} className={styles.keySessionRow}>
+              <span className={styles.keySwatch} style={{ background: row.color }} />
+              <span className={styles.keyTick}>{row.label}</span>
+            </div>
           ))}
         </div>
-      </div>
+      ) : (
+        <div className={styles.keyScale}>
+          <div className={styles.keyBar} style={{ background: gradient }} />
+          <div className={styles.keyTicks}>
+            {heatKeyTicks(windowSeconds).map((tick) => (
+              <span key={tick} className={styles.keyTick}>
+                {tick}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {showAgents ? (
         <div className={styles.keySessionRow}>
           <span className={styles.keyRing} style={{ borderColor: orb }} />
@@ -128,7 +210,7 @@ function usePageVisible(): boolean {
 }
 
 /**
- * /terrain/map — "where is being worked on": every file the observatory's
+ * /terrain/files — "where is being worked on": every file the observatory's
  * sessions touched in the window, as a force-directed tree per repo (App
  * code / Vault), files glowing ember by recency. This is where /terrain
  * lands, and the terrain's other rooms (/terrain/usage, /terrain/sql) are
@@ -147,11 +229,23 @@ function usePageVisible(): boolean {
  * breath so the whole map remembers further back and forgets again on a ten
  * second cycle.
  *
- * Tap a file → its code, in a frosted window floating over the map
- * (FileCodeWindow), with what the map knows about the file printed under it:
+ * Tap a file → its code in a pane over the whole terrain panel — this
+ * panel only, never a neighbour in a split — × to come back (FileCodeWindow), with
+ * what the map knows about the file printed under it:
  * when it was last touched, and every agent that touched it — each row opens
  * that conversation in the Observatory, or rings its whole footprint on the
- * map. Tap an agent orb → a sheet, and its footprint rings at once.
+ * map.
+ *
+ * AGENTS AND TABLES TAKE TWO CLICKS, files one. Clicking an agent orb rings
+ * its whole footprint and nothing else; clicking the ringed one again opens
+ * its sheet. Clicking a table pins lit everything it's joined to — its
+ * foreign keys, and the ropes out to the code files that touch it — and
+ * clicking the pinned one again opens its card. A double-click is two clicks
+ * on the same body, so it does both at once; the empty canvas clears both.
+ * The rule itself is hoverSelection.ts. This is why: looking at what an agent
+ * has hold of, or at what a table is wired to, is the commonest thing to want
+ * from those bodies, and it used to cost a card thrown over the map and a
+ * dismissal every single time.
  *
  * THE POND floats over the map's own journal country. The card pool and the
  * diary are real vault files — the largest single cluster on the terrain — so
@@ -165,6 +259,16 @@ function usePageVisible(): boolean {
  * summary, last thing said, what it's waiting on (AgentHoverCard). That needs
  * facts the terrain payload doesn't carry, so this page also reads the
  * Observatory roster and, per hover, one small last-line fetch.
+ *
+ * A BUILD'S MAP is this same page drawing one other folder. Arrive with
+ * `?build=<id>` (the Builds room links here) and the payload holds that one
+ * build instead of the app code and the vault: the title is the build's name,
+ * the territory chips give way to a door back to Builds, and a written report
+ * of what happened in it docks down the right side (BuildReport.tsx). It
+ * opens lit across its whole history, with every session that touched it on
+ * the map — a build is usually read after the fact, and a week's heat on a
+ * project from last spring would be an unlit map. Its layout is not
+ * remembered, so it can never overwrite the main map's.
  *
  * All rendering lives in terrainCanvas.ts; all graph/heat math in
  * terrainGraph.ts (tested).
@@ -196,8 +300,48 @@ const HOVER_LEAVE_MS = 240;
  * request per pixel: within a tier the dial slices locally (instant), and
  * only crossing one costs a fetch — which react-query then caches, so
  * sliding back down is instant too. `null` = every file there is.
+ *
+ * The map OPENS on `null` — every file, both repos, ~4,000 drawn nodes once
+ * the pond has collapsed the card pool into its tile. The tiers below it are
+ * what the Files dial slides back down to, not a ladder it has to climb: a
+ * map that shows most of the corpus and calls it the terrain is telling her
+ * something false about her own codebase. The cost is honest and it's
+ * front-loaded — a bigger first payload, a heavier first settle — and the
+ * layout memory (layoutMemory.ts) means that settle happens once, not on
+ * every visit.
+ *
+ * Prompt that produced it: "i also want ALL my files to show by default
+ * rather than only a subset of them."
  */
 const FETCH_TIERS: readonly (number | null)[] = [350, 1000, 2500, null];
+
+/**
+ * One view's Active setting (notes 6 and 9 in TerrainHeatBar.tsx): GOLD'S
+ * WINDOW — in SECONDS, on an axis that runs from five minutes to a week
+ * (activeScale.ts) — and whether it's on "All time" instead. The heat map and
+ * the Types view each carry their own.
+ *
+ * The window is one number doing one job: how recently a file must have RUN to
+ * still be lit gold on the map. It used to be only a ring's cutoff, with the
+ * fire itself pinned at a fixed day somewhere else — two owners of one
+ * question, one of them invisible.
+ *
+ * There used to be a `heatCut` here too, turning the colour edge into a filter
+ * ("only what's still lit"). It's gone — heat colours the map and doesn't
+ * decide what's on it. Owner: "the heat map one should be the heat map alone
+ * and not the activity toggle."
+ */
+interface ViewCuts {
+  activeSeconds: number;
+  activeAllTime: boolean;
+}
+
+/** Gold's window on the last day — so the map opens lit exactly as it always
+ * has been ("did this code run today",
+ * terrainGraph.ts RUN_WINDOW_SECONDS). The slider starts on that number rather
+ * than under it because gold's window used to BE that constant, fixed; making
+ * it hers to move shouldn't change what she sees on open. */
+const NO_CUTS: ViewCuts = { activeSeconds: RUN_WINDOW_SECONDS, activeAllTime: false };
 
 function nextTier(tier: number | null): number | null {
   if (tier === null) return null;
@@ -216,16 +360,61 @@ function useDebounced<T>(value: T, ms: number): T {
   return settled;
 }
 
-export function TerrainPage() {
+export function TerrainPage({ build = null }: { build?: string | null } = {}) {
   const navigate = useNavigate();
+  const router = useRouter();
   const pageVisible = usePageVisible();
+  // A logged-out visitor — on the private site's public view or the
+  // public-only mirror. The MAP is public (public_config.PUBLIC_PATHS), and
+  // so is everything on it that is shape rather than speech: the dots, the
+  // tables, the threads (creek), the pond's silhouette, and any file that is
+  // tracked app code (the server refuses the rest with 403 — the window
+  // shows "private"). What a visitor still doesn't get is what would quote
+  // her or write for her: the session roster and hovercard, flow (it carries
+  // the text being written), the notes and schedule panels, the rooms, and
+  // the journey recorder. Owner's calls: 2026-09-17, "i am ok with personal
+  // stuff showing on the map, just make all personal files unreadable to
+  // visitors, but the code can be interactive"; 2026-09-22, "make it such
+  // that mudscryer.org shows exactly the UI that i see on my personal".
+  const visitor = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
+  // The EMBED view (?embed=1, shell/embed.ts): the map as a card inside an
+  // <iframe> on the owner's portfolio page. Its one job there is "it's alive"
+  // — so no chrome at all, the breathing (Dynamic) heat preset from the first
+  // frame, the Open agent pool so the card isn't empty on a quiet day, and a
+  // single "Open Terrain ↗" door to the full map. Everything else — pan, zoom,
+  // tapping a dot — is the map as it is. Read once: an embed never navigates.
+  // Prompt: "the card's one job is it's alive … breathing glow always on,
+  // plus open agents as orbs. That's all that moves."
+  const embed = isEmbed();
   // Live mode: while any payload session is running AND the page is visible,
   // poll ~5s so a working session's touches light up as they happen. The
   // flag comes from the last payload, so the first fetch always runs cold
   // and the poll turns itself off when the last session goes quiet.
   const [anyRunning, setAnyRunning] = useState(false);
-  const [tier, setTier] = useState<number | null>(FETCH_TIERS[0]);
-  const { data, isLoading, isError, isFetching } = useTerrain(anyRunning && pageVisible, tier);
+  // Everything, from the first frame — except in the embed, where the map is a
+  // decorative card on a public page and the hottest few hundred is plenty for
+  // "it's alive" at a fraction of the payload.
+  const [tier, setTier] = useState<number | null>(embed ? FETCH_TIERS[0] : null);
+  const { data, isLoading, isError, isFetching, dataUpdatedAt, refetch } = useTerrain(
+    anyRunning && pageVisible,
+    tier,
+    build,
+  );
+  // The database's tables, for the map's table layer (tableNodes.ts). Open to
+  // visitors too since the values were frosted: a stranger gets the tables,
+  // their columns and their shapes, and every cell comes back as blocks
+  // (routes/terrain_tables.py). Her ask: "i want it published but the actual
+  // values inside of the tables will be blurred."
+  // Not on a build's map: the tables are this app's database, and a build is
+  // somebody else's folder.
+  const { data: tables, refetch: refetchTables } = useTerrainTables(!build);
+  // When each table last changed, for its outlines and the agents tethered to
+  // it. Asked again every ten seconds while an agent is running, so a table an
+  // agent just wrote lights up while she watches.
+  const { data: tableActivity, refetch: refetchTableActivity } = useTerrainTableActivity(
+    !build,
+    anyRunning && pageVisible,
+  );
   useEffect(() => {
     if (data) setAnyRunning((data.sessions ?? []).some((s) => s.running));
   }, [data]);
@@ -233,37 +422,152 @@ export function TerrainPage() {
   // on), for the agent hovercard. Same roster the Observatory draws from —
   // fetched here rather than derived, because none of it is in the terrain
   // payload, and it rides the same live gate so a resting map doesn't poll.
-  const roster = useSessionRoster(anyRunning && pageVisible);
+  const roster = useSessionRoster(anyRunning && pageVisible, !visitor);
 
-  // The heat half-life, in whole days — what the bottom Heat bar sets. A
-  // number, not one of three named lenses: the heat math has always taken a
-  // raw half-life (HeatSpan), so the chips were only ever presets on this.
+  // Which view is lit: heat colours, or file-type colours (note 7 in
+  // TerrainHeatBar.tsx). A shared preference (typeColorPref.ts), so a terrain
+  // in another panel flips with this one. Read up here because the Active
+  // setting below is kept PER VIEW, and gold's window comes out of it.
+  const typeColors = useTypeColorsOn();
+
+  // The Active bar's window, per view (notes 6 and 9 in TerrainHeatBar.tsx).
+  // Each view keeps its own, so a window set up under Types doesn't follow her
+  // back to the heat map. Page state, not a stored preference — it's a
+  // question she's asking right now.
+  const [cutsByView, setCutsByView] = useState<Record<'heat' | 'types', ViewCuts>>({
+    heat: { ...NO_CUTS },
+    types: { ...NO_CUTS },
+  });
+  const view: 'heat' | 'types' = typeColors ? 'types' : 'heat';
+  const cuts = cutsByView[view];
+  const setCuts = (patch: Partial<ViewCuts>) =>
+    setCutsByView((prev) => ({ ...prev, [view]: { ...prev[view], ...patch } }));
+
+  // "Now" comes off the payload, not the wall clock, so it only advances when
+  // fresh data arrives — a live-polling map doesn't jitter its own date range
+  // between renders.
+  const now = useMemo(() => {
+    const stamped = data ? Date.parse(data.generated_at) : NaN;
+    return Number.isFinite(stamped) ? stamped / 1000 : Date.now() / 1000;
+  }, [data]);
+
+  // The oldest touch in the payload: the date range's left edge, and how far
+  // back Heat's "All time" reaches.
+  const earliest = useMemo(
+    () => (data ? terrainEarliestTouch(data, now) : now - 90 * DAY_SECONDS),
+    [data, now],
+  );
+
+  // The heat WINDOW, in whole days — what the bottom Heat bar sets: how far
+  // back a file stays lit, with the thumb as the edge of the colour. A number,
+  // not one of three named lenses; the presets are only shortcuts on it.
   const [heatDays, setHeatDays] = useState(7);
-  // Dynamic mode: the half-life stops being a setting and rides the same
-  // breath the Observatory backdrop runs on — a day out to a month and back
-  // every ten seconds. `breathDays` is the live value while it's on; heatDays
-  // keeps whatever she last chose, so leaving the mode lands back there.
-  const [breathing, setBreathing] = useState(false);
+  // Whether each fire paints at all — the Heat and Active names on the bar are
+  // these switches (note 8 in TerrainHeatBar.tsx). Off means that fire adds
+  // nothing to the map: no colour, no folder growth, and for gold no threads
+  // either. File dots are sized by bytes, so they keep their size.
+  // Shared by both views and not remembered across reloads.
+  const [heatOn, setHeatOn] = useState(true);
+  const [goldOn, setGoldOn] = useState(true);
+  // Heat's "All time" (note 9 in TerrainHeatBar.tsx). While on, the window is
+  // worked out from the payload below; heatDays keeps what she last chose, so
+  // switching it off lands back there — the same arrangement as Dynamic.
+  // A build's map opens on All time (see the page note above).
+  const [heatAllTime, setHeatAllTime] = useState(Boolean(build));
+  // Dynamic mode: the window stops being a setting and rides the same breath
+  // the Observatory backdrop runs on — a day out to a month and back every
+  // ten seconds. `breathDays` is the live value while it's on; heatDays keeps
+  // whatever she last chose, so leaving the mode lands back there.
+  const [breathing, setBreathing] = useState(embed);
   const [breathDays, setBreathDays] = useState(7);
-  const liveHeatDays = breathing ? breathDays : heatDays;
-  const halfLife = liveHeatDays * DAY_SECONDS;
-  // Any deliberate touch of the slider or a fixed preset ends the breath —
-  // one value, one owner, so the two can never be arguing over it.
+  // Gold's live window under the breath. The two fires take turns
+  // (terrainGraph.ts alternatingBreath): one cycle ember reaches back to a
+  // month and returns while gold rests at five minutes; the next, gold
+  // swells out to a day and returns while ember rests at a day. Each rests
+  // at its smallest, so yellow is fullest exactly when red is quietest. On
+  // any fixed preset gold is the fixed one-day question.
+  const [goldBreathSeconds, setGoldBreathSeconds] = useState<number>(RUN_WINDOW_SECONDS);
+  // "All time" for each fire: back to the oldest thing it has on record. Heat
+  // reaches to the oldest edit in the payload (the date range's own left
+  // edge); gold to the oldest run, falling back to the bar's week when nothing
+  // has run. Both are floored at their bar's minimum so a brand-new install
+  // can't produce a zero-length window.
+  const allTimeHeatDays = Math.max(HEAT_DAYS_MIN, (now - earliest) / DAY_SECONDS);
+  const allTimeActiveSeconds = useMemo(() => {
+    const oldestRun = data ? terrainEarliestRun(data) : null;
+    return oldestRun === null
+      ? ACTIVE_MAX_SECONDS
+      : Math.max(ACTIVE_MIN_SECONDS, now - oldestRun);
+  }, [data, now]);
+  // Heat's live window: the breath under Dynamic, the all-time reach under
+  // All time, otherwise the slider.
+  const liveHeatDays = breathing ? breathDays : heatAllTime ? allTimeHeatDays : heatDays;
+  const windowSeconds = liveHeatDays * DAY_SECONDS;
+  // Gold's live window, the mirror of liveHeatDays: the gold breath under
+  // Dynamic, the oldest run under All time, otherwise the Active slider. It
+  // drives the map's gold fire — the Active bar is gold's bar, not a second
+  // opinion about a window fixed somewhere else.
+  const liveActiveSeconds = breathing
+    ? goldBreathSeconds
+    : cuts.activeAllTime
+      ? allTimeActiveSeconds
+      : cuts.activeSeconds;
+  // The decay runs on a half-life a third of the window (terrainGraph.ts,
+  // windowToHalfLife) so the glow has run out by the window's edge.
+  const halfLife = windowToHalfLife(windowSeconds);
+  const goldHalfLife = windowToHalfLife(liveActiveSeconds);
+  // Any deliberate touch of either slider, or of a fixed preset, ends the
+  // breath — one value, one owner, so the two can never be arguing over it.
+  // All time is one more owner of the same value, so it follows the same
+  // rule: any other touch takes the window back from it, and pressing it
+  // takes the window back from Dynamic. Turning it on also lights that fire,
+  // since all of a colour's history is nothing to look at with the colour off.
+  // Turning it off leaves the switch alone.
   const pickHeatDays = (days: number) => {
     setBreathing(false);
+    setHeatAllTime(false);
     setHeatDays(days);
+  };
+  const pickActiveSeconds = (seconds: number) => {
+    setBreathing(false);
+    setCuts({ activeSeconds: seconds, activeAllTime: false });
+  };
+  const pickHeatAllTime = (on: boolean) => {
+    setBreathing(false);
+    setHeatAllTime(on);
+    if (on) setHeatOn(true);
+  };
+  const pickActiveAllTime = (on: boolean) => {
+    setBreathing(false);
+    setCuts({ activeAllTime: on });
+    if (on) setGoldOn(true);
+  };
+  const toggleBreathing = () => {
+    if (!breathing) {
+      setHeatAllTime(false);
+      setCuts({ activeAllTime: false });
+    }
+    setBreathing(!breathing);
   };
   useEffect(() => {
     if (!breathing || !pageVisible) return;
     // Reduced motion pins it at the swell's top rather than dropping the mode:
-    // "remember a month back" is still a legible lens standing still.
+    // "remember a month back" is still a legible lens standing still. Gold is
+    // pinned at its day (the fixed question) rather than the five minutes it
+    // rests at during ember's turn — a still map should still show what ran.
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setBreathDays(breathHalfLife(BREATH_PERIOD_MS * BREATH_INHALE_FRACTION) / DAY_SECONDS);
+      const b = alternatingBreath(BREATH_PERIOD_MS * BREATH_INHALE_FRACTION, BREATH_PERIOD_MS);
+      setBreathDays(b.ember / DAY_SECONDS);
+      setGoldBreathSeconds(RUN_WINDOW_SECONDS);
       return;
     }
     const started = performance.now();
-    const tick = () =>
-      setBreathDays(breathHalfLife(performance.now() - started, BREATH_PERIOD_MS) / DAY_SECONDS);
+    // One clock, two windows, one of them moving at a time.
+    const tick = () => {
+      const b = alternatingBreath(performance.now() - started, BREATH_PERIOD_MS);
+      setBreathDays(b.ember / DAY_SECONDS);
+      setGoldBreathSeconds(b.gold);
+    };
     tick();
     const timer = window.setInterval(tick, BREATH_TICK_MS);
     return () => window.clearInterval(timer);
@@ -288,6 +592,47 @@ export function TerrainPage() {
   // button never has to step through it. The rooms themselves are full pages
   // (/terrain/usage, /terrain/sql) that unmount this map entirely.
   const [roomsOpen, setRoomsOpen] = useState(false);
+  // The Guide: what the shapes and colours mean and what a tap does, docked
+  // down the right side with the map still working beside it. Opens by itself
+  // for a first-time visitor and stays closed for the owner (guideOpenPref.ts);
+  // closing it once is remembered, so it never nags.
+  const [guideOpen, setGuideOpen] = useState(() =>
+    shouldOpenGuideOnLoad({ visitor, embed, dismissed: readGuideDismissed() }),
+  );
+  const closeGuide = () => {
+    setGuideOpen(false);
+    markGuideDismissed();
+  };
+  // The report, docked where the Guide docks — so the two take turns:
+  // opening either one closes the other. On a build's map it is open from the
+  // start when there is room for a split (the report is why she came); on a
+  // phone it would cover most of the map, and on the main map the map itself
+  // is the point, so there it waits behind its button.
+  const [reportOpen, setReportOpen] = useState(
+    () => Boolean(build) && typeof window !== 'undefined' && window.innerWidth > 768,
+  );
+  const openGuide = () => {
+    setReportOpen(false);
+    setGuideOpen(true);
+  };
+  const toggleReport = () => {
+    if (!reportOpen) closeGuide();
+    setReportOpen(!reportOpen);
+  };
+
+  // --- journey replay ---------------------------------------------------------
+  // A captured journey (Wiring room / runtime_trace.py) played back on the
+  // map: each beat flashes the dot it reached and lights a thread from the
+  // dot it came from, on the trace's own clock stretched by `slow`. The beats
+  // are pure data (journeyReplay.ts); this is only the timers and the two
+  // engine calls. Arriving with `?journey=<id>` (the Wiring room's "replay on
+  // the terrain" link) opens the panel on that capture.
+  const search = useSearch({ strict: false }) as { journey?: string } & CodeFileSearch;
+  const [journeyOpen, setJourneyOpen] = useState(Boolean(search.journey));
+  const [replay, setReplay] = useState<ReplayRequest | null>(null);
+  const [replayThreads, setReplayThreads] = useState<TerrainThread[] | null>(null);
+  const [replayPins, setReplayPins] = useState<ReadonlySet<string> | undefined>(undefined);
+  const [replayProgress, setReplayProgress] = useState<{ done: number; total: number; label: string } | null>(null);
 
   const [panel, setPanel] = useState<'notes' | 'schedule' | null>(null);
   const [schedSessions, setSchedSessions] = useState<string[]>([]);
@@ -305,17 +650,27 @@ export function TerrainPage() {
     setPanel((p) => (p === name ? null : name));
   };
 
-  const [pool, setPool] = useState<AgentPool>('active');
+  // A build's map opens on every session that touched it, however long ago.
+  const [pool, setPool] = useState<AgentPool>(embed ? 'open' : build ? 'all' : 'active');
   const [section, setSection] = useState<AgentSection>('');
   const [agentWindow, setAgentWindow] = useState<{ from: number; to: number }>({ from: 0, to: 8 });
   const [selected, setSelected] = useState<TerrainNode | null>(null);
   const [footprintSession, setFootprintSession] = useState<string | null>(null);
-  // The file whose frosted code window is open, if any — the whole node, not
-  // just its coordinates, because the window shows what the MAP knows about
-  // the file (when it was last touched, which agents touched it) alongside
-  // what's in it. Separate from `selected`, which is now only ever an agent
-  // orb: a file tap goes straight to its code rather than through a sheet.
-  const [codeFile, setCodeFile] = useState<TerrainNode | null>(null);
+  // The table she has CLICKED, by node id — picked out but not opened. One
+  // click picks a table out and lights everything it's joined to (its foreign
+  // keys, and the code files that touch it); clicking the picked-out one again
+  // opens its card. Agents work the same way one state along —
+  // `footprintSession` is their version of this.
+  //
+  // Prompt that produced it: "clicking an agent highlights that agent and the
+  // files it's touching rather than making a popup … a double click on the
+  // agents to make a popup. same for the sql".
+  const [heldTable, setHeldTable] = useState<string | null>(null);
+  // The file search (top bar). Non-empty → the map dims to the matching
+  // files, the same spotlight an agent tap uses; the two are exclusive
+  // (typing clears the agent, tapping an agent clears the query), so they
+  // can never argue over the same pixels.
+  const [query, setQuery] = useState('');
   // The agent orb under the cursor, once it's rested there long enough to mean
   // it — the anchor for the hovercard. Mouse-only, and the engine drops it the
   // moment the map moves, so this can't be left pointing at nothing.
@@ -336,18 +691,6 @@ export function TerrainPage() {
     to: number;
   } | null>(null);
 
-  // "Now" comes off the payload, not the wall clock, so it only advances when
-  // fresh data arrives — a live-polling map doesn't jitter its own date range
-  // between renders.
-  const now = useMemo(() => {
-    const stamped = data ? Date.parse(data.generated_at) : NaN;
-    return Number.isFinite(stamped) ? stamped / 1000 : Date.now() / 1000;
-  }, [data]);
-
-  const earliest = useMemo(
-    () => (data ? terrainEarliestTouch(data, now) : now - 90 * DAY_SECONDS),
-    [data, now],
-  );
   const totalFiles = useMemo(() => (data ? terrainFileTotal(data) : 0), [data]);
   const loadedFiles = useMemo(() => (data ? terrainFileLoaded(data) : 0), [data]);
 
@@ -373,6 +716,66 @@ export function TerrainPage() {
       setTier((cur) => nextTier(cur));
     }
   }, [settledCount, loadedFiles, totalFiles, data]);
+  // The map no longer re-fetches itself every time she opens the page (see
+  // useTerrain's staleTime), so the refresh chip has to say how old what she's
+  // looking at is. A bump every 30s keeps that label honest; nothing else in
+  // the page depends on it, and it stops while the tab is in the background.
+  const [, bumpAge] = useState(0);
+  useEffect(() => {
+    if (!pageVisible) return;
+    const t = window.setInterval(() => bumpAge((n) => n + 1), 30_000);
+    return () => window.clearInterval(t);
+  }, [pageVisible]);
+  // On a PUBLIC MIRROR the age that matters is when the private box built this
+  // map, not when the browser fetched it: the mirror serves a stored artifact,
+  // so a visitor re-fetching a frozen map every five seconds would read "now"
+  // forever. Any locally-built map has no published_ts and keeps the fetch age.
+  const publishedSeconds = data?.mirror ? (data.published_ts ?? null) : null;
+  const dataAge = publishedSeconds
+    ? relativeAge(publishedSeconds)
+    : dataUpdatedAt
+      ? relativeAge(dataUpdatedAt / 1000)
+      : null;
+  // Live mode already polls every ~5s; spinning the chip on each of those would
+  // be a flicker that means nothing. The spin is for a fetch SHE asked for.
+  const refreshing = isFetching && !(anyRunning && pageVisible);
+  const refreshMap = () => {
+    void refetch();
+    void refetchTables();
+    void refetchTableActivity();
+  };
+
+  // Session id → title, so the table card can name the agents that wrote it.
+  const sessionTitles = useMemo(
+    () => new Map((data?.sessions ?? []).map((session) => [session.id, session.title])),
+    [data?.sessions],
+  );
+
+  // Flash a table when its newest change advances between two polls — "this
+  // table was just written", the same one-second flash a file dot gets when an
+  // agent touches it. The first answer flashes nothing: there is no earlier
+  // one to have advanced from.
+  const lastTableActivity = useRef<typeof tableActivity>(undefined);
+  useEffect(() => {
+    const before = lastTableActivity.current;
+    lastTableActivity.current = tableActivity;
+    if (!before || !tableActivity || !tables || tables.repo === null || tables.path === null) return;
+    const changed = new Set<string>();
+    for (const [name, now] of Object.entries(tableActivity.tables)) {
+      const was = before.tables[name];
+      const newest = Math.max(now.rows_at ?? 0, now.migrated_at ?? 0);
+      if (was && newest > Math.max(was.rows_at ?? 0, was.migrated_at ?? 0)) {
+        changed.add(tableNodeId(tables.repo, tables.path, name));
+      }
+    }
+    if (changed.size > 0) engineRef.current?.flash(changed);
+  }, [tableActivity, tables]);
+
+  // How many nodes she's dragged into place — reported by the engine, and the
+  // only reason the "release" chip exists. It appears when there's something to
+  // release and is gone the rest of the time.
+  const [pinnedCount, setPinnedCount] = useState(0);
+
   // Live theme tokens for the HTML color key (the engine keeps its own copy)
   // — set on mount and kept fresh by the same subscription below.
   const [ink, setInk] = useState<ThemeInk | null>(null);
@@ -381,6 +784,43 @@ export function TerrainPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<TerrainCanvas | null>(null);
   const fittedRef = useRef(false);
+
+  /**
+   * How far back each coil is open, in days, keyed by its folder — its first
+   * step to begin with (a month, by default), one step wider each time she
+   * pulls on the curve at its tip, and back to the first when she taps its
+   * centre (coilFolders.ts). Per coil,
+   * because a chat log and a photo archive don't fill at the same rate and
+   * shouldn't be opened together.
+   *
+   * Deliberately NOT persisted, unlike the sticky toggles next door: every
+   * coil opening at its first step on load is what makes "it stays about the
+   * same size unless you interact with it" true across visits and not just
+   * within one. A six-month coil is something she asked for in a moment, not
+   * a setting.
+   */
+  const [coilWindows, setCoilWindows] = useState<Record<string, number | null>>({});
+  /** The coil card: what a coil is showing and the sizes it opens to — up on
+   * a mouse's rest over a coil's centre, or a finger's tap (CoilHoverCard.tsx). */
+  const coilCard = useCoilCard();
+
+  /**
+   * Her coil folders cut to their windows, and re-timed, before anything else
+   * looks at the payload — same slot in the pipeline as the pond's collapse
+   * below, and for the same reason: what reaches the graph should already be
+   * the thing the map means to draw.
+   *
+   * Two jobs, both in coilFolders.ts: only each window's files get through
+   * (these are the biggest folders in the vault and most of what's in them is
+   * old), and on a 'stamp' coil every one that does has its git history
+   * swapped for the moment in its filename — because for a folder git only
+   * bulk-moves, the commits record vault maintenance rather than anything she
+   * did, and the coil is lit by those times.
+   */
+  const coiled = useMemo(
+    () => (data ? windowCoils(data, { windows: coilWindows }) : null),
+    [data, coilWindows],
+  );
 
   /**
    * The journal collapsed BEFORE anything else looks at the payload: every
@@ -394,7 +834,36 @@ export function TerrainPage() {
    * quietly under-count it — and the date dial still reaches inside
    * (filterTerrainData filters the tile's day buckets too).
    */
-  const collapsed = useMemo(() => (data ? collapseToPondTile(data, localDayISO()) : null), [data]);
+  const collapsed = useMemo(
+    () => (coiled ? collapseToPondTile(coiled.data, localDayISO()) : null),
+    [coiled],
+  );
+
+  // Search runs over the whole payload (not the drawn nodes) so the Files
+  // dial can't hide a hit; every hit is then PINNED past the dial's cut
+  // below, the same way the journey replay pins its files. Repos toggled
+  // off stay off — the chips say what's on the map, search only lights it.
+  const searchHits = useMemo(
+    () => searchTerrainFiles(collapsed?.data, query, { hiddenRepos }),
+    [collapsed, query, hiddenRepos],
+  );
+  const searchIds = useMemo(
+    () => (searchHits.length ? new Set(searchHits.map((h) => h.id)) : null),
+    [searchHits],
+  );
+  const pins = useMemo(() => {
+    // The coil is pinned past the dials whole. It's an arrangement, not a
+    // ranking: the Files dial cutting the cold half of it would leave a
+    // spiral with a bite out of the outer arm, which reads as a bug rather
+    // than as a filter. The window she set on the coil is the only thing that
+    // decides how much of it is drawn.
+    const coilIds = (coiled?.coils ?? []).flatMap((coil) => coil.spiralIds);
+    if (!searchIds && coilIds.length === 0) return replayPins;
+    const all = new Set<string>(replayPins ?? []);
+    for (const id of searchIds ?? []) all.add(id);
+    for (const id of coilIds) all.add(id);
+    return all;
+  }, [replayPins, searchIds, coiled]);
 
   // The dials narrow the payload (time, then count), and the graph is built
   // from what survives — so heat, ages and session lists all describe the
@@ -402,9 +871,13 @@ export function TerrainPage() {
   const filtered = useMemo(
     () =>
       collapsed
-        ? filterTerrainData(collapsed.data, { from: range.from, to: range.to, count: effectiveCount }, now)
+        ? filterTerrainData(
+            collapsed.data,
+            { from: range.from, to: range.to, count: effectiveCount, pinned: pins },
+            now,
+          )
         : null,
-    [collapsed, range.from, range.to, effectiveCount, now],
+    [collapsed, range.from, range.to, effectiveCount, now, pins],
   );
 
   /**
@@ -436,19 +909,242 @@ export function TerrainPage() {
     return ids;
   }, [data?.sessions, pool, section, now]);
 
+  // Put the database's tables on the map: one body per table, added AFTER the
+  // dials so neither the Files cut nor the date range can remove them — both
+  // rank by git edit history, which a table doesn't have. Its own history
+  // (structure changed, row written, which agent) rides in with
+  // `tableActivity`. See tableNodes.ts.
+  const withTables = useMemo(
+    () => (filtered ? addTableNodes(filtered, tables, tableActivity) : null),
+    [filtered, tables, tableActivity],
+  );
+
   // `alwaysOrbIds` = every agent in the pool. Orbs are otherwise built by
   // inverting files[].sessions, so a pool member that hasn't touched a file
   // yet would have no body on the map at all; this puts it there regardless.
   const graph = useMemo(
     () =>
-      filtered
-        ? buildTerrainGraph(filtered, halfLife, undefined, { alwaysOrbIds: poolSessionIds })
+      withTables
+        ? // A fire switched off on the bar builds with a zero half-life, which
+          // scores every file at zero for that fire (computeFileHeat,
+          // computeRunHeat) — so it adds no colour anywhere.
+          buildTerrainGraph(withTables, heatOn ? halfLife : 0, undefined, {
+            alwaysOrbIds: poolSessionIds,
+            runHalfLife: goldOn ? goldHalfLife : 0,
+          })
         : null,
-    [filtered, halfLife, poolSessionIds],
+    [withTables, heatOn, halfLife, goldOn, goldHalfLife, poolSessionIds],
   );
 
+  // The file whose code page is open, if any — read off the ADDRESS, not held
+  // in memory (codeFileSearch.ts). That is what makes a refresh reopen the
+  // same file, and what makes closing it a real "back". It is the whole node,
+  // not just its coordinates, because the window shows what the MAP knows
+  // about the file (when it was last touched, which agents touched it)
+  // alongside what's in it. Separate from `selected`: a file tap goes
+  // straight to its code rather than through a sheet.
+  const codeFile = useMemo(
+    () => codeFileNode(search.repo, search.file, graph?.nodes),
+    [search.repo, search.file, graph],
+  );
+  // Set only when the file was opened FROM a table's card: which table she
+  // came in asking about, and every line this file names it on. The open file
+  // lands on the first and steps between the rest (FileCodeBody's mention
+  // strip). Null for a file opened any other way — a tapped dot is not a
+  // question about a table, and a strip saying so would be noise.
+  const codeMentions = useMemo(
+    () => mentionsFromSearch(search.mentions, search.of) ?? null,
+    [search.mentions, search.of],
+  );
+
+  // Open a file over the map by stepping the address forward. A push, not a
+  // replace, so the browser's history gains one entry and "back" means
+  // "close the file".
+  const openCodeFile = useCallback(
+    (repo: string, path: string, mentions?: CodeMentions) => {
+      void navigate({
+        to: '/terrain/files',
+        search: (previous) => searchWithCodeFile(previous as CodeFileSearch, repo, path, mentions),
+      });
+    },
+    [navigate],
+  );
+  // Close the open file by going BACK — the ×, Esc, the browser's back
+  // button and a swipe-back are one and the same move, and land wherever she
+  // opened the file from. When there is no "back" to go to (a pasted link, a
+  // fresh tab, a tile reopened after a refresh — its private history doesn't
+  // survive one), take the file out of the address instead, which shows the
+  // map. That is a replace, so the dead-end entry doesn't linger in history.
+  // Her ask: "the x is fine if it's functionally the same as a back button."
+  const closeCodeFile = useCallback(() => {
+    if (router.history.canGoBack()) {
+      router.history.back();
+      return;
+    }
+    void navigate({
+      to: '/terrain/files',
+      search: (previous) => searchWithoutCodeFile(previous as CodeFileSearch),
+      replace: true,
+    });
+  }, [router, navigate]);
+
+  // The threads: what one file makes, another one eats. The creek payload is
+  // static wiring plus per-collection write freshness, so it changes on the
+  // order of minutes, not frames — built once per payload and only re-lit on
+  // the breath below.
+  // Not on a build's map: the threads join this app's files to its data.
+  const { data: creek } = useCreek(14, { enabled: !build });
+  const threads = useMemo(() => buildThreads(creek), [creek]);
+
+  // Lit on the SAME window the gold dots ride, gold breath included, so a
+  // thread and a dot of equal age are equally bright and the two read as one
+  // system rather than two overlays that happen to share a canvas. With gold
+  // switched off they go dark with it — they're gold's ink.
+  const litThreads = useMemo(
+    () => heatThreads(threads, goldOn ? goldHalfLife : 0),
+    [threads, goldOn, goldHalfLife],
+  );
+
+  useEffect(() => {
+    // While a replay runs, its threads own the canvas: they're the answer to
+    // a question she just asked, and the ambient ones would read as noise
+    // beneath them. Restored the moment the replay clears.
+    engineRef.current?.setThreads(replayThreads ?? litThreads);
+  }, [litThreads, replayThreads]);
+
+  // The table-to-code ropes: which files touch which table, as pairs of node
+  // ids. Built against the graph the map actually drew, so a file the Files
+  // dial cut gets no rope to nowhere; the canvas draws them only under a
+  // hover (terrainCanvas.ts setTableCodeLinks).
+  const codeLinks = useMemo(
+    () => tableCodeLinks(tables, new Set((graph?.nodes ?? []).map((n) => n.id))),
+    [tables, graph],
+  );
+  useEffect(() => {
+    engineRef.current?.setTableCodeLinks(codeLinks);
+  }, [codeLinks]);
+
+  // The page-to-route ropes: which frontend files call which route modules —
+  // the leg before the table ropes, so a hover follows page -> route -> table
+  // (terrainCanvas.ts setCallLinks). Built against the drawn graph, the same way.
+  const pageLinks = useMemo(
+    () => callLinks(tables, new Set((graph?.nodes ?? []).map((n) => n.id))),
+    [tables, graph],
+  );
+  useEffect(() => {
+    engineRef.current?.setCallLinks(pageLinks);
+  }, [pageLinks]);
+
+  // The spinoff arrows: which agent was spun off from which. Every pair goes
+  // over; the canvas draws only those with both orbs on the map
+  // (terrainCanvas.ts setLineage).
+  // Kept in a ref too: the canvas is built by a later effect, and with the map
+  // already cached the first hand-over would find no canvas — so the build
+  // hands the latest pairs over itself.
+  const spinoffLinks = useMemo(() => lineageLinks(data?.sessions ?? []), [data?.sessions]);
+  const spinoffLinksRef = useRef(spinoffLinks);
+  spinoffLinksRef.current = spinoffLinks;
+  useEffect(() => {
+    engineRef.current?.setLineage(spinoffLinks);
+  }, [spinoffLinks]);
+
+  // The swarm outlines: which agents have been messaging each other. Same
+  // hand-over as the spinoff arrows, ref included (terrainCanvas.ts setSwarms).
+  // The owner's only — a visitor never asks.
+  const swarmsQuery = useSwarms(!visitor);
+  // Closed swarms (fewer than two sessions still at work) are outlined only when the shared
+  // "show closed swarms" switch is on.
+  const showClosedSwarms = useClosedSwarmsShown();
+  const swarmList = useMemo(
+    () => swarmGroups(shownSwarms(swarmsQuery.data ?? [], showClosedSwarms)),
+    [swarmsQuery.data, showClosedSwarms],
+  );
+  const swarmListRef = useRef(swarmList);
+  swarmListRef.current = swarmList;
+  useEffect(() => {
+    engineRef.current?.setSwarms(swarmList);
+  }, [swarmList]);
+
+  // The message lines: who has messaged whom inside those same swarms, with
+  // how many each way (terrainMessages.ts). Same hand-over as the swarm
+  // outlines, ref included (terrainCanvas.ts setMessageThreads). The poll
+  // returns a fresh list every few seconds, so the lines are compared by
+  // content and only handed over when one actually changed.
+  const messageLines = useMemo(
+    () => messageThreads(shownSwarms(swarmsQuery.data ?? [], showClosedSwarms)),
+    [swarmsQuery.data, showClosedSwarms],
+  );
+  const messageLinesKey = JSON.stringify(messageLines);
+  const messageLinesRef = useRef(messageLines);
+  messageLinesRef.current = messageLines;
+  useEffect(() => {
+    engineRef.current?.setMessageThreads(messageLinesRef.current);
+  }, [messageLinesKey]);
+
+  // Light the agent being pointed at in another tile: a session card or a
+  // swarm ring in the Observatory (shell/panels/agentHoverBus.ts). The map
+  // shows it with its own agent hover (terrainCanvas.ts setOutsideHover).
+  // The canvas is built by a later effect, which asks the bus for the
+  // current agent itself; this listener covers every change after that.
+  useEffect(
+    () => subscribeAgentHover((convId) => engineRef.current?.setOutsideHover(convId)),
+    [],
+  );
+
+  // The replay runner. Frames are pre-batched (beats within 40ms share one
+  // flash); each frame flashes its dots and appends its threads to the lit
+  // set, which stays up for a few seconds after the last beat so the whole
+  // path can be read at once before it fades back to the ambient map.
+  useEffect(() => {
+    if (!replay) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    const frames = scheduleFrames(replay.beats, replay.slow);
+    const total = replay.beats.length;
+    let done = 0;
+    const threads: TerrainThread[] = [];
+    const seen = new Set<string>();
+    const timers: number[] = [];
+    setReplayThreads([]);
+    setReplayProgress({ done: 0, total, label: 'starting…' });
+    const t0 = performance.now();
+    for (const frame of frames) {
+      timers.push(
+        window.setTimeout(() => {
+          const ids = new Set<string>();
+          let last: Beat | null = null;
+          for (const b of frame.beats) {
+            if (b.nodeId) ids.add(b.nodeId);
+            if (b.nodeId && b.fromId && b.fromId !== b.nodeId) {
+              const key = `${b.fromId}>${b.nodeId}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                threads.push({ sourceId: b.fromId, targetId: b.nodeId, collection: `journey:${b.kind}`, lastWrite: null, t: 1, always: true });
+              }
+            }
+            last = b;
+          }
+          done += frame.beats.length;
+          if (ids.size) engine.flash(ids);
+          setReplayThreads([...threads]);
+          setReplayProgress({ done, total, label: last ? `${last.kind} · ${last.label}` : '' });
+        }, Math.max(0, frame.atMs - (performance.now() - t0))),
+      );
+    }
+    const end = (frames[frames.length - 1]?.atMs ?? 0) + 4000;
+    timers.push(
+      window.setTimeout(() => {
+        setReplay(null);
+        setReplayThreads(null);
+        setReplayProgress(null);
+      }, end),
+    );
+    return () => {
+      for (const t of timers) window.clearTimeout(t);
+    };
+  }, [replay]);
+
   // What's actually drawn — the honest numerator for the Files readout.
-  const shownFiles = useMemo(() => (filtered ? terrainFileLoaded(filtered) : 0), [filtered]);
 
   /** The pool, ranked most-recent-first (running → active → last touched).
    * The agent bar's window slides over THIS list by index. */
@@ -476,16 +1172,28 @@ export function TerrainPage() {
       );
   }, [graph, poolSessionIds, now]);
 
+  // Read the "hide agents" switch (agentsHiddenPref.ts). The embed card never
+  // honours it: it has no controls, so a map hidden there could never be
+  // un-hidden from there.
+  const agentsHidden = useAgentsHiddenOn() && !embed;
+
   /** The window's slice of the ranked pool — one control, one job. There's no
    * "and also show the active ones" branch any more: the pool button decides
    * membership, this decides how much of it. Clamped to the roster length,
-   * which changes whenever the pool does. */
+   * which changes whenever the pool does.
+   *
+   * Hiding agents empties this list, and that is the whole mechanism: orbs,
+   * tethers, name labels, read/write rings, the spotlight and the key's agent
+   * row all follow it, so none of them needs its own "hidden" check. The pool
+   * and window choices are left as they were, ready for when she shows them
+   * again. */
   const shownAgentIds = useMemo(() => {
+    if (agentsHidden) return new Set<string>();
     const n = rankedAgents.length;
     const to = Math.min(Math.max(agentWindow.to, 1), Math.max(1, n));
     const from = Math.min(Math.max(agentWindow.from, 0), Math.max(0, to - 1));
     return new Set(rankedAgents.slice(from, to).map((a) => a.id));
-  }, [agentWindow, rankedAgents]);
+  }, [agentWindow, rankedAgents, agentsHidden]);
 
   /**
    * Which orbs get their title drawn: the shown agents that did something
@@ -558,24 +1266,40 @@ export function TerrainPage() {
   }, [unreadAgents, acknowledged]);
 
   /**
-   * Which agents the read/write rings speak for: the ones active within the
-   * hour, so their working sets are ringed without her having to tap anything
-   * — but the moment one is spotlit, just that one, so the dimmed map answers
-   * "what did THIS agent touch" rather than staying a chorus.
+   * Which agents the read/write rings speak for: every SHOWN agent, whatever
+   * the pool — so turning on Open rings the files the open agents touched,
+   * without her having to tap anything. The agent window slider is the
+   * control for how many that is; hiding agents empties it.
    *
-   * Deliberately the LABELED set rather than every shown agent: under the Open
-   * pool a dozen agents' footprints ringed at once is confetti, and the older
-   * ones aren't the question. They stay un-ringed until spotlit.
+   * Spotlighting one agent does NOT narrow this. The other agents' rings stay
+   * on the map and recede with their own dots instead — the canvas fades
+   * everything outside the spotlit footprint, rings included, so "whose work
+   * is this" is still answerable about the rest of the map while one agent
+   * holds the light. Dropping them outright made a click erase evidence
+   * rather than quiet it.
+   *
+   * Prompt that produced it: "when i toggle "open" agents on, they don't show
+   * rings around the files they've interacted with. i want them to show rings."
    */
-  const ringSessionIds = useMemo(
-    () => (footprintSession ? new Set([footprintSession]) : labeledAgentIds),
-    [footprintSession, labeledAgentIds],
-  );
+  const ringSessionIds = shownAgentIds;
 
-  const agentRings = useMemo(
-    () => (visible ? agentTouchRings(visible.nodes, ringSessionIds) : new Map<string, FileTouchKind>()),
-    [visible, ringSessionIds],
-  );
+  /**
+   * File → the touch it wears a ring for. One ring per file, so when several
+   * agents have touched one file the loudest relationship wins
+   * (agentTouchRings) — except on the spotlit agent's own files, where ITS
+   * relationship wins instead. Same override the hovered agent already gets
+   * in the canvas, for the same reason: while one agent is the subject, a
+   * ring on its file has to say what THAT agent did, not what a louder
+   * neighbour did.
+   */
+  const agentRings = useMemo(() => {
+    if (!visible) return new Map<string, FileTouchKind>();
+    const rings = agentTouchRings(visible.nodes, ringSessionIds);
+    if (footprintSession) {
+      for (const [id, kind] of sessionTouchRings(visible.nodes, footprintSession)) rings.set(id, kind);
+    }
+    return rings;
+  }, [visible, ringSessionIds, footprintSession]);
 
   /**
    * The nodes that ARE the journal — what the pond landmark anchors over.
@@ -612,6 +1336,21 @@ export function TerrainPage() {
   useEffect(() => {
     engineRef.current?.setPondNodes(pondNodeIds);
   }, [pondNodeIds]);
+  // When each file was last edited, read off the RAW payload, before the
+  // date dial strips touches, so narrowing the dates can't re-order a grid
+  // (fileGrids.ts fileLastEdit).
+  const lastEdits = useMemo(() => (data ? fileLastEdits(data) : null), [data]);
+  // Every code folder's files as a grid, edited longest ago top-left
+  // (fileGrids.ts),
+  // handed over as an ORDER per folder: the engine pins file 0 in the top-left
+  // cell and fills on from there (terrainCanvas.setGrids). Built from the
+  // drawn graph, so a repo toggled off takes its grids with it. A coil's
+  // dots stay on their spiral.
+  const grids = useMemo(() => {
+    if (!visible || !lastEdits) return [];
+    const coilDots = new Set((coiled?.coils ?? []).flatMap((coil) => coil.spiralIds));
+    return gridFolders(visible.nodes, lastEdits, { skipIds: coilDots });
+  }, [visible, lastEdits, coiled]);
 
 
   // "Nothing here" is now a statement about the chosen dials, not just the
@@ -625,8 +1364,18 @@ export function TerrainPage() {
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
     const initialInk = readThemeInk();
-    const engine = new TerrainCanvas(canvas, initialInk);
+    // `remember: true` is what makes re-opening this page reopen HER map:
+    // positions, the nodes she dragged, and the camera are carried across the
+    // mount in layoutMemory.ts. The ambient backdrop doesn't ask for it.
+    // A build's map is not remembered: the memory holds one camera, and a
+    // build saving its own would move the main map's.
+    const engine = new TerrainCanvas(canvas, initialInk, { remember: !build });
     engineRef.current = engine;
+    engine.setLineage(spinoffLinksRef.current);
+    engine.setSwarms(swarmListRef.current);
+    engine.setMessageThreads(messageLinesRef.current);
+    engine.setOutsideHover(pointedAgent());
+    engine.onPins = setPinnedCount;
     setInk(initialInk);
     engine.resize(wrap.clientWidth, wrap.clientHeight);
 
@@ -655,34 +1404,113 @@ export function TerrainPage() {
   // Tap. A FILE goes to a code tile if one is watching — in this window or
   // another browser window on another monitor (shell/panels/windowBus.ts),
   // most recently touched tile winning — and with no code tile anywhere it
-  // opens straight into its frosted code window over the map, one tap, exactly
+  // opens straight into its full-screen code page, one tap, exactly
   // as before. Same rule as the observatory's file lists (SessionCard), so
-  // code opens the same way from every surface. An agent orb highlights its
-  // footprint immediately AND opens its sheet; empty canvas clears everything.
-  // (Repo/dir hubs are structure, not destinations — taps pass through.)
+  // code opens the same way from every surface. An AGENT ORB and a TABLE take
+  // two clicks instead: the first picks the body out and lights what it holds
+  // or what it's joined to, the second opens it (hoverSelection.ts tapStage).
+  // Empty canvas clears everything. (Repo/dir hubs are structure, not
+  // destinations — taps pass through.)
   //
   // Prompt: "have the terrain tab open in one browser window on one screen,
-  // click a piece of code or an agent, and it opens on another screen".
+  // click a piece of code or an agent, and it opens on another screen" /
+  // "clicking an agent highlights that agent and the files it's touching
+  // rather than making a popup. i want a double click on the agents to make a
+  // popup. same for the sql".
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
-    engine.onTap = (node) => {
+    // A tap on a coil's tip curve. While it curves, it's a pull: the coil
+    // widens to its next step — the first one that brings anything out
+    // (coilFolders.ts pullTo) — and the engine pays the new dots out one at
+    // a time. Once it's straight there's nothing left to pull, so it resets
+    // the coil to its first step, the same as a tap on the centre.
+    engine.onCoilTip = (folderId) => {
+      const tipped = coiled?.coils.find((coil) => coil.folderId === folderId);
+      if (!tipped) return;
+      const to = tipped.pullTo === undefined ? tipped.collapseTo : tipped.pullTo;
+      setCoilWindows((open) => ({ ...open, [tipped.prefix]: to }));
+    };
+    // The mouse over a coil's centre raises its card; the card owns the timing.
+    engine.onHoverCoil = coilCard.hover;
+    engine.onTap = (node, how) => {
+      // A coil's centre collapses it: a tap on one of these folders closes
+      // that coil back to its first step (a month, unless she's set it
+      // otherwise) rather than selecting the folder. The widening lives on
+      // the curve at the coil's tip — see onCoilTip above.
+      //
+      // A finger has no hover to raise the coil's card, so for touch the FIRST
+      // tap on a centre opens the card (which carries a Collapse button) and
+      // a second tap on the same centre collapses — the orbs' and tables'
+      // pick-then-act. A tap anywhere else puts a finger-opened card away.
+      const tappedCoil = coiled?.coils.find((coil) => coil.folderId === node?.id);
+      if (tappedCoil) {
+        const cardUp = coilCard.card?.pinned && coilCard.card.folderId === tappedCoil.folderId;
+        if (how.pointerType !== 'mouse' && !cardUp) {
+          const anchor = engine.screenAnchorOf(tappedCoil.folderId);
+          if (anchor) coilCard.open(tappedCoil.folderId, anchor);
+          return;
+        }
+        setCoilWindows((open) => ({ ...open, [tappedCoil.prefix]: tappedCoil.collapseTo }));
+        coilCard.close();
+        return;
+      }
+      if (coilCard.card?.pinned) coilCard.close();
       if (node?.kind === 'file') {
         // The pond tile isn't a code file — the landmark floating over it
         // owns the pond's interactions (its reach target catches most taps;
         // this catches the hit-slop ring around the square).
         if (node.path === POND_TILE_PATH) return;
+        // A table isn't a code file either. TWO STAGES: the first click picks
+        // it out and pins lit everything it's joined to — its foreign keys,
+        // and the ropes to the code files that touch it — so she can read the
+        // wiring without holding the mouse perfectly still. Clicking the
+        // picked-out one again opens its card (columns, shape, joins, code).
+        // A double-click does both in one gesture, which is the point: it's
+        // two clicks on the same body either way, with no timer to wait out
+        // and nothing that behaves differently under a finger.
+        if (node.file?.table) {
+          if (tapStage(node.id, heldTable) === 'open') {
+            setSelected(node);
+            return;
+          }
+          setSelected(null);
+          setHeldTable(node.id);
+          engine.holdFileHover(node.id);
+          return;
+        }
         if (node.path) {
           if (dispatchIntent({ kind: 'code', repo: node.repoId, path: node.path }) !== 'none') return;
-          setCodeFile(node);
+          openCodeFile(node.repoId, node.path);
         }
       } else if (node?.kind === 'session' && node.session) {
-        setSelected(node);
+        if (visitor) {
+          // The orb's footprint rings on the map; the sheet's two "Open"
+          // doors lead to the Observatory, which isn't theirs.
+          setFootprintSession((cur) => (cur === node.session!.id ? null : node.session!.id));
+          return;
+        }
+        // The same two stages the tables get. The first click spotlights the
+        // agent and rings every file it has touched — which was already what a
+        // tap did, with a card thrown over the top of it. The card is the
+        // SECOND click now, so looking at an agent's territory doesn't cost
+        // her a dismissal every time.
+        if (tapStage(node.session.id, footprintSession) === 'open') {
+          setSelected(node);
+          return;
+        }
+        setSelected(null);
         setFootprintSession(node.session.id);
+        setQuery(''); // the agent takes the spotlight over from the search
         acknowledge(node.session.id); // she turned to it — stop the sonar ping
       } else if (node === null) {
+        // Empty map: put everything back. This is the way OUT of both
+        // two-stage selections — clicking a picked-out body again opens it,
+        // so it can't also be the way to un-pick it.
         setSelected(null);
         setFootprintSession(null);
+        setHeldTable(null);
+        engine.holdFileHover(null);
       }
     };
   });
@@ -779,7 +1607,7 @@ export function TerrainPage() {
   //
   // Prompt: "This might be overlaid on the terrain visual though" (of the
   // watch-code-being-written surface).
-  const flowData = useFlow(anyRunning && pageVisible).data;
+  const flowData = useFlow(anyRunning && pageVisible, !visitor).data;
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !flowData) return;
@@ -798,6 +1626,30 @@ export function TerrainPage() {
     );
   }, [flowData]);
 
+  // The coils and the grids are handed over AFTER the engine is made (the
+  // lifecycle effect above): effects run in the order they're written, and
+  // on a remount with the payload already cached these would otherwise run
+  // while there's no engine yet, and nothing would hand them over again.
+  useEffect(() => {
+    // Each coil, handed over as an ORDER and a centre: the engine pins dot 0
+    // innermost and winds the rest out from there (terrainCanvas.setCoils).
+    // The caption is the line it wears under its own name — "1mo · 53 of
+    // 685". Without it a centre is a control with no reading on it, and the
+    // only way to know what tapping did is to count dots.
+    engineRef.current?.setCoils(
+      (coiled?.coils ?? []).map((coil) => ({
+        folderId: coil.folderId,
+        ids: coil.spiralIds,
+        caption: `${coilWindowLabel(coil.windowDays)} · ${coil.shown} of ${coil.total}`,
+        canPull: coil.pullTo !== undefined,
+      })),
+    );
+  }, [coiled, coilWindows]);
+
+  useEffect(() => {
+    engineRef.current?.setGrids(grids);
+  }, [grids]);
+
   // Data / lens / repo-visibility changes re-feed the sim (positions carry
   // over inside setGraph, so this re-warms rather than re-explodes).
   useEffect(() => {
@@ -813,6 +1665,16 @@ export function TerrainPage() {
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !visible) return;
+    // A search owns the spotlight while it has hits: the matches stay lit
+    // and captioned, everything else recedes. Labels in rank order, so
+    // when the canvas thins captions it keeps the best matches.
+    // Only the best few are captioned on the map: the list beside the field
+    // already names every hit, and forty names over one directory is soup.
+    if (searchIds) {
+      engine.setFootprint(searchIds);
+      engine.setFootprintLabels(searchHits.slice(0, SEARCH_LABEL_CAP).map((h) => h.id));
+      return;
+    }
     if (!footprintSession) {
       engine.setFootprint(null);
       engine.setFootprintLabels([]);
@@ -827,7 +1689,7 @@ export function TerrainPage() {
     // the canvas thin the captions to the most recent work when she's zoomed
     // too far out to fit them all.
     engine.setFootprintLabels(sessionFootprintByRecency(visible.nodes, footprintSession));
-  }, [footprintSession, visible]);
+  }, [footprintSession, visible, searchIds, searchHits]);
 
   useEffect(() => {
     engineRef.current?.setAgentRings(agentRings);
@@ -840,6 +1702,85 @@ export function TerrainPage() {
   useEffect(() => {
     engineRef.current?.setLabeledAgents(labeledAgentIds);
   }, [labeledAgentIds]);
+
+  // Hand the "Types" toggle to the canvas. The value is a toggle that stays
+  // (typeColorPref.ts), so a terrain in another panel flips with this one.
+  useEffect(() => {
+    engineRef.current?.setTypeColors(typeColors);
+  }, [typeColors]);
+
+  // The dots the date range hides. Only worth computing while she's actually
+  // narrowed it: unpinned, the range is the whole payload and nothing can be
+  // outside it, and this walks every file in both repos.
+  const hiddenByDates = useMemo(
+    () =>
+      collapsed && customRange
+        ? filesOutsideRange(collapsed.data, range.from, range.to)
+        : new Set<string>(),
+    [collapsed, customRange, range.from, range.to],
+  );
+
+  // The one hidden set, and the date range is now its only contributor. Both
+  // time filters that used to feed it are gone: heat colours instead of
+  // cutting, and Active marks instead of hiding. What survives is the rule
+  // that made them safe — the canvas skips painting these and moves nothing,
+  // so a dot that comes back comes back to the same spot (terrainCanvas.ts
+  // setHiddenFiles).
+  const hiddenFiles = hiddenByDates;
+  useEffect(() => {
+    engineRef.current?.setHiddenFiles(hiddenFiles);
+  }, [hiddenFiles]);
+  // With both fires off there's nothing to judge staleness by, so the Types
+  // view stops fading files and shows every type colour whole
+  // (terrainCanvas.ts staleFade).
+  useEffect(() => {
+    engineRef.current?.setStaleFade(heatOn || goldOn);
+  }, [heatOn, goldOn]);
+  // What the Files dial's readout reports: dots actually PAINTED, so a cut
+  // that hides half the map is visible in the number rather than only on the
+  // canvas. Tables ride the map as synthetic files and aren't part of the
+  // corpus count.
+  const shownFiles = useMemo(
+    () =>
+      visible
+        ? visible.nodes.filter(
+            (n) => n.kind === 'file' && !n.file?.table && !hiddenFiles.has(n.id),
+          ).length
+        : 0,
+    [visible, hiddenFiles],
+  );
+
+  const filterNote = useMemo(() => {
+    if (!visible) return null;
+    // Name what's taking dots off the map and how many that leaves. The date
+    // range is the only thing that does now — the fire switches and windows
+    // change colour, never what's on the map.
+    if (hiddenByDates.size === 0) return null;
+    const files = visible.nodes.filter((n) => n.kind === 'file' && !n.file?.days).length;
+    return { title: 'Dates', count: `${files - hiddenFiles.size} of ${files} files` };
+  }, [visible, hiddenFiles, hiddenByDates]);
+
+  // Build the key's type list. Only the files drawn right now are counted,
+  // so the legend never names a type that isn't on the map, and each swatch
+  // is the exact lifted colour its dots wear (typeDotColor). The commonest
+  // KEY_TYPE_ROWS named types are listed; "Other" closes the list whenever
+  // anything is left over — unrecognised files or the types cut off the end.
+  const typeRows = useMemo(() => {
+    if (!typeColors || !ink || !visible) return null;
+    const paths = visible.nodes
+      // Tables ride the map as synthetic files, but they aren't a file type.
+      .filter((n) => n.kind === 'file' && !n.file?.table && !hiddenFiles.has(n.id))
+      .map((n) => n.path ?? n.label);
+    const counts = fileTypeCounts(paths);
+    const named = counts.filter((c) => c.type !== OTHER_FILE_TYPE);
+    const listed = named.length < counts.length || named.length > KEY_TYPE_ROWS
+      ? [...named.slice(0, KEY_TYPE_ROWS).map((c) => c.type), OTHER_FILE_TYPE]
+      : named.map((c) => c.type);
+    return listed.map((type) => ({
+      label: type.label,
+      color: typeDotColor(type.color, ink.bg, ink.text),
+    }));
+  }, [typeColors, ink, visible, hiddenFiles]);
 
   const toggleRepo = (repoId: string) => {
     setHiddenRepos((prev) => {
@@ -872,15 +1813,18 @@ export function TerrainPage() {
     openSessionHere(convId);
   };
 
-  // Files are read in the frosted window now, not the sheet, so this is the
-  // age line the WINDOW prints under the code.
+  // Files are read in the code pane now, not the sheet, so this is the age
+  // line the PANE prints under the code.
   const codeFileLast = codeFile?.file ? fileLastTouch(codeFile.file) : null;
 
   // --- the agent hovercard ------------------------------------------------
-  // An overlay is up, so the cursor isn't over the map any more — a card left
-  // hanging beside it would be pointing at an orb she can't see.
-  const hoverBlocked = codeFile !== null || selected !== null;
-  const hoverId = hoverBlocked ? null : (hover?.id ?? null);
+  // Hide the hovercard whenever something covers the map. The agent sheet or
+  // the file pane is up, so the cursor isn't over the map any more — a card
+  // left hanging would be pointing at an orb she can't see.
+  const hoverBlocked = selected !== null || codeFile !== null;
+  // (No hovercard for a visitor: its facts come from the roster and the
+  // session preview, neither of which is theirs to read.)
+  const hoverId = hoverBlocked || visitor ? null : (hover?.id ?? null);
   // Fires only while she's actually pointing at one — cached per session, so
   // coming back to the same orb is instant.
   const hoverPreview = useSessionPreview(hoverId);
@@ -945,8 +1889,32 @@ export function TerrainPage() {
     setHover(null);
   };
 
+  // Typing a query takes the spotlight from whichever agent had it.
+  const pickQuery = (q: string) => {
+    setQuery(q);
+    if (q.trim()) {
+      setFootprintSession(null);
+      setSelected(null);
+    }
+  };
+  // A row in the hit list opens the file exactly as tapping its dot does:
+  // out to a paired window if one is listening, else the full-screen code
+  // page here (openCodeFile — the address finds the node, or stands one in).
+  const openHit = (hit: TerrainSearchHit) => {
+    if (dispatchIntent({ kind: 'code', repo: hit.repoId, path: hit.path }) !== 'none') return;
+    openCodeFile(hit.repoId, hit.path);
+  };
+
+  // The files the ringed session touched, as rows for the report to
+  // print under it — read from the same visible nodes the rings are drawn
+  // from, so the list names exactly the dots that are lit.
+  const reportFiles = useMemo(
+    () => (footprintSession && visible ? sessionFootprintFiles(visible.nodes, footprintSession) : []),
+    [footprintSession, visible],
+  );
+
   return (
-    <div className={styles.page}>
+    <div className={[styles.page, guideOpen || reportOpen ? styles.guideOpen : ''].filter(Boolean).join(' ')}>
       {/* Canvas first and full-bleed: the chrome below floats over it, so the
           map owns the whole page and shows through the controls. */}
       <div ref={wrapRef} className={styles.canvasWrap}>
@@ -962,15 +1930,33 @@ export function TerrainPage() {
         ) : null}
       </div>
 
+      {/* The embed view has no chrome at all (see `embed` above): both bars
+          and the colour key stay unmounted, and one door floats bottom-right. */}
+      {embed ? (
+        <a className={styles.embedOpen} href="/terrain/files" target="_top" rel="noopener">
+          Open Terrain <span aria-hidden="true">&#8599;</span>
+        </a>
+      ) : null}
+      {embed ? null : (
+      <>
+      <TerrainGuide open={guideOpen} visitor={visitor} onClose={closeGuide} />
       <div className={styles.chrome}>
         <div className={styles.topBar}>
-          <h1 className={styles.title}>Terrain</h1>
+          {/* On a build's map: the way back to the list of builds, then the
+              build's own name where the map's name would be. */}
+          {build ? (
+            <Link to="/terrain/builds" className={styles.chip} aria-label="Back to Builds">
+              ← Builds
+            </Link>
+          ) : null}
+          <h1 className={styles.title}>{build ? (data?.build?.name ?? 'Build') : 'Terrain'}</h1>
           {/* Which territories are drawn — up here with the other "how much of
               the map to show" controls (Files, Dates). The heat lens moved the
               other way, down to the bottom bar, since it's about how the map
               is coloured rather than what's in it. */}
           <div className={styles.chipRow} role="group" aria-label="Territories">
-            {(data?.repos ?? []).map((repo) => (
+            {/* A build's map has one territory, so there is nothing to choose. */}
+            {(build ? [] : (data?.repos ?? [])).map((repo) => (
               <button
                 key={repo.id}
                 type="button"
@@ -984,6 +1970,9 @@ export function TerrainPage() {
               </button>
             ))}
           </div>
+          {/* Find a file by name or path — the hits light on the map and
+              list under the field; see TerrainSearch.tsx. */}
+          <TerrainSearch query={query} onQuery={pickQuery} hits={searchHits} onPick={openHit} />
           {customRange ? (
             <button
               type="button"
@@ -993,17 +1982,97 @@ export function TerrainPage() {
               dates · clear ×
             </button>
           ) : null}
+          {/* The map is fetched when she ASKS now, not every time the page
+              opens, so this chip is both the door to fresh data and the honest
+              label of how old what she's looking at is. Beside it, and only
+              when there's something to undo, the release: hand the nodes she
+              dragged back to the physics.
+
+              Prompt: "i want for the map to not have to reload every time i
+              open the page ... there can be a button on there somewhere that i
+              can actively refresh it." */}
+          <div className={styles.mapTools}>
+            {pinnedCount > 0 ? (
+              <button
+                type="button"
+                className={[styles.chip, styles.releaseChip].join(' ')}
+                title="Let the physics have the nodes you moved back"
+                onClick={() => engineRef.current?.releasePins()}
+              >
+                release {pinnedCount}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={[styles.chip, styles.refreshChip, refreshing ? styles.refreshing : '']
+                .filter(Boolean)
+                .join(' ')}
+              title={
+                dataAge === null
+                  ? 'Refresh the map'
+                  : `Refresh the map — ${publishedSeconds ? 'published' : 'fetched'} ${
+                      dataAge === 'now' ? 'just now' : `${dataAge} ago`
+                    }`
+              }
+              aria-label="Refresh the map"
+              disabled={refreshing}
+              onClick={refreshMap}
+            >
+              <span className={styles.refreshGlyph} aria-hidden="true">
+                &#8635;
+              </span>
+              {dataAge ? <span className={styles.refreshAge}>{dataAge}</span> : null}
+            </button>
+            {/* The Guide's door: beside the refresh chip because, like it, it
+                is about the map rather than the work. Open for everyone —
+                the panel itself says what a visitor can't reach. */}
+            <button
+              type="button"
+              className={[styles.chip, styles.guideChip, guideOpen ? styles.chipActive : '']
+                .filter(Boolean)
+                .join(' ')}
+              title="Guide — what the map shows and how to use it"
+              aria-label="Guide"
+              aria-expanded={guideOpen}
+              onClick={() => (guideOpen ? closeGuide() : openGuide())}
+            >
+              <span aria-hidden="true">?</span> Guide
+            </button>
+            {/* The map's written report — what was built, by whom, when. On a
+                build's map and on the main one; never for a visitor, who has
+                no sessions or summaries to be shown. */}
+            {!visitor ? (
+              <button
+                type="button"
+                className={[styles.chip, reportOpen ? styles.chipActive : ''].filter(Boolean).join(' ')}
+                title="Report — what was built here, by which sessions, when"
+                aria-expanded={reportOpen}
+                onClick={toggleReport}
+              >
+                Report
+              </button>
+            ) : null}
+          </div>
           {/* Page tools, pushed to the right edge and away from the map's own
               controls: these act on the WORK, not on the map, so grouping them
               with the territory chips would say they filter something. The two
-              shared panels hang from here (they anchor top-right by design). */}
+              shared panels hang from here (they anchor top-right by design).
+              A visitor gets none of them — only the door to the one other
+              room open to them, the Map (routes/terrain_.map.tsx). */}
+          {visitor ? (
+          <div className={styles.pageTools}>
+            <Link to="/terrain/map" className={[styles.chip, styles.roomChip].join(' ')} title="Map — how the code is built, as boxes and arrows">
+              Map
+            </Link>
+          </div>
+          ) : (
           <div className={styles.pageTools}>
             <button
               ref={notesBtnRef}
               type="button"
               className={[styles.chip, styles.iconChip].join(' ')}
-              title="Dev notes"
-              aria-label="Dev notes"
+              title="Terrain dev notes"
+              aria-label="Terrain dev notes"
               aria-expanded={panel === 'notes'}
               onClick={() => togglePanel('notes')}
             >
@@ -1038,7 +2107,21 @@ export function TerrainPage() {
             >
               <span aria-hidden="true">&#128682;</span> Rooms
             </button>
+            {/* Replay a captured journey on the map — record one here or in
+                the Wiring room, then watch the dots flare in order. */}
+            <button
+              type="button"
+              className={[styles.chip, journeyOpen ? styles.chipActive : ''].filter(Boolean).join(' ')}
+              title="Journey — record and replay a path through the code"
+              aria-expanded={journeyOpen}
+              data-journey-ui=""
+
+              onClick={() => setJourneyOpen((v) => !v)}
+            >
+              <span aria-hidden="true">&#9889;</span> Journey
+            </button>
           </div>
+          )}
         </div>
 
         {data ? (
@@ -1069,9 +2152,22 @@ export function TerrainPage() {
           <TerrainHeatBar
             days={liveHeatDays}
             onDays={pickHeatDays}
-            dark={ink?.dark}
+            ramp={ink ? heatRamps(ink).ember : undefined}
+            goldRamp={ink ? heatRamps(ink).gold : undefined}
             breathing={breathing}
-            onBreathe={() => setBreathing((v) => !v)}
+            onBreathe={toggleBreathing}
+            typeColors={typeColors}
+            onTypeColors={setTypeColorsOn}
+            heatOn={heatOn}
+            onHeatOn={setHeatOn}
+            activeOn={goldOn}
+            onActiveOn={setGoldOn}
+            heatAllTime={heatAllTime}
+            onHeatAllTime={pickHeatAllTime}
+            activeAllTime={cuts.activeAllTime}
+            onActiveAllTime={pickActiveAllTime}
+            activeSeconds={liveActiveSeconds}
+            onActiveSeconds={pickActiveSeconds}
           />
           {/* The agent control: Active button, a window that slides past agents
               over the ranked roster, and a popup list to spotlight one. */}
@@ -1085,10 +2181,13 @@ export function TerrainPage() {
             from={agentWindow.from}
             to={agentWindow.to}
             onWindow={(from, to) => setAgentWindow({ from, to })}
+            hidden={agentsHidden}
+            onHidden={setAgentsHiddenOn}
             spotlighted={footprintSession}
             onSpotlight={(id) => {
               setFootprintSession(id);
               setSelected(null);
+              if (id) setQuery('');
               if (id) acknowledge(id); // tapping its row in the list counts too
             }}
           />
@@ -1098,13 +2197,18 @@ export function TerrainPage() {
             expand right up to its edge. */}
         {ink && !empty && !isLoading && !isError ? (
           <TerrainKey
-            halfLife={halfLife}
+            windowSeconds={windowSeconds}
             ink={ink}
             hidden={selected !== null || codeFile !== null}
             showAgents={shownAgentIds.size > 0}
+            typeRows={typeRows}
+            filterNote={filterNote}
           />
         ) : null}
       </div>
+
+      </>
+      )}
 
       {/* Rest the cursor on an agent orb and the Observatory's own card for that
           session floats up beside it — its dot, what she asked, what it's
@@ -1112,8 +2216,23 @@ export function TerrainPage() {
           back out. Keep going and the cursor lands IN the card: it holds still,
           the body scrolls down to the reply, and Open goes solid.
           See AgentHoverCard.tsx. */}
+      {/* A coil's card: rest the mouse on a coil's centre, or tap it with a
+          finger. See CoilHoverCard.tsx. */}
+      <CoilHoverCard
+        card={hoverBlocked ? null : coilCard.card}
+        coil={coiled?.coils.find((coil) => coil.folderId === coilCard.card?.folderId)}
+        readOnly={visitor}
+        onEngage={coilCard.engage}
+        onCollapse={() => {
+          const coil = coiled?.coils.find((c) => c.folderId === coilCard.card?.folderId);
+          if (coil) setCoilWindows((open) => ({ ...open, [coil.prefix]: coil.collapseTo }));
+          coilCard.close();
+        }}
+        onClose={coilCard.close}
+      />
+
       <AgentHoverCard
-        hover={hoverBlocked ? null : hover}
+        hover={hoverBlocked || visitor ? null : hover}
         facts={hoverFacts}
         engaged={hoverEngaged}
         onEngage={engageHover}
@@ -1145,7 +2264,31 @@ export function TerrainPage() {
           nearest positioned ancestor (.page), landing just under their trigger
           buttons in the top bar, and close themselves on Escape / a pointer
           down anywhere else — including on the canvas. */}
-      <TermNotesPanel open={panel === 'notes'} onClose={() => setPanel(null)} triggerRef={notesBtnRef} />
+      {visitor ? null : (
+      <>
+      {/* Terrain's own dev notes. The panel is the shared one, but it files
+          under the 'terrain' tab — not the 'terminal' list the Observatory and
+          the terminal pane write to — so notes about the map stay with the map. */}
+      <TermNotesPanel tab="terrain" open={panel === 'notes'} onClose={() => setPanel(null)} triggerRef={notesBtnRef} />
+      <JourneyPanel
+        open={journeyOpen}
+        onClose={() => setJourneyOpen(false)}
+        initialId={search.journey ?? null}
+        playing={replay?.id ?? null}
+        progress={replayProgress}
+        onPlay={(req) => {
+          // Pin every dot the journey lands on so the Files dial can't have
+          // cut it away, then start once the graph has had a tick to rebuild.
+          setReplayPins(beatNodeIds(req.beats));
+          setReplay(null);
+          window.setTimeout(() => setReplay(req), 250);
+        }}
+        onStop={() => {
+          setReplay(null);
+          setReplayThreads(null);
+          setReplayProgress(null);
+        }}
+      />
       <SchedulePanel
         open={panel === 'schedule'}
         onClose={() => setPanel(null)}
@@ -1156,8 +2299,41 @@ export function TerrainPage() {
           Rendered above all the floating chrome (its backdrop covers the whole
           page), closed by Esc, the blur itself, or the Rooms button again. */}
       <TerrainRoomsIndex open={roomsOpen} onClose={() => setRoomsOpen(false)} />
+      {/* The map's report, docked on the right. It only asks the page for
+          things: narrow the dates to one day, ring one session's files, open
+          one of those files. */}
+      {!visitor ? (
+        <BuildReport
+          buildId={build ?? null}
+          open={reportOpen && !embed}
+          onClose={() => setReportOpen(false)}
+          range={customRange}
+          onPickRange={setCustomRange}
+          spotlighted={footprintSession}
+          onSpotlight={(id) => {
+            setFootprintSession(id);
+            setSelected(null);
+            if (id) setQuery('');
+          }}
+          onOpenSession={openSessionThere}
+          files={reportFiles}
+          onOpenFile={(file) => {
+            if (dispatchIntent({ kind: 'code', repo: file.repoId, path: file.path }) !== 'none') return;
+            openCodeFile(file.repoId, file.path);
+          }}
+        />
+      ) : null}
+      </>
+      )}
 
-      <Sheet open={selected !== null} title={selected?.label} onClose={() => setSelected(null)}>
+      {/* The shared Sheet is for agents only. A tapped TABLE opens its own
+          window below instead, because the Sheet centres on the whole browser
+          window and a table's card has to centre over this pane. */}
+      <Sheet
+        open={selected !== null && !selected.file?.table}
+        title={selected?.label}
+        onClose={() => setSelected(null)}
+      >
         {selected?.kind === 'session' && selected.session ? (
           <div className={styles.sheetBody}>
             <div className={styles.sheetMeta}>
@@ -1199,17 +2375,69 @@ export function TerrainPage() {
         ) : null}
       </Sheet>
 
-      {/* Portalled over the canvas — the sim, the zoom transform and the
-          layout are all untouched while it's up, so closing it drops you back
-          onto exactly the map you left. The window carries what the MAP knows
-          about the file under the code: when it was last touched, and which
-          agents touched it, each still able to ring its own footprint. That
-          was a separate sheet standing between her and the code; it reads
-          better as the tail of the file than as a gate in front of it. */}
+      {/* The table window: what a tapped table opens — its description, and
+          its actual rows with search (TerrainTableWindow). Centred over THIS
+          pane, so with the screen split it sits over the map's side rather
+          than straddling the divider. */}
+      <TerrainTableWindow
+        // Hide the card while a file is open over the map. The card sits
+        // above the file pane, so it has to step aside — but it is hidden,
+        // not closed, so going back from the file lands on the card she
+        // opened it from.
+        table={codeFile ? null : (selected?.file?.table ?? null)}
+        allTables={tables?.tables ?? []}
+        activity={tableActivity}
+        sessionTitles={sessionTitles}
+        onClose={() => setSelected(null)}
+        onPickTable={(tableName) => {
+          // Jump to a joined table's card: same window, different table.
+          const next = graph?.nodes.find((n) => n.file?.table?.name === tableName);
+          if (next) setSelected(next);
+        }}
+        onOpenFile={(path, mentions) => {
+          // Open one of the files that touches this table, the same way a
+          // tapped dot opens: another window if one is listening, else the
+          // code window here (openCodeFile — the file may not be ON the map,
+          // and the address stands a bare node in when it isn't).
+          //
+          // The mentions travel with it either way, so the file opens where
+          // it names this table rather than at line 1 — as a search param
+          // wherever it lands.
+          //
+          // Opened HERE, the card is not closed, only hidden while the file
+          // is up (see `table=` above): closing the file is "back", and back
+          // from a file opened off a card should be that card. Handed to
+          // another tile, the card closes as it always has.
+          const repo = tables?.code_repo ?? 'skeleton';
+          const label = selected?.file?.table?.name ?? '';
+          if (dispatchIntent({ kind: 'code', repo, path, mentions, mentionsOf: label }) !== 'none') {
+            setSelected(null);
+            return;
+          }
+          openCodeFile(repo, path, mentions.length > 0 ? { label, lines: mentions } : undefined);
+        }}
+      />
+
+      {/* The file pane: read the tapped file without leaving the map
+          (FileCodeWindow). It covers this terrain panel's whole area and
+          nothing outside it — one tile of a split, never its neighbours. The sim
+          and the zoom transform are untouched while it's up, so closing it
+          drops you back onto exactly the map you left. Under the code the
+          pane carries what the MAP knows about the file: when it was last
+          touched, and which agents touched it, each still able to ring its
+          own footprint — the tail of the file, not a gate in front of it.
+          The pane also gets the map's live heat window, gold window and
+          ink, so its red-edits and gold-ran toggles (FileCodeBody) colour
+          lines on the same lens as the dots — under Dynamic the lines
+          breathe too. */}
       <FileCodeWindow
         repo={codeFile?.repoId ?? null}
         path={codeFile?.path ?? null}
-        onClose={() => setCodeFile(null)}
+        onClose={closeCodeFile}
+        mentions={codeMentions ?? undefined}
+        windowSeconds={windowSeconds}
+        runWindowSeconds={liveActiveSeconds}
+        ink={ink ?? undefined}
       >
         {codeFile?.file ? (
           <div className={styles.sheetBody}>
@@ -1225,7 +2453,15 @@ export function TerrainPage() {
                     {/* Rows keep the quiet default — "there", the move that
                         preserves this window — the sheet's pair is where the
                         explicit fork lives. */}
-                    <button type="button" className={styles.sessionOpen} onClick={() => openSessionThere(s.id)}>
+                    <button
+                      type="button"
+                      className={styles.sessionOpen}
+                      disabled={visitor}
+                      title={visitor ? 'Sessions open only for the owner' : undefined}
+                      onClick={() => {
+                        if (!visitor) openSessionThere(s.id);
+                      }}
+                    >
                       <span className={styles.sessionTitle}>{s.title || s.id}</span>
                       <span className={styles.sessionMeta}>
                         {s.writes} {s.writes === 1 ? 'write' : 'writes'}
@@ -1247,7 +2483,7 @@ export function TerrainPage() {
                         // Ringing a footprint is a statement about the MAP, so
                         // the window gets out of the way to show it.
                         setFootprintSession((cur) => (cur === s.id ? null : s.id));
-                        setCodeFile(null);
+                        closeCodeFile();
                       }}
                     >
                       footprint

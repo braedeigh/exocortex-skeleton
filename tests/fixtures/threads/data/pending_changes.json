@@ -3,18 +3,18 @@
     {
       "id": "aaaa1111",
       "kind": "thread_open",
-      "summary": "New thread? \"Night Terrors\" — health, 3 evidence cards",
+      "summary": "New thread? \"Topic C\" — health, 3 evidence cards",
       "payload": {
-        "slug": "night-terrors",
-        "name": "Night Terrors",
+        "slug": "topic-c",
+        "name": "Topic C",
         "fronts": ["health"],
         "parents": [],
         "kind": "standing",
         "proposer": "cricket-health",
-        "rationale": "3 cards across 2 nights this week.",
+        "rationale": "3 cards across 2 days this week.",
         "evidence": [
-          { "card": "2026-07-05.0900a", "date": "2026-07-05", "quote": "woke up with a dull ache" },
-          { "card": "2026-07-12.1200a", "date": "2026-07-12", "quote": "aura started before I opened the laptop" }
+          { "card": "2026-07-05.0900a", "date": "2026-07-05", "quote": "noticed it first thing in the morning" },
+          { "card": "2026-07-12.1200a", "date": "2026-07-12", "quote": "beta showed up before I opened the laptop" }
         ]
       },
       "created": "2026-07-14 22:10"

@@ -8,7 +8,8 @@
  * drifting.
  */
 import { describe, expect, it } from 'vitest';
-import { applyEvent, assistantText, lastUserTurnIndex, turnsFromHistory, userTurn, type Turn } from './events';
+import { closingFor } from './swarmApi';
+import { HELPER_SILENT, applyEvent, assistantText, lastUserTurnIndex, openQuestionSet, questionsState, turnsFromHistory, userOrdinal, userTurn, userTurnIndex, type Turn } from './events';
 
 const delta = (text: string) => ({
   type: 'stream_event',
@@ -54,6 +55,38 @@ describe('applyEvent', () => {
       },
     });
     expect(assistantText(turns[0])).toBe('block one.block two.');
+  });
+
+  it('shows the whole reply when the typed preview stopped short of the message', () => {
+    // The preview and the message travel separately, so the message can land
+    // while the last words of the preview are still on their way (or never
+    // come: the preview file is deleted when the turn ends). The reply must
+    // not end where the preview happened to stop.
+    const turns: Turn[] = [userTurn('hi', false)];
+    applyEvent(turns, delta('The answer is '));
+    applyEvent(turns, assistant('The answer is forty-two.'));
+    applyEvent(turns, { type: 'result', subtype: 'success' });
+    expect(assistantText(turns[1])).toBe('The answer is forty-two.');
+  });
+
+  it('never prints a reply twice, whatever order the preview and the message arrive in', () => {
+    // One reply of two spoken messages with a tool call between them, fed
+    // with every way the preview can be out of step: short, exact, running
+    // ahead into the next message, and missing its opening words.
+    const toolCall = { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Read' }] } };
+    const orders: unknown[][] = [
+      [delta('Let me '), delta('look.'), assistant('Let me look.'), toolCall, delta('Found it.'), assistant('Found it.')],
+      [delta('Let me '), assistant('Let me look.'), toolCall, delta('Found'), assistant('Found it.')],
+      [delta('Let me look.'), delta('Found '), assistant('Let me look.'), toolCall, delta('it.'), assistant('Found it.')],
+      [delta('Let me look.'), toolCall, assistant('Let me look.'), delta('Found it.'), assistant('Found it.')],
+      [delta('me look.'), assistant('Let me look.'), toolCall, assistant('Found it.')],
+    ];
+    for (const order of orders) {
+      const turns: Turn[] = [];
+      for (const event of order) applyEvent(turns, event);
+      applyEvent(turns, { type: 'done' });
+      expect(assistantText(turns[0])).toBe('Let me look.\n\nFound it.');
+    }
   });
 
   it('joins multiple assistant messages in one turn (tool-use rounds) as paragraphs', () => {
@@ -113,6 +146,71 @@ describe('applyEvent', () => {
   });
 });
 
+describe('context-loaded', () => {
+  it('is a line of its own between her message and the reply', () => {
+    const turns = turnsFromHistory([
+      { type: 'user', text: 'saw Robin today' },
+      { type: 'context-loaded', text: 'loaded: Robin — 3 cards, 2026-09-03 to 2026-09-20' },
+      assistant('How was it?'),
+      { type: 'result' },
+    ]);
+    expect(turns.map((t) => t.role)).toEqual(['user', 'context', 'assistant']);
+    expect(turns[1].text).toBe('loaded: Robin — 3 cards, 2026-09-03 to 2026-09-20');
+  });
+});
+
+describe('reminder', () => {
+  it('is its own System turn carrying who set it, never a user turn', () => {
+    const turns: Turn[] = [];
+    applyEvent(turns, { type: 'reminder', text: 'Permafest is tomorrow', source: 'keeper', ts: 'x' });
+    applyEvent(turns, { type: 'reminder', text: 'Ask about applications', source: 'manual', ts: 'x' });
+    expect(turns.map((t) => t.role)).toEqual(['reminder', 'reminder']);
+    expect(turns[0].source).toBe('keeper');
+    expect(turns[1].source).toBe('manual');
+    expect(turns[0].text).toBe('Permafest is tomorrow');
+  });
+});
+
+describe("a helper's wake-up", () => {
+  const wake = { type: 'reminder', text: 'Room change — a is new', source: 'helper-wake', ts: 'x' };
+  const shown = (events: unknown[]) =>
+    turnsFromHistory(events).filter((t) => !t.silent).map((t) => t.role);
+
+  it('stays out of the chat when the helper has nothing to say, and keeps its place in the array', () => {
+    const events = [{ type: 'user', text: 'hi' }, assistant('hello'), { type: 'result' },
+      wake, assistant(HELPER_SILENT), { type: 'result' }];
+    expect(shown(events)).toEqual(['user', 'assistant']);
+    expect(turnsFromHistory(events)).toHaveLength(4);
+  });
+
+  it('shows the wake-up and the reply once the helper says something', () => {
+    expect(shown([wake, assistant('Two sessions are both in config.py.'), { type: 'result' }]))
+      .toEqual(['reminder', 'assistant']);
+  });
+
+  it('keeps hiding the closing silence after a message the helper sent an agent', () => {
+    const sent = { type: 'peer', direction: 'out', id: 1, to_conv: 'a', text: 'check config.py' };
+    expect(shown([wake, sent, assistant(HELPER_SILENT), { type: 'result' }])).toEqual(['peer']);
+  });
+
+  it('reveals the reply while it streams, at the first word that is not the silence', () => {
+    const delta = (text: string) => ({
+      type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } },
+    });
+    const turns: Turn[] = [];
+    applyEvent(turns, wake);
+    applyEvent(turns, delta('(nothing'));
+    expect(turns.every((t) => t.silent)).toBe(true);
+    applyEvent(turns, delta(' new here, but'));
+    expect(turns.some((t) => t.silent)).toBe(false);
+  });
+
+  it("never hides a reply to her own message, even one that says only the silence", () => {
+    expect(shown([{ type: 'user', text: 'anything?' }, assistant(HELPER_SILENT), { type: 'result' }]))
+      .toEqual(['user', 'assistant']);
+  });
+});
+
 describe('journal-mark', () => {
   it('flags the newest assistant turn whose text matches — and only that one', () => {
     const turns: Turn[] = [];
@@ -132,6 +230,25 @@ describe('journal-mark', () => {
     applyEvent(turns, assistant('a reply'));
     applyEvent(turns, { type: 'journal-mark', text: 'different words' });
     expect(turns[0].journaled).toBe(false);
+  });
+});
+
+describe('journal-restore', () => {
+  it('takes the off-the-record look off the message it names, and no other', () => {
+    // Two off-the-record messages with the same words, a reminder between
+    // them: the event names the second by its place among HER messages.
+    const turns = turnsFromHistory([
+      { type: 'user', text: 'aside', off_record: true },
+      assistant('a1'),
+      { type: 'result' },
+      { type: 'reminder', text: 'tea', source: 'manual' },
+      { type: 'user', text: 'aside', off_record: true },
+      { type: 'journal-restore', user: 1, card: '2026-10-05.0931b' },
+    ]);
+    const hers = turns.filter((t) => t.role === 'user');
+    expect(hers.map((t) => t.offRecord)).toEqual([true, false]);
+    // The page asks for a message by the same count the server answers in.
+    expect(userTurnIndex(turns, userOrdinal(turns, turns.indexOf(hers[1])))).toBe(turns.indexOf(hers[1]));
   });
 });
 
@@ -170,5 +287,162 @@ describe('turnsFromHistory', () => {
     expect(turns.map((t) => t.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
     expect(turns[3].open).toBe(false);
     expect(assistantText(turns[3])).toBe('half a rep');
+  });
+});
+
+describe('peer', () => {
+  const out = {
+    type: 'peer',
+    direction: 'out',
+    id: 7,
+    from_conv: 'a',
+    from_title: 'Terrain',
+    to_conv: 'b',
+    to_title: 'Pond',
+    text: 'store.py changed',
+    mode: 'inject',
+    status: 'held',
+    held_reason: 'too many steps',
+  };
+
+  it('draws a sent message as a card addressed to the recipient', () => {
+    const [t] = turnsFromHistory([out]);
+    expect(t.role).toBe('peer');
+    expect(t.text).toBe('store.py changed');
+    expect(t.peer).toMatchObject({ direction: 'out', otherConv: 'b', otherTitle: 'Pond', status: 'held' });
+  });
+
+  it('shows a received message as from the sender, and delivered', () => {
+    const [t] = turnsFromHistory([{ ...out, direction: 'in', status: 'waiting' }]);
+    expect(t.peer).toMatchObject({ direction: 'in', otherConv: 'a', otherTitle: 'Terrain', status: 'delivered' });
+  });
+
+  it('releasing a held message updates its card', () => {
+    const [t] = turnsFromHistory([out, { type: 'peer-status', id: 7, status: 'waiting' }]);
+    expect(t.peer?.status).toBe('waiting');
+    expect(t.peer?.heldReason).toBe('');
+  });
+});
+
+describe('questions', () => {
+  // The chat keeps every set the agent filed, where it filed it: open until
+  // she replies, answered after, replaced when a newer set followed it.
+  it('keeps each filed set in place above her answer, live and on reload alike', () => {
+    const log = [
+      { type: 'user', text: 'build it' },
+      delta('Looking…'),
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'tool_use', name: 'Bash' } } },
+      { type: 'questions', questions: ['Sqlite or postgres?', '  '] },
+      { type: 'questions', questions: ['Only: sqlite?'] },
+      delta('Filed.'),
+      { type: 'result', subtype: 'success' },
+    ];
+    const live: Turn[] = [];
+    for (const e of log) applyEvent(live, e);
+    const turns = turnsFromHistory(log);
+    expect(live.map((t) => t.role)).toEqual(turns.map((t) => t.role));
+    expect(turns.map((t) => t.role)).toEqual(['user', 'assistant', 'questions', 'questions', 'assistant']);
+    // the reply the block interrupted is closed, not left "running a command…"
+    expect(live[1]).toMatchObject({ open: false, tool: null });
+    expect(live[4].open).toBe(false);
+    expect(turns[2].questions).toEqual(['Sqlite or postgres?']);
+    expect([questionsState(turns, 2), questionsState(turns, 3)]).toEqual(['replaced', 'open']);
+    turns.push(userTurn('sqlite', false));
+    expect(questionsState(turns, 3)).toBe('answered');
+  });
+
+  // Her answer reached the agent by another route (a peer relayed it), so the
+  // agent took its own set down: the block settles without a message of hers,
+  // says where the answer came from, and a set filed afterwards is open again.
+  it('settles a set the agent withdrew, and leaves a later set open', () => {
+    const log = [
+      { type: 'user', text: 'build it' },
+      { type: 'questions', questions: ['Old: a or b?'] },
+      { type: 'questions', questions: ['Who gets told?'] },
+      { type: 'peer', direction: 'in', id: 1, from_conv: 'c2', to_conv: 'c1', text: 'She said "A)"' },
+    ];
+    const turns = turnsFromHistory(log);
+    expect(questionsState(turns, 2)).toBe('open');
+    applyEvent(turns, { type: 'questions-withdrawn', questions: ['Who gets told?'], source: 'relayed by c2: "A)"' });
+    expect([questionsState(turns, 1), questionsState(turns, 2)]).toEqual(['replaced', 'elsewhere']);
+    expect(turns[2].answeredElsewhere).toBe('relayed by c2: "A)"');
+    expect(turns).toHaveLength(4);
+    applyEvent(turns, { type: 'questions', questions: ['And next?'] });
+    expect([questionsState(turns, 2), questionsState(turns, 4)]).toEqual(['elsewhere', 'open']);
+  });
+
+  // The card she can float is the ONE set still waiting on her. Followed
+  // through a session's life: nothing open, a set filed, a newer set replacing
+  // it (a different key, so a float on the old one doesn't carry over), her
+  // answer settling it while the roster still lists it, and an old set the
+  // transcript never logged, which sits at the end of the chat.
+  it('names the one set still open, and stops naming it once it is settled', () => {
+    const turns = turnsFromHistory([{ type: 'user', text: 'build it' }]);
+    expect(openQuestionSet(turns, [])).toBeNull();
+
+    applyEvent(turns, { type: 'questions', questions: ['Sqlite or postgres?'] });
+    const first = openQuestionSet(turns, ['Sqlite or postgres?']);
+    expect(first).toMatchObject({ questions: ['Sqlite or postgres?'], turnIndex: 1 });
+
+    applyEvent(turns, { type: 'questions', questions: ['Only: sqlite?', 'And where?'] });
+    const second = openQuestionSet(turns, ['Only: sqlite?', 'And where?']);
+    expect(second).toMatchObject({ questions: ['Only: sqlite?', 'And where?'], turnIndex: 2 });
+    expect(second?.key).not.toBe(first?.key);
+
+    turns.push(userTurn('sqlite, in data/', false));
+    expect(openQuestionSet(turns, ['Only: sqlite?', 'And where?'])).toBeNull();
+
+    applyEvent(turns, { type: 'questions', questions: ['Last one?'] });
+    applyEvent(turns, { type: 'questions-withdrawn', questions: ['Last one?'], source: 'a peer' });
+    expect(openQuestionSet(turns, [])).toBeNull();
+
+    expect(openQuestionSet(turns, ['Filed before sets were logged?'])).toMatchObject({
+      questions: ['Filed before sets were logged?'],
+      turnIndex: null,
+    });
+  });
+});
+
+// A room helper's chat gets one line per swarm that closes. The page opens
+// that line into the whole summary, so the reducer has to carry which swarm
+// and when — without making a turn of its own, because journal highlights
+// address turns by index and every one after the line would shift.
+describe('a "swarm closed" line in a room helper\'s chat', () => {
+  const closedLine = (swarmId: number, at: string) => ({
+    ...assistant(`**Swarm ${swarmId} closed — Pond.** It built the pond page.`),
+    timestamp: at,
+    helper_update: true,
+    swarm_closed: swarmId,
+  });
+
+  it('is carried on the reply it lands in, and leaves the turn count as it was', () => {
+    const plain = [{ type: 'user', text: 'hi' }, assistant('Moved two sessions.'), assistant('Swarm closed.')];
+    const marked = [
+      { type: 'user', text: 'hi' },
+      assistant('Moved two sessions.'),
+      closedLine(7, '2026-10-02T19:47:21'),
+      closedLine(9, '2026-10-02T20:00:00'),
+    ];
+    const turns = turnsFromHistory(marked);
+    expect(turns).toHaveLength(turnsFromHistory(plain).length);
+    expect(turns[1].closedSwarms).toEqual([
+      { swarmId: 7, at: '2026-10-02T19:47:21' },
+      { swarmId: 9, at: '2026-10-02T20:00:00' },
+    ]);
+    expect(turns[1].text).toContain('It built the pond page.');
+    expect(turnsFromHistory(plain)[1].closedSwarms).toBeUndefined();
+  });
+
+  it('opens into the closing kept at that moment, for a swarm that closed twice', () => {
+    const row = (id: number, at: string) => ({
+      id, at, name: 'Pond', headline: null, summary: `closing ${id}`, facts: '', cost_usd: null, error: null,
+    });
+    const newestFirst = [row(2, '2026-10-03T09:00:00'), row(1, '2026-10-02T19:47:21')];
+    expect(closingFor(newestFirst, '2026-10-02T19:47:21')?.id).toBe(1);
+    expect(closingFor(newestFirst, '2026-10-03T09:00:00')?.id).toBe(2);
+    // A line a second off its row still finds the closing before it.
+    expect(closingFor(newestFirst, '2026-10-02T19:47:22')?.id).toBe(1);
+    expect(closingFor(newestFirst, '')?.id).toBe(2);
+    expect(closingFor([], '2026-10-02T19:47:21')).toBeNull();
   });
 });

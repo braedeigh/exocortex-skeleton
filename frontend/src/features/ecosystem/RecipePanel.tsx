@@ -1,20 +1,24 @@
 /**
  * RecipePanel.tsx — the recipe-sourcing card shown while a recipe is being
- * traced (port of _ecoRecipePanel). Traced ingredients focus their source on
- * tap; untraced ones offer one-tap "Place" (opens the add form pre-named);
- * pantry staples are counted but never nag.
+ * traced. An ingredient is traced when its catalog food (or a product of it)
+ * is linked to a source; tapping a source opens it. Untraced ones offer
+ * one-tap "Place" (the add form opens pre-named and pre-linked to the food)
+ * and, when a source's name looks close, "Link to <source>?" — a suggestion
+ * that only becomes a trace when tapped. A line whose words match no food in
+ * the catalog says so. Pantry staples are counted but never nag.
  */
 import { txInfo } from './axes';
 import { ecoRecipeSourcing } from './ecoMatch';
-import type { EcoRecipe, EcoSource } from './types';
+import type { EcoIngredient, EcoRecipe, EcoSource } from './types';
 import styles from './RecipePanel.module.css';
 
 export interface RecipePanelProps {
   recipe: EcoRecipe;
   sources: EcoSource[];
   canEdit: boolean;
-  onFocusSource: (id: string) => void;
-  onPlaceIngredient: (name: string) => void;
+  onOpenSource: (id: string) => void;
+  onPlaceIngredient: (ing: EcoIngredient) => void;
+  onLinkSuggestion: (sourceId: string, foodId: number) => void;
   onClear: () => void;
 }
 
@@ -22,8 +26,9 @@ export function RecipePanel({
   recipe,
   sources,
   canEdit,
-  onFocusSource,
+  onOpenSource,
   onPlaceIngredient,
+  onLinkSuggestion,
   onClear,
 }: RecipePanelProps) {
   const s = ecoRecipeSourcing(recipe, sources);
@@ -39,18 +44,20 @@ export function RecipePanel({
         </button>
       </div>
       {s.traced.length ? (
-        s.traced.map((t, i) => (
-          <button
-            key={`${t.source.id}-${i}`}
-            type="button"
-            className={styles.tracedRow}
-            onClick={() => onFocusSource(t.source.id)}
-          >
-            <span className={styles.dot} style={{ background: txInfo(t.source).color }} />
-            <span className={styles.ing}>{t.ing.item}</span>
-            <span className={styles.sourceName}>{t.source.name} &rsaquo;</span>
-          </button>
-        ))
+        s.traced.map((t, i) =>
+          t.sources.map((src) => (
+            <button
+              key={`${src.id}-${i}`}
+              type="button"
+              className={styles.tracedRow}
+              onClick={() => onOpenSource(src.id)}
+            >
+              <span className={styles.dot} style={{ background: txInfo(src).color }} />
+              <span className={styles.ing}>{t.ing.item}</span>
+              <span className={styles.sourceName}>{src.name} &rsaquo;</span>
+            </button>
+          )),
+        )
       ) : (
         <div className={styles.empty}>Nothing traced yet &mdash; place these foods below.</div>
       )}
@@ -59,13 +66,22 @@ export function RecipePanel({
           <div className={styles.placeTitle}>Not yet on the map</div>
           {s.place.map((p, i) => (
             <div key={`${p.ing.item}-${i}`} className={styles.placeRow}>
-              <span className={styles.placeIng}>{p.ing.item}</span>
-              {canEdit ? (
+              <span className={styles.placeIng}>
+                {p.ing.item}
+                {p.ing.food_id == null ? <span className={styles.sourceName}> · not in the food catalog</span> : null}
+              </span>
+              {canEdit && p.suggestion && p.ing.food_id != null ? (
                 <button
                   type="button"
                   className={styles.placeBtn}
-                  onClick={() => onPlaceIngredient((p.ing.item || '').trim())}
+                  title="The names look alike — link only if it's really where this comes from"
+                  onClick={() => onLinkSuggestion(p.suggestion!.id, p.ing.food_id as number)}
                 >
+                  Link to {p.suggestion.name}?
+                </button>
+              ) : null}
+              {canEdit ? (
+                <button type="button" className={styles.placeBtn} onClick={() => onPlaceIngredient(p.ing)}>
                   ＋ Place
                 </button>
               ) : null}

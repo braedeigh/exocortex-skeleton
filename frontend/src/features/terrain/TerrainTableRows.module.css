@@ -1,0 +1,481 @@
+/* TerrainTableRows — the rows of one table, with search. House rules: nothing
+   under 12px; anything tappable ~40px tall (rows, the pager, the search box). */
+
+/* Every piece of the view keeps its natural height (flex: none on the
+   children). The window's body is the one scroller; without this, a column
+   flexbox shrinks whichever child CAN shrink — and the table's box, which
+   scrolls, can — so the table was being squashed down to three rows to make
+   room for everything under it. */
+.rowsView {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: none;
+}
+
+.rowsView > * {
+  flex: none;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The toolbar's buttons: newest-first and the column chooser. "On" means the
+   thing it controls is currently in force. */
+.tool,
+.toolOn {
+  min-height: var(--tap-target, 44px);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.toolOn {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg));
+}
+
+.columnChooser {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
+}
+
+.chooserHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.chooserTitle {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* A column's chip: solid when the column is showing, struck through and faded
+   when hidden — state carried by more than colour alone. */
+.columnChip,
+.columnChipOn {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-md);
+  text-decoration: line-through;
+  cursor: pointer;
+}
+
+.columnChipOn {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* One filter in force, in words, with its ×. */
+.filterChip {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.linkButton {
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search {
+  flex: 1 1 260px;
+  min-height: var(--tap-target, 44px);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-base);
+}
+
+.count {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.status {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}
+
+/* The table scrolls sideways inside its own box — a 22-column table is far
+   wider than the window, and the window itself must not scroll sideways.
+   It is also a size container, so an opened row (.fields, below) can be made
+   exactly as wide as the VISIBLE box rather than as wide as the whole table. */
+.scroller {
+  container-type: inline-size;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overscroll-behavior-x: contain;
+}
+
+/* As wide as its columns NEED (max-content), and never narrower than the box.
+   `width: 100%` was the bug here: it told 22 columns to share one window's
+   width, and they obliged by shrinking to a single character each. */
+.table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  font-size: var(--font-size-md);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  padding: 0 var(--space-2);
+  text-align: left;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text) 8%, var(--bg));
+  border-bottom: 1px solid var(--border);
+}
+
+/* A header cell holds two buttons side by side: the column's NAME (opens its
+   card) and a sort ARROW. Each is its own 40px target, because on a touch
+   screen "tap the name" and "tap the arrow" have to be tellable apart. */
+.headCell {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.headName,
+.headNameOn {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.headNameOn {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--text);
+}
+
+/* A dot on a column's name says a filter on that column is in force. */
+.filteredDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.sortOn,
+.sortOff {
+  min-width: 32px;
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+
+.sortOn {
+  color: var(--text);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* A primary-key column wears the same solid ink its header cell wears on the
+   map (terrainCanvas.ts drawTable). */
+.table th.keyColumn {
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--text);
+}
+
+.table td {
+  padding: var(--space-2) var(--space-3);
+  vertical-align: top;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+/* One cell's contents. The width cap lives HERE, on a box inside the cell,
+   because a table ignores max-width on the cell itself. A short value keeps
+   its column narrow; a long one wraps at 340px instead of stretching the
+   column across the screen. `break-word`, not `anywhere`: `anywhere` lets a
+   column's minimum width collapse to one letter, which is how the text ended
+   up running vertically. */
+.cell {
+  max-width: 340px;
+  overflow-wrap: break-word;
+}
+
+.row,
+.rowOpen {
+  height: 40px;
+  cursor: pointer;
+}
+
+.row:hover,
+.row:focus-visible {
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  outline: none;
+}
+
+.rowOpen {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+}
+
+.number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.mark {
+  background: color-mix(in srgb, var(--orange, #e0a030) 45%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.wholeRow td {
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+}
+
+/* An opened row is as wide as the visible box (100cqw = the scroller's own
+   width) and sticks to its left edge, so it stays readable and in view however
+   wide the table is or how far sideways she has scrolled. */
+.fields {
+  position: sticky;
+  left: var(--space-3);
+  width: calc(100cqw - 2 * var(--space-3));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.fieldList {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A way along a join: from a key's value to the row it points at, or from
+   this row to the rows in another table that point at it. */
+.jump {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin: var(--space-1, 4px) var(--space-2) 0 0;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--evening) 60%, var(--border));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--evening) 14%, var(--bg));
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fieldValue .jump {
+  display: flex;
+  width: fit-content;
+}
+
+.pointedAt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.pointedAtLabel {
+  width: 100%;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.sqlBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.sql {
+  align-self: stretch;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--text) 6%, var(--bg));
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-size-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: minmax(90px, 160px) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.fieldName {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.fieldValue {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* One whole collection can be a hundred kilobytes; it scrolls in place
+     rather than pushing every other field off the screen. */
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.pageBtn {
+  min-height: var(--tap-target, 44px);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pageBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pageNote {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* A VISITOR'S TABLE: the shapes are real, the values were never sent.
+   The cells arrive as blocks the length each value was (routes/
+   terrain_tables.py `_frost_page`), and the blur is what turns a row of
+   blocks into a row that reads as "there is something here, and you can't
+   read it". Purely cosmetic — the privacy already happened on the server. */
+.frostedCell .cell {
+  filter: blur(2.5px);
+  opacity: 0.6;
+  user-select: none;
+}
+
+/* Stands where the search box does for the owner, so the toolbar keeps its
+   shape and the reason the search is gone is said rather than implied. */
+.frostedNote {
+  flex: 1 1 260px;
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-target, 44px);
+  padding: 0 var(--space-3);
+  color: var(--text);
+  opacity: 0.75;
+  font-size: var(--font-size-sm);
+}

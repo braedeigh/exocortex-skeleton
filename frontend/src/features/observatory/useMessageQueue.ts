@@ -1,134 +1,215 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { loadQueued, migrateNewQueue, saveQueued, type QueuedMessage } from './queuedMessages';
-import { release, takeOver, useQueueOwnership } from './queueOwner';
+import { cancelInboxMessage, fetchInbox, sendInboxNow, sendToInbox, type InboxStatus } from './api';
+import {
+  loadQueued,
+  mergeQueueRows,
+  pruneSettled,
+  rowsFromServer,
+  saveQueued,
+  type QueuedRow,
+} from './queuedMessages';
 
 /**
- * useMessageQueue.ts — the observatory's queued sends: the Claude Code
- * queued-prompt gesture, ported. Messages typed while a turn is still writing
- * wait as removable rows and fire when the turn ends; persisted per
- * conversation (queuedMessages.ts) so the TEXT survives a reload.
+ * useMessageQueue.ts — what she types while a turn is still writing.
  *
- * What it does NOT survive is being away. The firing is an effect in this
- * mounted component, so a queued message only sends while the page is open on
- * that conversation — close the PWA and the words are still there when you come
- * back, but nothing was sent while you were gone. Making that true would mean a
- * server-side drain (enqueue through the run queue, let the dispatcher fire it),
- * which is a real change in character, not a bug fix: sessions would talk with
- * nobody watching.
+ * What this does, in plain English: a message sent while the agent is busy
+ * goes to the session's MAILBOX on the server (peermail.py), not a list in the
+ * browser. The server hands it to the agent at its next step — the agent reads
+ * it mid-turn, the way the Claude Code terminal does — or, if the turn ends
+ * first, starts the next turn with it, together with anything other agents
+ * sent. Because the server holds it, it goes out whether or not this page is
+ * still open. Until it goes, it shows as a removable "queued" row; the rows
+ * come from the server, re-read every couple of seconds while any are waiting.
  *
- * ONLY ONE VIEW SENDS. The same conversation can be mounted more than once —
- * two panels, or a tab bar that opens a running session while it's already
- * open. Every mounted view loads the same queue and runs this same effect, so
- * without a claim they would all fire the head message and the model would
- * receive it two or three times. queueOwner.ts hands the right to fire to
- * exactly one of them; the others still hold and display the queue, and take
- * over if the owner closes.
+ * The browser keeps its own copy of a row until the server has spoken for it
+ * (queuedMessages.ts mergeQueueRows): while it's on its way, and for good if
+ * the server refused it — that one stays on screen marked "not sent", because
+ * the composer was already cleared and a message that silently vanished would
+ * be lost.
+ *
+ * A row stays up until the agent has actually READ the message, not just
+ * until the server has handed it in: a message handed into a running agent is
+ * read only when the step it's in ends, which can be minutes. While it waits,
+ * the row says why (the step, and how long it has run — queuedMessages.ts
+ * waitReason), and "send now" stops that step and starts a new turn with it
+ * (sendNow). Once read, it lands in the transcript with a note saying where.
+ *
+ * One edge stays in the browser: the very first turn of a brand-new compose,
+ * before the conversation has an id to address. Those wait here and move to
+ * the server the moment the id arrives. A queue left in localStorage by the
+ * old browser-side version moves over the same way.
+ *
+ * Touches: api.ts (sendToInbox / fetchInbox / cancelInboxMessage / sendInboxNow),
+ * queuedMessages.ts (the localStorage staging and the row merge),
+ * ObservatoryPage.tsx (the rows above the composer).
+ *
+ * Prompt that produced it: "change them to queue messages to the server so
+ * they can inject whenever it's ready."
  */
-export function useMessageQueue(args: {
-  botId: string;
-  convId: string | undefined;
-  canFire: boolean;
-  onFire: (text: string, offRecord: boolean) => void;
-}): {
-  queued: QueuedMessage[];
+
+export type { QueuedRow } from './queuedMessages';
+
+// How often to re-read the waiting list while something is waiting. A row
+// disappears when the agent takes it, so this is how fast she sees it go.
+const POLL_MS = 2000;
+
+export function useMessageQueue(args: { botId: string; convId: string | undefined }): {
+  queued: QueuedRow[];
+  /** Why the server's rows are waiting — see waitReason. */
+  status: InboxStatus | null;
   enqueue: (text: string, offRecord: boolean) => void;
-  removeAt: (i: number) => void;
+  remove: (row: QueuedRow) => void;
+  sendNow: (row: QueuedRow) => void;
 } {
-  const { botId, convId, canFire, onFire } = args;
+  const { botId, convId } = args;
+  // The server's waiting list, and the browser's own rows (staged, sending,
+  // failed). A ref mirrors the local rows so the callbacks below can read
+  // them without re-binding on every change.
+  const [serverRows, setServerRows] = useState<QueuedRow[]>([]);
+  const [status, setStatus] = useState<InboxStatus | null>(null);
+  const [localRows, setLocalRows] = useState<QueuedRow[]>([]);
+  const localRef = useRef<QueuedRow[]>([]);
+  localRef.current = localRows;
+  const nextKey = useRef(0);
+  const newKey = () => `l${nextKey.current++}`;
+  // Rows she removed while their send was still in flight — if the server
+  // takes one anyway, it gets cancelled there as soon as the id comes back.
+  const removedWhileSending = useRef(new Set<string>());
 
-  // Same key shape queuedMessages.ts stores under, so "which queue" means the
-  // same thing to the claim and to the storage it guards.
-  const key = `${botId}:${convId ?? 'new'}`;
-  // Identity for THIS mounted view. A ref so it survives re-renders — a fresh
-  // symbol each render would look like a different view every time and the
-  // claim would never settle.
-  const tokenRef = useRef<symbol>(undefined as unknown as symbol);
-  if (tokenRef.current === undefined) tokenRef.current = Symbol('queue-view');
-  const owns = useQueueOwnership(key, tokenRef.current);
-  // Let the next view take over when this one closes, or when it moves to a
-  // different conversation.
-  useEffect(() => {
-    const token = tokenRef.current;
-    return () => release(key, token);
-  }, [key]);
-
-  // Messages sent while a turn is still writing — the Claude Code queued-
-  // prompt gesture: they wait as removable rows and fire when the turn ends.
-  // Persisted per conversation (queuedMessages.ts), so a restored queue fires
-  // once the conversation is known idle AND this component is mounted on it.
-  // Reopening the app is what resumes them; being away does not.
-  const [queued, setQueued] = useState<QueuedMessage[]>(() => loadQueued(botId, convId));
-
-  // The queue's persistence (queuedMessages.ts): restore when the
-  // conversation changes, persist on every change. A blank compose stages
-  // under the bot's `new-` key until its conversation id exists.
-  const queueConvRef = useRef(convId);
-  useEffect(() => {
-    const prev = queueConvRef.current;
-    queueConvRef.current = convId;
-    if (prev === convId) return; // mount — the useState initializer loaded
-    // A fresh conversation just got its id (the post-first-turn navigate):
-    // whatever was staged under `new-` belongs to it now.
-    if (prev === undefined && convId) migrateNewQueue(botId, convId);
-    setQueued(loadQueued(botId, convId));
-  }, [botId, convId]);
-  const persistConvRef = useRef(convId);
-  useEffect(() => {
-    // The first run after a conversation switch is the restore itself —
-    // writing the outgoing queue under the incoming key would carry
-    // messages between conversations.
-    if (persistConvRef.current !== convId) {
-      persistConvRef.current = convId;
-      return;
+  // Re-read her waiting messages from the server, then drop the browser's
+  // copy of anything the server confirmed before this read began.
+  const refresh = useCallback(async () => {
+    if (!convId) return;
+    const readStartedAt = Date.now();
+    try {
+      const { waiting, status: why } = await fetchInbox(convId);
+      setServerRows(rowsFromServer(waiting));
+      setStatus(why ?? null);
+      setLocalRows((rows) => pruneSettled(rows, readStartedAt));
+    } catch {
+      // A missed read just leaves the rows as they were until the next one.
     }
-    // Only the view that may SEND may also write. A second view holds a copy
-    // of the queue from when it loaded; once the owner fires the head, that
-    // copy is stale, and letting it write would put the sent message back.
-    if (!owns) return;
-    saveQueued(botId, convId, queued);
-  }, [owns, botId, convId, queued]);
+  }, [convId]);
 
-  // Gaining the claim (the owner closed, or she typed in here) means this
-  // view's copy may be behind what was actually sent — take storage's word
-  // for it rather than its own.
-  const ownedRef = useRef(owns);
-  useEffect(() => {
-    const gained = owns && !ownedRef.current;
-    ownedRef.current = owns;
-    if (gained) setQueued(loadQueued(botId, convId));
-  }, [owns, botId, convId]);
+  // Hand one row to the server's mailbox and record the answer on the row:
+  // its id when the server took it, `failed` when it didn't.
+  const post = useCallback(
+    async (conv: string, row: QueuedRow) => {
+      try {
+        const { id } = await sendToInbox(conv, row.text, !row.offRecord);
+        if (removedWhileSending.current.delete(row.key)) {
+          void cancelInboxMessage(conv, id).catch(() => undefined);
+          return;
+        }
+        setLocalRows((rows) =>
+          rows.map((r) => (r.key === row.key ? { ...r, id, confirmedAt: Date.now() } : r)),
+        );
+        void refresh();
+      } catch {
+        removedWhileSending.current.delete(row.key);
+        setLocalRows((rows) => rows.map((r) => (r.key === row.key ? { ...r, state: 'failed' } : r)));
+      }
+    },
+    [refresh],
+  );
 
-  // Fire the next queued message once the current turn fully ends — or, for
-  // a queue restored from storage, once the history load confirms nothing is
-  // running. A hard send error pauses the queue (her text is back in the
-  // composer; auto-firing more into a broken pipe would just eat them too).
-  // `canFire` folds histLoaded/writing/pacing/sendError together (the page
-  // computes it — see ObservatoryPage.tsx); pacing matters because the word
-  // flow keeps printing briefly after the turn ends — let the tail finish
-  // before the next queued turn takes over.
+  // Move anything staged in the browser to the server once there's a
+  // conversation to address it to: the first-turn edge above, and a queue
+  // the old version left in localStorage. Sent one at a time so they arrive
+  // in the order she wrote them.
   useEffect(() => {
-    // `owns` is the second belt: without it every mounted view of this
-    // conversation fires the same head message (see the header).
-    if (!owns || !canFire || queued.length === 0) return;
-    const [head, ...rest] = queued;
-    setQueued(rest);
-    onFire(head.text, head.offRecord);
-  }, [owns, canFire, queued, onFire]);
+    if (!convId) return;
+    const staged = localRef.current.filter((r) => r.state === 'staged');
+    const leftovers: QueuedRow[] = [...loadQueued(botId), ...loadQueued(botId, convId)]
+      .filter((m) => !staged.some((r) => r.text === m.text))
+      .map((m) => ({ ...m, key: newKey(), state: 'sending' }));
+    saveQueued(botId, undefined, []);
+    saveQueued(botId, convId, []);
+    const moving = [...staged.map((r) => ({ ...r, state: 'sending' as const })), ...leftovers];
+    setLocalRows((rows) => [
+      ...rows.map((r) => (r.state === 'staged' ? { ...r, state: 'sending' as const } : r)),
+      ...leftovers,
+    ]);
+    void (async () => {
+      for (const row of moving) await post(convId, row);
+      await refresh();
+    })();
+    // newKey only touches a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [botId, convId, post, refresh]);
+
+  // Keep the rows current while any are waiting on the server or on their
+  // way there. A failed row doesn't need the server, so it doesn't poll.
+  const liveCount = serverRows.length + localRows.filter((r) => r.state === 'sending').length;
+  useEffect(() => {
+    if (!convId || liveCount === 0) return;
+    const timer = window.setInterval(() => void refresh(), POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [convId, liveCount, refresh]);
 
   const enqueue = useCallback(
     (text: string, offRecord: boolean) => {
-      // Typing here makes this the view that sends. Otherwise a message queued
-      // in a second view would be held by a view that isn't allowed to fire it
-      // and would simply never go out.
-      takeOver(key, tokenRef.current);
-      setQueued((q) => [...q, { text, offRecord }]);
+      // Show it straight away as the browser's own row.
+      if (!convId) {
+        const row: QueuedRow = { key: newKey(), text, offRecord, state: 'staged' };
+        setLocalRows((rows) => [...rows, row]);
+        const staged = [...localRef.current.filter((r) => r.state === 'staged'), row];
+        saveQueued(
+          botId,
+          undefined,
+          staged.map((r) => ({ text: r.text, offRecord: r.offRecord })),
+        );
+        return;
+      }
+      const row: QueuedRow = { key: newKey(), text, offRecord, state: 'sending' };
+      setLocalRows((rows) => [...rows, row]);
+      void post(convId, row);
     },
-    [key],
+    // newKey only touches a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [botId, convId, post],
   );
 
-  const removeAt = useCallback((i: number) => {
-    setQueued((prev) => prev.filter((_, j) => j !== i));
-  }, []);
+  const remove = useCallback(
+    (row: QueuedRow) => {
+      setLocalRows((rows) => rows.filter((r) => r.key !== row.key));
+      if (row.id !== undefined) {
+        // On the server: cancel it there. Already handed to the agent → the
+        // server says 409 and the next read settles it.
+        setServerRows((rows) => rows.filter((r) => r.id !== row.id));
+        if (convId) void cancelInboxMessage(convId, row.id).catch(() => refresh());
+        return;
+      }
+      // Still on its way: cancel it once the server's id comes back.
+      if (row.state === 'sending') removedWhileSending.current.add(row.key);
+      // Staged: take it out of the localStorage copy too.
+      if (row.state === 'staged') {
+        const staged = localRef.current.filter((r) => r.state === 'staged' && r.key !== row.key);
+        saveQueued(
+          botId,
+          undefined,
+          staged.map((r) => ({ text: r.text, offRecord: r.offRecord })),
+        );
+      }
+    },
+    [botId, convId, refresh],
+  );
 
-  return { queued, enqueue, removeAt };
+  // Send now: the server turns it into an interrupt, the running turn stops
+  // within a second, and the next turn starts with it. The row shows
+  // "sending now" straight away; a 409 (the agent read it meanwhile) just
+  // lets the next read settle it.
+  const sendNow = useCallback(
+    (row: QueuedRow) => {
+      if (!convId || row.id === undefined) return;
+      setServerRows((rows) => rows.map((r) => (r.id === row.id ? { ...r, rushed: true } : r)));
+      setLocalRows((rows) => rows.map((r) => (r.key === row.key ? { ...r, rushed: true } : r)));
+      void sendInboxNow(convId, row.id)
+        .catch(() => undefined)
+        .then(() => refresh());
+    },
+    [convId, refresh],
+  );
+
+  return { queued: mergeQueueRows(serverRows, localRows), status, enqueue, remove, sendNow };
 }

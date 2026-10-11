@@ -1,0 +1,38 @@
+<!doctype html>
+<!--
+  The page the desktop window shows for the few seconds before the server is
+  up. The window (src-tauri/src/main.rs) replaces it with the real app once the
+  server says it is ready, or calls showError() with the reason if it never is.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exocortex</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; align-items: center; justify-content: center;
+         font: 18px/1.5 system-ui, sans-serif; background: #e6e4ee; color: #2b2940; }
+  @media (prefers-color-scheme: dark) { body { background: #1d1b3a; color: #e8e6f5; } }
+  main { max-width: 640px; padding: 24px; text-align: center; }
+  pre { text-align: left; white-space: pre-wrap; font-size: 14px; padding: 12px;
+        border-radius: 8px; background: rgba(127,127,127,.18); }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="headline">Starting…</h1>
+  <p id="detail">Getting the local server ready.</p>
+  <pre id="reason" hidden></pre>
+</main>
+<script>
+  function showError(reason) {
+    document.getElementById('headline').textContent = "It didn't start";
+    document.getElementById('detail').textContent =
+      'The local server could not be started. The reason it gave:';
+    const box = document.getElementById('reason');
+    box.textContent = reason;
+    box.hidden = false;
+  }
+</script>
+</body>
+</html>

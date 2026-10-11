@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from flask import Flask
 
+import briefstore
 import store
 from routes import observatory, spinoff
 
@@ -30,6 +31,7 @@ def spinoff_client(data_dir, monkeypatch):
     # import time from the (real) DATA_DIR, so it needs its own monkeypatch
     # to land under the same isolated tree.
     monkeypatch.setattr(store, "SPINOFF_DIR", data_dir / "spinoffs")
+    monkeypatch.setattr(store, "SPINOFF_KICKOFF_DIR", data_dir / "spinoff-kickoffs")
     # A mint now LAUNCHES the session (scripts/spinoff_runner.py, detached).
     # Tests must never actually spawn claude, so Popen is recorded instead of
     # run; `client._launches` is what the launch assertions read.
@@ -43,9 +45,10 @@ def spinoff_client(data_dir, monkeypatch):
     # reads. Cleared here so "no sender" tests mean it, and so the room tests
     # below set the sender themselves.
     monkeypatch.delenv("EXOCORTEX_CONV_ID", raising=False)
-    # An Orchestra mint now cuts a real git worktree. Tests must never do that
-    # to the live checkout, so the cut is recorded instead of run; the real git
-    # behaviour is covered against a throwaway repo in test_worktrees.py.
+    # Spinoffs no longer cut worktrees, but a regression would cut a REAL one
+    # in the live checkout — so any call is recorded instead of run, and the
+    # tests below assert there were none. Real git behaviour is covered
+    # against a throwaway repo in test_worktrees.py.
     mints = []
     def fake_mint(slug, base="HEAD"):
         mints.append(slug)
@@ -82,10 +85,22 @@ def _sender(monkeypatch, conv_id="2026-07-30.101010", **entry):
 
 
 def _write_brief(spinoff_dir, slug, text="Do the thing.\n"):
-    d = spinoff_dir / slug
+    """Save a brief the way an agent does: a row in the database. (The first
+    argument is from when a brief was a file in the spinoff folder.)"""
+    return briefstore.save(slug, text)
+
+
+def _write_brief_file(slug, text="Do the thing.\n"):
+    """A brief folder as they were before briefs moved to the database."""
+    d = store.SPINOFF_DIR / slug
     d.mkdir(parents=True, exist_ok=True)
     (d / "BRIEF.md").write_text(text)
     return d / "BRIEF.md"
+
+
+def _context(entry):
+    """The hidden instructions kept for a session's brief."""
+    return briefstore.context(entry["spinoff_brief"])
 
 
 def _index():
@@ -102,8 +117,7 @@ def test_bad_slug_400(spinoff_client):
 def test_missing_brief_400_and_no_index_write(spinoff_client):
     r = _post(spinoff_client, "some-slug")
     assert r.status_code == 400
-    brief = store.SPINOFF_DIR / "some-slug" / "BRIEF.md"
-    assert r.get_json() == {"error": f"no brief at {brief}"}
+    assert "no brief saved for 'some-slug'" in r.get_json()["error"]
     assert _index() == {}
 
 
@@ -116,13 +130,15 @@ def test_valid_slug_mints_an_autostarting_builder_session(spinoff_client):
     assert body["newly_spawned"] is True
     assert body["staged"] is True
     assert body["autostart"] is True
-    assert body["brief"] == str(brief)
+    assert body["brief"] == brief
     conv_id = body["conversation_id"]
 
     index = _index()
     entry = index[conv_id]
     assert entry["spinoff_slug"] == "cool-idea"
-    assert str(brief) in entry["draft"]
+    assert entry["draft"].startswith("Do the thing.")
+    # The brief's row now names the session it started.
+    assert briefstore.for_session(conv_id)["id"] == entry["spinoff_brief"] == brief
     # The kickoff auto-fires on open (Observatory reads meta.autostart) rather
     # than sitting in the compose box waiting for a manual send.
     assert entry["autostart"] is True
@@ -171,6 +187,9 @@ def test_archived_spinoff_gets_a_fresh_conversation(spinoff_client):
     assert index[old_id]["archived"]
     assert index[new_id]["spinoff_slug"] == "reopen-me"
     assert not index[new_id].get("archived")
+    # Each session has a brief row of its own; the first one's is untouched.
+    assert briefstore.for_session(old_id)["id"] != briefstore.for_session(new_id)["id"]
+    assert briefstore.for_session(new_id)["body"] == "Do the thing.\n"
 
 
 # --- starting the session without her opening it ---------------------------
@@ -191,14 +210,13 @@ def test_a_fresh_spinoff_launches_its_own_runner(spinoff_client):
 def test_the_kickoff_reaches_the_runner_by_file_not_argv(spinoff_client):
     # Doctrine: prompts travel as files. An argv-borne prompt is one refactor
     # away from being shell-interpolated.
-    _write_brief(store.SPINOFF_DIR, "by-file")
+    _write_brief(store.SPINOFF_DIR, "by-file", "Do the by-file thing.\n")
     body = _post(spinoff_client, "by-file").get_json()
     argv, _ = spinoff_client._launches[0]
     kick = Path(argv[3])
     assert kick.exists()
-    text = kick.read_text()
-    assert "BRIEF.md" in text
-    assert not any("BRIEF.md" in str(a) for a in argv[:3])
+    assert "Do the by-file thing." in kick.read_text()
+    assert not any("by-file thing" in str(a) for a in argv)
     assert body["conversation_id"] in str(kick)
 
 
@@ -226,7 +244,7 @@ def test_a_failed_launch_still_yields_a_usable_spinoff(spinoff_client, monkeypat
     assert body["started"] is False
     entry = _index()[body["conversation_id"]]
     assert entry["autostart"] is True
-    assert "BRIEF.md" in entry["draft"]
+    assert "Do the thing." in entry["draft"]
 
 
 def test_start_false_mints_without_launching(spinoff_client):
@@ -258,9 +276,8 @@ def test_a_spinoff_lands_in_the_senders_room(spinoff_client, monkeypatch):
 
 
 def test_an_orchestra_sender_spins_off_into_orchestra(spinoff_client, monkeypatch):
-    # An Orchestra child no longer stands in the shared checkout — it gets its
-    # own worktree (see the worktree tests below). The room is what's asserted
-    # here; the ground it picks is that section's business.
+    # The room is what's asserted here; the ground it picks (the shared
+    # checkout, no worktree) is the section below's business.
     _sender(monkeypatch, lane="orchestra")
     _write_brief(store.SPINOFF_DIR, "stays-orchestra")
     body = _post(spinoff_client, "stays-orchestra").get_json()
@@ -324,75 +341,19 @@ def test_the_room_drives_the_safety_nets_rather_than_being_pinned(spinoff_client
     assert config["act_gate"] is False and config["guard_docs"] is False
 
 
-# --- the private copy of the checkout (worktrees.py) -------------------------
-# Only Orchestra gets one. That room is the unwatched one, and two unwatched
-# agents editing one folder is how sessions have twice committed each other's
-# half-written files. Coding and Personal are her own hands and need the real
-# checkout — it's the one gunicorn serves and the one she refreshes.
+# --- no spinoff gets a private copy of the checkout ---------------------------
+# Orchestra spinoffs used to be minted their own git worktree; that is in the
+# shed (shed/orchestra-2026-09-25/SHED.md). Every room now works in its lane's
+# own cwd, and only the steward's adopt-mode (below) stands in a worktree.
 
-def test_an_orchestra_spinoff_is_rooted_in_its_own_worktree(spinoff_client):
-    _write_brief(store.SPINOFF_DIR, "isolated")
-    body = _post(spinoff_client, "isolated", room="orchestra").get_json()
-
-    assert spinoff_client._mints == ["isolated"]
-    entry = _index()[body["conversation_id"]]
-    assert entry["cwd"] == body["worktree"]
-    assert entry["cwd"] != str(store.BUILD_DIR)
-    assert entry["branch"].startswith("agent/isolated-")
-
-
-def test_her_own_rooms_stay_in_the_real_checkout(spinoff_client):
-    """Coding and Personal must keep the live edit-refresh loop — a worktree
-    session can't see its change in the browser, and that's the whole reason
-    those two rooms exist."""
-    for room in ("coding", "personal"):
-        _write_brief(store.SPINOFF_DIR, f"hers-{room}")
-        body = _post(spinoff_client, f"hers-{room}", room=room).get_json()
+def test_no_room_mints_a_worktree_for_a_spinoff(spinoff_client):
+    for room in ("coding", "personal", "orchestra"):
+        _write_brief(store.SPINOFF_DIR, f"shared-{room}")
+        body = _post(spinoff_client, f"shared-{room}", room=room).get_json()
         entry = _index()[body["conversation_id"]]
         assert entry.get("worktree") is None
         assert entry["cwd"] == observatory._lane_profile(room)["cwd"]
     assert spinoff_client._mints == []
-
-
-def test_the_opt_out_keeps_an_orchestra_spinoff_in_the_shared_checkout(spinoff_client):
-    _write_brief(store.SPINOFF_DIR, "shared-on-purpose")
-    body = _post(spinoff_client, "shared-on-purpose",
-                 room="orchestra", worktree=False).get_json()
-
-    assert spinoff_client._mints == []
-    assert _index()[body["conversation_id"]]["cwd"] == str(store.BUILD_DIR)
-
-
-def test_a_rejoin_never_cuts_a_second_worktree(spinoff_client):
-    """The bug worth naming: a live spinoff re-opened must not get a fresh
-    copy — and must certainly not have its running agent's directory
-    re-created underneath it."""
-    _write_brief(store.SPINOFF_DIR, "rejoined")
-    first = _post(spinoff_client, "rejoined", room="orchestra").get_json()
-
-    again = _post(spinoff_client, "rejoined", room="orchestra").get_json()
-
-    assert again["newly_spawned"] is False
-    assert again["conversation_id"] == first["conversation_id"]
-    assert spinoff_client._mints == ["rejoined"]
-
-
-def test_a_spinoff_whose_worktree_fails_still_runs_and_says_so(spinoff_client, monkeypatch):
-    """Degraded is still usable — the same call _launch_runner makes — but it
-    is never silent: without the flag nobody could tell which sessions are
-    sharing a tree, which is the exact thing the copy exists to remove."""
-    def boom(slug, base="HEAD"):
-        raise spinoff.worktrees.WorktreeError("no space left")
-    monkeypatch.setattr(spinoff.worktrees, "mint", boom)
-    _write_brief(store.SPINOFF_DIR, "degraded")
-
-    body = _post(spinoff_client, "degraded", room="orchestra").get_json()
-
-    assert body["ok"] is True
-    assert "no space left" in body["worktree_failed"]
-    entry = _index()[body["conversation_id"]]
-    assert entry["cwd"] == str(store.BUILD_DIR)
-    assert "no space left" in entry["worktree_failed"]
 
 
 def test_unknown_model_is_refused_without_touching_the_index(spinoff_client):
@@ -422,7 +383,7 @@ def test_no_model_means_no_field_so_the_cli_default_drives(spinoff_client):
 
 
 # --- adopt-mode: standing a spinoff on an EXISTING branch (the steward seam) --
-# `branch` switches the worktree from mint to adopt. Same door, a mode — the
+# `branch` stands the child on an existing branch. Same door, a mode — the
 # steward endpoint (routes/branches.py) and any future escalation spawner both
 # come through here rather than growing organs of their own.
 
@@ -451,8 +412,7 @@ def test_a_branch_spinoff_adopts_instead_of_minting(spinoff_client, monkeypatch,
 
 
 def test_a_failed_adoption_refuses_the_whole_spawn(spinoff_client, monkeypatch):
-    """Unlike a failed mint (degrade to the shared checkout, flag it), a failed
-    adoption refuses: a session that believes it stands on a branch and
+    """A failed adoption refuses the whole spawn: a session that believes it stands on a branch and
     doesn't is the lie the worktree exists to prevent."""
     def boom(slug, branch):
         raise spinoff.worktrees.WorktreeError("branch is checked out elsewhere")
@@ -470,14 +430,6 @@ def test_a_failed_adoption_refuses_the_whole_spawn(spinoff_client, monkeypatch):
 def test_adoption_outside_orchestra_is_a_caller_bug(spinoff_client):
     _write_brief(store.SPINOFF_DIR, "steward-lost")
     r = _post(spinoff_client, "steward-lost", room="coding", branch="agent/x")
-    assert r.status_code == 400
-    assert _index() == {}
-
-
-def test_adoption_without_a_worktree_is_a_caller_bug(spinoff_client):
-    _write_brief(store.SPINOFF_DIR, "steward-bare")
-    r = _post(spinoff_client, "steward-bare", room="orchestra",
-              branch="agent/x", worktree=False)
     assert r.status_code == 400
     assert _index() == {}
 
@@ -504,15 +456,15 @@ def test_a_rejoin_never_re_adopts(spinoff_client, monkeypatch, data_dir):
     assert adoptions == [("steward-again", "agent/x")]
 
 
-# --- briefs are filed on close, never dropped ---------------------------------
+# --- old brief FOLDERS are filed on close, never dropped ----------------------
+# Only sessions born before briefs moved to the database have a folder.
 
 def test_closing_a_session_files_its_brief_instead_of_deleting_it(data_dir, monkeypatch):
     """A brief is the ONE record of what a session was asked to do — git shows
     what changed, never what was wanted. So closing moves it; it must still be
     readable afterwards, with its text intact."""
     monkeypatch.setattr(store, "SPINOFF_ARCHIVE_DIR", data_dir / "spinoff_archive")
-    _write_brief(store.SPINOFF_DIR, "finished-thing")
-    (store.SPINOFF_DIR / "finished-thing" / "BRIEF.md").write_text("the actual ask")
+    _write_brief_file("finished-thing", "the actual ask")
 
     filed = spinoff.archive_spinoff("finished-thing")
 
@@ -524,11 +476,9 @@ def test_filing_the_same_slug_twice_keeps_both_records(data_dir, monkeypatch):
     """Slugs get reused — the spawn door rejoins them, and a later spinoff can
     fairly take the same name. The older record must not be clobbered."""
     monkeypatch.setattr(store, "SPINOFF_ARCHIVE_DIR", data_dir / "spinoff_archive")
-    _write_brief(store.SPINOFF_DIR, "reused")
-    (store.SPINOFF_DIR / "reused" / "BRIEF.md").write_text("first ask")
+    _write_brief_file("reused", "first ask")
     spinoff.archive_spinoff("reused")
-    _write_brief(store.SPINOFF_DIR, "reused")
-    (store.SPINOFF_DIR / "reused" / "BRIEF.md").write_text("second ask")
+    _write_brief_file("reused", "second ask")
 
     spinoff.archive_spinoff("reused")
 
@@ -545,10 +495,11 @@ def test_filing_a_slug_that_was_never_spun_off_is_a_quiet_no_op(data_dir, monkey
     assert spinoff.archive_spinoff("") is None
 
 
-def test_kickoff_paperwork_is_pruned_but_recent_diagnostics_survive(data_dir):
+def test_kickoff_paperwork_is_pruned_but_recent_diagnostics_survive(data_dir, monkeypatch):
     """The .log is the only trace of a spawn that never woke up, so pruning is
     by AGE, not on sight. Briefs are never touched by this."""
-    kick = store.SPINOFF_DIR / ".kickoffs"
+    kick = data_dir / "spinoff-kickoffs"
+    monkeypatch.setattr(store, "SPINOFF_KICKOFF_DIR", kick)
     kick.mkdir(parents=True)
     old, new = kick / "2026-01-01.old.log", kick / "2026-08-22.new.log"
     old.write_text("stale")
@@ -558,3 +509,306 @@ def test_kickoff_paperwork_is_pruned_but_recent_diagnostics_survive(data_dir):
     spinoff._prune_kickoffs()
 
     assert not old.exists() and new.exists()
+
+
+# --- the offer: a Go button in her chat instead of "shall I?" -----------------
+# The sender stages an offer on its own conversation (scripts/spinoff_offer.py);
+# her tap on Go is the confirm. Go arrives as a web request with no
+# EXOCORTEX_CONV_ID, so the room has to come from the sender's entry.
+
+def _offer_from(monkeypatch, *slugs, lane="personal", room=None):
+    sender = _sender(monkeypatch, lane=lane)
+    for slug in slugs:
+        _write_brief(store.SPINOFF_DIR, slug, f"# Spinoff: title of {slug}\n")
+    payload, status = spinoff.offer_spinoff(sender, list(slugs), lane=room)
+    assert status == 200, payload
+    # What follows is her tap in the browser, not the agent's turn.
+    monkeypatch.delenv("EXOCORTEX_CONV_ID")
+    return sender
+
+
+def test_an_offer_refuses_a_slug_with_no_brief_yet(spinoff_client, monkeypatch):
+    sender = _sender(monkeypatch)
+    payload, status = spinoff.offer_spinoff(sender, ["unwritten"])
+    assert status == 400
+    assert "spinoff_offer" not in _index()[sender]
+
+
+def test_the_offer_reads_back_with_each_brief_title(spinoff_client, monkeypatch):
+    sender = _offer_from(monkeypatch, "keeper-chat")
+    offer = spinoff_client.get(f"/api/spinoff/offer/{sender}").get_json()["offer"]
+    assert offer["sessions"] == [{"slug": "keeper-chat", "title": "title of keeper-chat"}]
+
+
+def test_go_spawns_into_the_senders_room_and_takes_the_offer(spinoff_client, monkeypatch):
+    sender = _offer_from(monkeypatch, "one", "two", lane="personal")
+    body = spinoff_client.post(f"/api/spinoff/offer/{sender}/go").get_json()
+    assert [s["slug"] for s in body["spawned"]] == ["one", "two"]
+    assert {s["lane"] for s in body["spawned"]} == {"personal"}
+    assert "spinoff_offer" not in _index()[sender]
+
+
+def test_a_named_room_on_the_offer_beats_the_senders(spinoff_client, monkeypatch):
+    sender = _offer_from(monkeypatch, "elsewhere", lane="personal", room="coding")
+    body = spinoff_client.post(f"/api/spinoff/offer/{sender}/go").get_json()
+    assert body["spawned"][0]["lane"] == "coding"
+
+
+def test_a_second_go_spawns_nothing(spinoff_client, monkeypatch):
+    """A double tap, or a second open window, must not start the work twice."""
+    sender = _offer_from(monkeypatch, "once")
+    spinoff_client.post(f"/api/spinoff/offer/{sender}/go")
+    r = spinoff_client.post(f"/api/spinoff/offer/{sender}/go")
+    assert r.status_code == 409
+    assert len(spinoff_client._launches) == 1
+
+
+def test_dismiss_clears_the_offer_without_spawning(spinoff_client, monkeypatch):
+    sender = _offer_from(monkeypatch, "not-now")
+    spinoff_client.post(f"/api/spinoff/offer/{sender}/dismiss")
+    assert spinoff_client.get(f"/api/spinoff/offer/{sender}").get_json()["offer"] is None
+    assert spinoff_client._launches == []
+
+
+def test_a_new_offer_replaces_the_old_one(spinoff_client, monkeypatch):
+    sender = _offer_from(monkeypatch, "first-draft")
+    _write_brief(store.SPINOFF_DIR, "second-draft")
+    spinoff.offer_spinoff(sender, ["second-draft"])
+    assert _index()[sender]["spinoff_offer"]["slugs"] == ["second-draft"]
+
+
+# --- the family tree: every child remembers who it was spun off from ---------
+# `spawned_from` is the parent's conversation id and `spawned_via` how it was
+# born; together they let sessions be drawn as a tree (docs/spinoff-lineage.md).
+
+def test_a_spinoff_records_the_session_it_was_spun_off_from(spinoff_client, monkeypatch):
+    sender = _sender(monkeypatch, lane="coding")
+    _write_brief(store.SPINOFF_DIR, "has-a-parent")
+    body = _post(spinoff_client, "has-a-parent").get_json()
+    entry = _index()[body["conversation_id"]]
+    assert (entry["spawned_from"], entry["spawned_via"]) == (sender, "skill")
+
+
+def test_a_spinoff_with_no_calling_session_has_no_parent(spinoff_client):
+    # A terminal or a cron: nobody to point at, and the entry says "app"
+    # rather than inventing a parent.
+    _write_brief(store.SPINOFF_DIR, "orphan")
+    body = _post(spinoff_client, "orphan").get_json()
+    entry = _index()[body["conversation_id"]]
+    assert "spawned_from" not in entry and entry["spawned_via"] == "app"
+
+
+def test_go_records_the_offering_session_as_the_parent(spinoff_client, monkeypatch):
+    # Go is a web request with no EXOCORTEX_CONV_ID; the offer's own
+    # conversation is the parent.
+    sender = _offer_from(monkeypatch, "from-go")
+    body = spinoff_client.post(f"/api/spinoff/offer/{sender}/go").get_json()
+    entry = _index()[body["spawned"][0]["conversation_id"]]
+    assert (entry["spawned_from"], entry["spawned_via"]) == (sender, "go")
+
+
+def test_a_rejoin_never_rewrites_the_parent(spinoff_client, monkeypatch):
+    first = _sender(monkeypatch, conv_id="2026-07-30.101010")
+    _write_brief(store.SPINOFF_DIR, "kept-parent")
+    cid = _post(spinoff_client, "kept-parent").get_json()["conversation_id"]
+    _sender(monkeypatch, conv_id="2026-07-30.202020")
+    _post(spinoff_client, "kept-parent")
+    assert _index()[cid]["spawned_from"] == first
+
+
+def test_the_tree_lists_parents_and_children_but_not_bystanders(spinoff_client, monkeypatch):
+    sender = _sender(monkeypatch, lane="coding")
+    _write_brief(store.SPINOFF_DIR, "leaf")
+    child = _post(spinoff_client, "leaf").get_json()["conversation_id"]
+    with store.mutate("bot_chats/index", {}) as index:
+        index["2026-07-30.111111"] = {"bot": "keeper", "title": "unrelated"}
+    nodes = {n["id"]: n for n in spinoff_client.get("/api/spinoff/tree").get_json()["nodes"]}
+    assert set(nodes) == {sender, child}
+    assert nodes[child]["parent"] == sender and nodes[sender]["parent"] is None
+
+
+# --- The kickoff: the brief itself, with its files preloaded -----------------
+
+def _brief_with_files(tmp_path, lines, protocol=False):
+    body = "# Spinoff: files\n\n## The task\nDo it.\n\n## Where to look\n"
+    body += "".join(f"{line}\n" for line in lines)
+    if protocol:
+        body += "\n## Protocol\n1. Follow this one.\n"
+    return body
+
+
+def test_the_first_message_is_the_brief_itself(spinoff_client):
+    text = "# Spinoff: visible\n\n## The task\nMake the brief show in the chat.\n"
+    _write_brief(store.SPINOFF_DIR, "visible", text)
+    body = _post(spinoff_client, "visible").get_json()
+    kick = Path(spinoff_client._launches[0][0][3]).read_text()
+    assert kick.startswith(text.rstrip())
+    assert "Read " not in kick
+
+
+def test_listed_files_are_preloaded_into_the_hidden_instructions(spinoff_client, tmp_path):
+    code = tmp_path / "thing.py"
+    code.write_text("def thing():\n    return 42\n")
+    _write_brief(store.SPINOFF_DIR, "preload",
+                 _brief_with_files(tmp_path, [f"- `{code}` — the thing"]))
+    body = _post(spinoff_client, "preload").get_json()
+    entry = _index()[body["conversation_id"]]
+    context = _context(entry)
+    assert "return 42" in context
+    assert f"Preloaded into your instructions: {code}" in entry["draft"]
+
+
+def test_a_brief_without_a_protocol_gets_the_general_one(spinoff_client):
+    _write_brief(store.SPINOFF_DIR, "no-protocol")
+    body = _post(spinoff_client, "no-protocol").get_json()
+    context = _context(_index()[body["conversation_id"]])
+    assert "Say it in the room" in context
+
+
+def test_a_brief_with_its_own_protocol_keeps_it_alone(spinoff_client, tmp_path):
+    # Helpers, triage, forks and stewards write their own; the general one
+    # must not be stacked on top. No files and no default → no context file.
+    _write_brief(store.SPINOFF_DIR, "own-protocol",
+                 "# Triage\n\n## Protocol\n1. Ask how the day feels.\n")
+    body = _post(spinoff_client, "own-protocol").get_json()
+    assert _context(_index()[body["conversation_id"]]) is None
+
+
+def test_a_missing_file_in_where_to_look_refuses_the_spawn(spinoff_client, tmp_path):
+    real = tmp_path / "real.py"
+    real.write_text("x = 1\n")
+    ghost = tmp_path / "ghost.py"
+    _write_brief(store.SPINOFF_DIR, "typo",
+                 _brief_with_files(tmp_path, [f"- {real}", f"- {ghost}"]))
+    r = _post(spinoff_client, "typo")
+    assert r.status_code == 400
+    assert str(ghost) in r.get_json()["error"]
+    assert _index() == {}
+    assert spinoff_client._launches == []
+
+
+def test_a_line_range_preloads_only_those_lines(spinoff_client, tmp_path):
+    notes = tmp_path / "notes.md"
+    notes.write_text("\n".join(f"line {n}" for n in range(1, 11)) + "\n")
+    _write_brief(store.SPINOFF_DIR, "ranged",
+                 _brief_with_files(tmp_path, [f"- {notes}:3-4"]))
+    body = _post(spinoff_client, "ranged").get_json()
+    context = _context(_index()[body["conversation_id"]])
+    assert "line 3\nline 4" in context
+    assert "line 5" not in context
+
+
+def test_a_file_too_big_to_preload_is_named_for_the_session_to_read(
+        spinoff_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(spinoff, "PRELOAD_FILE_MAX", 10)
+    big = tmp_path / "big.py"
+    big.write_text("x = 'far more than ten characters'\n")
+    _write_brief(store.SPINOFF_DIR, "too-big", _brief_with_files(tmp_path, [f"- {big}"]))
+    body = _post(spinoff_client, "too-big").get_json()
+    entry = _index()[body["conversation_id"]]
+    assert "far more" not in _context(entry)
+    assert f"read these yourself first: {big}" in entry["draft"]
+
+
+def test_a_relative_path_is_read_from_the_childs_folder(spinoff_client, monkeypatch, tmp_path):
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "mod.py").write_text("VALUE = 7\n")
+    real_profile = spinoff._lane_profile
+    monkeypatch.setattr(spinoff, "_lane_profile",
+                        lambda room: dict(real_profile(room), cwd=str(tmp_path)))
+    _write_brief(store.SPINOFF_DIR, "relative", _brief_with_files(tmp_path, ["- pkg/mod.py"]))
+    body = _post(spinoff_client, "relative").get_json()
+    context = _context(_index()[body["conversation_id"]])
+    assert "VALUE = 7" in context
+
+
+# --- briefs live in the database -----------------------------------------------
+
+def test_a_spun_off_sessions_turn_is_handed_its_context_from_the_database(
+        spinoff_client, tmp_path, monkeypatch):
+    """The whole path, with no brief or context file written by anyone: a brief
+    is saved, a session is opened on it, and the turn that runs is given a
+    prompt file holding the listed file's text, rebuilt from the database."""
+    code = tmp_path / "thing.py"
+    code.write_text("def thing():\n    return 42\n")
+    _write_brief(store.SPINOFF_DIR, "from-db", _brief_with_files(tmp_path, [f"- {code}"]))
+    conv_id = _post(spinoff_client, "from-db").get_json()["conversation_id"]
+    assert not (store.SPINOFF_DIR / "from-db").exists()
+    assert "system_prompt_file" not in _index()[conv_id]
+
+    # Start a turn the way a send does, and catch what it is started with.
+    started = []
+    monkeypatch.setattr(observatory, "_mem_available_mb", lambda: None)
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, resume_sid, conv, log_path:
+                        started.append(config) or True)
+    assert observatory.begin_turn(conv_id, "go on")["ok"]
+    prompt_file = Path(started[0]["system_prompt_file"])
+    assert "return 42" in prompt_file.read_text()
+    # The file is a throwaway copy: lose it and the next turn gets it back.
+    prompt_file.unlink()
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id]["running"] = False
+    assert observatory.begin_turn(conv_id, "and again")["ok"]
+    assert "return 42" in Path(started[1]["system_prompt_file"]).read_text()
+
+
+def test_a_session_born_with_a_context_file_keeps_using_it(spinoff_client, tmp_path, monkeypatch):
+    """Sessions already running when briefs moved have CONTEXT.md on disk. They
+    go on using that file while it exists, and fall back to the database copy
+    once the folder is gone."""
+    _write_brief(store.SPINOFF_DIR, "born-before",
+                 _brief_with_files(tmp_path, []))
+    conv_id = _post(spinoff_client, "born-before").get_json()["conversation_id"]
+    on_disk = tmp_path / "CONTEXT.md"
+    on_disk.write_text("the file it was born with")
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id]["system_prompt_file"] = str(on_disk)
+    started = []
+    monkeypatch.setattr(observatory, "_mem_available_mb", lambda: None)
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, resume_sid, conv, log_path:
+                        started.append(config) or True)
+    assert observatory.begin_turn(conv_id, "go on")["ok"]
+    assert started[0]["system_prompt_file"] == str(on_disk)
+    on_disk.unlink()
+    with store.mutate("bot_chats/index", {}) as index:
+        index[conv_id]["running"] = False
+    assert observatory.begin_turn(conv_id, "and again")["ok"]
+    assert "Say it in the room" in Path(started[1]["system_prompt_file"]).read_text()
+
+
+def test_saving_a_slug_again_replaces_the_draft_until_a_session_starts(spinoff_client):
+    first = _write_brief(store.SPINOFF_DIR, "edited", "first draft\n")
+    assert _write_brief(store.SPINOFF_DIR, "edited", "second draft\n") == first
+    conv_id = _post(spinoff_client, "edited").get_json()["conversation_id"]
+    assert _index()[conv_id]["draft"].startswith("second draft")
+    # Started: that row is now the record of what the session was asked.
+    assert _write_brief(store.SPINOFF_DIR, "edited", "a later job\n") != first
+    assert briefstore.for_session(conv_id)["body"] == "second draft\n"
+
+
+def test_a_brief_file_written_the_old_way_still_starts_a_session(spinoff_client):
+    """An agent that was mid-conversation when briefs moved still writes
+    spinoffs/<slug>/BRIEF.md. Its session must start, and the brief is kept."""
+    _write_brief_file("old-way", "# Spinoff: written as a file\n")
+    body = _post(spinoff_client, "old-way").get_json()
+    assert body["newly_spawned"] is True
+    assert briefstore.for_session(body["conversation_id"])["body"].startswith("# Spinoff: written")
+
+
+def test_the_brief_page_shows_the_brief_what_was_preloaded_and_who_wrote_it(
+        spinoff_client, tmp_path, monkeypatch):
+    sender = _sender(monkeypatch, lane="coding")
+    code = tmp_path / "thing.py"
+    code.write_text("VALUE = 7\n")
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", sender)
+    briefstore.save("shown", _brief_with_files(tmp_path, [f"- {code}"]), written_by=sender)
+    conv_id = _post(spinoff_client, "shown").get_json()["conversation_id"]
+    page = spinoff_client.get(f"/api/spinoff/brief/{conv_id}").get_json()
+    assert page["brief"]["slug"] == "shown" and "## Where to look" in page["brief"]["body"]
+    assert page["brief"]["preloaded"] == [str(code)]
+    assert page["brief"]["written_by"] == {"id": sender, "title": "sender"}
+    assert "VALUE = 7" in page["context"]
+    # A session that was never spun off has no brief page.
+    assert spinoff_client.get(f"/api/spinoff/brief/{sender}").status_code == 404

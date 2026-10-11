@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -315,6 +316,11 @@ def test_pick_mode_ladder_reads_off_the_registry(data_dir):
     assert nc.pick_mode() == "full"
 
 
+def _days_ago(days):
+    """A `created` stamp inside the nominator's one-week window."""
+    return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d 09:00")
+
+
 def test_picks_mode_proposes_without_touching_the_notes(data_dir):
     """A pick is a card, not work and not a moon: the note itself must be
     untouched (approval lives on the card until making turns on), and the
@@ -322,17 +328,17 @@ def test_picks_mode_proposes_without_touching_the_notes(data_dir):
     picking-policy feedback aims at."""
     import store
     store.write("dev_notes.json", {"tabs": {"today": [
-        {"id": "old1", "text": "Add a search for to-dos", "created": "2026-05-01 09:00"},
-        {"id": "new1", "text": "Re add edit button to habits", "created": "2026-07-23 08:02"},
+        {"id": "old1", "text": "Add a search for to-dos", "created": _days_ago(3)},
+        {"id": "new1", "text": "Re add edit button to habits", "created": _days_ago(1)},
     ]}})
     store.write("night_runs.json", {"runs": []})
     n = nc.record_picks(store.read("dev_notes.json", {})["tabs"])
     assert n == 2
     runs = store.read("night_runs.json", {})["runs"]
-    assert [r["note_id"] for r in runs] == ["old1", "new1"], "oldest first"
+    assert [r["note_id"] for r in runs] == ["new1", "old1"], "newest first"
     assert runs[0]["status"] == "picked"
     assert "#1 of 2" in runs[0]["pick_reason"]
-    assert runs[0]["note_created"] == "2026-05-01 09:00"
+    assert runs[1]["note_created"] == _days_ago(3)
     notes = store.read("dev_notes.json", {})["tabs"]["today"]
     assert all("night" not in x for x in notes), "no moon was flipped"
 
@@ -343,12 +349,62 @@ def test_a_note_once_picked_is_never_proposed_again(data_dir):
     moves down the backlog instead."""
     import store
     store.write("dev_notes.json", {"tabs": {"today": [
-        {"id": "old1", "text": "Add a search for to-dos", "created": "2026-05-01 09:00"},
+        {"id": "old1", "text": "Add a search for to-dos", "created": _days_ago(3)},
     ]}})
     store.write("night_runs.json", {"runs": [
         {"id": "p-1", "status": "picked", "note_id": "old1"},
     ]})
     assert nc.record_picks(store.read("dev_notes.json", {})["tabs"]) == 0
+
+
+def test_full_mode_self_queue_green_lights_through_judgments(data_dir):
+    """When making turns on, a note the crew picks for itself must carry an
+    `approved` judgment by the crew — not the retired `night` flag, which
+    nothing reads any more, so the note would neither pass lock 1 nor count
+    as answered and would be re-picked every night."""
+    import store
+    import devnote_judgments
+    store.write("dev_notes.json", {"tabs": {"today": [
+        {"id": "old1", "text": "Add a search for to-dos", "created": _days_ago(3)},
+    ]}})
+    rows = nc.self_queue(store.read("dev_notes.json", {})["tabs"], 1)
+    note = store.read("dev_notes.json", {})["tabs"]["today"][0]
+    assert ([r["id"] for r in rows], devnote_judgments.history(note)[-1]["by"],
+            devnote_judgments.is_green_lit(note), "night" in note) == (
+        ["old1"], "crew", True, False)
+
+
+def test_failed_test_ids_reads_the_short_summary():
+    lines = ["....", "FAILED tests/a.py::test_x - AssertionError: boom",
+             "FAILED tests/b.py::test_y[1]", "1 failed, 3 passed"]
+    assert nc.failed_test_ids(lines) == ["tests/a.py::test_x", "tests/b.py::test_y[1]"]
+
+
+def _verify_with(monkeypatch, *, worktree_fails, main_fails):
+    """verify() with every gate faked: the worktree's pytest fails
+    `worktree_fails`, and a rerun on main fails `main_fails`."""
+    def fake_run(cmd, cwd=None, **kw):
+        if "pytest" in cmd:
+            failing = main_fails if cwd == str(nc.SKELETON) else worktree_fails
+            out = "\n".join(f"FAILED {t} - boom" for t in failing)
+            return subprocess.CompletedProcess(cmd, 1 if failing else 0, stdout=out, stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+    monkeypatch.setattr(nc.subprocess, "run", fake_run)
+    return nc.verify(Path("/tmp/nightcrew-fake"))
+
+
+def test_a_failure_main_already_has_does_not_redden_the_card(monkeypatch):
+    """The 2026-08-12..16 false reds: one test broken on main failed seven
+    unrelated night runs."""
+    green, tail = _verify_with(monkeypatch, worktree_fails=["tests/a.py::t"],
+                               main_fails=["tests/a.py::t"])
+    assert (green, "also fail on main" in tail) == (True, True)
+
+
+def test_a_failure_only_the_change_has_stays_red(monkeypatch):
+    green, _ = _verify_with(monkeypatch, worktree_fails=["tests/a.py::t", "tests/b.py::u"],
+                            main_fails=["tests/a.py::t"])
+    assert green is False
 
 
 def test_night_workers_are_born_ungated():
@@ -363,7 +419,14 @@ def test_night_workers_are_born_ungated():
 
 # --- branch sweep -----------------------------------------------------------
 
-def test_sweep_deletes_only_branches_past_the_ttl(monkeypatch):
+def _record_branches(*names):
+    import store
+    store.write("night_runs.json",
+                {"runs": [{"id": f"r{i}", "branch": n} for i, n in enumerate(names)]})
+
+
+def test_sweep_deletes_only_branches_past_the_ttl(monkeypatch, data_dir):
+    _record_branches("agent/old", "agent/new")
     old = (datetime.now() - timedelta(days=nc.BRANCH_TTL_DAYS + 3)).isoformat()
     new = (datetime.now() - timedelta(days=1)).isoformat()
     deleted = []
@@ -381,7 +444,27 @@ def test_sweep_deletes_only_branches_past_the_ttl(monkeypatch):
     assert deleted == ["agent/old"]
 
 
-def test_sweep_survives_an_unparseable_date(monkeypatch):
+def test_sweep_leaves_a_spinoff_branch_alone(monkeypatch, data_dir):
+    """Spinoff worktrees share the agent/ prefix; an old one with unmerged
+    commits is her work, not the crew's leftovers."""
+    _record_branches("agent/old")
+    old = (datetime.now() - timedelta(days=nc.BRANCH_TTL_DAYS + 3)).isoformat()
+    deleted = []
+
+    def fake_run(cmd, **kw):
+        if "for-each-ref" in cmd:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=f"agent/old {old}\nagent/food-sql {old}\n", stderr="")
+        if "branch" in cmd and "-D" in cmd:
+            deleted.append(cmd[-1])
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(nc.subprocess, "run", fake_run)
+    nc.sweep_old_branches()
+    assert deleted == ["agent/old"]
+
+
+def test_sweep_survives_an_unparseable_date(monkeypatch, data_dir):
     def fake_run(cmd, **kw):
         if "for-each-ref" in cmd:
             return subprocess.CompletedProcess(cmd, 0, stdout="agent/x notadate\n", stderr="")

@@ -21,16 +21,20 @@ import store
 import config
 import features
 import proxy_auth
+import runtime_sensor
+import runtime_trace
 from routes import (
     kitchen, habits, todos, places, health, inventory, money,
     media, reminders, food_test, terminal, settings,
-    devnotes, ideas, buildtodo, ecosystem, keeper, pending, triage, helpers, decisions,
-    entities, threads, person, shell, cards, archivals, research,
+    devnotes, ideas, ecosystem, keeper, pending, triage, helpers, decisions,
+    entities, threads, person, shell, cards, journal_search, journal_days, chat_search, photos, archivals, research,
     research_search, research_sources, research_import, research_text,
-    annotations, spa, fronts, tags, wiki, profile, usage, streaks, spinoff,
-    observatory, terrain, automations, nightcrew, push, claude_auth, run_queue,
-    branches, recordings,
-    sqlab, sandbox, pond, tabsets, creek,
+    annotations, spa, fronts, tags, profile, usage, streaks, spinoff,
+    observatory, swarms, swarm_demo, terrain, terrain_builds, terrain_map, terrain_mirror, terrain_tables, automations, nightcrew, push, claude_auth, run_queue,
+    branches, worktree_map, sudo, research_room, linear_room,
+    sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
+    exposure, nutrition, georegions, recipe_nutrition, recipe_share,
+    token_burn,
 )
 from routes.shell import VALID_TABS
 
@@ -87,6 +91,13 @@ def log_request(response):
         access_logger.info(f"{request.method} {request.path} → {response.status_code}")
     return response
 
+# The same request, as a ROW: requestlog.py queues one per /api/ request into
+# exo.db's `requests` table (batched, fail-open). The access log above stays
+# for tailing; the table is the record, because the log rotates and, across
+# several workers, loses lines.
+import requestlog
+requestlog.install(app)
+
 
 # The dashboard polls /api/version + /api/data/<tab> every 5s (static/js/polling.js)
 # and again on every visibilitychange, re-downloading the full JSON payload (up to
@@ -110,6 +121,32 @@ def add_conditional_cache(response):
 
 
 app.after_request(add_conditional_cache)
+
+
+# Who may frame the mirror. On a public-only mirror every response says who
+# may put it in an <iframe>: the two exhibit pages (the portfolio cards at the
+# apex domain embed /terrain/map?embed=1 and /food-map?embed=1) may be framed
+# by the origins in EXOCORTEX_FRAME_ANCESTORS; every other path answers
+# frame-ancestors 'none'. The private instance is left alone — its own
+# surfaces frame each other (/files/, /terminal/) and it isn't the thing a
+# stranger can reach.
+# /terrain/map is where the portfolio's iframe still points; the client
+# forwards it to /terrain/files, the heatmap's own address since 2026-10-02,
+# inside the same framed document. Both are listed so a direct link to either
+# frames.
+# /demo/swarm is the frozen swarm (routes/swarm_demo.py), the Observatory's
+# exhibit on the same page.
+_FRAMEABLE_PATHS = ("/terrain/files", "/terrain/map", "/food-map", "/demo/swarm")
+
+
+@app.after_request
+def frame_policy(response):
+    if not config.public_only():
+        return response
+    allowed = config.frame_ancestors() if request.path in _FRAMEABLE_PATHS else ()
+    sources = " ".join(allowed) if allowed else "'none'"
+    response.headers["Content-Security-Policy"] = f"frame-ancestors {sources}"
+    return response
 
 # Cache-busting
 @app.context_processor
@@ -201,6 +238,17 @@ def _is_authed() -> bool:
 
 @app.before_request
 def gate():
+    # Public-only mirror (config.public_only): nothing authenticates here — not
+    # a session cookie, not the proxy header. Every request is a stranger's, and
+    # a stranger asking for a private page is sent to the front door, not to
+    # a login page that doesn't exist in this mode.
+    if config.public_only():
+        request.view_mode = "public"
+        if is_public_path(request.path):
+            return
+        if request.path.startswith('/api/'):
+            return jsonify({"error": "unauthorized"}), 401
+        return redirect('/')
     slug = _exo_proxied_user()
     if slug:
         request.exo_user = slug
@@ -214,6 +262,51 @@ def gate():
     if request.path.startswith('/api/'):
         return jsonify({"error": "unauthorized"}), 401
     return redirect('/login')
+
+
+# --- Per-request tracing (runtime_trace.py) ---
+# "Trace the next request" can't be a variable: there are two gunicorn workers
+# and the arm may be set from either. It's a FILE, and `claim()` is an atomic
+# unlink — whichever worker wins owns the trace and every other sees it gone.
+#
+# The cost of asking is ONE failed open() per request when nothing is armed,
+# which is why this can sit in the hot path at all. Registered AFTER `gate()`
+# so an unauthorized request is refused before it can consume an arm — a 401
+# is not the flow anybody armed the tracer to look at.
+#
+# A JOURNEY is the other door: the browser sends `X-Journey-Id` on every
+# request while one is armed, and each such request becomes its own child
+# trace under that id — the one-shot arm is spent on the first request, a
+# journey covers the send, the stream that reads the reply, and the polls in
+# between. Checked first, because a request that names a journey is answering
+# a more specific question than "whatever comes next".
+@app.before_request
+def _trace_begin():
+    if request.path.startswith('/api/observatory/terrain/trace'):
+        return          # never trace the tracer's own doors
+    if request.path.startswith('/api/usage/'):
+        return          # telemetry flushes are noise on a journey, not a hop
+    jrec = runtime_trace.claim_for_header(request.headers.get("X-Journey-Id"))
+    if jrec:
+        rid = runtime_trace.journey_request_id(jrec["id"])
+        request.trace_id = rid
+        runtime_trace.begin(rid, label=jrec.get("label", ""),
+                            entry=f"{request.method} {request.path}", kind="http",
+                            parent_id=jrec["id"])
+        return
+    pending = runtime_trace.claim()
+    if pending:
+        request.trace_id = pending["id"]
+        runtime_trace.begin(pending["id"], label=pending.get("label", ""),
+                            entry=f"{request.method} {request.path}", kind="http")
+
+
+@app.teardown_request
+def _trace_end(exc=None):
+    # teardown, not after_request: it runs even when the view raised, and a
+    # trace of a request that BLEW UP is the one most worth having.
+    if runtime_trace.current() is not None:
+        runtime_trace.finish()
 
 
 @app.context_processor
@@ -278,6 +371,10 @@ def _clear_login_fails(ip):
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    # A public-only mirror has no password to check against and no reason to
+    # show a form; the page simply doesn't exist there.
+    if config.public_only():
+        return "Not found", 404
     ip = request.remote_addr or "unknown"
     if request.method == "POST":
         allowed, retry_after = _check_login_rate(ip)
@@ -349,43 +446,8 @@ _load_idea_notes = devnotes.load_idea_notes
 
 # --- Journal ---
 
-@app.route("/api/journal/dates")
-def journal_dates():
-    daily_dir = CONTENT_DIR / "Journal" / "Daily"
-    dates = sorted(f.stem for f in daily_dir.glob("*.md"))
-    return jsonify({"dates": dates})
-
-
-@app.route("/api/journal/<date>")
-def journal_get(date):
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except ValueError:
-        return jsonify({"error": "invalid date"}), 400
-    path = CONTENT_DIR / "Journal" / "Daily" / f"{date}.md"
-    content = path.read_text() if path.exists() else ""
-    daily_dir = CONTENT_DIR / "Journal" / "Daily"
-    dates = sorted(f.stem for f in daily_dir.glob("*.md"))
-    # prev = newest date strictly before `date`; next = oldest date strictly after `date`.
-    # Works whether or not `date` itself has an entry — so an empty today still navigates back.
-    earlier = [d for d in dates if d < date]
-    later = [d for d in dates if d > date]
-    prev_date = earlier[-1] if earlier else None
-    next_date = later[0] if later else None
-    return jsonify({"date": date, "content": content, "prev": prev_date, "next": next_date})
-
-
-@app.route("/api/journal/<date>", methods=["POST"])
-def journal_save(date):
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except ValueError:
-        return jsonify({"error": "invalid date"}), 400
-    data = request.json or {}
-    content = data.get("content", "")
-    path = CONTENT_DIR / "Journal" / "Daily" / f"{date}.md"
-    store.write_text_file(path, content)
-    return jsonify({"ok": True})
+# The day pages (which days exist, read one, save one) live in
+# routes/journal_days.py, registered with the other journal routes below.
 
 
 # --- Personality (goal-personality.md) ---
@@ -455,8 +517,11 @@ def _load_research():
     return store.read("research.json", {"topics": [], "entries": []})
 
 
-def _load_ecosystem():
-    return store.read("ecosystem.json", {"sources": []})
+def _load_ecosystem(include_products=True):
+    """The map's sources, read from SQL (sourcestore.py). The public view gets
+    which food each is linked to, never her receipt product names."""
+    import sourcestore
+    return {"sources": sourcestore.all_sources(include_products)}
 
 
 def _load_reminders():
@@ -571,8 +636,10 @@ def _load_kitchen_data():
 def get_data_today():
   try:
     data = _common_data()
-    # Transient terminal uploads self-clean after 24h; this hot path is the
-    # reliable trigger (throttled to once an hour).
+    # Terminal uploads age out of the inbox after 24h and are FILED into the
+    # uploads archive, never deleted. This hot path is the reliable trigger
+    # (throttled to once an hour) — so simply loading the dashboard is what
+    # usually drains the inbox.
     sweep_uploads_throttled()
 
     habits = _load_habits()
@@ -785,19 +852,30 @@ def get_data_research():
 def get_data_ecosystem():
   try:
     data = _common_data()
+    import sourcestore
+    owner = request.view_mode == "authed"
     data.update({
-        "ecosystem": _load_ecosystem(),
+        "ecosystem": _load_ecosystem(include_products=owner),
     })
     # A light recipe list (no instructions) powers the map's "trace a recipe"
-    # picker — ingredients are all the matcher needs. Kept under its OWN key
-    # (eco_recipes), not "recipes": the public map exposes this safe subset, while
-    # the full "recipes" stream (with instructions, also sent on the public kitchen
-    # tab) stays hidden. See public_config.STREAMS.
-    data["eco_recipes"] = [
-        {"id": r.get("id"), "name": r.get("name"), "ingredients": r.get("ingredients", [])}
-        for r in store.read("recipes.json", {}).get("recipes", [])
-        if not r.get("is_archived")
-    ]
+    # picker. Each ingredient carries the food it resolves to, so tracing is a
+    # walk along food_links, not a guess. Kept under its OWN key (eco_recipes),
+    # not "recipes": the public map exposes this safe subset, while the full
+    # "recipes" stream (with instructions, also sent on the public kitchen tab)
+    # stays hidden. See public_config.STREAMS.
+    data["eco_recipes"] = sourcestore.map_recipes()
+    # Every food, traced or not, for the map's Foods panel.
+    data["eco_foods"] = sourcestore.map_foods(include_products=owner)
+    data["eco_origins"] = sourcestore.ORIGINS
+    # Which foods she has asked to have traced — the "Requested ✓" state.
+    data["eco_requested"] = sourcestore.requested()
+    # The machine's proposals for where foods come from (proposalstore.py):
+    # only the live ones (no replacement yet), each with its check_status,
+    # counties, parts and evidence. The map draws them as their own layer —
+    # "checked by machine, not by you". Hers only; the public view drops the key.
+    if owner:
+        import proposalstore
+        data["eco_proposals"] = proposalstore.live()
     _eco_cfg = store.read("ecosystem_config", {})
     data["usda_key_set"] = bool((_eco_cfg.get("usda_key") or os.environ.get("EXOCORTEX_USDA_KEY") or "").strip())
     data["dev_notes"] = _load_dev_notes().get("tabs", {}).get("ecosystem", [])
@@ -868,9 +946,14 @@ def get_data_kitchen():
 
     data["kitchen_trips"] = store.read("kitchen_trips.json", {}).get("trips", [])
     data["recipes"] = store.read("recipes.json", {}).get("recipes", [])
-    # Ecosystem sources ride along so a recipe can show where its food comes from
-    # (the kitchen "where it comes from" card matches ingredients → placed sources).
-    data["ecosystem"] = _load_ecosystem()
+    # Ecosystem sources ride along so a recipe can show where its food comes from:
+    # the kitchen "where it comes from" card follows each ingredient's food
+    # (from eco_recipes) to the sources linked to it.
+    import sourcestore
+    data["ecosystem"] = _load_ecosystem(include_products=request.view_mode == "authed")
+    data["eco_recipes"] = sourcestore.map_recipes()
+    # Which foods she has asked to have traced — the "Requested ✓" state.
+    data["eco_requested"] = sourcestore.requested()
 
     return jsonify(filter_for_view(data, request.view_mode))
   except Exception as e:
@@ -1038,7 +1121,10 @@ research_sources.register(app)
 research_import.register(app)
 research_text.register(app)
 annotations.register(app)
+research_claims.register(app)  # the claims table: claims beside their sources (routes/research_claims.py)
+research_tables.register(app)  # research tables: foods × hazards, verdicts, her review (routes/research_tables.py)
 reminders.register(app)
+coming_up.register(app)  # dated events + topics the Keeper wakes with (routes/coming_up.py)
 food_test.register(app)
 terminal.register(app)
 if features.enabled("observatory"):
@@ -1049,10 +1135,25 @@ if features.enabled("observatory"):
     # same flag: it maps the observatory's sessions onto the repos, and its
     # /terrain/file door reads checkout files over HTTP — off means off.
     terrain.register(app)
+    # The database's tables, described for the map (routes/terrain_tables.py).
+    # Owner only — it is not in public_config.PUBLIC_PATHS, so the auth gate
+    # closes it to visitors even though the map itself is open.
+    terrain_tables.register(app)
+    # The owner's other git folders, each with its own map and report
+    # (routes/terrain_builds.py). Owner only, like the table doors above.
+    terrain_builds.register(app)
+    # Codebase maps drawn as boxes and named links, read from markdown in each
+    # repo (routes/terrain_map.py, codemap.py). Owner only, like the builds.
+    terrain_map.register(app)
     # The night crew rides the same flag: its UI lives inside the observatory,
     # and its merge endpoint runs git against the live checkout — with the
     # observatory off, that door must not answer either.
     nightcrew.register(app)
+    # The research room (routes/research_room.py) is a lane of the observatory
+    # — its list opens onto session output, so it rides the same flag.
+    research_room.register(app)
+    # The Linear room (routes/linear_room.py) is a lane too — same flag.
+    linear_room.register(app)
 automations.register(app)
 # The run queue's endpoints are read-mostly and answer for every background
 # crew, not just the observatory — so they register unconditionally, outside the
@@ -1069,7 +1170,8 @@ def features_snapshot():
 settings.register(app)
 devnotes.register(app)
 ideas.register(app)
-buildtodo.register(app)
+# Set down in the shed (shed/unvisited-2026-10-10): the Build queue, Wiki, Recordings and
+# Transcripts routes. `/shed restore` puts their register lines back.
 streaks.register(app)
 ecosystem.register(app)
 keeper.register(app)
@@ -1083,23 +1185,44 @@ entities.register(app)
 threads.register(app)
 person.register(app)
 cards.register(app)
-wiki.register(app)
+journal_search.register(app)
+journal_days.register(app)
+chat_search.register(app)
+photos.register(app)
 usage.register(app)
+# What the agents spent, added up — the Token burn page off the roster.
+token_burn.register(app)
 push.register(app)
 claude_auth.register(app)
 sqlab.register(app)
+food.register(app)
 pond.register(app)
 branches.register(app)
-recordings.register(app)
+worktree_map.register(app)
+sudo.register(app)
 sandbox.register(app)
 tabsets.register(app)
 creek.register(app)
+terrain_mirror.register(app)
+swarms.register(app)
+swarm_demo.register(app)
+exposure.register(app)
+nutrition.register(app)
+recipe_nutrition.register(app)
+recipe_share.register(app)
+georegions.register(app)
 
 # --- Startup ---
 # Seed the journaling engine (stream.py + friends) into a fresh CONTENT_DIR — see
 # store.seed_content_scaffold's docstring. No-op (and untouched) once _system/stream.py
 # already exists, so an install pointed at an existing vault/engine is never touched.
 store.seed_content_scaffold()
+# Start watching which of our own source files actually RUN (runtime_sensor.py).
+# Started here rather than at import of that module, and started per WORKER
+# because the service runs gunicorn without --preload — a sensor started before
+# the fork would leave its background thread behind in the master. Off with
+# EXOCORTEX_RUNTIME_SENSOR=0; a False return just means nothing is watching.
+runtime_sensor.start()
 validate_on_startup(app)
 import schemas
 schemas.install_error_handler(app)

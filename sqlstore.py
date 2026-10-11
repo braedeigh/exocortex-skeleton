@@ -41,8 +41,9 @@ import sqlite3
 import time
 
 import store
+import tablelog
 
-_SCHEMA_VERSION = 14
+_SCHEMA_VERSION = 54
 
 
 def _db_path():
@@ -62,12 +63,33 @@ def _connect() -> sqlite3.Connection:
     what lets the two gunicorn workers (and, later, the agent watcher) share
     the file safely.
     """
-    conn = sqlite3.connect(_db_path(), timeout=_BUSY_MS / 1000, isolation_level=None)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    # tablelog.Connection is an ordinary connection that also settles the
+    # table log when it closes (see tablelog.watch, below).
+    conn = sqlite3.connect(_db_path(), timeout=_BUSY_MS / 1000, isolation_level=None,
+                           factory=tablelog.Connection)
     conn.execute(f"PRAGMA busy_timeout={_BUSY_MS}")
+    # ASK BEFORE SETTING. journal_mode is a persistent property of the FILE, so
+    # after the first ever connection the answer is already 'wal' and this is a
+    # read that takes no lock at all — which is the whole point, because SETTING
+    # it does take one, and does NOT honour busy_timeout: against a database
+    # another connection is mid-write on, `PRAGMA journal_mode=WAL` fails
+    # instantly with "database is locked" rather than waiting its 250ms.
+    #
+    # That only bites on a FRESH database — one still in `delete` mode while
+    # several connections open it at once and one of them is climbing the
+    # migration ladder. It sat here latent until the ladder grew long enough
+    # (the code-graph and trace rungs) for the window to be worth hitting, and
+    # then it failed about two runs in five.
+    if (conn.execute("PRAGMA journal_mode").fetchone() or ("",))[0].lower() != "wal":
+        _set_wal(conn)
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
     _migrate(conn)
+    # Note which tables this connection writes, for the Terrain map's table
+    # outlines (tablelog.py). Switched on AFTER the ladder, so a replayed
+    # ladder's own statements aren't counted as row writes; the ladder reports
+    # what it really changed itself, in _migrate. Never raises.
+    tablelog.watch(conn)
     return conn
 
 
@@ -125,6 +147,28 @@ def begin_immediate(conn, budget=_LOCK_WAIT_BUDGET):
             delay = min(delay * 2, _LOCK_BACKOFF_MAX)
 
 
+def _set_wal(conn, budget=_LOCK_WAIT_BUDGET):
+    """Switch a fresh database into WAL, waiting out a competing writer.
+
+    Same shape as `begin_immediate` above and for the same reason: the waiting
+    has to happen up in Python, where it can be retried and (under gevent)
+    yields, rather than inside a C-level busy handler that this particular
+    pragma doesn't consult anyway. Safe to retry — the pragma is idempotent,
+    and a connection that loses the race simply finds the winner's 'wal' on the
+    next pass."""
+    deadline = time.monotonic() + budget
+    delay = _LOCK_BACKOFF_START
+    while True:
+        try:
+            conn.execute("PRAGMA journal_mode=WAL").fetchall()
+            return
+        except sqlite3.OperationalError as exc:
+            if not _is_locked(exc) or time.monotonic() >= deadline:
+                raise
+            time.sleep(min(delay, _LOCK_BACKOFF_MAX) * (0.5 + random.random()))
+            delay = min(delay * 2, _LOCK_BACKOFF_MAX)
+
+
 # Every table a fully-migrated database must have. This is the cross-check that
 # makes the version stamp trustworthy — see _migrate.
 _EXPECTED_TABLES = (
@@ -139,6 +183,57 @@ _EXPECTED_TABLES = (
     "attention_segments",
     "tags",
     "filer_nominations", "filer_verdicts",
+    "command_runs", "command_sources",
+    "code_files", "code_edges",
+    "traces", "trace_spans",
+    "notes", "note_judgments",
+    "tool_calls", "tool_call_sources", "turn_results", "turn_usage", "ui_events", "requests",
+    "foods", "food_names", "products", "receipt_names", "food_links",
+    "recipe_makes", "meal_rotation",
+    "recipes", "recipe_lines", "shopping_trips", "shopping_lines", "grocery_list",
+    "receipts",
+    "food_sources", "food_source_counties", "food_estimates", "source_requests",
+    "source_proposals", "source_proposal_counties", "source_proposal_parts",
+    "source_proposal_evidence", "source_proposal_regions",
+    # The journal word index, plus the five storage tables FTS5 keeps behind it.
+    "cards_fts", "cards_fts_data", "cards_fts_idx", "cards_fts_content",
+    "cards_fts_docsize", "cards_fts_config",
+    # The chat word index, the five storage tables FTS5 keeps behind it, and
+    # the record of how far into each chat log has been read.
+    "chat_lines_fts", "chat_lines_fts_data", "chat_lines_fts_idx",
+    "chat_lines_fts_content", "chat_lines_fts_docsize", "chat_lines_fts_config",
+    "chat_line_sources",
+    "research_topics", "research_topic_fronts",
+    "research_entries", "research_entry_topics", "research_entry_context",
+    "research_sessions", "research_session_entries", "research_session_topics",
+    "research_annotations", "claim_sources", "claim_values",
+    "hazards", "hazard_names", "hazard_parents", "hazard_measures",
+    "food_judgments", "judgment_grounds", "hazard_history", "research_tables",
+    # The agents' mailbox, token accounting per model call, and swarms.
+    "agent_messages", "model_calls", "swarms", "swarm_members", "swarm_helper_runs",
+    "session_summaries", "swarm_pins", "room_moves", "room_helper_runs",
+    # Verifiable exposure scores (rung 36).
+    "hazard_facts", "food_pdp_codes", "data_pulls", "exposure_scores", "exposure_terms",
+    "source_files", "passage_pages",
+    # Recipe nutrients: which USDA entry a food is, and her gram weights (rung 39).
+    "food_usda", "recipe_line_grams",
+    # What the helpers promised to keep an eye on (rung 40).
+    "helper_watches",
+    # Which pairs of sessions are in the same file (rungs 42–43).
+    "file_alerts",
+    # What other people did in Linear, as the feed noticed it (rung 44).
+    "linear_events",
+    # What each swarm did, written when it closed (rung 45).
+    "swarm_closings",
+    # One line per agent message, and one per thread of them (rung 53).
+    "message_summaries", "message_thread_summaries",
+    "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs",
+    # The journal's prose pages: weekly summaries, diary entries (rung 47).
+    "journal_pages",
+    # What each session was handed, load by load (rung 47).
+    "context_loads",
+    # The summaries written of each thread, newest on top (rung 49).
+    "thread_summaries",
 )
 
 
@@ -188,14 +283,30 @@ def _migrate(conn):
 
     begin_immediate(conn)
     try:
+        # Tell the table log which tables the ladder created or redefined.
+        # Compared by each table's stored definition before and after, because
+        # the rungs are `IF NOT EXISTS` and re-run freely: only a definition
+        # that is new or different is a real change.
+        before = _table_definitions(conn)
         _run_ladder(conn)
+        after = _table_definitions(conn)
         conn.execute("COMMIT")
+        tablelog.structure_changed(
+            [name for name, sql in after.items() if before.get(name) != sql])
     except BaseException:
         try:
             conn.execute("ROLLBACK")
         except sqlite3.OperationalError:
             pass
         raise
+
+
+def _table_definitions(conn):
+    """Every table's name and the CREATE statement SQLite holds for it — an
+    ALTER TABLE rewrites that text, so a changed definition shows up here."""
+    return dict(conn.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'table'"
+        " AND name NOT LIKE 'sqlite_%'"))
 
 
 def _run_ladder(conn):
@@ -452,7 +563,8 @@ def _run_ladder(conn):
             "  day TEXT NOT NULL,"
             # Full timestamp from the frontmatter (local, 'YYYY-MM-DD HH:MM:SS').
             "  ts TEXT,"
-            # 'B' = the owner, 'K' = the Keeper.
+            # 'B' = the owner, 'K' = the Keeper, 'S' = the system (a reminder
+            # the app sent — neither of theirs). Free text, so no migration.
             "  who TEXT NOT NULL DEFAULT 'B',"
             "  kind TEXT,"
             # Card id this one answers (the K-question/B-answer pairing).
@@ -907,7 +1019,7 @@ def _run_ladder(conn):
             "    REFERENCES filer_nominations(id) ON DELETE CASCADE,"
             "  verdict TEXT NOT NULL"
             "    CHECK (verdict IN ('accepted','rejected','redirected')),"
-            "  at TEXT NOT NULL,"
+            "  at TEXT,"
             # Who ruled. 'her' is the only value that counts as ground truth
             # for training; anything else is a machine agreeing with itself and
             # must be filterable out of the training set.
@@ -956,8 +1068,2355 @@ def _run_ladder(conn):
             "  PRIMARY KEY (todo_id, position)"
             ")"
         )
+    if version < 15:
+        # Which slash commands the owner actually runs (commandstore.py).
+        # DERIVED, like the habit tables and unlike job_runs: every row is
+        # re-readable from the Claude Code transcripts on disk, so this pair
+        # can be dropped and rebuilt without losing anything. `uuid` is the
+        # transcript message's own id, which is what makes ingest idempotent
+        # — the same line read twice inserts once.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS command_runs ("
+            "  uuid TEXT PRIMARY KEY,"
+            "  at TEXT,"
+            "  day TEXT NOT NULL,"
+            "  hour INTEGER NOT NULL,"
+            "  name TEXT NOT NULL,"
+            "  kind TEXT NOT NULL,"
+            "  session_id TEXT,"
+            "  cwd TEXT,"
+            "  arg_chars INTEGER NOT NULL DEFAULT 0"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS command_runs_by_day ON command_runs (day)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS command_runs_by_name"
+            " ON command_runs (name, at)"
+        )
+        # The incremental watermark: how far into each transcript we have
+        # already read. Transcripts are append-only JSONL, so a file whose
+        # size is unchanged has nothing new, and one that grew is re-opened
+        # at `size` rather than from the top. Without this every rollup
+        # re-read 1.7 GB to find a handful of new lines.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS command_sources ("
+            "  path TEXT PRIMARY KEY,"
+            "  size INTEGER NOT NULL,"
+            "  scanned_at TEXT NOT NULL"
+            ")"
+        )
+    if version < 16:
+        # The codebase's own SHAPE — every code file, and every dependency
+        # between them (codegraph.py). DERIVED, like the habit tables: every
+        # row is re-readable by re-parsing the source, so this pair can be
+        # dropped and rebuilt without losing anything.
+        #
+        # Deliberately keyed by (repo, path) STRINGS rather than joined to
+        # files(id). The two tables answer different questions and disagree on
+        # purpose: `files` is git's view (identity that survives renames, and
+        # every file git has ever seen, including deleted ones), while this is
+        # the view of the code as it stands on disk RIGHT NOW — including files
+        # git has never seen. Giving this one its own key means neither can
+        # corrupt the other's answer; join on (repo, path) when a query wants
+        # both.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS code_files ("
+            "  repo TEXT NOT NULL,"
+            "  path TEXT NOT NULL,"
+            # 'python' | 'ts' | 'tsx' | 'js' | 'jsx' | 'css' — what the parser
+            # treated it as, which is also which resolver drew its edges.
+            "  lang TEXT NOT NULL,"
+            "  lines INTEGER NOT NULL DEFAULT 0,"
+            # How many edges leave and arrive. Denormalized on purpose: "what
+            # is a hub" and "what is dead" are the two questions this table
+            # exists to answer instantly, without a GROUP BY over the edges.
+            "  out_degree INTEGER NOT NULL DEFAULT 0,"
+            "  in_degree INTEGER NOT NULL DEFAULT 0,"
+            "  parsed_at TEXT NOT NULL,"
+            # Set when the file could not be parsed — kept as a ROW with a
+            # reason rather than dropped, so "every piece of code" stays
+            # literally true and a parser gap is visible instead of silent.
+            "  parse_error TEXT,"
+            "  PRIMARY KEY (repo, path)"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS code_edges ("
+            "  repo TEXT NOT NULL,"
+            "  src TEXT NOT NULL,"
+            # The destination's repo — '' means EXTERNAL (a third-party
+            # package: flask, react, d3-force). Those edges are kept rather
+            # than dropped: "what does this file reach out to" is the same
+            # question whether the answer is in the repo or not, and a caller
+            # that only wants internal flow filters on dst_repo != ''.
+            "  dst_repo TEXT NOT NULL,"
+            "  dst TEXT NOT NULL,"
+            # 'import' — a static dependency read out of the source.
+            "  kind TEXT NOT NULL,"
+            # JSON array of the names crossing this edge ('mutate', 'DATA_DIR',
+            # 'useState'). This is the part that makes an edge readable rather
+            # than merely present: not just "server.py touches store.py" but
+            # which of store's surface it actually uses.
+            "  symbols TEXT NOT NULL DEFAULT '[]',"
+            "  PRIMARY KEY (repo, src, dst_repo, dst, kind)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS code_edges_by_dst"
+            " ON code_edges (dst_repo, dst)"
+        )
+    if version < 17:
+        # One captured request, followed through the code in order
+        # (runtime_trace.py). NOT derived and NOT re-derivable: a trace is a
+        # recording of a moment that has passed, which is the opposite of
+        # code_files/code_edges beside it. It is bounded by retention instead —
+        # runtime_trace.KEEP_TRACES newest survive, the rest are dropped on
+        # write, because a debugging artifact that grows forever becomes the
+        # thing it was meant to diagnose.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS traces ("
+            "  id TEXT PRIMARY KEY,"
+            "  label TEXT NOT NULL DEFAULT '',"
+            # 'http' | 'turn' | 'manual' — where the trace was taken. A send
+            # produces both an http trace and a turn trace SHARING one id, so
+            # the two processes' halves read as one path.
+            "  kind TEXT NOT NULL,"
+            # What was being done: 'POST /api/observatory/conversation/x/send'.
+            "  entry TEXT NOT NULL DEFAULT '',"
+            "  started_at TEXT NOT NULL,"
+            "  duration_us INTEGER NOT NULL DEFAULT 0,"
+            "  span_count INTEGER NOT NULL DEFAULT 0,"
+            # Set when the trace hit MAX_SPANS. A truncated trace is still
+            # useful, but it must never be mistaken for a complete one.
+            "  truncated INTEGER NOT NULL DEFAULT 0,"
+            "  pid INTEGER,"
+            # A trace that continues in ANOTHER PROCESS is its own row pointing
+            # back here, not more spans on this one. It has to be: the two
+            # processes have independent perf_counter origins, so their t0_us
+            # columns are not on the same clock and laying them end to end
+            # would draw a timeline that never happened. Parent + parts is the
+            # honest shape — "this request, and the turn it spawned".
+            "  parent_id TEXT"
+            ")"
+        )
+        # Self-heal a `traces` made before parent_id existed. A create that
+        # tolerates an existing table skips it entirely, so a column added to
+        # this rung AFTER the table was first created never lands — and the
+        # miss stays invisible until something forces a replay. It surfaced
+        # here as the index below failing with "no such column: parent_id" on
+        # a database whose traces table had nine columns instead of ten.
+        # Same ALTER-and-swallow-duplicate shape rung 14 uses.
+        try:
+            conn.execute("ALTER TABLE traces ADD COLUMN parent_id TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS traces_by_parent ON traces (parent_id)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS trace_spans ("
+            "  trace_id TEXT NOT NULL REFERENCES traces(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            "  depth INTEGER NOT NULL,"
+            # NULL src = the call came from outside our code entirely (Flask
+            # dispatch, the interpreter). That is an ENTRY POINT, and it is the
+            # row that answers "where does this actually get in".
+            "  src_repo TEXT,"
+            "  src TEXT,"
+            "  src_func TEXT,"
+            "  dst_repo TEXT NOT NULL,"
+            "  dst TEXT NOT NULL,"
+            "  dst_func TEXT NOT NULL,"
+            # Microseconds from the start of the trace, so spans are comparable
+            # without anyone having to parse a timestamp.
+            "  t0_us INTEGER NOT NULL,"
+            "  t1_us INTEGER,"
+            "  PRIMARY KEY (trace_id, seq)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS trace_spans_by_dst"
+            " ON trace_spans (dst_repo, dst)"
+        )
+    if version < 18:
+        # Entity #9: her notes, one row each (see notestore.py). Every other
+        # typed table in this file is a REPORT rebuilt from a blob in `docs`;
+        # this is the first one that is the DESTINATION — the app writes here,
+        # and dev_notes.json / idea_notes.json become photographs of these rows
+        # rather than the other way round. There is deliberately no rebuild():
+        # there would be nothing to rebuild from.
+        #
+        # Dev notes and idea notes share ONE table, told apart by `kind`,
+        # because "send this to ideas" then becomes an UPDATE of one column.
+        # The old move — delete from one document, append to the other — kept
+        # the note's id and date only because the code remembered to. Here the
+        # row never moves, so keeping them is not something anyone can forget.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS notes ("
+            # Which of the two panels the note lives in: friction ('dev') or a
+            # want ('idea').
+            "  kind TEXT NOT NULL CHECK (kind IN ('dev','idea')),"
+            # Her note's permanent id. Text with NO shape rule: almost all are
+            # 8 hex characters from secrets.token_hex(4), but one was typed by
+            # hand ('store-future'), and a format check would refuse it.
+            "  id TEXT NOT NULL,"
+            # Which page's panel she wrote it on. Free text on purpose — mostly
+            # the same slugs the `page` tags use, plus four that are not pages
+            # at all ('global', 'general', 'rodeo', 'usage'). A CHECK listing
+            # the real pages would refuse a note on any of those.
+            "  page TEXT NOT NULL,"
+            "  text TEXT NOT NULL,"
+            # 'YYYY-MM-DD HH:MM', local, exactly as the document stores it. NOT
+            # converted to a real timestamp: the conversion would have to invent
+            # a timezone and seconds that were never recorded, and this string
+            # already sorts correctly as text.
+            "  created TEXT,"
+            # Where the note sits in its page's list. A table is a bag of rows
+            # with no order of its own, and `created` cannot supply one — six
+            # pairs of notes share a minute, one of which is a note beginning
+            # '^' that refers to the note above it. This is also the column a
+            # drag-to-rearrange would write.
+            "  position INTEGER NOT NULL,"
+            # The night crew's question, when a worker could not tell what the
+            # note meant (scripts/nightcrew_run.py). Cleared when she edits the
+            # text, because her amended words answer the ask. A COLUMN rather
+            # than a table on purpose: one blob of prose, one per note, never
+            # filtered or searched — a table would hold exactly one row per
+            # parent and nothing to join on.
+            "  questions TEXT,"
+            # Any key a writer puts on a note that has no column here, kept
+            # verbatim as JSON. A blob took any shape for free; a table does
+            # not, and quietly dropping a field some later feature adds would
+            # be data loss nothing announces. Empty for all 192 notes today —
+            # if it is ever filled, that is the signal something wants a real
+            # column.
+            "  extra TEXT,"
+            # When this ROW last changed — not when she wrote the note. Never
+            # appears in the exported document.
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            # (kind, id) rather than id alone, because the two kinds really do
+            # overlap for one write: undoing a send-to-ideas puts the note back
+            # in dev notes and SAVES before removing it from ideas
+            # (routes/devnotes.py), so for that moment the same id is both.
+            "  PRIMARY KEY (kind, id)"
+            ")"
+        )
+        # The one question every reader asks: give me this page's notes, in
+        # order. Matches the ORDER BY as_document() uses.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS notes_by_page"
+            " ON notes (kind, page, position)"
+        )
+        # What she decided about a note, and when — the append-only record
+        # devnote_judgments.py describes, now rows instead of a list inside the
+        # note. Its own table because a note has a GROWING LIST of judgments,
+        # and a column holds one value: the alternative is JSON in a column,
+        # which is the blob problem this rung exists to end.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS note_judgments ("
+            "  note_kind TEXT NOT NULL,"
+            "  note_id TEXT NOT NULL,"
+            # Which judgment this is: 1st, 2nd, 3rd. Load-bearing, because the
+            # LAST entry is the note's current verdict and `at` cannot order
+            # them — it is stamped to the minute, and changing her mind twice
+            # inside one minute is an ordinary thing.
+            "  seq INTEGER NOT NULL,"
+            "  verdict TEXT NOT NULL"
+            "    CHECK (verdict IN ('approved','unsure','denied','open')),"
+            # Her own words about the ruling. The document calls this key
+            # `note`; renamed here because `note` beside `note_id` in a table
+            # called note_judgments reads as the wrong thing.
+            "  comment TEXT,"
+            # 'outdated' or 'completed', and only on a denial. A closed
+            # vocabulary is what makes denials countable — the point of
+            # recording them is to see how many notes died of rot versus of
+            # already being done.
+            "  reason TEXT,"
+            # Minute-resolution, and in two formats across her history
+            # ('2026-05-14 08:02' and '2026-08-06T13:15'). Kept verbatim: the
+            # record should not look tidier than it was.
+            "  at TEXT,"
+            # Who appended it. Live values: 'her' (she tapped), 'card' (the
+            # morning card), 'review' (a pass that re-read her own comments and
+            # downgraded four approvals). 'moon' and 'edit' exist in the code
+            # and have never fired. This column is what keeps a judgment made
+            # on her behalf from reading as one she made.
+            "  by TEXT,"
+            # Same safety valve as `extra` on notes above.
+            "  extra TEXT,"
+            "  PRIMARY KEY (note_kind, note_id, seq),"
+            # Delete a note and its rulings go with it, enforced here rather
+            # than by every caller remembering. Needs PRAGMA foreign_keys=ON,
+            # which _connect sets.
+            "  FOREIGN KEY (note_kind, note_id) REFERENCES notes(kind, id)"
+            "    ON DELETE CASCADE"
+            ")"
+        )
+    if version < 19:
+        # Entity #10: the usage record, event by event (the four tables below
+        # share one idea, so they share one rung). Until now most of what the
+        # owner did was counted at write time — clicks per page per DAY,
+        # requests per feature per DAY — and a count has no clock: it cannot
+        # be laid beside a journal card or a file write, and it cannot be
+        # asked a question it wasn't shaped for. Every counter can be rebuilt
+        # from events; no event can be rebuilt from a counter. So these
+        # tables keep the events, and the counters become a view of them.
+        #
+        # One clock for all four: LOCAL naive ISO with milliseconds
+        # ('2026-09-24T12:56:29.403'), the clock attention_segments keeps,
+        # with the fraction kept because tool calls land several to a second
+        # and their order matters. String-comparable with every other table.
+        #
+        # Which agent tool ran, on what, and how it went (toolcallstore.py).
+        # DERIVED: every row is re-readable from the conversation logs under
+        # data/bot_chats/ and from Claude Code's own transcripts under
+        # ~/.claude/projects, so the table can be dropped and rebuilt. The
+        # tool call's own id is the key, and it is the same id in both
+        # sources, which is what lets the two be walked without counting the
+        # Observatory's turns twice.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tool_calls ("
+            "  tool_use_id TEXT PRIMARY KEY,"
+            # Which record it was first read from: 'observatory' (bot_chats)
+            # or 'claude' (the harness's transcripts). A tmux or terminal
+            # session only ever has the second.
+            "  source TEXT NOT NULL,"
+            # The Observatory conversation, when this was one — joins to
+            # sessions.id, and through it to lane. NULL for terminal work.
+            "  conv TEXT,"
+            # Claude Code's own session uuid, present in both sources.
+            "  session_id TEXT,"
+            # The Agent call this ran under, when a subagent made it.
+            "  parent_tool_use_id TEXT,"
+            "  at TEXT NOT NULL,"
+            "  day TEXT NOT NULL,"
+            "  hour INTEGER NOT NULL,"
+            "  name TEXT NOT NULL,"
+            # The one handle worth an index: the file for Read/Edit/Write,
+            # the command for Bash, the pattern for Grep/Glob, the url for a
+            # fetch. Bounded to a few hundred characters.
+            "  target TEXT,"
+            # The whole input as JSON, capped (input_truncated says when).
+            # This is the granular part: the command that ran, the edit that
+            # was made. It is the owner's own record and lives in her vault.
+            "  input TEXT,"
+            "  input_truncated INTEGER NOT NULL DEFAULT 0,"
+            # Filled in when the matching tool_result line is read. NULL
+            # means the result never came back (a killed turn) or hasn't
+            # been scanned yet.
+            "  result_at TEXT,"
+            "  duration_ms INTEGER,"
+            "  result_chars INTEGER,"
+            "  is_error INTEGER,"
+            "  cwd TEXT,"
+            "  model TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS tool_calls_by_day ON tool_calls (day)")
+        conn.execute("CREATE INDEX IF NOT EXISTS tool_calls_by_name ON tool_calls (name, at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS tool_calls_by_conv ON tool_calls (conv, at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS tool_calls_by_session ON tool_calls (session_id, at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS tool_calls_by_target ON tool_calls (target)")
+        # The incremental watermark, same shape as command_sources: how far
+        # into each log file has been read, plus the last clock seen there
+        # so a turn's result (which carries no timestamp of its own) can be
+        # dated even when the scan resumes mid-turn.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tool_call_sources ("
+            "  path TEXT PRIMARY KEY,"
+            "  size INTEGER NOT NULL,"
+            "  scanned_at TEXT NOT NULL,"
+            "  last_at TEXT,"
+            "  results INTEGER NOT NULL DEFAULT 0"
+            ")"
+        )
+        # What each Observatory turn cost and how it ended (toolcallstore.py,
+        # from the `result` event the harness emits at the end of a turn).
+        # DERIVED from the same bot_chats logs. `seq` is the turn's ordinal
+        # within its conversation; the result event has no id of its own.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS turn_results ("
+            "  conv TEXT NOT NULL,"
+            "  seq INTEGER NOT NULL,"
+            "  session_id TEXT,"
+            "  at TEXT,"
+            "  day TEXT,"
+            "  subtype TEXT,"
+            "  stop_reason TEXT,"
+            "  is_error INTEGER,"
+            "  duration_ms INTEGER,"
+            "  duration_api_ms INTEGER,"
+            "  num_turns INTEGER,"
+            "  cost_usd REAL,"
+            "  input_tokens INTEGER,"
+            "  cache_creation_tokens INTEGER,"
+            "  cache_read_tokens INTEGER,"
+            "  output_tokens INTEGER,"
+            "  thinking_tokens INTEGER,"
+            "  model TEXT,"
+            "  PRIMARY KEY (conv, seq)"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS turn_results_by_day ON turn_results (day)")
+        # Every tap on a tracked control and every page open, as events
+        # (uieventstore.py). DERIVED, exactly like attention_segments: the
+        # record is an append-only JSONL per day under data/ui_events/,
+        # backed up by the vault's hourly commit; wipe this and rebuild().
+        # feature_usage's per-day click counts are untouched and now
+        # redundant — they are what these rows sum to.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS ui_events ("
+            "  id INTEGER PRIMARY KEY,"
+            # 'click' (a [data-track] control) or 'open' (a tab came into
+            # view, whether by navigation or first load).
+            "  kind TEXT NOT NULL,"
+            "  tab TEXT NOT NULL,"
+            "  conv TEXT,"
+            # The control's data-track name; NULL for an open.
+            "  control TEXT,"
+            "  at TEXT NOT NULL,"
+            "  day TEXT NOT NULL"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS ui_events_by_day ON ui_events (day)")
+        conn.execute("CREATE INDEX IF NOT EXISTS ui_events_by_tab ON ui_events (tab, at)")
+        # Every /api/ request the web app served (requestlog.py). NOT
+        # derived — the access log it replaces rotates every few hours and,
+        # with several gunicorn workers each rotating it independently,
+        # loses and duplicates lines. This table is the only reliable copy,
+        # written from the request path itself, so like job_runs it must
+        # never be on a rebuild button.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS requests ("
+            "  id INTEGER PRIMARY KEY,"
+            "  at TEXT NOT NULL,"
+            "  day TEXT NOT NULL,"
+            "  hour INTEGER NOT NULL,"
+            "  method TEXT NOT NULL,"
+            "  path TEXT NOT NULL,"
+            # The first path segment after /api/ — the same 'feature' the
+            # daily rollup used, so the two agree.
+            "  feature TEXT,"
+            "  status INTEGER NOT NULL,"
+            "  duration_ms INTEGER,"
+            # The worker process that served it, for telling one worker's
+            # slowness from the app's.
+            "  pid INTEGER"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS requests_by_day ON requests (day)")
+        conn.execute("CREATE INDEX IF NOT EXISTS requests_by_feature ON requests (feature, at)")
+    if version < 20:
+        # Entity #11: the kitchen as connected rows (foodstore.py). Until now
+        # every food was a loose string typed separately in each feature —
+        # "beef chuck roast" in a recipe, "Chuck roast" on the list, "HEB
+        # chuck roast" on the map — so nothing could be joined. These tables
+        # give each food ONE row that everything else points at.
+        #
+        # Two halves, and the difference matters for the rebuild button:
+        #
+        #   HER RECORD (not derived — never on a rebuild): foods, food_names,
+        #   products, receipt_names, food_links, recipe_makes, meal_rotation.
+        #   Decisions she makes once ("these two names are the same food").
+        #   Backed up as the food_catalog.json mirror after every write.
+        #
+        #   DERIVED (wiped and re-read from the kitchen blobs on every
+        #   rebuild): recipes, recipe_lines, shopping_trips, shopping_lines,
+        #   grocery_list. The kitchen screens still write the blobs; these
+        #   rows are a view of them with the names resolved to foods.
+        #
+        # A food: the thing a recipe asks for — "quinoa", "bone broth". Not
+        # necessarily raw; boxed bone broth is as much a food as kale. `kind`
+        # lets the same catalog hold what shares a receipt with the food
+        # (shampoo, foil) without pretending it is edible.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS foods ("
+            "  id INTEGER PRIMARY KEY,"
+            "  name TEXT NOT NULL UNIQUE COLLATE NOCASE,"
+            "  kind TEXT NOT NULL DEFAULT 'food'"
+            "    CHECK (kind IN ('food', 'household', 'body', 'other')),"
+            # The kitchen's shopping category (produce, dairy, @aisles…).
+            "  category TEXT,"
+            # How it sits with her body. NULL means not judged yet, which is
+            # different from 'unsure'.
+            "  safety TEXT CHECK (safety IS NULL OR safety IN ('safe', 'hurts', 'unsure')),"
+            "  note TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Every way a food has been written, lowercased. This is what turns a
+        # recipe's "beef chuck roast" and the list's "Chuck roast" into the
+        # same row: both names point here at one food.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_names ("
+            "  name TEXT PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS food_names_by_food ON food_names (food_id)")
+        # A product: one tangible thing on a shelf — "HEB bone broth, 32oz".
+        # Belongs to a food (NULL until someone says which). Where-it-comes-
+        # from lives here rather than on the food, because two brands of the
+        # same food come from two different places.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS products ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER REFERENCES foods(id) ON DELETE SET NULL,"
+            "  name TEXT NOT NULL,"
+            "  brand TEXT,"
+            "  store TEXT,"
+            "  size TEXT,"
+            "  note TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS products_by_food ON products (food_id)")
+        # How a store prints a product on a receipt ("PRIME CHUCK ROAST
+        # BNLS"), uppercased. Learned once, recognised on every receipt after.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS receipt_names ("
+            "  store TEXT NOT NULL,"
+            "  text TEXT NOT NULL,"
+            "  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,"
+            "  PRIMARY KEY (store, text)"
+            ")"
+        )
+        # A food or a product tied to something elsewhere in the app: an
+        # ecosystem-map source or a research entry, by that thing's own id.
+        # Exactly one of food_id / product_id is set.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_links ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER REFERENCES foods(id) ON DELETE CASCADE,"
+            "  product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,"
+            "  target TEXT NOT NULL CHECK (target IN ('ecosystem', 'research')),"
+            "  target_id TEXT NOT NULL,"
+            "  note TEXT,"
+            "  CHECK ((food_id IS NULL) <> (product_id IS NULL))"
+            ")"
+        )
+        # One link per pair. COALESCE because a plain UNIQUE treats every
+        # NULL as distinct, which would let the same link in twice.
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS food_links_once ON food_links"
+            " (target, target_id, COALESCE(food_id, 0), COALESCE(product_id, 0))"
+        )
+        # Which food a recipe makes: the Bone Broth recipe makes "bone
+        # broth", so a recipe asking for bone broth can be met by the box
+        # from the store OR by a batch from the pot. Keyed by the recipe
+        # blob's own id.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS recipe_makes ("
+            "  recipe_id TEXT PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE"
+            ")"
+        )
+        # The meals that recur, and how often — so "what I eat" is a standing
+        # fact instead of something logged every week.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS meal_rotation ("
+            "  recipe_id TEXT PRIMARY KEY,"
+            "  per_week REAL NOT NULL DEFAULT 1 CHECK (per_week > 0),"
+            "  since TEXT,"
+            "  note TEXT"
+            ")"
+        )
+        # --- derived from here down: foodstore.rebuild() refills these ---
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS recipes ("
+            "  id TEXT PRIMARY KEY,"
+            "  name TEXT NOT NULL,"
+            "  servings INTEGER,"
+            "  prep_min INTEGER,"
+            "  cook_min INTEGER,"
+            "  archived INTEGER NOT NULL DEFAULT 0,"
+            # The recipe this one was adapted from ("my way" versions).
+            "  parent_id TEXT,"
+            "  source_url TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS recipe_lines ("
+            "  recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            # Exactly as the recipe writes it.
+            "  text TEXT NOT NULL,"
+            "  amount TEXT,"
+            "  note TEXT,"
+            # The recipe marks salt, oil and spices as usually-on-hand.
+            "  usually_have INTEGER NOT NULL DEFAULT 0,"
+            # Resolved through food_names; NULL = a name nobody has matched.
+            "  food_id INTEGER REFERENCES foods(id) ON DELETE SET NULL,"
+            "  PRIMARY KEY (recipe_id, seq)"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS recipe_lines_by_food ON recipe_lines (food_id)")
+        # One shopping trip, merged from the two trip lists the kitchen keeps
+        # (grocery_trips has line items, kitchen_trips only totals).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS shopping_trips ("
+            "  id INTEGER PRIMARY KEY,"
+            "  date TEXT NOT NULL,"
+            "  store TEXT,"
+            # Money as integer cents, same reason as the expenses table.
+            "  total_cents INTEGER,"
+            "  saved_cents INTEGER,"
+            "  units INTEGER,"
+            "  receipt TEXT,"
+            # The Money tab's expense row for this trip (expenses.id).
+            "  expense_id TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS shopping_trips_by_date ON shopping_trips (date)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS shopping_lines ("
+            "  trip_id INTEGER NOT NULL REFERENCES shopping_trips(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            # The receipt's own text.
+            "  text TEXT NOT NULL,"
+            "  qty REAL,"
+            # What the line cost in total (qty already multiplied in).
+            "  price_cents INTEGER,"
+            # The name she picked for this line when the receipt was imported.
+            "  picked_name TEXT,"
+            "  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,"
+            "  food_id INTEGER REFERENCES foods(id) ON DELETE SET NULL,"
+            "  PRIMARY KEY (trip_id, seq)"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS shopping_lines_by_food ON shopping_lines (food_id)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS grocery_list ("
+            "  seq INTEGER PRIMARY KEY,"
+            "  text TEXT NOT NULL,"
+            "  amount TEXT,"
+            "  category TEXT,"
+            "  checked INTEGER NOT NULL DEFAULT 0,"
+            "  food_id INTEGER REFERENCES foods(id) ON DELETE SET NULL"
+            ")"
+        )
+        # Two views that answer the first questions worth asking. Dropped and
+        # recreated so a change to one lands on a database that already has
+        # the old version.
+        #
+        # The last time each food was bought, and what it cost then.
+        conn.execute("DROP VIEW IF EXISTS food_last_price")
+        conn.execute(
+            "CREATE VIEW food_last_price AS"
+            " WITH ranked AS ("
+            "   SELECT l.food_id, t.date, l.price_cents, l.qty,"
+            "          ROW_NUMBER() OVER (PARTITION BY l.food_id"
+            "                             ORDER BY t.date DESC, t.id DESC) AS nth,"
+            "          COUNT(*) OVER (PARTITION BY l.food_id) AS times_bought"
+            "   FROM shopping_lines l JOIN shopping_trips t ON t.id = l.trip_id"
+            "   WHERE l.food_id IS NOT NULL AND l.price_cents IS NOT NULL)"
+            " SELECT f.id AS food_id, f.name AS food, r.date AS last_bought,"
+            "        r.price_cents AS last_price_cents, r.qty AS last_qty,"
+            "        r.times_bought"
+            " FROM ranked r JOIN foods f ON f.id = r.food_id WHERE r.nth = 1"
+        )
+        # A rough cost for each recipe: the last price paid for each food it
+        # asks for, skipping what the recipe says is usually on hand. Rough
+        # on purpose — it prices the whole package bought, not the share of
+        # it the recipe uses — and `priced_lines` says how much it knows.
+        conn.execute("DROP VIEW IF EXISTS recipe_cost")
+        conn.execute(
+            "CREATE VIEW recipe_cost AS"
+            " SELECT r.id AS recipe_id, r.name AS recipe,"
+            "        COUNT(*) AS lines_to_buy,"
+            "        COUNT(p.last_price_cents) AS priced_lines,"
+            "        SUM(p.last_price_cents) AS known_cents"
+            " FROM recipes r"
+            " JOIN recipe_lines l ON l.recipe_id = r.id AND l.usually_have = 0"
+            " LEFT JOIN food_last_price p ON p.food_id = l.food_id"
+            " GROUP BY r.id"
+        )
+    if version < 22:
+        # (21 is the research tables, built on a parallel branch; the ladder
+        # replays any rung whose tables are missing, so the two land safely
+        # in either order.)
+        #
+        # Whether a product is organic. On the product, not the food: the
+        # grocery list says "milk" and doesn't care, while the receipt knows
+        # which carton it was. NULL = not known; foodstore fills it from the
+        # receipt text ("ORG", "ORGANIC") and never overwrites a value set by
+        # hand. ALTER-and-swallow-duplicate, the same shape rung 14 uses, so
+        # a replay of the ladder doesn't fail on a column already there.
+        try:
+            conn.execute(
+                "ALTER TABLE products ADD COLUMN organic INTEGER"
+                " CHECK (organic IS NULL OR organic IN (0, 1))")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc):
+                raise
+        # Every receipt photo on disk, one row each (foodstore.rebuild reads
+        # the receipts folder). DERIVED: the photos and their .parsed.json
+        # transcriptions are the record; wipe this and rebuild.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS receipts ("
+            # Same form the trips use: 'receipts/grocery/<file>'.
+            "  path TEXT PRIMARY KEY,"
+            # Which door it came in by: 'kitchen' (the Kitchen tab's scan
+            # button, the grocery/ folder) or 'money' (attached to an expense
+            # on the Money tab, the folder's top level).
+            "  folder TEXT NOT NULL,"
+            "  bytes INTEGER,"
+            # The day it was uploaded, from the file name the upload gave it.
+            # Not the file's clock: copying the folder between machines
+            # restamps that.
+            "  uploaded_on TEXT,"
+            # What the photo was read as — NULL until it has been read.
+            "  store TEXT,"
+            "  receipt_date TEXT,"
+            "  total_cents INTEGER,"
+            "  line_count INTEGER,"
+            "  status TEXT NOT NULL"
+            "    CHECK (status IN ('unread', 'read', 'imported')),"
+            "  trip_id INTEGER REFERENCES shopping_trips(id) ON DELETE SET NULL,"
+            "  expense_id TEXT"
+            ")"
+        )
+    if version < 23:
+        # A word index over the journal cards, for the journal's search box
+        # (cardsearch.py reads it). SQLite's built-in full-text search (FTS5),
+        # with the porter stemmer so "bartending" also finds "bartender".
+        #
+        # A STANDALONE index keyed by card id, not an external-content one
+        # pointing at `cards.rowid`: `cards` has a text primary key, so its
+        # hidden rowids may be renumbered by a VACUUM, and an index pointing
+        # at them would quietly start answering with the wrong cards. This
+        # costs a second copy of each body (a few MB) and can't drift.
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5("
+            "  card_id UNINDEXED, body,"
+            "  tokenize = 'porter unicode61 remove_diacritics 2'"
+            ")"
+        )
+        # Keep the index in step with `cards` — three triggers, one per kind
+        # of change. The update one fires only when the body really changed:
+        # the hourly sync rewrites every row, and re-indexing thousands of
+        # unchanged bodies each hour would be pure waste.
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS cards_fts_insert AFTER INSERT ON cards"
+            " BEGIN"
+            "  INSERT INTO cards_fts (card_id, body) VALUES (new.id, new.body);"
+            " END"
+        )
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS cards_fts_update AFTER UPDATE OF body ON cards"
+            " WHEN old.body IS NOT new.body"
+            " BEGIN"
+            "  DELETE FROM cards_fts WHERE card_id = old.id;"
+            "  INSERT INTO cards_fts (card_id, body) VALUES (new.id, new.body);"
+            " END"
+        )
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS cards_fts_delete AFTER DELETE ON cards"
+            " BEGIN"
+            "  DELETE FROM cards_fts WHERE card_id = old.id;"
+            " END"
+        )
+        # Fill it from whatever cards are already mirrored. Wipe-and-refill
+        # rather than insert-missing, so replaying the ladder can never
+        # double an entry — the index is derived, rebuilding it is free.
+        conn.execute("DELETE FROM cards_fts")
+        conn.execute("INSERT INTO cards_fts (card_id, body) SELECT id, body FROM cards")
+    if version < 24:
+        # Entity #11: the research pool as rows (see researchstore.py). The
+        # research document — topics, entries, sessions — and the annotations
+        # document were two blobs in `docs`; these tables replace them the way
+        # rung 18 replaced the notes blob: the app writes HERE, research.json /
+        # annotations.json become photographs of these rows, and the routes
+        # keep seeing the old document because researchstore rebuilds it.
+        #
+        # Why now: a claim ("X does Y") needs to point at the sources that back
+        # it, with a stance and the exact highlighted passage — a link between
+        # two rows, with its own columns. A blob can only nest, and a claim's
+        # sources are not inside it; they are other entries. `claim_sources`
+        # and `claim_values` below are the first tables that only make sense
+        # once entries are rows.
+        #
+        # Every list in the document keeps its order through a `position` (or
+        # `seq`) column: the live entries are in neither created-order nor
+        # id-order, and id text sorts '-10' before '-2'.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_topics ("
+            # The slugified name ('wearables-signal-taxonomy'), with '-2', '-3'
+            # on a collision. Text, no shape rule.
+            "  id TEXT PRIMARY KEY,"
+            "  name TEXT NOT NULL,"
+            # 'active', 'dormant' or 'settled' (routes/research.py). Not a
+            # CHECK: the vocabulary is the route's to change.
+            "  status TEXT,"
+            # 'YYYY-MM-DD HH:MM', local, kept verbatim.
+            "  created TEXT,"
+            # Where the topic sits in the document's list.
+            "  position INTEGER NOT NULL DEFAULT 0,"
+            # Any key with no column of its own, kept verbatim as JSON so a
+            # blob-era field is never silently dropped. Empty today.
+            "  extra TEXT,"
+            # When this ROW last changed — not when she made the topic. Never
+            # appears in the document.
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Which life domains a topic sits on — ids from fronts.json, one row
+        # per (topic, front). Its own table because it is a list, and because
+        # "which topics are on the health front" is a question worth an index.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_topic_fronts ("
+            "  topic_id TEXT NOT NULL REFERENCES research_topics(id) ON DELETE CASCADE,"
+            "  front TEXT NOT NULL,"
+            # Order within the topic's `fronts` list.
+            "  seq INTEGER NOT NULL,"
+            "  PRIMARY KEY (topic_id, front)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS research_topic_fronts_by_front"
+            " ON research_topic_fronts (front)"
+        )
+        # The pool itself: one row per atomic entry, whatever its kind.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_entries ("
+            # 'YYYY-MM-DD.HHMM' with '-2', '-3' ... on a same-minute collision.
+            "  id TEXT PRIMARY KEY,"
+            # The four kinds routes/research.py accepts. This one IS a CHECK,
+            # because everything downstream (claim_sources, the claims view)
+            # keys off it.
+            "  kind TEXT NOT NULL CHECK (kind IN ('note','source','claim','question')),"
+            "  text TEXT NOT NULL,"
+            "  url TEXT,"
+            # Per kind: claims carry ''/real/shaky/interesting, sources
+            # ''/verified, the rest ''. Enforced by the route, not here.
+            "  verdict TEXT,"
+            # Questions carry 'open'/'answered'; every other kind ''.
+            "  status TEXT,"
+            # The entry this one answers, when it is a reply. Loose reference
+            # on purpose — replies to a since-deleted entry exist.
+            "  reply_to TEXT,"
+            # 'YYYY-MM-DD HH:MM', local, kept verbatim.
+            "  created TEXT,"
+            # 'llm' when the runner wrote it back; NULL means the owner's own.
+            "  author TEXT,"
+            # Three yes/no flags, stored 0/1, NULL when the document never set
+            # them — the document shows the key only when it was set, so the
+            # difference between 'false' and 'never said' is kept.
+            "  reviewed INTEGER,"
+            "  flagged INTEGER,"
+            "  processed INTEGER,"
+            # The session that produced an llm reply. Loose reference: the
+            # session rows are rebuilt from the same document and may lag.
+            "  session TEXT,"
+            # The passage the owner was pointing at when she wrote this.
+            "  re_quote TEXT,"
+            # The research library file an llm reply left behind.
+            "  file TEXT,"
+            # Where an imported entry came from ('note:<file>', research_import).
+            "  origin TEXT,"
+            # Where the entry sits in the document's list — the order the
+            # blob kept, which is neither created-order nor id-order.
+            "  position INTEGER NOT NULL DEFAULT 0,"
+            # Keys with no column, kept verbatim as JSON: today that is a
+            # source's fetched `meta` block (routes/research_sources.py), a
+            # nested record that belongs to a later rung.
+            "  extra TEXT,"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS research_entries_by_kind"
+            " ON research_entries (kind, position)"
+        )
+        # Which topics an entry is tagged with — the `topics` list, one row per
+        # tag. topic_id is indexed but NOT a foreign key: an entry may keep the
+        # id of a topic that no longer exists, and the blob allowed that.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_entry_topics ("
+            "  entry_id TEXT NOT NULL REFERENCES research_entries(id) ON DELETE CASCADE,"
+            "  topic_id TEXT NOT NULL,"
+            "  seq INTEGER NOT NULL,"
+            "  PRIMARY KEY (entry_id, topic_id)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS research_entry_topics_by_topic"
+            " ON research_entry_topics (topic_id)"
+        )
+        # The entries an entry was written in the context of — the
+        # `context_ids` list. Its own table rather than JSON in `extra` so
+        # "what was written with this entry in view" can be asked of the
+        # database. Loose references, same as reply_to.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_entry_context ("
+            "  entry_id TEXT NOT NULL REFERENCES research_entries(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            "  context_id TEXT NOT NULL,"
+            "  PRIMARY KEY (entry_id, seq)"
+            ")"
+        )
+        # One research-runner run: what was sent, and what came of it.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_sessions ("
+            # Same id scheme as entries.
+            "  id TEXT PRIMARY KEY,"
+            "  created TEXT,"
+            # 'queued', 'running', 'done', 'failed' — the dispatcher's words.
+            "  status TEXT,"
+            # The one-line report the runner leaves behind.
+            "  report TEXT,"
+            # 'regular', 'deep' or 'distill'; NULL on the oldest sessions.
+            "  mode TEXT,"
+            # 1 when the session is queued for scripts/research_dispatcher.py
+            # rather than spawned directly. NULL when the document never said.
+            "  worker INTEGER,"
+            # How many times the dispatcher has tried to run it.
+            "  attempts INTEGER,"
+            # The Claude session and working directory the runner used.
+            "  claude_session TEXT,"
+            "  claude_cwd TEXT,"
+            # Two seams for a later phase: the Observatory conversation that
+            # ran this session, and the run-queue id. Nullable; nothing here
+            # writes them yet.
+            "  conv_id TEXT,"
+            "  run_id TEXT,"
+            "  position INTEGER NOT NULL DEFAULT 0,"
+            "  extra TEXT,"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # The entries a session was sent — its `entry_ids` list, in order.
+        # Loose references: the runner has sent entries that were later deleted.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_session_entries ("
+            "  session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            "  entry_id TEXT NOT NULL,"
+            "  PRIMARY KEY (session_id, seq)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS research_session_entries_by_entry"
+            " ON research_session_entries (entry_id)"
+        )
+        # The union of topics across what a session was sent — its `topics`.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_session_topics ("
+            "  session_id TEXT NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE,"
+            "  topic_id TEXT NOT NULL,"
+            "  seq INTEGER NOT NULL,"
+            "  PRIMARY KEY (session_id, topic_id)"
+            ")"
+        )
+        # A highlighted passage in a document, with a note on it — the
+        # annotations blob (routes/annotations.py) as rows. The document's
+        # nested `selector` and `content` maps are flattened into columns;
+        # researchstore folds them back when it rebuilds the document.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_annotations ("
+            # 'ann-YYYY-MM-DD.HHMM' with '-2', '-3' ... on a collision. The
+            # prefix keeps these out of the entry-id namespace.
+            "  id TEXT PRIMARY KEY,"
+            # Which document: 'entry:<entry id>' for an extracted source text,
+            # 'note:<file>' for a research markdown. docstore.py is the one
+            # place that knows what a doc id means.
+            "  doc TEXT NOT NULL,"
+            # The selector: character offsets into the document's text as it
+            # was when the highlight was made, and the exact words there.
+            # Whether they still resolve is recomputed on read, never stored.
+            "  char_start INTEGER,"
+            "  char_end INTEGER,"
+            "  exact TEXT,"
+            # The content map's three conventional keys: what kind of mark
+            # ('highlight'), the note on it, and who made it ('human'/'llm').
+            "  kind TEXT,"
+            "  note TEXT,"
+            "  source TEXT,"
+            # 1 when a machine made it and no one has looked yet. A human
+            # annotating IS the review, so theirs are born 0.
+            "  needs_review INTEGER,"
+            "  created TEXT,"
+            "  position INTEGER NOT NULL DEFAULT 0,"
+            # Keys with no column — including any content or selector key
+            # beyond the ones above — kept verbatim as JSON.
+            "  extra TEXT,"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS research_annotations_by_doc"
+            " ON research_annotations (doc, position)"
+        )
+        # Which sources back which claim, and how. The first table here that
+        # only exists because entries are rows: a link between two of them,
+        # with a stance and (optionally) the exact highlighted passage that
+        # is the evidence. Both ends are real foreign keys — delete either
+        # entry and the link goes with it.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS claim_sources ("
+            "  claim_id TEXT NOT NULL REFERENCES research_entries(id) ON DELETE CASCADE,"
+            "  source_id TEXT NOT NULL REFERENCES research_entries(id) ON DELETE CASCADE,"
+            # What the source says about the claim.
+            "  stance TEXT NOT NULL DEFAULT 'supports'"
+            "    CHECK (stance IN ('supports','contradicts','context')),"
+            # The highlighted passage that is the evidence, when one was
+            # marked. Deleting the annotation keeps the link and blanks this.
+            "  annotation_id TEXT REFERENCES research_annotations(id) ON DELETE SET NULL,"
+            # Why this source is on this claim, in the linker's words.
+            "  note TEXT,"
+            "  created TEXT,"
+            "  PRIMARY KEY (claim_id, source_id)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS claim_sources_by_source"
+            " ON claim_sources (source_id)"
+        )
+        # The number inside a claim, when it has one: "X does Y" pulled apart
+        # into subject / measure / amount / unit so claims can be compared and
+        # laid beside other records. One per claim, so the claim id is the key.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS claim_values ("
+            "  claim_id TEXT PRIMARY KEY REFERENCES research_entries(id) ON DELETE CASCADE,"
+            # What the claim is about, as plain text. Deliberately NOT a
+            # foreign key to anything: it is meant to match a name in another
+            # table later (a food, say) without that table having to exist.
+            "  subject TEXT,"
+            # What was measured ('protein', 'half-life').
+            "  measure TEXT,"
+            "  amount REAL,"
+            "  unit TEXT,"
+            # Per what ('100 g', 'per day').
+            "  basis TEXT,"
+            # The year the figure is from.
+            "  year INTEGER,"
+            # How far the figure is trusted, in free text ('verified',
+            # 'works-but-unverified'). Free on purpose: the vocabulary is
+            # still being found.
+            "  tier TEXT,"
+            "  extra TEXT"
+            ")"
+        )
+    if version < 25:
+        # Research tables (hazardstore.py): what is IN a food, number by
+        # number, each tied to the study it came from and to the owner's
+        # review of it — and, kept apart, the verdicts drawn from those
+        # numbers. Four layers: a hazard map (a kind-of graph she arranges),
+        # measurements (food × hazard × measure → a number), judgments (food ×
+        # lens → a verdict, grounded on measurements), and the tables she
+        # directs (saved views over the first three).
+        #
+        # Every hazard is a node; `hazard_parents` says which kinds it is a
+        # kind of. More than one parent is allowed on purpose: DDE is both a
+        # pesticide residue and a persistent pollutant, and a strict tree would
+        # make her pick one.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazards ("
+            "  id INTEGER PRIMARY KEY,"
+            "  name TEXT NOT NULL UNIQUE COLLATE NOCASE,"
+            "  note TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Every way a hazard gets written ('total arsenic' → arsenic), stored
+        # lowercased. Matching happens here, the way food_names does it.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazard_names ("
+            "  name TEXT PRIMARY KEY,"
+            "  hazard_id INTEGER NOT NULL REFERENCES hazards(id) ON DELETE CASCADE"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazard_parents ("
+            "  hazard_id INTEGER NOT NULL REFERENCES hazards(id) ON DELETE CASCADE,"
+            "  parent_id INTEGER NOT NULL REFERENCES hazards(id) ON DELETE CASCADE,"
+            "  PRIMARY KEY (hazard_id, parent_id),"
+            "  CHECK (hazard_id <> parent_id)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS hazard_parents_by_parent ON hazard_parents (parent_id)"
+        )
+        # One number about one food: how much of a hazard is in it, or how
+        # often it was found. Never more than one number per row; two studies
+        # on the same food and hazard are two rows.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazard_measures ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,"
+            "  hazard_id INTEGER NOT NULL REFERENCES hazards(id) ON DELETE CASCADE,"
+            # What kind of number: 'concentration' (how much, in ppb) or
+            # 'detection_rate' (share of samples it was found in, in %). The
+            # vocabulary lives in hazardstore.MEASURES, not a CHECK.
+            "  measure TEXT NOT NULL,"
+            "  amount REAL NOT NULL,"
+            "  unit TEXT NOT NULL,"
+            # The figure exactly as the source printed it, when it had to be
+            # converted ('0.012 mg/kg' stored as 12 ppb).
+            "  as_reported TEXT,"
+            "  sample_size INTEGER,"
+            # What the number is a summary of ('mean of TDS samples').
+            "  basis TEXT,"
+            "  year INTEGER,"
+            # When the study tested something standing in for this food
+            # ('sirloin steak' for chuck roast), what it was. NULL = the food itself.
+            "  measured_on TEXT,"
+            # The study, the exact passage in it, and the prose claim this
+            # number came from. Loose on delete: the number outlives a
+            # deleted entry, and the grid shows it as unsourced.
+            "  source_id TEXT REFERENCES research_entries(id) ON DELETE SET NULL,"
+            "  annotation_id TEXT REFERENCES research_annotations(id) ON DELETE SET NULL,"
+            "  claim_id TEXT REFERENCES research_entries(id) ON DELETE SET NULL,"
+            # What ground it stands on, in the research room's words.
+            "  tier TEXT,"
+            "  note TEXT,"
+            "  author TEXT NOT NULL DEFAULT 'llm' CHECK (author IN ('llm','owner')),"
+            "  review TEXT NOT NULL DEFAULT 'unreviewed'"
+            "    CHECK (review IN ('unreviewed','confirmed','disputed')),"
+            "  reviewed_at TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS hazard_measures_by_food ON hazard_measures (food_id, hazard_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS hazard_measures_by_hazard ON hazard_measures (hazard_id)"
+        )
+        # A verdict about one food through one lens ('health',
+        # 'sustainability'): buy organic or not. With a hazard, the verdict is
+        # about that hazard alone — "organic does nothing for cadmium".
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_judgments ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,"
+            # The vocabulary lives in hazardstore.LENSES.
+            "  lens TEXT NOT NULL,"
+            "  hazard_id INTEGER REFERENCES hazards(id) ON DELETE CASCADE,"
+            "  verdict TEXT NOT NULL"
+            "    CHECK (verdict IN ('organic','some','conventional','open')),"
+            "  reasoning TEXT,"
+            "  tier TEXT,"
+            "  author TEXT NOT NULL DEFAULT 'llm' CHECK (author IN ('llm','owner')),"
+            "  review TEXT NOT NULL DEFAULT 'unreviewed'"
+            "    CHECK (review IN ('unreviewed','confirmed','disputed')),"
+            "  reviewed_at TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # One verdict per food, lens and hazard — "no hazard" counted as one
+        # value, which a plain UNIQUE would not do (SQL treats NULLs as distinct).
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS food_judgments_one_per_lens"
+            " ON food_judgments (food_id, lens, IFNULL(hazard_id, 0))"
+        )
+        # Which measurements a verdict rests on. When one of them is disputed,
+        # the verdict shows as shaken.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS judgment_grounds ("
+            "  judgment_id INTEGER NOT NULL REFERENCES food_judgments(id) ON DELETE CASCADE,"
+            "  measure_id INTEGER NOT NULL REFERENCES hazard_measures(id) ON DELETE CASCADE,"
+            "  PRIMARY KEY (judgment_id, measure_id)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS judgment_grounds_by_measure ON judgment_grounds (measure_id)"
+        )
+        # What a measurement or verdict said before it was changed. Edits are
+        # never silent: the old version is kept here whole, as JSON.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazard_history ("
+            "  id INTEGER PRIMARY KEY,"
+            "  kind TEXT NOT NULL CHECK (kind IN ('measure','judgment')),"
+            "  row_id INTEGER NOT NULL,"
+            "  snapshot TEXT NOT NULL,"
+            "  replaced_by TEXT,"
+            "  replaced_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS hazard_history_by_row ON hazard_history (kind, row_id)"
+        )
+        # The tables she directs: saved views. A 'measures' table shows foods
+        # down the side and one branch of the hazard map across the top; a
+        # 'judgments' table shows foods down the side and the lenses across.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS research_tables ("
+            "  id INTEGER PRIMARY KEY,"
+            "  name TEXT NOT NULL UNIQUE COLLATE NOCASE,"
+            "  kind TEXT NOT NULL CHECK (kind IN ('measures','judgments')),"
+            # The research topic this table belongs to. Loose, like an entry's topics.
+            "  topic_id TEXT,"
+            # Measures tables: the branch whose children are the columns, and
+            # which kind of number the cells show.
+            "  hazard_id INTEGER REFERENCES hazards(id) ON DELETE SET NULL,"
+            "  measure TEXT,"
+            # Which foods are the rows: 'all', 'recipes' (in any recipe) or
+            # 'rotation' (in a recipe on the meal rotation).
+            "  foods TEXT NOT NULL DEFAULT 'all' CHECK (foods IN ('all','recipes','rotation')),"
+            "  note TEXT,"
+            "  position INTEGER NOT NULL DEFAULT 0,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Two views for the SQL console: every measurement and every verdict
+        # with its names spelled out, so a query needs no joins.
+        conn.execute("DROP VIEW IF EXISTS hazard_findings")
+        conn.execute(
+            "CREATE VIEW hazard_findings AS"
+            " SELECT m.id, f.name AS food, h.name AS hazard, m.measure, m.amount, m.unit,"
+            "        m.year, m.measured_on, m.tier, m.review, m.author,"
+            "        s.text AS source, s.url AS source_url"
+            " FROM hazard_measures m"
+            " JOIN foods f ON f.id = m.food_id"
+            " JOIN hazards h ON h.id = m.hazard_id"
+            " LEFT JOIN research_entries s ON s.id = m.source_id"
+        )
+        conn.execute("DROP VIEW IF EXISTS food_verdicts")
+        conn.execute(
+            "CREATE VIEW food_verdicts AS"
+            " SELECT j.id, f.name AS food, j.lens, h.name AS hazard, j.verdict,"
+            "        j.reasoning, j.tier, j.review, j.author"
+            " FROM food_judgments j"
+            " JOIN foods f ON f.id = j.food_id"
+            " LEFT JOIN hazards h ON h.id = j.hazard_id"
+        )
+    if version < 26:
+        # Rung 26: Claude's estimate of buy-organic-or-not for a food, made
+        # from what the model already knows rather than from measurements —
+        # the grocery list shows it until real research exists. Kept apart
+        # from food_judgments on purpose: a verdict there must rest on
+        # numbers, and a guess must never pass as one. Written only by
+        # estimatestore.py.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_estimates ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,"
+            # The vocabulary lives in hazardstore.LENSES.
+            "  lens TEXT NOT NULL,"
+            "  verdict TEXT NOT NULL"
+            "    CHECK (verdict IN ('organic','some','conventional','open')),"
+            "  confidence TEXT NOT NULL CHECK (confidence IN ('high','medium','low')),"
+            # Why, in two to four plain sentences.
+            "  summary TEXT NOT NULL,"
+            # JSON: a list of words from estimatestore.QUALIFIERS.
+            "  qualifiers TEXT NOT NULL DEFAULT '[]',"
+            # JSON: what else is known to get into this food besides
+            # pesticide residue (PFAS, heavy metals…), each with whether
+            # organic helps and how solid the evidence is.
+            "  contaminants TEXT NOT NULL DEFAULT '[]',"
+            "  model TEXT,"
+            "  review TEXT NOT NULL DEFAULT 'unreviewed'"
+            "    CHECK (review IN ('unreviewed','confirmed','disputed')),"
+            "  reviewed_at TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  UNIQUE (food_id, lens)"
+            ")"
+        )
+    if version < 27:
+        # Rung 27: which of her research claims an estimate drew on (JSON list
+        # of claim ids), so the popup can say the guess leaned on her studies.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(food_estimates)")}
+        if "claims" not in columns:
+            conn.execute("ALTER TABLE food_estimates ADD COLUMN claims TEXT NOT NULL DEFAULT '[]'")
+    if version < 28:
+        # Rung 28: mark the real Keeper sessions. `bot` says "keeper" on nearly every
+        # session (a leftover default from when the Keeper was the only bot),
+        # so it can't tell the journal apart from a coding session; a
+        # journaling session can (lanes.is_keeper). The `lane` column beside
+        # it is now filled by derivation for sessions that never stored one
+        # (codestore.sync_sessions). Same ALTER-and-swallow-duplicate shape
+        # rung 14 uses, so a replayed ladder doesn't fail on it.
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN is_keeper INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
+    if version < 29:
+        # Rung 29: the agents' mailbox (peermail.py). One row per message sent
+        # INTO a session — by another agent (kind 'A'), or by the owner while
+        # a turn was running (kind 'B'). The table also allows kind 'S' (see
+        # rung 42); nothing sends one. This is the record, not a mirror: the
+        # transcripts only hold a message once it has been delivered, so a
+        # message still waiting exists nowhere else.
+        _create_agent_messages(conn, "agent_messages")
+    if version < 30:
+        # Rung 30: token accounting per model call, and swarms (docs/swarms.md).
+        #
+        # One row per call to the model (toolcallstore.py). DERIVED from the
+        # Observatory logs, like tool_calls: input and cache tokens come from
+        # the `assistant` lines, the final output count from the `call-usage`
+        # line the turn loop writes when the call finishes. `context_tokens` is
+        # everything the model read on that call — the session's context size
+        # at that moment, which is what the self-continuing cap watches.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS model_calls ("
+            "  message_id TEXT PRIMARY KEY,"
+            "  conv TEXT,"
+            "  session_id TEXT,"
+            # The Agent call a subagent made this under; NULL at top level.
+            "  parent_tool_use_id TEXT,"
+            "  at TEXT,"
+            "  day TEXT,"
+            "  model TEXT,"
+            "  input_tokens INTEGER,"
+            "  cache_creation_tokens INTEGER,"
+            "  cache_read_tokens INTEGER,"
+            "  context_tokens INTEGER,"
+            # NULL until the call's call-usage line is read; the partial count
+            # in the assistant line is never stored.
+            "  output_tokens INTEGER,"
+            # JSON list of the tool_use ids this call asked for — the join to
+            # tool_calls.
+            "  tool_use_ids TEXT NOT NULL DEFAULT '[]'"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS model_calls_by_conv ON model_calls (conv, at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS model_calls_by_day ON model_calls (day)")
+        # Swarms (swarms.py): sessions linked by having messaged each other.
+        # The RECORD for names, helpers and summaries; membership is re-derived
+        # from agent_messages but kept, because it only ever grows.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarms ("
+            "  id INTEGER PRIMARY KEY,"
+            # The helper names it; NULL until then.
+            "  name TEXT,"
+            "  lane TEXT,"
+            # The helper's own Observatory session, once it has one.
+            "  helper_conv TEXT,"
+            # The helper's current summary of the whole swarm — replaced on
+            # every update, never appended.
+            "  summary TEXT,"
+            "  summary_at TEXT,"
+            "  created_at TEXT NOT NULL,"
+            "  updated_at TEXT NOT NULL,"
+            # Set when a link joined this swarm into an older one.
+            "  merged_into INTEGER REFERENCES swarms(id)"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarm_members ("
+            "  swarm_id INTEGER NOT NULL REFERENCES swarms(id),"
+            "  conv TEXT NOT NULL,"
+            "  joined_at TEXT NOT NULL,"
+            # The helper's current summary of this member, replaced each time.
+            "  summary TEXT,"
+            "  summary_at TEXT,"
+            "  PRIMARY KEY (swarm_id, conv)"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS swarm_members_by_conv ON swarm_members (conv)")
+        # Every time a helper ran: what it was given and what it wrote back, so
+        # the owner can see exactly what information it used.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarm_helper_runs ("
+            "  id INTEGER PRIMARY KEY,"
+            "  swarm_id INTEGER NOT NULL REFERENCES swarms(id),"
+            "  at TEXT NOT NULL,"
+            "  trigger TEXT,"
+            "  input TEXT,"
+            "  output TEXT,"
+            "  cost_usd REAL,"
+            "  error TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS swarm_helper_runs_by_swarm"
+                     " ON swarm_helper_runs (swarm_id, at)")
+    if version < 31:
+        # Rung 31: how much of a model call's output was thinking — the final
+        # count arrives with its output total in the call-usage line.
+        try:
+            conn.execute("ALTER TABLE model_calls ADD COLUMN thinking_tokens INTEGER")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
+    if version < 32:
+        # Rung 32: the ecosystem map's sources, moved out of ecosystem.json so
+        # they sit beside the foods and products they belong to (the links
+        # already live in food_links, target 'ecosystem'). Her record, written
+        # only by sourcestore.py and backed up with the food catalog. The id
+        # stays TEXT so the ids the JSON file gave out (and food_links already
+        # points at) carry over unchanged.
+        #
+        # Three honest axes, each held to its vocabulary by a CHECK so no
+        # value outside it can land: transparency (how disclosed the supply
+        # chain is), precision (a crisp spot or a rough area), and geo_source
+        # (how the dot itself got placed — a USDA proxy must never pass as a
+        # placement). The origin_* columns are a fourth thing: where the
+        # placement information came from and when it was looked up.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_sources ("
+            "  id TEXT PRIMARY KEY,"
+            "  layer TEXT NOT NULL DEFAULT 'food',"
+            "  name TEXT NOT NULL,"
+            "  note TEXT NOT NULL DEFAULT '',"
+            "  lat REAL NOT NULL,"
+            "  lng REAL NOT NULL,"
+            "  precision TEXT NOT NULL DEFAULT 'point' CHECK (precision IN ('point', 'area')),"
+            "  radius_km REAL NOT NULL DEFAULT 0,"
+            "  area_kind TEXT NOT NULL DEFAULT 'circle'"
+            "    CHECK (area_kind IN ('circle', 'counties', 'state')),"
+            "  region_name TEXT NOT NULL DEFAULT '',"
+            "  transparency TEXT NOT NULL DEFAULT 'unrated'"
+            "    CHECK (transparency IN ('disclosed', 'partial', 'opaque', 'unrated')),"
+            "  geo_source TEXT NOT NULL DEFAULT 'unrated'"
+            "    CHECK (geo_source IN ('placed', 'proxy', 'guess', 'unrated')),"
+            # Where the placement came from — the vocabulary and what each
+            # word means live in sourcestore.ORIGINS.
+            "  origin TEXT NOT NULL DEFAULT 'unknown'"
+            "    CHECK (origin IN ('usda-nass', 'geocoded', 'package', 'visit',"
+            "                      'research', 'hand', 'unknown')),"
+            # The citation in words: which dataset, query, address or label.
+            "  origin_detail TEXT NOT NULL DEFAULT '',"
+            "  origin_url TEXT NOT NULL DEFAULT '',"
+            # The day the information was looked up (YYYY-MM-DD), '' if not known.
+            "  origin_date TEXT NOT NULL DEFAULT '',"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # The county outlines an area source is drawn as, one row per county,
+        # with what USDA reported for it when that's where they came from
+        # (value + unit, e.g. 1,204,000 HEAD), so the number behind the
+        # outline can be shown and re-checked.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_source_counties ("
+            "  source_id TEXT NOT NULL REFERENCES food_sources(id) ON DELETE CASCADE,"
+            "  fips TEXT NOT NULL CHECK (length(fips) = 5),"
+            "  seq INTEGER NOT NULL DEFAULT 0,"
+            "  county TEXT NOT NULL DEFAULT '',"
+            "  state TEXT NOT NULL DEFAULT '',"
+            "  value REAL,"
+            "  unit TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (source_id, fips)"
+            ")"
+        )
+    if version < 33:
+        # Rung 33: her requests to have a food's origin found — the "Request
+        # linking" button on an untraced food. A request links nothing; it
+        # queues the food for the research pass, which answers it with
+        # proposals a machine checker rules on (rung 34). Her record, written
+        # only by sourcestore.py and backed up with the food catalog.
+        #
+        # A recipe line can name something that isn't a food yet, so food_id
+        # may be empty and food_name carries the words. food_key is whichever
+        # of the two identifies it ('id:12' or 'name:chuck roast'), and the
+        # partial unique index keeps at most one OPEN request per key — asking
+        # twice returns the first request instead of making another.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_requests ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER REFERENCES foods(id),"
+            "  food_name TEXT NOT NULL DEFAULT '',"
+            "  food_key TEXT NOT NULL,"
+            "  product_id INTEGER REFERENCES products(id),"
+            "  asked_from TEXT NOT NULL DEFAULT '',"
+            "  status TEXT NOT NULL DEFAULT 'open'"
+            "    CHECK (status IN ('open', 'answered', 'withdrawn')),"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  closed_at TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS source_requests_one_open"
+            " ON source_requests (food_key) WHERE status = 'open'")
+    if version < 34:
+        # Rung 34: the machine's proposals for where a food comes from — the
+        # research pass's answers to her requests, kept apart from
+        # food_sources, which stays her record. propose_sources.py writes a
+        # proposal and check_proposals.py rules on it (a separate model call
+        # re-reads every cited page, and the USDA figures are re-fetched); a
+        # pass closes the request it answers. Written only by proposalstore.py.
+        # Machine output, but backed up with the food catalog: only a paid
+        # model run would produce it again.
+        #
+        # The place columns are food_sources' own, with the same vocabularies,
+        # except geo_source: a machine may never claim 'placed' (a location
+        # someone actually confirmed). amends_source_id set means "a suggested
+        # fix to one of her sources"; empty means a new source. A re-run never
+        # deletes — it points the old proposal at its replacement.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_proposals ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER REFERENCES foods(id),"
+            "  product_id INTEGER REFERENCES products(id),"
+            "  request_id INTEGER REFERENCES source_requests(id),"
+            "  amends_source_id TEXT REFERENCES food_sources(id),"
+            "  name TEXT NOT NULL,"
+            "  note TEXT NOT NULL DEFAULT '',"
+            "  lat REAL NOT NULL,"
+            "  lng REAL NOT NULL,"
+            "  precision TEXT NOT NULL DEFAULT 'point' CHECK (precision IN ('point', 'area')),"
+            "  radius_km REAL NOT NULL DEFAULT 0,"
+            "  area_kind TEXT NOT NULL DEFAULT 'circle'"
+            "    CHECK (area_kind IN ('circle', 'counties', 'state')),"
+            "  region_name TEXT NOT NULL DEFAULT '',"
+            "  country TEXT NOT NULL DEFAULT '',"
+            "  transparency TEXT NOT NULL DEFAULT 'unrated'"
+            "    CHECK (transparency IN ('disclosed', 'partial', 'opaque', 'unrated')),"
+            "  geo_source TEXT NOT NULL CHECK (geo_source IN ('proxy', 'guess')),"
+            "  origin TEXT NOT NULL DEFAULT 'unknown'"
+            "    CHECK (origin IN ('usda-nass', 'geocoded', 'package', 'visit',"
+            "                      'research', 'hand', 'unknown')),"
+            "  origin_detail TEXT NOT NULL DEFAULT '',"
+            "  origin_url TEXT NOT NULL DEFAULT '',"
+            "  origin_date TEXT NOT NULL DEFAULT '',"
+            # The USDA NASS commodity (commodity_desc) the county figures were
+            # pulled for, so the checker can re-fetch them.
+            "  usda_commodity TEXT NOT NULL DEFAULT '',"
+            "  summary TEXT NOT NULL DEFAULT '',"
+            "  worst_trace_seq INTEGER,"
+            "  worst_health_seq INTEGER,"
+            "  check_status TEXT NOT NULL DEFAULT 'unchecked'"
+            "    CHECK (check_status IN ('unchecked', 'passed', 'failed')),"
+            "  check_reason TEXT NOT NULL DEFAULT '',"
+            "  checked_at TEXT,"
+            "  model TEXT NOT NULL DEFAULT '',"
+            "  run_id TEXT NOT NULL DEFAULT '',"
+            "  superseded_by INTEGER REFERENCES source_proposals(id),"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  CHECK (food_id IS NOT NULL OR product_id IS NOT NULL)"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS source_proposals_food"
+            " ON source_proposals (food_id) WHERE superseded_by IS NULL")
+        # The county outlines a proposal is drawn as — food_source_counties'
+        # shape exactly, so one drawing path serves both.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_proposal_counties ("
+            "  proposal_id INTEGER NOT NULL REFERENCES source_proposals(id) ON DELETE CASCADE,"
+            "  fips TEXT NOT NULL CHECK (length(fips) = 5),"
+            "  seq INTEGER NOT NULL DEFAULT 0,"
+            "  county TEXT NOT NULL DEFAULT '',"
+            "  state TEXT NOT NULL DEFAULT '',"
+            "  value REAL,"
+            "  unit TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (proposal_id, fips)"
+            ")"
+        )
+        # One row per ingredient of a multi-ingredient product, each rated on
+        # how traceable it is and how bad for health. health_basis says where
+        # the health rating came from: 'estimate:<id>' reuses one of her
+        # organic estimates, 'model' means the model was asked.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_proposal_parts ("
+            "  proposal_id INTEGER NOT NULL REFERENCES source_proposals(id) ON DELETE CASCADE,"
+            "  seq INTEGER NOT NULL,"
+            "  ingredient TEXT NOT NULL,"
+            "  food_id INTEGER REFERENCES foods(id),"
+            "  place TEXT NOT NULL DEFAULT '',"
+            "  transparency TEXT NOT NULL DEFAULT 'unrated'"
+            "    CHECK (transparency IN ('disclosed', 'partial', 'opaque', 'unrated')),"
+            "  geo_source TEXT NOT NULL DEFAULT 'unrated'"
+            "    CHECK (geo_source IN ('proxy', 'guess', 'unrated')),"
+            "  health_concern TEXT NOT NULL DEFAULT 'unknown'"
+            "    CHECK (health_concern IN ('high', 'some', 'low', 'unknown')),"
+            "  health_basis TEXT NOT NULL DEFAULT '',"
+            "  note TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (proposal_id, seq)"
+            ")"
+        )
+        # The evidence behind a proposal: each cited page, USDA query and
+        # model claim is a research_entries row (author 'llm', unreviewed),
+        # linked here with the checker's verdict on it. entry_id is a loose
+        # reference, like reply_to, so it has no foreign key.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_proposal_evidence ("
+            "  proposal_id INTEGER NOT NULL REFERENCES source_proposals(id) ON DELETE CASCADE,"
+            "  entry_id TEXT NOT NULL,"
+            "  role TEXT NOT NULL CHECK (role IN ('usda', 'web', 'model')),"
+            "  check_status TEXT NOT NULL DEFAULT 'unchecked'"
+            "    CHECK (check_status IN ('unchecked', 'passed', 'failed')),"
+            "  check_reason TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (proposal_id, entry_id)"
+            ")"
+        )
+    if version < 35:
+        # Rung 35: the USDA commodity on a proposal. Rung 34 creates the column
+        # on a fresh database; one that climbed 34 before it was added gets it
+        # here.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(source_proposals)")}
+        if "usda_commodity" not in columns:
+            conn.execute("ALTER TABLE source_proposals"
+                         " ADD COLUMN usda_commodity TEXT NOT NULL DEFAULT ''")
+    if version < 36:
+        # Rung 36: verifiable exposure scores (exposurestore.py). A buy-organic
+        # verdict here is a calculation anyone can redo from public data: USDA
+        # residue samples (parsed into commons.db, beside the files, not here)
+        # scored against EPA's chronic safe daily doses. What lives in exo.db
+        # is what the owner reviews, what was computed, and the memory of what
+        # has been pulled. See docs/exposure.md.
+        #
+        # One fact about one contaminant — its CAS number, what kind of
+        # pesticide it is, EPA's chronic safe dose, its cancer rating, a health
+        # effect — each with the source and passage it came from, and her
+        # review. A table of facts rather than a wide profile row, so every
+        # single fact carries its own source, and metals fit as well as
+        # pesticides. The fact vocabulary lives in exposurestore.FACTS.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS hazard_facts ("
+            "  id INTEGER PRIMARY KEY,"
+            "  hazard_id INTEGER NOT NULL REFERENCES hazards(id) ON DELETE CASCADE,"
+            "  fact TEXT NOT NULL,"
+            # The fact as words ('Group C: possible human carcinogen') and, when
+            # it is a number, the number and its unit (0.005, 'mg/kg/day').
+            "  value TEXT NOT NULL,"
+            "  amount REAL,"
+            "  unit TEXT,"
+            # What the number is ('cRfD', 'cPAD' — the FQPA-adjusted one).
+            "  basis TEXT,"
+            "  source_id TEXT REFERENCES research_entries(id) ON DELETE SET NULL,"
+            "  annotation_id TEXT REFERENCES research_annotations(id) ON DELETE SET NULL,"
+            # Where it was read when the source isn't in the pool yet — a
+            # table row on an agency page.
+            "  url TEXT,"
+            "  note TEXT,"
+            # 'code' = parsed from a published table by a loader, 'llm' = an
+            # agent wrote it, 'owner' = she did. Only hers is born confirmed.
+            "  author TEXT NOT NULL DEFAULT 'llm' CHECK (author IN ('llm','owner','code')),"
+            "  review TEXT NOT NULL DEFAULT 'unreviewed'"
+            "    CHECK (review IN ('unreviewed','confirmed','disputed')),"
+            "  reviewed_at TEXT,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS hazard_facts_by_hazard ON hazard_facts (hazard_id, fact)"
+        )
+        # Which USDA PDP commodity a food is, so the residue samples can be
+        # found for it. A food may be more than one ('ST' fresh and frozen);
+        # commtype '' means any form.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_pdp_codes ("
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,"
+            "  commodity TEXT NOT NULL,"
+            "  commtype TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (food_id, commodity, commtype)"
+            ")"
+        )
+        # The memory: every pull of public data, which file it came from (by
+        # checksum), what it held and which loader read it. Pulling the same
+        # thing again with the same loader finds its row here and does nothing.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS data_pulls ("
+            "  id INTEGER PRIMARY KEY,"
+            "  dataset TEXT NOT NULL,"
+            "  year INTEGER NOT NULL DEFAULT 0,"
+            # What part of the dataset: a PDP commodity code, or '' for all of it.
+            "  scope TEXT NOT NULL DEFAULT '',"
+            "  file_path TEXT NOT NULL,"
+            "  file_sha256 TEXT NOT NULL,"
+            "  rows INTEGER NOT NULL DEFAULT 0,"
+            # Counts worth seeing at a glance, as JSON ({"samples": 709, ...}).
+            "  detail TEXT NOT NULL DEFAULT '{}',"
+            "  loader_version INTEGER NOT NULL,"
+            "  pulled_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  UNIQUE (dataset, year, scope, loader_version)"
+            ")"
+        )
+        # One computed score: a food, which samples (organic, conventional or
+        # all; which years), which method — and the verdict the method's
+        # written bands give. Rebuilt whenever it is recomputed; the terms
+        # below show the working.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS exposure_scores ("
+            "  id INTEGER PRIMARY KEY,"
+            "  food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,"
+            "  method TEXT NOT NULL,"
+            "  claim TEXT NOT NULL CHECK (claim IN ('conventional','organic','all')),"
+            # The data years as text: '2023', or '2017,2018' when combined.
+            "  years TEXT NOT NULL,"
+            "  sample_count INTEGER NOT NULL,"
+            "  pesticide_count INTEGER NOT NULL,"
+            "  detected_count INTEGER NOT NULL,"
+            # Pesticides found with no EPA chronic dose to score them against.
+            "  no_dose_count INTEGER NOT NULL,"
+            "  total_dri REAL NOT NULL,"
+            "  max_dri REAL NOT NULL,"
+            "  verdict TEXT NOT NULL CHECK (verdict IN ('organic','some','conventional','open')),"
+            # The reference person and serving the score assumed, as JSON.
+            "  reference TEXT NOT NULL DEFAULT '{}',"
+            "  computed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),"
+            "  UNIQUE (food_id, method, claim, years)"
+            ")"
+        )
+        # The working behind a score: one line per pesticide tested.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS exposure_terms ("
+            "  score_id INTEGER NOT NULL REFERENCES exposure_scores(id) ON DELETE CASCADE,"
+            "  pesticide_code TEXT NOT NULL,"
+            "  pesticide TEXT NOT NULL,"
+            "  hazard_id INTEGER REFERENCES hazards(id) ON DELETE SET NULL,"
+            "  samples_tested INTEGER NOT NULL,"
+            "  samples_detected INTEGER NOT NULL,"
+            # Mean over every sample tested, a non-detect counted as zero; and
+            # the highest single sample. Both in ppb.
+            "  mean_ppb REAL NOT NULL,"
+            "  max_ppb REAL,"
+            # The chronic safe dose used (mg/kg/day) and the fact it came from.
+            "  dose REAL,"
+            "  dose_fact_id INTEGER REFERENCES hazard_facts(id) ON DELETE SET NULL,"
+            "  dri REAL,"
+            "  PRIMARY KEY (score_id, pesticide_code)"
+            ")"
+        )
+        # A source's own file (a PDF) kept in the commons, so it can be shown
+        # beside its claims exactly as published.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_files ("
+            "  source_id TEXT PRIMARY KEY REFERENCES research_entries(id) ON DELETE CASCADE,"
+            "  commons_path TEXT NOT NULL,"
+            "  sha256 TEXT NOT NULL,"
+            "  pages INTEGER,"
+            "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Which page of that file a highlighted passage falls on, so the PDF
+        # opens at it.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS passage_pages ("
+            "  annotation_id TEXT PRIMARY KEY"
+            "    REFERENCES research_annotations(id) ON DELETE CASCADE,"
+            "  page INTEGER NOT NULL"
+            ")"
+        )
+    if version < 37:
+        # Rung 37: the room helper (room_helper.py) — one helper per room, a
+        # layer above the swarm helpers, that forms, joins, splits and
+        # releases swarms. RECORDS, all of them: nothing here can be rebuilt.
+        #
+        # Its summary of each session working alone. Swarm members' summaries
+        # live on swarm_members; this is the same thing for everyone else.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS session_summaries ("
+            "  conv TEXT PRIMARY KEY,"
+            "  summary TEXT,"
+            "  summary_at TEXT"
+            ")"
+        )
+        # Where the room helper put a session. A placement OVERRIDES who has
+        # messaged whom: messages between this session and anyone, sent at
+        # or before `at`, no longer link it (swarms.sync). swarm_id NULL means
+        # released — working alone. One row per session; the latest wins.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarm_pins ("
+            "  conv TEXT PRIMARY KEY,"
+            "  swarm_id INTEGER REFERENCES swarms(id),"
+            "  at TEXT NOT NULL,"
+            "  move_id INTEGER"
+            ")"
+        )
+        # Every move the room helper made, with its reason and what it
+        # replaced, so any move can be undone.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS room_moves ("
+            "  id INTEGER PRIMARY KEY,"
+            "  at TEXT NOT NULL,"
+            "  room TEXT NOT NULL,"
+            # form (a new swarm from sessions working alone), join, split, release.
+            "  kind TEXT NOT NULL,"
+            # JSON list of the sessions moved, continuation chains included.
+            "  convs TEXT NOT NULL,"
+            "  from_swarm INTEGER,"
+            "  to_swarm INTEGER,"
+            "  reason TEXT,"
+            # JSON {conv: [swarm_id, at] or null}: each session's placement
+            # before this move — what an undo puts back.
+            "  before TEXT NOT NULL,"
+            "  undone_at TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS room_helper_runs ("
+            "  id INTEGER PRIMARY KEY,"
+            "  room TEXT NOT NULL,"
+            "  at TEXT NOT NULL,"
+            "  trigger TEXT,"
+            "  input TEXT,"
+            "  output TEXT,"
+            "  cost_usd REAL,"
+            "  error TEXT"
+            ")"
+        )
+    if version < 38:
+        # Rung 38: the states and provinces a proposal is drawn as, anywhere in
+        # the world — Peru's Junín, Mexico's Sinaloa and Sonora, Texas. One row
+        # per region, keyed by its ISO 3166-2 code ('PE-JUN', 'US-TX'), with
+        # its name. A proposal with rows here has area_kind 'state' (a
+        # first-level region, not only a US state); the outlines themselves
+        # come from Natural Earth in the commons (georegions.py). Machine
+        # output, like the rest of the proposal tables.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS source_proposal_regions ("
+            "  proposal_id INTEGER NOT NULL REFERENCES source_proposals(id) ON DELETE CASCADE,"
+            "  code TEXT NOT NULL CHECK (code LIKE '__-%'),"
+            "  seq INTEGER NOT NULL DEFAULT 0,"
+            "  name TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (proposal_id, code)"
+            ")"
+        )
+    if version < 39:
+        # Rung 39: what a recipe gives, nutrient by nutrient (recipe_nutrition.py).
+        # Two of her RECORDS, written only through foodstore.py and backed up
+        # in food_catalog.json with the rest of the catalog.
+        #
+        # Which USDA FoodData Central entry a catalog food is: "carrots" is
+        # fdc 170393 "Carrots, raw". One per food. A food without a row here
+        # gets a suggested entry by name, counted but marked as a guess.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS food_usda ("
+            "  food_id INTEGER PRIMARY KEY REFERENCES foods(id) ON DELETE CASCADE,"
+            "  fdc_id INTEGER NOT NULL,"
+            "  set_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+            ")"
+        )
+        # Her own weight for one recipe line, when the amount as written
+        # ("a drizzle", "1 small") can't be weighed or was weighed wrong.
+        # Keyed by the line's text, not its position, so reordering the
+        # recipe keeps it; `for_amount` is the amount it was set against, so
+        # an edited amount shows the weight as out of date instead of using it.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS recipe_line_grams ("
+            "  recipe_id TEXT NOT NULL,"
+            "  line TEXT NOT NULL,"
+            "  grams REAL NOT NULL CHECK (grams >= 0),"
+            "  for_amount TEXT,"
+            "  PRIMARY KEY (recipe_id, line)"
+            ")"
+        )
+    if version < 40:
+        # Rung 40: a helper's watches (watches.py). When a helper promises
+        # her "I'll tell you when session X ships", it sets a watch; the
+        # minute tick checks each one and wakes the helper's chat once when
+        # it fires. RECORDS: what was promised, and what happened.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS helper_watches ("
+            "  id INTEGER PRIMARY KEY,"
+            # The helper (or any session) that set it, and is woken.
+            "  owner_conv TEXT NOT NULL,"
+            # The session watched — moved on to its continuation if it hands off.
+            "  conv TEXT NOT NULL,"
+            # Comma list of what to watch for: done, asked, committed, stalled, error.
+            "  kinds TEXT NOT NULL,"
+            # What the helper promised, in its own words.
+            "  note TEXT NOT NULL,"
+            "  created_at TEXT NOT NULL,"
+            # How far into `conv`'s transcript (bytes) was already there when it
+            # was set: only lines after this count as news.
+            "  since_offset INTEGER NOT NULL DEFAULT 0,"
+            # watching, fired, dropped or expired.
+            "  status TEXT NOT NULL DEFAULT 'watching',"
+            "  closed_at TEXT,"
+            # What happened, as the wake-up said it.
+            "  event TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS helper_watches_status"
+                     " ON helper_watches (status, owner_conv)")
+    if version < 41:
+        # Rung 41: what each Observatory turn really cost, per model
+        # (toolcallstore.py). DERIVED from the logs, like turn_results.
+        #
+        # turn_results can't be summed for this. When one harness process
+        # runs several turns, its result event's total_cost_usd and
+        # modelUsage are RUNNING TOTALS for the process (only `usage` is per
+        # turn), and turn_results.model is just the first model listed. So
+        # turn_results keeps the raw figures, now including the raw
+        # modelUsage (the next turn needs it to subtract), and turn_usage
+        # holds the per-turn, per-model share: the table to add up.
+        # Guarded, like rung 31's: a replayed ladder finds the column there.
+        try:
+            conn.execute("ALTER TABLE turn_results ADD COLUMN model_usage TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):
+                raise
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS turn_usage ("
+            "  conv TEXT NOT NULL,"
+            "  seq INTEGER NOT NULL,"
+            # '' when the log didn't say (a helper's summary, an old turn).
+            "  model TEXT NOT NULL,"
+            "  input_tokens INTEGER NOT NULL DEFAULT 0,"
+            "  cache_creation_tokens INTEGER NOT NULL DEFAULT 0,"
+            "  cache_read_tokens INTEGER NOT NULL DEFAULT 0,"
+            "  output_tokens INTEGER NOT NULL DEFAULT 0,"
+            "  thinking_tokens INTEGER NOT NULL DEFAULT 0,"
+            # The harness's own estimate at API list prices, this turn only.
+            "  cost_usd REAL NOT NULL DEFAULT 0,"
+            "  PRIMARY KEY (conv, seq, model)"
+            ")"
+        )
+    if version < 42:
+        # Rung 42: file alerts (file_alerts.py). When two open sessions are in
+        # the same file, the app writes it down — once per pair and file —
+        # for the room helper to read. This table is that "once": its unique
+        # key refuses a second row. RECORDS, not derived: the tool-call log
+        # can't say which overlaps the helper has already been shown.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS file_alerts ("
+            "  id INTEGER PRIMARY KEY,"
+            "  at TEXT NOT NULL,"
+            # 'same-file' (both changed it) or 'stale-copy' (one changed it
+            # after the other read it).
+            "  kind TEXT NOT NULL,"
+            # The file, as an absolute path.
+            "  path TEXT NOT NULL,"
+            # The two lines of work, each named by its first session (a
+            # session and its continuations are one line), lower id first.
+            "  line_a TEXT NOT NULL,"
+            "  line_b TEXT NOT NULL,"
+            # For 'same-file': the two sessions carrying those lines when it
+            # was noticed. For 'stale-copy': conv_a changed the file, conv_b had
+            # read it.
+            "  conv_a TEXT NOT NULL,"
+            "  conv_b TEXT NOT NULL,"
+            # What caught it: always 'tick', the minute check.
+            "  source TEXT NOT NULL DEFAULT 'tick',"
+            "  UNIQUE (path, line_a, line_b)"
+            ")"
+        )
+        # Widen the mailbox's CHECK to allow kind 'S', a notice from the app.
+        # Nothing sends one now: the code that did (file alerts told straight
+        # to the sessions) was removed, and the wide CHECK is kept only so
+        # every install's table has the same shape — a few old 'S' rows may
+        # exist. SQLite can't alter a CHECK, so a mailbox made before this
+        # rung is rebuilt: make the new table, copy every row, drop the old,
+        # rename. A database made at this version already has the wide CHECK
+        # (rung 29 makes it so), and this is skipped.
+        made = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table'"
+                            " AND name = 'agent_messages'").fetchone()
+        if made and "'S'" not in made[0]:
+            columns = ("id, at, kind, from_conv, to_conv, text, mode, hops, status,"
+                       " held_reason, delivered_at, delivered_how, record")
+            conn.execute("DROP TABLE IF EXISTS agent_messages_new")
+            _create_agent_messages(conn, "agent_messages_new")
+            conn.execute(f"INSERT INTO agent_messages_new ({columns})"
+                         f" SELECT {columns} FROM agent_messages")
+            conn.execute("DROP TABLE agent_messages")
+            conn.execute("ALTER TABLE agent_messages_new RENAME TO agent_messages")
+            _index_agent_messages(conn)
+    if version < 43:
+        # Rung 43: say whether the two sessions were told (file_alerts.py).
+        # An overlap is only written down for the helpers, so new rows are
+        # 0. An earlier build told the sessions too, and every row written
+        # before this rung comes from it, so those are marked told.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(file_alerts)")}
+        if "told" not in columns:
+            conn.execute("ALTER TABLE file_alerts ADD COLUMN told INTEGER NOT NULL DEFAULT 0")
+            conn.execute("UPDATE file_alerts SET told = 1")
+    if version < 44:
+        # Rung 44: the Linear feed (linear_feed.py). Once a minute the app
+        # asks Linear what changed and writes down each thing someone other
+        # than the owner did — once. This table is that "once": `key` is
+        # unique, so the same comment or move read again adds nothing.
+        # RECORDS: Linear keeps the history, but not which of it the Linear
+        # helper has been told.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS linear_events ("
+            "  id INTEGER PRIMARY KEY,"
+            # What makes the event itself: Linear's id for the comment or
+            # history row, plus what changed.
+            "  key TEXT NOT NULL UNIQUE,"
+            # When it happened, by Linear's clock (UTC), and when the app saw it.
+            "  at TEXT NOT NULL,"
+            "  seen_at TEXT NOT NULL,"
+            # comment, created, status, assignee, title, description,
+            # priority, labels, project, due, archived.
+            "  kind TEXT NOT NULL,"
+            "  issue_id TEXT,"
+            "  identifier TEXT,"
+            "  title TEXT,"
+            "  url TEXT,"
+            "  actor_id TEXT,"
+            "  actor TEXT,"
+            # One plain line: what they did. And a comment's own words.
+            "  summary TEXT NOT NULL,"
+            "  body TEXT,"
+            # 1 when it calls on the owner: a comment, or an issue given to her.
+            "  for_owner INTEGER NOT NULL DEFAULT 0,"
+            # When the Linear helper was woken with it. Empty: still waiting.
+            "  told_at TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS linear_events_at ON linear_events (at)")
+    if version < 45:
+        # Rung 45: closing summaries (swarm_helper.py). When a swarm closes,
+        # its helper writes what the swarm did, in plain words, beside the
+        # closing check built from git and the session records. One row per
+        # time it closed: a swarm that opens again and closes again gets a
+        # second row, and the first is kept. RECORDS: the transcripts stay,
+        # but what the helper wrote about them can't be rebuilt.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarm_closings ("
+            "  id INTEGER PRIMARY KEY,"
+            "  swarm_id INTEGER NOT NULL REFERENCES swarms(id),"
+            "  at TEXT NOT NULL,"
+            # The swarm's name when it closed.
+            "  name TEXT,"
+            # The helper's account: one sentence, then the whole of it.
+            # Both empty when the model call failed (see `error`).
+            "  headline TEXT,"
+            "  summary TEXT,"
+            # The closing check: what git and the session records say.
+            "  facts TEXT NOT NULL,"
+            # Everything the model was handed, verbatim.
+            "  input TEXT,"
+            "  cost_usd REAL,"
+            "  error TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS swarm_closings_by_swarm"
+                     " ON swarm_closings (swarm_id, at)")
+    if version < 46:
+        # Rung 46: spinoff briefs (briefstore.py). What each spun-off session
+        # was asked to do, the files preloaded into its instructions, and the
+        # handoffs sessions write when they fill their context. They used to
+        # be a folder of files per job (spinoffs/<slug>/BRIEF.md, CONTEXT.md,
+        # HANDOFF.md). RECORDS: a brief is the only account of what a session
+        # was asked for, so the briefs and handoffs are dumped as text by the
+        # hourly backup. The contexts sit in a table of their own so that dump
+        # stays small: a context is a copy of files that were on disk.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS spinoff_briefs ("
+            "  id INTEGER PRIMARY KEY,"
+            # The job's name: a few lowercase words joined by hyphens.
+            "  slug TEXT NOT NULL,"
+            "  written_at TEXT NOT NULL,"
+            # The session that wrote it. Empty: the app itself, or a terminal.
+            "  written_by TEXT,"
+            # The brief, whole. It is the new session's first message.
+            "  body TEXT NOT NULL,"
+            # The session started on it. Empty until one is.
+            "  conv TEXT,"
+            "  opened_at TEXT,"
+            # The session whose work this one carries on, for a continuation.
+            "  continues TEXT,"
+            # Which listed files were pasted into the instructions, and which
+            # were too big and left for the session to read. JSON lists.
+            "  preloaded TEXT,"
+            "  too_big TEXT,"
+            # The folder it was imported from, for a brief that began as a file.
+            "  imported_from TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS spinoff_briefs_by_slug"
+                     " ON spinoff_briefs (slug, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS spinoff_briefs_by_conv"
+                     " ON spinoff_briefs (conv)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS spinoff_contexts ("
+            "  brief_id INTEGER PRIMARY KEY REFERENCES spinoff_briefs(id),"
+            "  at TEXT NOT NULL,"
+            # The session's hidden instructions: the Protocol and the files.
+            "  body TEXT NOT NULL"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS spinoff_handoffs ("
+            "  id INTEGER PRIMARY KEY,"
+            # The session that wrote it. Empty for an imported file whose
+            # writer couldn't be worked out.
+            "  conv TEXT,"
+            "  at TEXT NOT NULL,"
+            "  body TEXT NOT NULL,"
+            # The session that took over from it. Empty until one does.
+            "  to_conv TEXT,"
+            # For an imported file: the job folder it sat in and its name.
+            "  slug TEXT,"
+            "  imported_from TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS spinoff_handoffs_by_conv"
+                     " ON spinoff_handoffs (conv)")
+    if version < 47:
+        # The journal's prose pages as rows (pagestore.py): the weekly
+        # summaries and diary entries a Keeper wakes with. The markdown files
+        # stay the truth and whatever writes them keeps writing them; this is
+        # a one-way copy so the boot package can load them with a query.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS journal_pages ("
+            # Where the file is, relative to the content folder.
+            "  path TEXT PRIMARY KEY,"
+            # The folder it sits in and its file name, split out of the path.
+            "  folder TEXT NOT NULL,"
+            "  name TEXT NOT NULL,"
+            "  body TEXT NOT NULL DEFAULT '',"
+            # When the file was last changed, and when the copy was last taken.
+            "  modified TEXT,"
+            "  synced TEXT NOT NULL,"
+            # Set when the file is no longer there. The row is kept.
+            "  gone_at TEXT"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS journal_pages_by_folder"
+                     " ON journal_pages (folder)")
+        # The tracker of what a session was handed and when (loadrecord.py):
+        # one row per load. A record, not a copy of anything: it exists so the
+        # loads can be read back beside the replies that followed them.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS context_loads ("
+            "  id INTEGER PRIMARY KEY,"
+            # When, in local time, and in which conversation or session.
+            "  at TEXT NOT NULL,"
+            "  conv TEXT NOT NULL,"
+            # 'boot' for the package a Keeper wakes with, 'mention' for a pack.
+            "  source TEXT NOT NULL,"
+            # For a mention: 'person' or 'thread', its slug and display name,
+            # and the word in the owner's message that set it off.
+            "  kind TEXT,"
+            "  slug TEXT,"
+            "  name TEXT,"
+            "  matched TEXT,"
+            # 'loaded', 'nothing new' (every card was already on the record),
+            # 'no cards' (none exist) or 'no room' (it waits for its next mention).
+            "  outcome TEXT NOT NULL,"
+            # How many cards were handed over, their ids as a JSON list, and
+            # how many were left out because the session already had them.
+            "  cards INTEGER NOT NULL DEFAULT 0,"
+            "  card_ids TEXT NOT NULL DEFAULT '[]',"
+            "  skipped INTEGER NOT NULL DEFAULT 0"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS context_loads_by_conv"
+                     " ON context_loads (conv, at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS context_loads_by_slug"
+                     " ON context_loads (kind, slug)")
+    if version < 48:
+        # One row per session: the newest summary a helper wrote of it.
+        # The summaries sit in two tables — session_summaries for a session
+        # working alone, swarm_members for one in a swarm (a row per swarm it
+        # was ever in) — so "this session's last summary" took a query over
+        # both. This view is that query, kept in the database: stack the two,
+        # drop the empty ones, keep the newest per session. When MAX() is the
+        # only aggregate, SQLite takes the other columns from the row that
+        # held the maximum, so `summary` and `source` are the newest row's
+        # own. A view stores nothing; it is re-read from the two tables every
+        # time, so it can't go stale.
+        #
+        # Prompt: "when i click footprint on the session from the report, i
+        # want it to give me the last generated summary from that agent
+        # session ... wire those up inside sql."
+        conn.execute("DROP VIEW IF EXISTS session_last_summary")
+        conn.execute(
+            "CREATE VIEW session_last_summary AS"
+            " SELECT conv, summary, MAX(summary_at) AS summary_at, source FROM ("
+            "   SELECT conv, summary, summary_at, 'room helper' AS source"
+            "     FROM session_summaries"
+            "   UNION ALL"
+            "   SELECT conv, summary, summary_at, 'swarm helper' AS source"
+            "     FROM swarm_members"
+            " )"
+            " WHERE summary IS NOT NULL AND TRIM(summary) != ''"
+            " GROUP BY conv"
+        )
+    if version < 49:
+        # The summaries written of each journal thread (threadsummaries.py):
+        # one row per summary. A new summary is a new row; the older ones stay
+        # underneath it and are read newest first. A record, not a copy of
+        # anything: the thread's own file holds no summary.
+        #
+        # Prompt: "Each summary sits above an old summary and I can read past
+        # summaries. Don't make them too long."
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS thread_summaries ("
+            "  id INTEGER PRIMARY KEY,"
+            # The thread, by the stem of its file name.
+            "  slug TEXT NOT NULL,"
+            # Who wrote it: 'keeper', or 'cricket:<name>' for a night helper.
+            "  author TEXT NOT NULL,"
+            # When it was written, in local time.
+            "  written_at TEXT NOT NULL,"
+            "  body TEXT NOT NULL,"
+            # The card ids and days it was based on, as a JSON list.
+            "  based_on TEXT NOT NULL DEFAULT '[]')"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS thread_summaries_by_slug"
+                     " ON thread_summaries (slug, written_at)")
+        # Refuse any change to a summary once it is written. The database
+        # itself turns down an UPDATE on this table, so no code path can
+        # overwrite an old summary by mistake. Deleting a row is still
+        # allowed, for a summary filed under the wrong thread.
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS thread_summaries_no_rewrite"
+            " BEFORE UPDATE ON thread_summaries"
+            " BEGIN SELECT RAISE(ABORT, 'a thread summary is never rewritten: add a new one'); END"
+        )
+    if version < 50:
+        # Mark a summary that was written because its thread changed status.
+        # `status` holds the status the thread moved to ('dormant', 'retired',
+        # 'active'); it is empty on a summary written for any other reason.
+        #
+        # Prompt: "write a summary, tag as retired or whatnot"
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(thread_summaries)")}
+        if "status" not in columns:
+            conn.execute("ALTER TABLE thread_summaries ADD COLUMN status TEXT")
+    if version < 51:
+        # A word index over everything said in the Observatory's chats, for
+        # the chat search box (chatsearch.py fills and reads it). One row per
+        # spoken line: which conversation, its place among that
+        # conversation's spoken lines, who said it ('B' the owner, 'K' the
+        # agent), when, and the words. Only `text` is indexed; the other
+        # columns ride along so a hit can say where it came from. SQLite's
+        # built-in full-text search (FTS5), with the porter stemmer so
+        # "bartending" also finds "bartender".
+        #
+        # A STANDALONE index, like cards_fts: the logs are the record and
+        # this is the only copy of the lines in the database, so there is no
+        # second table for it to drift from. Starts empty; the first
+        # chatsearch.ingest() fills it.
+        #
+        # Prompt: "Need some kind of search function for chats."
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS chat_lines_fts USING fts5("
+            "  conv UNINDEXED, turn UNINDEXED, who UNINDEXED, at UNINDEXED, text,"
+            "  tokenize = 'porter unicode61 remove_diacritics 2'"
+            ")"
+        )
+        # How far into each chat log has been read, so only what's new is
+        # read next time: the log's path, its conversation, the byte reading
+        # stopped at, and how many spoken lines it has given so far (the next
+        # line's number).
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS chat_line_sources ("
+            "  path TEXT PRIMARY KEY,"
+            "  conv TEXT NOT NULL,"
+            "  size INTEGER NOT NULL,"
+            "  lines INTEGER NOT NULL DEFAULT 0,"
+            "  scanned_at TEXT NOT NULL)"
+        )
+    if version < 52:
+        # (Taken out again by rung 54.)
+        # Rung 52: topics inside a swarm (swarms.py). A swarm can hold several
+        # unrelated pieces of work; the room helper sorts its members into
+        # named topics, and the swarm's helper keeps a short summary of each.
+        # A RECORD: the names and the sorting can't be rebuilt.
+        #
+        # Prompt: "Can you make it such that there are sub swarms by topic?"
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarm_topics ("
+            "  id INTEGER PRIMARY KEY,"
+            "  swarm_id INTEGER NOT NULL REFERENCES swarms(id),"
+            "  name TEXT NOT NULL,"
+            # The swarm helper's current summary of this topic, replaced each time.
+            "  summary TEXT,"
+            "  summary_at TEXT,"
+            "  created_at TEXT NOT NULL,"
+            "  updated_at TEXT NOT NULL"
+            ")"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS swarm_topics_by_swarm"
+                     " ON swarm_topics (swarm_id)")
+        # Which topic a member is in; NULL until the room helper sorts it.
+        try:
+            conn.execute("ALTER TABLE swarm_members ADD COLUMN topic_id INTEGER")
+        except sqlite3.OperationalError:
+            pass  # the column is already there
+    if version < 53:
+        # Rung 53: message summaries (message_summaries.py). Every message an
+        # agent sends another gets one plain line saying what it asked, told
+        # or settled, written by a short model call when it is sent; and the
+        # thread it belongs to — everything two sessions have sent each
+        # other — keeps one line saying what they are coordinating on.
+        # RECORDS: the messages stay, but what was written about them can't
+        # be rebuilt without paying for the calls again.
+        #
+        # Prompt: "I click on the message thread and I get some very short
+        # summary of what the message accomplished and what they're
+        # coordinating on between messages"
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS message_summaries ("
+            "  message_id INTEGER PRIMARY KEY REFERENCES agent_messages(id),"
+            "  at TEXT NOT NULL,"
+            # The one line. Empty when the model call failed (see `error`).
+            "  gist TEXT,"
+            "  cost_usd REAL,"
+            "  error TEXT"
+            ")"
+        )
+        # One row per pair of sessions, the two ids in order. `through_id` is
+        # the newest message the summary has read, so a call that finishes
+        # late never overwrites a newer account.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS message_thread_summaries ("
+            "  conv_a TEXT NOT NULL,"
+            "  conv_b TEXT NOT NULL,"
+            "  summary TEXT,"
+            "  summary_at TEXT,"
+            "  through_id INTEGER NOT NULL,"
+            "  PRIMARY KEY (conv_a, conv_b)"
+            ")"
+        )
+    if version < 54:
+        # Rung 54: take topics inside a swarm (rung 52) out again. She tried
+        # them and had them removed: a swarm now only forms from a real
+        # back-and-forth or from shared files (swarms.links), so unrelated
+        # sessions no longer land in one swarm to be sorted apart. The table
+        # and the column go; nothing reads them.
+        #
+        # Prompt: "yes remove"
+        conn.execute("DROP INDEX IF EXISTS swarm_topics_by_swarm")
+        conn.execute("DROP TABLE IF EXISTS swarm_topics")
+        try:
+            conn.execute("ALTER TABLE swarm_members DROP COLUMN topic_id")
+        except sqlite3.OperationalError:
+            pass  # the column is already gone
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+
+
+def _create_agent_messages(conn, name):
+    """Make the mailbox table (peermail.py) under `name`, with its indexes.
+    Rung 29 makes it; rung 42 makes it again under a spare name to swap in,
+    because SQLite can't change a CHECK on a table that exists."""
+    # (The statement's first two words are written apart so the test that
+    # reads this file for table names doesn't take `{name}` for one.)
+    conn.execute(
+        "CREATE " f"TABLE IF NOT EXISTS {name} ("
+        "  id INTEGER PRIMARY KEY,"
+        "  at TEXT NOT NULL,"
+        "  kind TEXT NOT NULL CHECK (kind IN ('A','B','S')),"
+        # The sending session; NULL when the owner or the app sent it.
+        "  from_conv TEXT,"
+        "  to_conv TEXT NOT NULL,"
+        "  text TEXT NOT NULL,"
+        # What the SENDER asked for. The recipient's accept policy can
+        # soften it at delivery time (peermail.effective_mode).
+        "  mode TEXT NOT NULL DEFAULT 'inject'"
+        "    CHECK (mode IN ('inject','queue','interrupt')),"
+        # How many agent-to-agent wakes led here with no owner message in
+        # between — the loop guard reads it.
+        "  hops INTEGER NOT NULL DEFAULT 0,"
+        # waiting -> delivered, or held (loop guard / daily cap, until the
+        # owner releases it), or cancelled (the owner took it back).
+        "  status TEXT NOT NULL DEFAULT 'waiting'"
+        "    CHECK (status IN ('waiting','held','delivered','cancelled')),"
+        "  held_reason TEXT,"
+        "  delivered_at TEXT,"
+        # 'handed' (written into a running agent, not read yet),
+        # 'injected' (read mid-turn) or 'batched' (started a turn of its
+        # own). delivered_at is when it was read or started the turn.
+        "  delivered_how TEXT,"
+        # Owner messages only: journaled or said off the record.
+        "  record INTEGER NOT NULL DEFAULT 1"
+        ")"
+    )
+    _index_agent_messages(conn)
+
+
+def _index_agent_messages(conn):
+    """The mailbox's two indexes, made only once the table has its real name."""
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table'"
+                    " AND name = 'agent_messages'").fetchone():
+        conn.execute("CREATE INDEX IF NOT EXISTS agent_messages_waiting"
+                     " ON agent_messages (to_conv, status, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS agent_messages_by_day"
+                     " ON agent_messages (kind, at)")
 
 
 def _seed_from_file(conn, name):

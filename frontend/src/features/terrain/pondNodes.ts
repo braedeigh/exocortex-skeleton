@@ -20,10 +20,21 @@
  * force sim and the rest of the terrain bumps around it instead of being
  * covered by a floating overlay.
  *
- * WHY IT NEEDS NOTHING FETCHED. A card's filename already carries everything
- * this needs — `2026-08-21.2232b.md` is day, time, and speaker (`b` = the
- * owner, `k` = the Keeper). The terrain payload already lists every one of
- * those paths, so the grouping is a pure function of data the map is holding.
+ * WHERE THE MONTH'S NUMBERS COME FROM. The payload carries `pond_days`: one
+ * dense row per day for the last month, counted in the journal's own card
+ * table (routes/terrain.py `_pond_days`). The tile uses that when it's there.
+ *
+ * It does NOT count the card files in the payload, which is the obvious thing
+ * and is wrong: `repos[].files` is cut to the hottest N per repo, so most of
+ * the pool never arrives. Measured on this vault, that cut left 265 of 2,240
+ * cards — every day drew short, the heaviest day of the month drew as a stub,
+ * and three days she had written on drew as bare water. Counting the files
+ * still happens as a FALLBACK, for an install with no journal mirror, and it
+ * is honest about being second best.
+ *
+ * A card's filename is enough for that fallback on its own — `2026-08-21.2232b.md`
+ * is day, time, and speaker (`b` = the owner, `k` = the Keeper) — so no matter
+ * which source is used, nothing here fetches anything.
  *
  * WHERE IT SITS. Between the payload and `buildTerrainGraph` — this returns a
  * new TerrainData with the card files replaced, so the trie, the heat maths,
@@ -111,14 +122,20 @@ export interface CollapsedPondTile {
  * Replace every card file in `data` with one synthetic tile file per repo
  * that holds cards (in practice: the vault).
  *
- * The tile's own `touches` pool EVERY card's touches — the whole journal, not
- * just the window — so the node's heat, its last-touch, and the live-mode
- * flash all keep meaning exactly what they mean for real files. The `days`
- * buckets carry only the window: one entry per day, oldest first, each with
- * the pooled touches of the cards written that day (by filename date, the
- * pond's own convention). A quiet day is an empty bucket, drawn as bare
- * water. Non-card files under the same directory, and every file in every
- * other repo, pass through untouched.
+ * The `days` buckets are the month the square draws: one entry per day, oldest
+ * first, each carrying a timestamp per card written that day. They come from
+ * `data.pond_days` — the journal counted at the source — and fall back to
+ * bucketing the payload's own card files by filename date when the server sent
+ * none. A quiet day is an empty bucket, drawn as bare water.
+ *
+ * The tile's own `touches` pool the WHOLE journal, not just the window, so the
+ * node's heat, its last-touch, and the live-mode flash keep meaning exactly
+ * what they mean for real files: the window's true card times, plus the git
+ * touches of card files older than the window. Splitting at the window's start
+ * rather than merging both is what stops the last month being counted twice.
+ *
+ * Non-card files under the same directory, and every file in every other repo,
+ * pass through untouched.
  */
 export function collapseToPondTile(
   data: TerrainData,
@@ -126,8 +143,14 @@ export function collapseToPondTile(
   days: number = POND_TILE_DAYS,
 ): CollapsedPondTile {
   const tileIds = new Set<string>();
-  const window = pondTileWindow(todayISO, days);
+  // The server's window wins when it sent one: it carries its own day labels,
+  // and re-deriving them here would be a second clock free to disagree.
+  const fromServer = data.pond_days?.length ? data.pond_days : null;
+  const window = fromServer ? fromServer.map((d) => d.day) : pondTileWindow(todayISO, days);
   const dayIndex = new Map(window.map((day, i) => [day, i]));
+  // Midnight local on the window's first day — the line either side of which a
+  // card's time is already accounted for by pond_days.
+  const windowStart = fromServer ? Date.parse(`${window[0]}T00:00:00`) / 1000 : Infinity;
 
   const repos = data.repos.map((repo) => {
     const kept: TerrainFile[] = [];
@@ -142,12 +165,22 @@ export function collapseToPondTile(
         continue;
       }
       cards += 1;
-      pooled.push(...file.touches);
+      for (const touch of file.touches) {
+        if (touch < windowStart) pooled.push(touch);
+      }
+      if (fromServer) continue;
       const i = dayIndex.get(stamp.day);
       if (i !== undefined) dayTouches[i].push(...file.touches);
     }
 
     if (cards === 0) return repo;
+
+    if (fromServer) {
+      fromServer.forEach((d, i) => {
+        dayTouches[i].push(...d.touches);
+        pooled.push(...d.touches);
+      });
+    }
 
     // Newest first, matching what the payload guarantees for real files —
     // the heat maths and `fileLastTouch` both read touches[0] as "last".

@@ -81,8 +81,8 @@
 /* --- waiting on her: the orange-glow card (S2) --- */
 /* Warm ALARM, not the working-dot's breath — a different meaning must look
    different. Steady orange border + a faint orange wash + a soft outer glow,
-   so it reads as "your move" from across the page. The whole card is the tap
-   target (it opens the session so she can answer). */
+   so it reads as "your move" from across the page. A container, not a tap
+   target: it holds her answer box, and "open →" is the way into the session. */
 .awaiting {
   display: block;
   width: 100%;
@@ -93,7 +93,6 @@
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--orange) 9%, var(--card-bg));
   font: inherit;
-  cursor: pointer;
   position: relative;
   z-index: 0; /* stacking context, so the ::before glow below stays inside */
 }
@@ -153,11 +152,92 @@
   background: var(--orange);
 }
 
-.answerHint {
+/* Several questions, numbered — the numbers are what she answers by. */
+.questionList {
+  margin: var(--space-1) 0 0;
+  padding-left: 1.4em;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.questionList .question {
+  margin-top: 0;
+}
+
+/* Her answer, typed right on the card: the box and its Send side by side.
+
+   The box stays at the bottom of the screen while she reads the questions
+   above it. This is a sticky footer: while the card runs below the bottom of
+   the screen the form holds there, and once she scrolls to the card's own
+   bottom it settles into its place under the last question. So she can type
+   an answer with the first question still in view, however long the list is.
+   It stops 72px short of the screen's bottom edge, clear of the roster's row
+   of round buttons and the notes pill, which float along that edge
+   (RosterPage.module.css .rail). It spans the card edge to edge and is opaque,
+   in the card's own colour, because the questions scroll underneath it.
+   Prompt: "wanting for the bottom part with text input to be floating at the
+   bottom of the screen until you reach the bottom of the card so that i can
+   type into it while looking at the top one." */
+.answerForm {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  position: sticky;
+  bottom: 72px;
+  z-index: 1;
+  margin: var(--space-3) calc(-1 * var(--space-4)) 0;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid color-mix(in srgb, var(--orange) 30%, transparent);
+  background: color-mix(in srgb, var(--orange) 9%, var(--card-bg));
+}
+
+.answerInput {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--orange) 45%, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.answerInput:focus {
+  outline: 2px solid color-mix(in srgb, var(--orange) 60%, transparent);
+  outline-offset: 1px;
+}
+
+.answerSend {
   flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--orange) 18%, transparent);
+  color: var(--text);
+  font: inherit;
   font-size: var(--font-size-sm);
   font-weight: 700;
-  color: var(--orange);
+  cursor: pointer;
+}
+
+.answerSend:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--orange) 30%, transparent);
+}
+
+.answerSend:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.answerNote {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
 
 /* --- needs her OK: the act-ask approval card (S4 inline) --- */
@@ -227,6 +307,15 @@
   font-size: var(--font-size-sm);
   line-height: 1.4;
   color: var(--danger, #cd3131);
+}
+
+/* The approval landed and the retry is waiting on the current reply — said
+   plainly, in the calm text color, so a wait never reads as a failure. */
+.decideQueued {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
 }
 
 /* Once/Always — a two-state segmented pill picking the approval's scope. */
@@ -588,25 +677,22 @@
   border-left-color: color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
-/* Output she hasn't opened yet. Orange, like everything else in this section
-   that wants her — but STEADY where .awaiting pulses, and without the filled
-   wash. "Needs an answer" and "needs reading" are the same family of thing;
-   the pulse is what separates the one that's blocked from the one that's just
-   sitting there. A left rule alone (what this used to be) lost that fight
-   against the live cards' breathing purple.
+/* A card that needs her answer, drawn as a plain card rather than as the
+   pulsing .awaiting box — a swarm card with a member waiting on her
+   (SwarmCard.tsx), or the rare asking session that reaches SessionCard. Orange,
+   but STEADY where .awaiting pulses, and without the filled wash.
 
-   Prompt that produced it: "the session card should glow orange if I haven't
-   opened it yet since it made an output". */
+   The class keeps its old name from when it also meant "unread". Unread
+   replies no longer wear it: they're plain grey cards with an orange dot, so
+   orange cards are only the ones that can't move until she answers
+   (sessionFilters.cardState). */
 .cardUnread {
   border-left-color: var(--orange);
   /* The rule carries most of the weight for the two states that need her eyes
      but aren't moving. A running card doesn't need it — it has its breath. */
   border-left-width: 5px;
   border-color: color-mix(in srgb, var(--orange) 55%, var(--border));
-  /* A WHISPER of wash — .awaiting sits at 9%. Unread is the common state (a
-     roster of a dozen-plus sessions is unread more often than not), so a full
-     wash would make the whole lane orange and leave the rare "nothing moves
-     until you act" card with nothing left to outrank it. */
+  /* A whisper of wash — .awaiting sits at 9%, and stays the loudest. */
   background: color-mix(in srgb, var(--orange) 4%, var(--card-bg));
   box-shadow: var(--shadow-card), 0 0 16px color-mix(in srgb, var(--glow-orange) 40%, transparent);
 }
@@ -825,6 +911,56 @@
   color: var(--accent);
 }
 
+/* The Done drawer: done sessions waiting to close, folded at the foot of a
+   room (DoneDrawer.tsx). Grey like the past-sessions link, because nothing in
+   it asks anything of her. Its only colour is the small orange dot for a
+   closing report she hasn't read. */
+.doneDrawer {
+  margin-top: var(--space-3);
+}
+
+.doneToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.doneToggle:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.doneDrawer > .rows {
+  margin-top: var(--space-2);
+}
+
+.doneUnread {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: 500;
+}
+
+.doneUnreadDot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--orange);
+}
+
 /* --- the Keeper: the one card that isn't in a room ------------------------ */
 /* HUE IS STATE, MATERIAL IS IDENTITY. The four colours on this page are spoken
    for — purple running, purple-faded recent, orange unread, red broken — and
@@ -989,4 +1125,95 @@
   .approval::before {
     animation: none;
   }
+}
+
+/* Done, closing itself soon: the session said its work is finished. Quiet
+   green, with Keep open at full tap size so cancelling is easy. */
+.doneNote {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--green) 45%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+}
+
+.doneText {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  line-height: 1.4;
+}
+
+.doneWhat {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.keepBtn {
+  flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.keepBtn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+/* --- Save for later / Pick back up (SessionCard SaveLaterButton) --- */
+/* Full width at the card's foot, 40px tall. Save is quiet ink on a dashed
+   line, since it's a way OUT of her attention and mustn't compete with Send or
+   Resume. Pick back up is solid, in the accent: it's the one thing a saved
+   card is for. */
+.laterBtn,
+.pickUpBtn {
+  display: block;
+  width: 100%;
+  min-height: var(--tap-target);
+  margin-top: var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.laterBtn {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.laterBtn:hover:not(:disabled) {
+  color: var(--text);
+  border-style: solid;
+}
+
+.pickUpBtn {
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.pickUpBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.laterBtn:disabled,
+.pickUpBtn:disabled {
+  opacity: 0.65;
+  cursor: default;
 }

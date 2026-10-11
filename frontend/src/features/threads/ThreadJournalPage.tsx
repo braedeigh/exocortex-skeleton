@@ -8,7 +8,7 @@ import { Button, IconButton, Sheet, ToastStack } from '../../ui';
 import type { EntityMatcher } from '../journal/entityHighlight';
 import { buildEntityMatcher, highlightEntities } from '../journal/entityHighlight';
 import { mdToHtml } from '../journal/markdown';
-import { startThreadTalk, talkLabel, type TalkState } from '../journal/threadTalk';
+import { startThreadTalk, talkLabel, threadTalkOffered, type TalkState } from '../journal/threadTalk';
 import type { ThreadJournalCardEntry, ThreadJournalDayEntry, ThreadJournalEntry } from '../journal/types';
 import {
   useAddThreadEntry,
@@ -16,11 +16,13 @@ import {
   usePeople,
   useServerDate,
   useThreadJournal,
+  useThreadSummaries,
   useThreads,
   useToasts,
   useUpdateThreadEntry,
 } from '../journal/useJournalData';
 import { FRONT_EMOJI, useFronts } from '../fronts/useFronts';
+import { ThreadSummaries } from './ThreadSummaries';
 import styles from './ThreadJournalPage.module.css';
 
 function isPublicMode(): boolean {
@@ -244,13 +246,15 @@ export interface ThreadJournalPageProps {
  * The dedicated per-thread journal page (/threads/$slug) — where "Open full
  * thread" from the Threads page / journal's ThreadPopover lands: every
  * journal record tied to the thread (tagged pool cards ∪ cited sources,
- * routes/threads.py thread_journal). Sortable newest/oldest first (a shared
+ * routes/threads.py thread_journal). Above the records sits the stack of
+ * summaries written of the thread (ThreadSummaries). Sortable newest/oldest first (a shared
  * localStorage preference, defaulting to newest first), and a sticky bottom
  * composer lets her add a new entry (tagged with the thread's slug) or add
  * one and jump straight into talking about the thread.
  */
 export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
   const { data, isLoading, isError } = useThreadJournal(slug);
+  const { data: summariesData } = useThreadSummaries(slug);
   const { data: serverDateData } = useServerDate();
   const { data: peopleData } = usePeople();
   const { data: threadsData } = useThreads();
@@ -413,12 +417,17 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
               </div>
             ) : null}
 
-            {!isPublicMode() ? (
+            {threadTalkOffered() ? (
               <button type="button" className={styles.talkBtn} onClick={talk} disabled={talkState === 'sending'}>
                 {talkLabel(talkState)}
               </button>
             ) : null}
           </header>
+
+          <ThreadSummaries
+            summaries={summariesData?.summaries ?? []}
+            formatDay={(day) => formatDate(day, serverYear)}
+          />
 
           {entries.length > 0 ? (
             <button type="button" className={styles.sortToggle} onClick={toggleSortOrder}>
@@ -649,7 +658,8 @@ function JournalCardEntry({
   onSaveNote,
 }: JournalCardEntryProps) {
   const [expanded, setExpanded] = useState(false);
-  const isK = entry.who === 'K';
+  // Same three speaker looks as the journal's EntryCard (B / K / S).
+  const whoClass = entry.who === 'K' ? styles.who_K : entry.who === 'S' ? styles.who_S : styles.who_B;
   const canEdit = entry.editable && entry.who === 'B';
 
   const { text: snippetText, clipped } = useMemo(
@@ -666,7 +676,7 @@ function JournalCardEntry({
   return (
     <div className={`${styles.card} ${editing ? styles.cardEditing : ''}`}>
       <div className={styles.meta}>
-        <span className={`${styles.who} ${isK ? styles.who_K : styles.who_B}`}>{entry.who}</span>
+        <span className={`${styles.who} ${whoClass}`}>{entry.who}</span>
         <button type="button" className={styles.metaTime} onClick={() => onOpenDay(entry.date)}>
           {formatDate(entry.date, serverYear)} &middot; {formatTime(entry.ts)}
         </button>
@@ -689,7 +699,7 @@ function JournalCardEntry({
       ) : (
         <>
           <div
-            className={`${styles.body} ${isK ? styles.body_K : ''}`}
+            className={`${styles.body} ${entry.who === 'K' ? styles.body_K : ''}`}
             dangerouslySetInnerHTML={{ __html: bodyHtml }}
           />
           {clipped ? (

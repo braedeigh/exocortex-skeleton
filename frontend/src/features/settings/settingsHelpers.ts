@@ -36,7 +36,7 @@ export function draftFromOverrides(overrides: ThemeOverrides): ThemeDraft {
   const clone = JSON.parse(JSON.stringify(overrides ?? {})) as ThemeOverrides;
   return {
     enabled: clone.enabled !== false,
-    mode: clone.mode ?? 'sky',
+    mode: clone.mode ?? 'auto',
     themes: clone.themes ?? {},
     offsets: clone.offsets ?? {},
     phasesEnabled: clone.phasesEnabled ?? {},
@@ -69,7 +69,7 @@ export function trimEmpty<T extends Record<string, unknown>>(o: T): Partial<T> {
 export function buildSavePayload(draft: ThemeDraft): ThemeOverrides {
   return {
     enabled: draft.enabled,
-    mode: draft.mode || 'sky',
+    mode: draft.mode || 'auto',
     themes: trimEmpty(draft.themes),
     offsets: trimEmpty(draft.offsets),
     phasesEnabled: trimEmpty(draft.phasesEnabled),

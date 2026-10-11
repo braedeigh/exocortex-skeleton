@@ -19,6 +19,7 @@ import {
 import { openTab, type OpenTab } from './panelTabs';
 import { newId, newRoutePanel, useLayout } from './panelStore';
 import { routeConversation, windowAcceptsConversations } from './conversationRouting';
+import { routeActivity } from './activityRouting';
 import { registerIntentTarget } from './windowBus';
 import styles from './Workspace.module.css';
 
@@ -223,6 +224,52 @@ export function Workspace({ children }: { children: ReactNode }) {
     });
     return unregister;
   }, [paneOpen, accepts, navigate, onPick, rememberArrival, setLayout, flashPanel]);
+
+  /* WHERE A SESSION'S ACTIVITY OPENS: beside the session, as its own pane.
+     The session toolbar's "activity" button sends the request; the rule is
+     in activityRouting.ts — already showing it → flash that panel; an
+     activity panel for another session → it switches over; otherwise a new
+     pane is born to the right of the conversation. Every desktop window
+     registers this, so the click lands in the window it came from. */
+  useEffect(() => {
+    const { unregister } = registerIntentTarget(['activity'], (intent) => {
+      if (intent.kind !== 'activity') return;
+      const { layout: tree, href: primaryHref } = latest.current;
+      const action = routeActivity(tree, intent.convId, primaryHref);
+      if (!action) return;
+      if (action.kind === 'reveal') {
+        flashPanel(action.panelId);
+        return;
+      }
+      if (action.kind === 'show') {
+        if (action.isPrimary) void navigate({ to: action.url });
+        else onPick(action.panelId, action.url);
+        rememberArrival(action.panelId, action.url);
+        flashPanel(action.panelId);
+        return;
+      }
+      const panelId = newId('panel');
+      const from = listPanels(tree).find((p) => p.id === action.targetId);
+      setLayout((cur) =>
+        splitPanel(
+          cur,
+          action.targetId,
+          'row',
+          {
+            type: 'panel',
+            id: panelId,
+            kind: 'route',
+            url: action.url,
+            tabs: [{ url: action.url, at: Date.now() }],
+            ...(from?.setId ? { setId: from.setId } : {}),
+          },
+          newId('split'),
+        ),
+      );
+      flashPanel(panelId);
+    });
+    return unregister;
+  }, [navigate, onPick, rememberArrival, setLayout, flashPanel]);
 
   const renderContent = useCallback(
     (panel: PanelNode): ReactNode => {

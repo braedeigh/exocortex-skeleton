@@ -1,3 +1,5 @@
+import { mentionsToSearch } from '../../features/terrain/codeMentions';
+import { activityUrl } from './activityRouting';
 import type { Intent, IntentKind } from './windowBus';
 
 /**
@@ -36,7 +38,18 @@ export function intentKindsForUrl(url: string): IntentKind[] {
 /** Where a tile should point itself once it catches something. */
 export function urlForIntent(intent: Intent): string | null {
   if (intent.kind === 'code') {
-    const q = new URLSearchParams({ repo: intent.repo, path: intent.path });
+    // The mentions ride in the URL, so a file caught by another tile opens
+    // where it names the table she asked about — the same landing the map's
+    // own pane gives it (features/terrain/codeMentions.ts).
+    const q = new URLSearchParams({
+      repo: intent.repo,
+      path: intent.path,
+      ...mentionsToSearch(
+        intent.mentions && intent.mentions.length > 0
+          ? { label: intent.mentionsOf ?? '', lines: intent.mentions }
+          : undefined,
+      ),
+    });
     return `/code?${q.toString()}`;
   }
   if (intent.kind === 'conversation') {
@@ -44,6 +57,7 @@ export function urlForIntent(intent: Intent): string | null {
     // conversation id travels in ?conv= (see sessionLocation.ts).
     return `/observatory/session?conv=${encodeURIComponent(intent.convId)}`;
   }
+  if (intent.kind === 'activity') return activityUrl(intent.convId);
   // A tmux session isn't a page — only the reading room's terminal takes those.
   return null;
 }

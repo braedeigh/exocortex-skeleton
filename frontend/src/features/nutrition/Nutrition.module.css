@@ -1,0 +1,829 @@
+/* Nutrition.module.css — the Nutrients page (NutritionPage.tsx).
+ * Touch-first: every button and input is ~40px tall, no text under 12px. */
+
+.card {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card-bg);
+}
+
+.cardHead {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.muted {
+  margin: 6px 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.warn {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(214, 140, 60, 0.14);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.error {
+  margin: 6px 0;
+  font-size: 14px;
+  color: var(--red, #c0392b);
+}
+
+.sources {
+  margin: 8px 0 24px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.sources a {
+  color: inherit;
+}
+
+/* The link to the second USDA entry that fills a food's missing nutrients. */
+.fillLink {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Who the targets are for. */
+.settingsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.chip {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill, 999px);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chipOn {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ageLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+  font-size: 14px;
+}
+
+.ageInput,
+.gramsInput {
+  width: 64px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--input-bg, transparent);
+  color: var(--text);
+  font-size: 15px;
+  text-align: right;
+}
+
+/* One nutrient. */
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.row:first-child {
+  border-top: none;
+}
+
+.rowTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.rowName {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.rowAmount {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.range {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.barLine {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.barSex {
+  width: 52px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.bar {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 5px;
+  background: var(--accent);
+}
+
+.status_under {
+  background: var(--orange, #c77a2a);
+}
+
+.status_met {
+  background: var(--green, #3f9a5a);
+}
+
+.status_over {
+  background: var(--red, #c0392b);
+}
+
+/* The target's place on the bar (100% of it). */
+.barTarget {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--text);
+  opacity: 0.6;
+}
+
+.barPercent {
+  min-width: 96px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.note {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* A nutrient's name opens the foods richest in it. */
+.rowNameBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ranking {
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.rankControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.rankRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.rankRow:last-child {
+  border-bottom: none;
+}
+
+.rankNumber {
+  min-width: 26px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rankName {
+  flex: 1;
+  min-width: 0;
+}
+
+.rankAmount {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rankMine {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Her meals. */
+.meal {
+  border-top: 1px solid var(--border);
+}
+
+.meal:first-of-type {
+  border-top: none;
+}
+
+.mealHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mealName {
+  font-weight: 700;
+}
+
+.mealTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mealTop .mealHead {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+.newMeal {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* The packaged-food adder at the top of Meals (NutritionPage.tsx PackagedAdder). */
+.packagedAdder {
+  margin: 12px 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* The pick-a-meal step after a product is chosen: one button per meal, wrapping. */
+.mealChoice {
+  margin: 8px 0;
+}
+
+.mealChoiceButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.adderLabel {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.mealServings {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.items {
+  margin: 4px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.itemName {
+  flex: 1;
+  font-size: 14px;
+}
+
+.guess {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: rgba(214, 140, 60, 0.18);
+  color: var(--orange, #c77a2a);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.gramsUnit {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.removeBtn {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search {
+  margin: 4px 0 8px;
+}
+
+.searchInput {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--input-bg, transparent);
+  color: var(--text);
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+.results {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.resultTag {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.mealActions {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.saveBtn {
+  min-height: 40px;
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.saveBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* A nutrient's own page (NutrientPage.tsx). */
+a.rowNameBtn {
+  text-decoration: none;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.factText {
+  margin: 8px 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.factHeading {
+  margin: 14px 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.factList {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Starring a food she's interested in (Highlights.tsx). */
+.starBtn {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.starOn {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.rankRowStarred {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.rankRow .starBtn {
+  align-self: center;
+}
+
+/* A food's SIGHI low-histamine rating, on its own line under the name. */
+.histTag {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.hist_low {
+  color: var(--green, #2e8b57);
+}
+
+.hist_moderate {
+  color: var(--orange, #c77a2a);
+}
+
+.hist_high,
+.hist_avoid {
+  color: var(--red, #c0392b);
+}
+
+.hist_unclear,
+.hist_none {
+  color: var(--text-muted);
+}
+
+/* A food's name in a nutrient's "where it comes from" list: links to its USDA entry. */
+.shareName {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* What one food gives: nutrient, amount, share of the target, share of the day. */
+.giftTable {
+  width: 100%;
+  margin-top: 6px;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.giftTable th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: right;
+  padding: 4px 6px;
+}
+
+.giftTable td {
+  padding: 8px 6px;
+  border-top: 1px solid var(--border);
+  text-align: right;
+}
+
+.giftTable th:first-child,
+.giftTable td:first-child {
+  text-align: left;
+}
+
+/* The calculator's caps: most grams of one food, most kcal added. */
+.planInputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 8px 0;
+}
+
+/* A nutrient's marker: whether the body stores it or needs it steadily (./StorageNote.tsx). */
+.storageTag {
+  display: inline-flex;
+  align-items: center;
+  margin: 4px 0;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill, 999px);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.storageStores {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.storageSteady {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.storageUnclear {
+  border-style: dashed;
+}
+
+/* A section that folds shut behind its title (./FoldCard.tsx). Shut, the
+ * page is a stack of these title lines — they're the page's table of
+ * contents, so the title reads at body size and the note beside it is
+ * muted. The card's own padding moves onto the summary so the whole title
+ * row is the tap target. */
+.fold {
+  padding: 0;
+}
+
+.foldSummary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 4px 16px;
+  border-radius: 14px;
+  cursor: pointer;
+  list-style: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.foldSummary::-webkit-details-marker {
+  display: none;
+}
+
+.foldSummary:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.foldSummary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.foldArrow {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 200ms ease-out, color 200ms ease-out;
+}
+
+.fold[open] .foldArrow {
+  color: var(--accent);
+  transform: rotate(90deg);
+}
+
+.foldTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.foldNote {
+  flex: none;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.foldNote .storageTag {
+  margin: 0;
+}
+
+.foldBody {
+  padding: 0 16px 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .foldArrow {
+    transition: none;
+  }
+}
+
+/* A meal amount box that takes grams or "1.5 cup" (AmountInput.tsx), with its reading under it. */
+.amount {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.amountRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.amountInput {
+  width: 96px;
+}
+
+.amountError {
+  max-width: 220px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--orange, #c77a2a);
+  text-align: right;
+}
+
+/* "≈ ¾ cup" beside a What to add amount (MealPrepPlan.tsx). */
+.household {
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Packaged foods (./PackagedSearch.tsx): the search box beside its Scan button, the
+   brand / serving / barcode line under a result, and the camera preview. */
+.searchRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.resultDetail {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.scanner {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.scannerVideo {
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+  background: #000;
+}
+
+/* Making a product from label photos (LabelReader.tsx). */
+.labelReader {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.labelPhotos {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.labelPhoto {
+  max-height: 220px;
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  font-size: 14px;
+}
+
+.labelRow > span:first-child {
+  flex: 0 0 9.5em;
+  color: var(--text-muted);
+}
+
+/* The daily-food form (NutritionPage.tsx DailyFoodForm): a name row, then amount × times a day. */
+.dailyField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dailyAmount {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* "Your foods" above an add-a-food search (NutritionPage.tsx YourFoods): her own products and meal foods. */
+.yourFoods {
+  margin: 8px 0;
+}

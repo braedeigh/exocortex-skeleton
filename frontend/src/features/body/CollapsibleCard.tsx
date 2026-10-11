@@ -25,6 +25,12 @@ export interface CollapsibleCardProps {
   /** Extra control on the title line (e.g. the Edit button) — hidden while
    * the card is closed, like the legacy .card-edit-btn. */
   titleExtra?: ReactNode;
+  /** A short line on the title row that stays visible while the card is
+   * closed (e.g. "7 nutrients") — says what's inside without opening it. */
+  note?: ReactNode;
+  /** Another page's look for the same card: each class given replaces this
+   * file's own (the Nutrients pages pass theirs). */
+  classes?: { card?: string; summary?: string; arrow?: string; title?: string; note?: string };
   onToggle?: (open: boolean) => void;
   children: ReactNode;
 }
@@ -39,6 +45,8 @@ export function CollapsibleCard({
   title,
   defaultOpen = false,
   titleExtra,
+  note,
+  classes = {},
   onToggle,
   children,
 }: CollapsibleCardProps) {
@@ -57,12 +65,13 @@ export function CollapsibleCard({
   }
 
   return (
-    <details className={styles.card} data-card={cardKey} open={open} onToggle={handleToggle}>
-      <summary className={styles.summary}>
-        <span className={styles.arrow} aria-hidden="true">
+    <details className={classes.card ?? styles.card} data-card={cardKey} open={open} onToggle={handleToggle}>
+      <summary className={classes.summary ?? styles.summary}>
+        <span className={classes.arrow ?? styles.arrow} aria-hidden="true">
           &#9654;
         </span>
-        <span className={styles.title}>{title}</span>
+        <span className={classes.title ?? styles.title}>{title}</span>
+        {note != null ? <span className={classes.note}>{note}</span> : null}
         {open ? titleExtra : null}
       </summary>
       {children}

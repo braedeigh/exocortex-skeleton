@@ -26,8 +26,8 @@ import styles from './NightCrewPage.module.css';
  * WHAT MOVED WITH IT. All the night state and every action on it — dismiss,
  * merge, revert, feedback, pick, wake — used to live in RosterPage and be
  * threaded down through props. They live here now, next to the only thing that
- * calls them. The roster still fetches /api/nightcrew, but only for the census
- * on its door.
+ * calls them. The roster no longer fetches /api/nightcrew at all; its door
+ * is a plain link, so this page is the only thing that loads the crew.
  *
  * NOT POLLED, on purpose. Nothing on this page changes while she's looking at
  * it: the crew ran hours ago and nothing merges without her. A poll here would
@@ -171,8 +171,8 @@ export function NightCrewPage() {
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />
       {/* Its own dev-notes tab, not the roster's: notes left here are about
-          this page, and filing them under "observatory" would mix them in with
-          notes about the roster. */}
+          this page, and filing them under "terminal" (the list the roster and
+          every session share) would mix them in with notes about those. */}
       <NotesPill tab="nightcrew" onError={push} />
     </div>
   );

@@ -1,0 +1,39 @@
+/* AnnotatedText.module.css — how a document's text and its highlights look.
+ * Typography and mark colours only; the scroll box, padding, and column
+ * width are the caller's (Annotator.module.css .text, ClaimsPage.module.css
+ * .sourceText) via the className prop. */
+
+.text {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  line-height: 1.7;
+  font-size: 14px;
+  color: var(--text);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* A highlight: amber while it still wants review, green once reviewed,
+ * outlined in the accent while it is the active one. */
+.mark {
+  background: rgba(212, 168, 10, 0.3);
+  color: inherit;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 1px 0;
+}
+
+.markReviewed {
+  background: rgba(58, 158, 140, 0.28);
+}
+
+.markActive {
+  outline: 2px solid var(--accent);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 13px;
+  padding: 8px 0;
+}

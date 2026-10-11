@@ -1,4 +1,5 @@
 import { SECTIONS, sectionById, type Section } from './sections';
+import { isStandalone } from '../standalone';
 
 /**
  * tabSets.ts — the sets of pinned tabs, as data.
@@ -34,9 +35,9 @@ export interface TabSet {
   sections: string[];
 }
 
-/** Matches routes/tabsets.py's DEFAULT — used before the server answers, so
- *  the bar isn't empty for the first moment of every page load. */
-export const DEFAULT_SETS: TabSet[] = [
+/** The sets a fresh install starts with, on the normal site. Matches
+ *  routes/tabsets.py's DEFAULT. */
+const SITE_DEFAULT_SETS: TabSet[] = [
   // Just the Observatory: this is the set for the panel that watches
   // sessions, and the live ones fill the rest of its bar on their own.
   { id: 'work', name: 'Work', sections: ['observatory'] },
@@ -45,6 +46,25 @@ export const DEFAULT_SETS: TabSet[] = [
   // cost her either of the other two to set up.
   { id: 'spare', name: 'Spare', sections: [] },
 ];
+
+/** The sets a fresh install starts with, in the desktop app: sessions on one
+ *  panel, the code map on the other. The ids stay 'work' and 'life' because
+ *  the workspace's opening arrangement (panelStore.ts) names them. Matches
+ *  what the desktop server seeds (routes/tabsets.py in standalone mode). */
+const STANDALONE_DEFAULT_SETS: TabSet[] = [
+  { id: 'work', name: 'Sessions', sections: ['observatory'] },
+  { id: 'life', name: 'Code', sections: ['terrain', 'activity'] },
+  { id: 'spare', name: 'Spare', sections: [] },
+];
+
+/** Which starter sets a kind of install gets. */
+export function defaultSetsFor(standalone: boolean): TabSet[] {
+  return standalone ? STANDALONE_DEFAULT_SETS : SITE_DEFAULT_SETS;
+}
+
+/** This install's starter sets — used before the server answers, so the bar
+ *  isn't empty for the first moment of every page load. */
+export const DEFAULT_SETS: TabSet[] = defaultSetsFor(isStandalone());
 
 /* ---------- making and unmaking sets ---------- */
 

@@ -14,12 +14,20 @@
 .backdrop {
   position: absolute;
   inset: 0;
+  /* Stop at the Guide's edge when it is docked (TerrainPage.module.css sets
+     --guide-width on the page while the guide is open; unset means 0). */
+  right: var(--guide-width, 0px);
   /* Above every piece of the map's floating chrome (top bar z2, bottom z3,
      colour key z5) — the whole map, controls included, blurs as one. */
   z-index: 9;
   display: flex;
-  align-items: center;
+  /* Let the hallway scroll. Every room is a card here, which is more than
+     one screen holds, on a phone most of all. The scrolling stays inside the
+     hallway instead of dragging the page behind it. */
   justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: var(--space-4);
   background: color-mix(in srgb, var(--bg) 45%, transparent);
   backdrop-filter: var(--frost-veil);
@@ -43,7 +51,12 @@
   align-items: stretch;
   justify-content: center;
   gap: var(--space-3);
-  max-width: 720px;
+  /* Three cards a row on a wide screen. */
+  max-width: 900px;
+  /* Centre the cards when they fit, start at the top when they don't. Auto
+     margins do this in every browser; centring with align-items would push
+     the first row off the top where it can't be scrolled back to. */
+  margin: auto;
 }
 
 /* A door, drawn as a card: opaque, generous, one whole tap target. The motif
@@ -70,6 +83,19 @@
 .card:hover {
   transform: translateY(-2px);
   border-color: var(--accent);
+}
+
+/* The room the hallway was opened from: the same door, outlined, with a
+   small "you're here" beside its name. */
+.cardHere {
+  border-color: var(--accent);
+}
+
+.here {
+  margin-left: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--accent);
 }
 
 @keyframes cardIn {

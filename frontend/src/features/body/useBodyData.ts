@@ -129,8 +129,8 @@ export function useSafetyTagActions(onError: (message: string) => void) {
   };
 }
 
-/** Symptom-definitions save — updates both the body cache and the shared
- * ['data','symptom-definitions'] cache the todos SymptomCard tooltips read. */
+/** Symptom-definitions save — updates the body cache in place, so the dot-grid
+ * tooltips re-read the new text without waiting for the refetch below. */
 export function useDefinitionActions(onError: (message: string) => void, onSaved?: () => void) {
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -139,7 +139,6 @@ export function useDefinitionActions(onError: (message: string) => void, onSaved
       queryClient.setQueryData<BodyData>(BODY_QUERY_KEY, (cur) =>
         cur ? { ...cur, symptom_definitions: definitions } : cur,
       );
-      queryClient.setQueryData(['data', 'symptom-definitions'], definitions);
       onSaved?.();
     },
     onError: (err) => onError(errorMessage(err)),

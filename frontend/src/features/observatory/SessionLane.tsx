@@ -1,8 +1,22 @@
 import { useNavigate } from '@tanstack/react-router';
 import { type SessionMeta } from './api';
-import { orchestraRows } from './orchestra';
+import { orchestraRows, type OrchestraRow } from './orchestra';
 import { ApprovalCard, AwaitingCard, SessionCard } from './SessionCard';
 import { LaneHead, useLaneOpen } from './LaneHead';
+import { SwarmCard } from './SwarmCard';
+import { RoomMap } from './RoomMap';
+import { shownSwarms, useClosedSwarmsShown, useRoomView, useSwarms } from './swarmApi';
+import { DoneDrawer } from './DoneDrawer';
+import {
+  foldsIntoDone,
+  orderRoom,
+  sessionPlace,
+  swarmPlace,
+  swarmView,
+  unreadDone,
+  type RoomPlace,
+  type SwarmView,
+} from './roomOrder';
 import type { TerrainData } from '../terrain/api';
 import styles from './SessionLane.module.css';
 
@@ -51,12 +65,47 @@ import styles from './SessionLane.module.css';
  *
  * Terrain is polled ONCE by the page and passed in, not fetched per lane —
  * several lanes must not mean several pollers hitting the same endpoint.
+ *
+ * SWARMS FOLD. Sessions that have messaged each other form a swarm
+ * (swarms.py); in the room the swarm lives in, its members and its helper
+ * leave the list and one SwarmCard stands for them. The
+ * swarm's own page reuses this same component for its members with
+ * `swarmId` set, which shows them as ordinary cards instead of folding them.
+ * The room's census still counts swarm members, so a shut room says so when
+ * one of them needs her. Swarms come from one shared poll (swarmApi.useSwarms)
+ * however many rooms are showing.
+ *
+ * THE ROOM FROM ABOVE. A room with a room helper (room_helper.py) opens with
+ * a RoomMap: the room helper on top, every swarm as one stack (its summary,
+ * its circle, its members' question cards, a little card per member), the
+ * sessions working alone in rows beneath. There the swarms live in the map
+ * only: no SwarmCard in the list, so a swarm isn't shown twice. The room
+ * helper's own session folds into that map instead of standing in the list.
+ *
+ * CLOSED SWARMS HIDE. A swarm with fewer than two sessions still at work is
+ * closed (swarms.is_closed); it stays off the room unless the "show closed
+ * swarms" switch on the room map is on.
+ *
+ * WAITING, THEN RUNNING, THEN DONE. Every card in a room, session or swarm,
+ * stands in one order: the ones waiting on her (orange first, then the ones
+ * she's opened, each longest-waiting first), then the ones running now, then
+ * the done and handed-on ones with the most recently finished last.
+ * roomOrder.ts owns the rule; the swarm's own page gets it through this same
+ * component.
+ *
+ * DONE FOLDS AWAY. The done sessions still counting down to close don't stand
+ * among the live cards: they sit in a small Done drawer at the foot of the
+ * room (DoneDrawer.tsx), shut by default, with "Done · 3" and any unread
+ * closing reports on its line. A done session still asking stays out in the
+ * room (roomOrder.foldsIntoDone). The Keeper's slot and a bare card never fold.
  */
+
 export function SessionLane({
   laneKey,
   heading,
   blurb,
   keeper = false,
+  bare = false,
   sessions,
   terrain,
   opened,
@@ -67,6 +116,8 @@ export function SessionLane({
   onRename,
   onChanged,
   onClose,
+  swarmId,
+  roster,
 }: {
   /** Which room this is — the key its open/shut state is remembered under, so
    * collapsing Coding doesn't also collapse Personal. */
@@ -77,6 +128,11 @@ export function SessionLane({
    * be something she can shut by accident, or something she has to remember
    * which room she filed it in. */
   keeper?: boolean;
+  /** Just the cards: no title line, no blurb, never shut, and no folding into
+   * swarm cards. For a page that embeds one session's card inside its own
+   * section (the Worktrees page's agent detail) — the host already says what
+   * it is, and folding would swap the one card for "Nothing here yet". */
+  bare?: boolean;
   /** One line under the heading saying what this room IS — the lanes differ in
    * whether they stop and ask, which is invisible unless it's written down. */
   blurb: string;
@@ -98,6 +154,12 @@ export function SessionLane({
   onRename: (session: SessionMeta) => void;
   onChanged?: () => void;
   onClose: (convId: string) => void;
+  /** Set on a swarm's own page: this lane IS the swarm, so its members show
+   * as ordinary cards rather than folding into a swarm card. */
+  swarmId?: number;
+  /** Every session the page knows, to read swarm members' colours from —
+   * members can live in other rooms. Defaults to this room's own sessions. */
+  roster?: SessionMeta[];
 }) {
   const navigate = useNavigate();
   // The Keeper's slot is never shut — it has no chevron to shut it with. The
@@ -105,18 +167,90 @@ export function SessionLane({
   // overruled, so a stale stored '0' can't hide the one card that must not
   // hide.
   const [laneOpen, toggleOpen] = useLaneOpen(laneKey);
-  const open = keeper || laneOpen;
-  const rows = orchestraRows(sessions, terrain);
+  const open = keeper || bare || laneOpen;
+  // Swarms sit in this room as one card each, and their members (and their
+  // helper) leave the room's own list — they're shown inside the swarm. One
+  // shared poll for every room (swarmApi.useSwarms). The Keeper's slot never
+  // folds: it's the one card that must not hide.
+  const { data: allSwarms } = useSwarms();
+  const folding = !keeper && !bare && swarmId === undefined;
+  // Each swarm read through the roster, so its colour follows the same rule as
+  // the session cards and its retired members drop out (roomOrder.swarmView).
+  const rosterById = new Map((roster ?? sessions).map((s) => [s.id, s]));
+  // Closed swarms (fewer than two sessions still at work) are hidden unless the shared
+  // switch shows them (swarmApi.shownSwarms).
+  const showClosed = useClosedSwarmsShown();
+  const shown = shownSwarms(allSwarms ?? [], showClosed);
+  const roomSwarms = shown.filter((s) => s.lane === laneKey);
+  const closedHere = (allSwarms ?? []).filter((s) => s.lane === laneKey && s.closed).length;
+  const swarmsHere: SwarmView[] = folding ? roomSwarms.map((s) => swarmView(s, rosterById, opened)) : [];
+  // The room from above, when this room has a room helper (RoomMap.tsx).
+  const { data: roomView } = useRoomView(laneKey, folding);
+  const hasRoomMap = folding && !!roomView?.helper_conv;
+  // Who leaves the room's own list: the members of every swarm drawn, and
+  // every swarm's helper. A hidden closed swarm's members stand in the room
+  // again as ordinary cards (the one still at work, if any, working alone);
+  // its helper stays out.
+  const inASwarm = new Set(
+    !folding
+      ? []
+      : [
+          ...shown.flatMap((s) => s.members.map((m) => m.conv)),
+          ...(allSwarms ?? []).flatMap((s) => (s.helper_conv ? [s.helper_conv] : [])),
+          ...(hasRoomMap ? [roomView!.helper_conv!] : []),
+        ],
+  );
+  const rows = orchestraRows(
+    sessions.filter((s) => !inASwarm.has(s.id)),
+    terrain,
+  );
   const byId = new Map(sessions.map((s) => [s.id, s]));
 
-  // Urgency order, top to bottom: a gated command needing her OK (nothing moves
-  // until she taps) > waiting-on-her (a reply) > everything else, in lane order.
-  const approvals = rows.filter((r) => r.pendingApproval);
-  const waiting = rows.filter((r) => !r.pendingApproval && r.awaiting);
-  const rest = rows.filter((r) => !r.pendingApproval && !r.awaiting);
+  // Place every card in the room's one order (roomOrder.ts): sessions by their
+  // band, swarms by theirs, each ordered inside its band by its own time. With
+  // a room map the swarms stand in the map instead (RoomMap.tsx), not here.
+  type Placed = { kind: 'row'; row: OrchestraRow } | { kind: 'swarm'; view: SwarmView };
+  const places: RoomPlace<Placed>[] = [
+    ...(hasRoomMap ? [] : swarmsHere).map((view) => ({
+      item: { kind: 'swarm' as const, view },
+      ...swarmPlace(view),
+    })),
+    ...rows.flatMap((row) => {
+      const meta = byId.get(row.id);
+      if (!meta) return [];
+      return [{
+        item: { kind: 'row' as const, row },
+        ...sessionPlace(meta, opened[row.id]),
+      }];
+    }),
+  ];
+  const ordered = orderRoom(places);
 
-  const needing = approvals.length + waiting.length;
-  const running = rest.filter((r) => r.running).length;
+  // Lift the done sessions into the Done drawer at the foot of the room
+  // (DoneDrawer.tsx). They keep the done band's order in there, most recently
+  // finished last. Not in the Keeper's slot or a bare card: those are one card
+  // each, and folding it would hide the only thing on show.
+  const drawerMeta = (placed: Placed) =>
+    placed.kind === 'row' ? byId.get(placed.row.id) : undefined;
+  const drawing = !keeper && !bare;
+  const folds = (placed: Placed) => {
+    const meta = drawerMeta(placed);
+    return drawing && !!meta && foldsIntoDone(meta);
+  };
+  const standing = ordered.filter((placed) => !folds(placed));
+  const tucked = ordered.filter(folds);
+  const tuckedUnread = unreadDone(
+    tucked.flatMap((placed) => drawerMeta(placed) ?? []),
+    opened,
+  );
+
+  // The census counts swarm members too, so a shut room still says a swarm
+  // member needs her.
+  const asking = rows.filter((r) => r.pendingApproval || r.awaiting);
+  const needing = asking.length + swarmsHere.reduce((n, s) => n + s.counts.needs_input, 0);
+  const running =
+    rows.filter((r) => r.running && !r.pendingApproval && !r.awaiting).length +
+    swarmsHere.reduce((n, s) => n + s.counts.working, 0);
   // Drives the memory poll's cadence: quick while a turn is moving so a start
   // is caught in a couple of seconds, slow when the room is at rest.
   const anyRunning = rows.some((r) => r.running);
@@ -129,7 +263,8 @@ export function SessionLane({
   // The Keeper has no title line at all: it isn't a room, it's one card, and a
   // heading over a single card is a label telling her what she's already
   // looking at. The teal ring and the 🌙 badge on the card do that work.
-  const head = keeper ? null : (
+  // A bare lane has none either — its host page is the heading.
+  const head = keeper || bare ? null : (
     <LaneHead
       heading={heading}
       open={open}
@@ -165,54 +300,79 @@ export function SessionLane({
     .filter(Boolean)
     .join(' ');
 
+  // Draw one card per place, by what it is: a swarm, a gated command, a
+  // question, or an ordinary session. Shared by the room's list and its Done
+  // drawer, so a done card looks the same in either.
+  const card = (placed: Placed) => {
+    if (placed.kind === 'swarm') {
+      return <SwarmCard key={`swarm-${placed.view.swarm.id}`} view={placed.view} onOpen={onOpen} />;
+    }
+    const { row } = placed;
+    if (row.pendingApproval) {
+      return <ApprovalCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />;
+    }
+    if (row.awaiting) {
+      return <AwaitingCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />;
+    }
+    const meta = byId.get(row.id);
+    if (!meta) return null;
+    return (
+      <SessionCard
+        key={row.id}
+        row={row}
+        meta={meta}
+        openedAt={opened[row.id]}
+        live={anyRunning}
+        onOpen={onOpen}
+        onSetRead={onSetRead}
+        onRename={onRename}
+        onClose={onClose}
+        onChanged={onChanged}
+      />
+    );
+  };
+
   return (
     <section className={sectionClass} aria-label={heading}>
       {head}
-      {keeper ? null : <p className={styles.blurb}>{blurb}</p>}
+      {keeper || bare ? null : <p className={styles.blurb}>{blurb}</p>}
 
-      {rows.length === 0 ? (
+      {hasRoomMap ? (
+        <RoomMap
+          room={laneKey}
+          view={roomView!}
+          swarms={swarmsHere}
+          closedCount={closedHere}
+          rosterById={rosterById}
+          onOpen={onOpen}
+          onChanged={onChanged}
+        />
+      ) : null}
+
+      {ordered.length === 0 ? (
         <div className={styles.idle}>
           <span className={styles.idleDot} aria-hidden="true" />
           {emptyNote ?? 'Nothing here yet — tap + beside the heading to start one.'}
         </div>
-      ) : (
-        <div className={styles.rows}>
-          {approvals.map((row) => (
-            <ApprovalCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />
-          ))}
+      ) : standing.length > 0 ? (
+        <div className={styles.rows}>{standing.map(card)}</div>
+      ) : null}
 
-          {waiting.map((row) => (
-            <AwaitingCard key={row.id} row={row} onOpen={onOpen} />
-          ))}
-
-          {rest.map((row) => {
-            const meta = byId.get(row.id);
-            if (!meta) return null;
-            return (
-              <SessionCard
-                key={row.id}
-                row={row}
-                meta={meta}
-                openedAt={opened[row.id]}
-                live={anyRunning}
-                onOpen={onOpen}
-                onSetRead={onSetRead}
-                onRename={onRename}
-                onClose={onClose}
-                onChanged={onChanged}
-              />
-            );
-          })}
-        </div>
-      )}
+      {/* The done ones, folded at the foot of the room (DoneDrawer.tsx). */}
+      {tucked.length > 0 ? (
+        <DoneDrawer laneKey={laneKey} count={tucked.length} unread={tuckedUnread}>
+          {tucked.map(card)}
+        </DoneDrawer>
+      ) : null}
 
       {/* The way back through this room. Under the cards, inside the collapse —
           it belongs to the room, so it goes when the room shuts.
           Not offered in the Keeper slot: that's one standing session, and
           "past Keepers" are rolled-over days that live in Personal's record.
+          Nor on a swarm's page: a swarm isn't a room with an archive.
           [prompt: "be able to see past sessions like, within a certain room
           underneath that room ... not within each chat session"] */}
-      {keeper ? null : (
+      {keeper || swarmId !== undefined ? null : (
         <button
           type="button"
           className={styles.pastLink}

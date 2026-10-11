@@ -69,7 +69,7 @@ fn stderr(o: &Output) -> String {
 #[test]
 fn check_slug_exists() {
     let sb = sandbox();
-    let o = run(&sb, &["check-slug", "migraines"]);
+    let o = run(&sb, &["check-slug", "topic-b"]);
     assert!(o.status.success());
     assert_eq!(stdout(&o).trim(), "exists");
 }
@@ -77,7 +77,7 @@ fn check_slug_exists() {
 #[test]
 fn check_slug_pending() {
     let sb = sandbox();
-    let o = run(&sb, &["check-slug", "night-terrors"]);
+    let o = run(&sb, &["check-slug", "topic-c"]);
     assert!(o.status.success());
     assert_eq!(stdout(&o).trim(), "pending");
 }
@@ -235,13 +235,13 @@ fn lint_reports_dangling_wikilink_as_warning_not_error() {
     let sb = sandbox();
     let o = run(&sb, &["lint"]);
     let out = stdout(&o);
-    // migraines.md links [[weed]], which doesn't exist as a fixture thread.
-    assert!(out.contains("[[weed]]"), "{}", out);
-    assert!(out.contains("migraines.md: warning:"), "{}", out);
+    // topic-b.md links [[other-topic]], which doesn't exist as a fixture thread.
+    assert!(out.contains("[[other-topic]]"), "{}", out);
+    assert!(out.contains("topic-b.md: warning:"), "{}", out);
 }
 
 #[test]
-fn migraines_thread_alone_is_clean() {
+fn topic_b_thread_alone_is_clean() {
     // Remove the broken fixture so we can assert the *valid* thread lints
     // clean on its own (isolating it from the deliberately-broken file).
     let sb = sandbox();
@@ -277,10 +277,10 @@ fn link_refuses_a_transitive_cycle() {
 #[test]
 fn link_allows_a_non_cyclic_parent_add() {
     let sb = sandbox();
-    let o = run(&sb, &["link", "--slug", "root-thread", "--add-parent", "long-covid"]);
+    let o = run(&sb, &["link", "--slug", "root-thread", "--add-parent", "topic-a"]);
     assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
     let text = std::fs::read_to_string(sb.content.join("Threads/root-thread.md")).unwrap();
-    assert!(text.contains("parents: [long-covid]"));
+    assert!(text.contains("parents: [topic-a]"));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -305,9 +305,9 @@ fn open_with_people_writes_canonical_frontmatter_and_reparses_the_same_list() {
             "--kind",
             "standing",
             "--people",
-            "michael",
+            "alex",
             "--people",
-            "bryan",
+            "jordan",
         ],
     );
     assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
@@ -317,7 +317,7 @@ fn open_with_people_writes_canonical_frontmatter_and_reparses_the_same_list() {
     // inline-list style as parents.
     let lines: Vec<&str> = text.lines().collect();
     let parents_idx = lines.iter().position(|l| l.starts_with("parents:")).unwrap();
-    assert_eq!(lines[parents_idx + 1], "people: [michael, bryan]");
+    assert_eq!(lines[parents_idx + 1], "people: [alex, jordan]");
     assert_eq!(lines[parents_idx + 2], "kind: standing");
 
     // Re-parse (via lint, which reads the file back through the same parser)
@@ -356,26 +356,26 @@ fn open_with_nonexistent_person_is_refused() {
 #[test]
 fn link_add_and_remove_person_mutate_the_cast_in_place() {
     let sb = sandbox();
-    // migraines.md starts with people: [michael] in the fixture.
-    let o = run(&sb, &["link", "--slug", "migraines", "--add-person", "bryan"]);
+    // topic-b.md starts with people: [alex] in the fixture.
+    let o = run(&sb, &["link", "--slug", "topic-b", "--add-person", "jordan"]);
     assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
-    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
-    assert!(text.contains("people: [michael, bryan]"), "{}", text);
+    let text = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
+    assert!(text.contains("people: [alex, jordan]"), "{}", text);
 
-    let o = run(&sb, &["link", "--slug", "migraines", "--remove-person", "michael"]);
+    let o = run(&sb, &["link", "--slug", "topic-b", "--remove-person", "alex"]);
     assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
-    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
-    assert!(text.contains("people: [bryan]"), "{}", text);
+    let text = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
+    assert!(text.contains("people: [jordan]"), "{}", text);
 }
 
 #[test]
 fn link_add_person_refuses_a_nonexistent_person() {
     let sb = sandbox();
-    let o = run(&sb, &["link", "--slug", "migraines", "--add-person", "nobody"]);
+    let o = run(&sb, &["link", "--slug", "topic-b", "--add-person", "nobody"]);
     assert!(!o.status.success());
     assert!(stderr(&o).contains("unknown person `nobody` — no people/nobody.md"), "{}", stderr(&o));
-    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
-    assert!(text.contains("people: [michael]"), "file changed despite refusal: {}", text);
+    let text = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
+    assert!(text.contains("people: [alex]"), "file changed despite refusal: {}", text);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -386,24 +386,24 @@ fn link_add_person_refuses_a_nonexistent_person() {
 #[test]
 fn round_trip_is_stable_with_people_present() {
     let sb = sandbox();
-    let before = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
-    assert!(before.contains("people: [michael]"));
+    let before = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
+    assert!(before.contains("people: [alex]"));
 
     // distill only touches the distilled: watermark, reserializing the rest
     // of the frontmatter verbatim through parse -> render — a clean way to
     // exercise the round trip without changing the cast itself.
-    let o = run(&sb, &["distill", "migraines"]);
+    let o = run(&sb, &["distill", "topic-b"]);
     assert!(o.status.success(), "{}", stderr(&o));
-    let after = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
-    assert!(after.contains("people: [michael]"), "{}", after);
+    let after = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
+    assert!(after.contains("people: [alex]"), "{}", after);
 
     // Round again through set-status and back — people: must survive intact.
-    let o = run(&sb, &["set-status", "migraines", "dormant"]);
+    let o = run(&sb, &["set-status", "topic-b", "dormant"]);
     assert!(o.status.success(), "{}", stderr(&o));
-    let o = run(&sb, &["set-status", "migraines", "active"]);
+    let o = run(&sb, &["set-status", "topic-b", "active"]);
     assert!(o.status.success(), "{}", stderr(&o));
-    let final_text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
-    assert!(final_text.contains("people: [michael]"), "{}", final_text);
+    let final_text = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
+    assert!(final_text.contains("people: [alex]"), "{}", final_text);
 }
 
 #[test]
@@ -449,7 +449,7 @@ fn propose_thread_open_appends_under_lock() {
     let pending_text = std::fs::read_to_string(sb.data.join("pending_changes.json")).unwrap();
     let pending: serde_json::Value = serde_json::from_str(&pending_text).unwrap();
     let arr = pending["pending"].as_array().unwrap();
-    assert_eq!(arr.len(), 2); // the fixture's night-terrors entry + this one
+    assert_eq!(arr.len(), 2); // the fixture's topic-c entry + this one
     let new_entry = arr.iter().find(|e| e["payload"]["slug"] == "new-topic").unwrap();
     assert_eq!(new_entry["kind"], "thread_open");
     assert!(new_entry["summary"].as_str().unwrap().contains("New Topic"));
@@ -464,7 +464,7 @@ fn propose_thread_open_with_people_validates() {
         "charter": "A test thread — what belongs here. Out: everything else.",
         "fronts": ["health"],
         "parents": [],
-        "people": ["michael", "bryan"],
+        "people": ["alex", "jordan"],
         "kind": "standing",
         "proposer": "cricket-health",
         "rationale": "3 cards across 2 days.",
@@ -504,8 +504,8 @@ fn propose_thread_open_with_a_bad_person_is_refused() {
 fn propose_refuses_a_slug_that_already_exists() {
     let sb = sandbox();
     let payload = serde_json::json!({
-        "slug": "migraines",
-        "name": "Migraines Again",
+        "slug": "topic-b",
+        "name": "Topic B Again",
         "charter": "A test thread — what belongs here. Out: everything else.",
         "fronts": ["health"],
         "parents": [],
@@ -526,8 +526,8 @@ fn propose_refuses_a_slug_that_already_exists() {
 fn propose_refuses_a_slug_that_is_already_pending() {
     let sb = sandbox();
     let payload = serde_json::json!({
-        "slug": "night-terrors",
-        "name": "Night Terrors",
+        "slug": "topic-c",
+        "name": "Topic C",
         "charter": "A test thread — what belongs here. Out: everything else.",
         "fronts": ["health"],
         "parents": [],
@@ -656,7 +656,7 @@ fn propose_reads_json_from_stdin_with_dash() {
 fn propose_thread_link_valid_and_refuses_empty_ops() {
     let sb = sandbox();
     let payload = serde_json::json!({
-        "slug": "migraines",
+        "slug": "topic-b",
         "add_fronts": ["practice"],
         "rationale": "testing"
     });
@@ -664,7 +664,7 @@ fn propose_thread_link_valid_and_refuses_empty_ops() {
     assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
     assert!(stdout(&o).contains("+front:practice"), "{}", stdout(&o));
 
-    let empty_ops = serde_json::json!({ "slug": "migraines", "rationale": "testing" });
+    let empty_ops = serde_json::json!({ "slug": "topic-b", "rationale": "testing" });
     let o = run(&sb, &["propose", "thread_link", "--json", &empty_ops.to_string()]);
     assert!(!o.status.success());
     assert!(stderr(&o).contains("must be non-empty"), "{}", stderr(&o));
@@ -687,7 +687,7 @@ fn propose_thread_link_refuses_unknown_thread() {
 fn propose_thread_retire_valid_and_refuses_bad_date() {
     let sb = sandbox();
     let payload = serde_json::json!({
-        "slug": "migraines",
+        "slug": "topic-b",
         "reason": "resolved",
         "last_card_date": "2026-07-14"
     });
@@ -695,7 +695,7 @@ fn propose_thread_retire_valid_and_refuses_bad_date() {
     assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
 
     let bad = serde_json::json!({
-        "slug": "migraines",
+        "slug": "topic-b",
         "reason": "resolved",
         "last_card_date": "not-a-date"
     });
@@ -767,14 +767,14 @@ fn open_add_card_set_status_distill_round_trip_relints_clean() {
 #[test]
 fn set_status_retired_stamps_date_and_unretiring_clears_it() {
     let sb = sandbox();
-    let o = run(&sb, &["set-status", "migraines", "retired"]);
+    let o = run(&sb, &["set-status", "topic-b", "retired"]);
     assert!(o.status.success(), "{}", stderr(&o));
-    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    let text = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
     assert!(text.contains(&format!("retired: {}", chrono::Local::now().format("%Y-%m-%d"))));
 
-    let o = run(&sb, &["set-status", "migraines", "active"]);
+    let o = run(&sb, &["set-status", "topic-b", "active"]);
     assert!(o.status.success(), "{}", stderr(&o));
-    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    let text = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
     assert!(text.contains("retired:\n") || text.contains("retired:\r\n"));
 }
 
@@ -785,14 +785,14 @@ fn set_status_retired_stamps_date_and_unretiring_clears_it() {
 #[test]
 fn set_name_renames_in_place_leaving_body_and_other_frontmatter_untouched() {
     let sb = sandbox();
-    let before = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    let before = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
 
-    let o = run(&sb, &["set-name", "--slug", "migraines", "--name", "Migraine Attacks"]);
+    let o = run(&sb, &["set-name", "--slug", "topic-b", "--name", "Topic B Renamed"]);
     assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
 
-    let after = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
-    assert!(after.contains("name: Migraine Attacks"), "{}", after);
-    assert!(!after.contains("name: Migraines\n"), "{}", after);
+    let after = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
+    assert!(after.contains("name: Topic B Renamed"), "{}", after);
+    assert!(!after.contains("name: Topic B\n"), "{}", after);
 
     // Everything else — other frontmatter fields and the body — is untouched.
     let before_sans_name: Vec<&str> = before.lines().filter(|l| !l.starts_with("name:")).collect();
@@ -801,9 +801,9 @@ fn set_name_renames_in_place_leaving_body_and_other_frontmatter_untouched() {
 
     let changelog = std::fs::read_to_string(sb.content.join("_system/cricket_changelog.md")).unwrap();
     assert!(changelog.contains("thread-rename"), "{}", changelog);
-    assert!(changelog.contains("**migraines**"), "{}", changelog);
-    assert!(changelog.contains("Migraines"), "{}", changelog);
-    assert!(changelog.contains("Migraine Attacks"), "{}", changelog);
+    assert!(changelog.contains("**topic-b**"), "{}", changelog);
+    assert!(changelog.contains("Topic B"), "{}", changelog);
+    assert!(changelog.contains("Topic B Renamed"), "{}", changelog);
 }
 
 #[test]
@@ -819,10 +819,10 @@ fn set_name_on_a_nonexistent_slug_is_refused() {
 fn set_name_round_trips_apostrophe_and_ampersand() {
     let sb = sandbox();
     let tricky_name = "Mom & the family's non-acceptance";
-    let o = run(&sb, &["set-name", "--slug", "migraines", "--name", tricky_name]);
+    let o = run(&sb, &["set-name", "--slug", "topic-b", "--name", tricky_name]);
     assert!(o.status.success(), "stdout: {}\nstderr: {}", stdout(&o), stderr(&o));
 
-    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    let text = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
     assert!(text.contains(&format!("name: {}\n", tricky_name)), "{}", text);
 
     // Re-parse through the same model the binary uses for every other
@@ -835,9 +835,9 @@ fn set_name_round_trips_apostrophe_and_ampersand() {
     // distill re-renders the whole frontmatter from the parsed struct — if
     // the apostrophe/ampersand had been mis-parsed or mis-escaped, this
     // second round trip would show it.
-    let o = run(&sb, &["distill", "migraines"]);
+    let o = run(&sb, &["distill", "topic-b"]);
     assert!(o.status.success(), "{}", stderr(&o));
-    let text = std::fs::read_to_string(sb.content.join("Threads/migraines.md")).unwrap();
+    let text = std::fs::read_to_string(sb.content.join("Threads/topic-b.md")).unwrap();
     assert!(text.contains(&format!("name: {}\n", tricky_name)), "{}", text);
 }
 
@@ -853,7 +853,7 @@ fn add_card_refuses_duplicate_heading() {
         &[
             "add-card",
             "--slug",
-            "migraines",
+            "topic-b",
             "--section",
             "What it is",
             "--text",
@@ -874,7 +874,7 @@ fn add_card_refuses_over_three_lines() {
         &[
             "add-card",
             "--slug",
-            "migraines",
+            "topic-b",
             "--section",
             "Brand New Section",
             "--text",
@@ -895,7 +895,7 @@ fn add_card_refuses_unresolvable_source() {
         &[
             "add-card",
             "--slug",
-            "migraines",
+            "topic-b",
             "--section",
             "Brand New Section",
             "--text",
@@ -911,14 +911,14 @@ fn add_card_refuses_unresolvable_source() {
 #[test]
 fn add_card_refuses_on_retired_thread() {
     let sb = sandbox();
-    let o = run(&sb, &["set-status", "migraines", "retired"]);
+    let o = run(&sb, &["set-status", "topic-b", "retired"]);
     assert!(o.status.success());
     let o = run(
         &sb,
         &[
             "add-card",
             "--slug",
-            "migraines",
+            "topic-b",
             "--section",
             "Brand New Section",
             "--text",
@@ -938,9 +938,9 @@ fn add_card_refuses_on_retired_thread() {
 #[test]
 fn inbox_filters_by_distilled_watermark_and_sorts_oldest_first() {
     let sb = sandbox();
-    // migraines.md: distilled 2026-07-10. Tagged cards: 2026-07-05 (before,
+    // topic-b.md: distilled 2026-07-10. Tagged cards: 2026-07-05 (before,
     // excluded), 2026-07-12 and 2026-07-14 (after, included, oldest first).
-    let o = run(&sb, &["inbox", "migraines"]);
+    let o = run(&sb, &["inbox", "topic-b"]);
     assert!(o.status.success(), "{}", stderr(&o));
     let out = stdout(&o);
     let lines: Vec<&str> = out.lines().collect();
@@ -953,7 +953,7 @@ fn inbox_filters_by_distilled_watermark_and_sorts_oldest_first() {
 #[test]
 fn inbox_exits_zero_when_empty() {
     let sb = sandbox();
-    let o = run(&sb, &["inbox", "long-covid"]);
+    let o = run(&sb, &["inbox", "topic-a"]);
     assert!(o.status.success(), "{}", stderr(&o));
     assert_eq!(stdout(&o).trim(), "");
 }
@@ -1077,7 +1077,7 @@ fn lint_warns_but_does_not_fail_on_a_thread_with_no_charter() {
     let out = stdout(&o);
     assert!(out.contains("leaf-thread.md: warning: no charter"), "{}", out);
     // Every other fixture IS charted, so exactly one file carries this warning
-    // (the vault's other warnings are dangling-wikilink ones on migraines).
+    // (the vault's other warnings are dangling-wikilink ones on topic-b).
     assert_eq!(out.matches("warning: no charter").count(), 1, "{}", out);
 }
 
@@ -1150,8 +1150,8 @@ fn propose_thread_open_without_a_charter_is_refused() {
 fn propose_thread_link_accepts_a_charter_recut_on_its_own() {
     let sb = sandbox();
     let payload = serde_json::json!({
-        "slug": "migraines",
-        "charter": "A re-cut scope for the migraines thread. Out: the illness underneath.",
+        "slug": "topic-b",
+        "charter": "A re-cut scope for the topic-b thread. Out: the parent subject.",
         "rationale": "The week showed this thread is narrower than its charter says.",
         "evidence": [{"source": "2026-07-05.0900a", "date": "2026-07-05", "quote": "a"}]
     });

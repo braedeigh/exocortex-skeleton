@@ -1,4 +1,8 @@
+import { useNavigate } from '@tanstack/react-router';
+import { IconButton } from '../../ui';
+import { isSolo } from '../../shell/solo';
 import { FileCodeBody } from './FileCodeBody';
+import { mentionsFromSearch } from './codeMentions';
 import styles from './FileCodePage.module.css';
 
 /**
@@ -21,6 +25,16 @@ import styles from './FileCodePage.module.css';
  * already validated its shape); `parseLineRange` turns it into the 1-based
  * inclusive {start, end} FileCodeBody highlights and scrolls to on mount. A
  * bare number highlights just that one line.
+ *
+ * `mentions` + `of` are the other way in: every line this file names one SQL
+ * table on, sent by that table's card on the Terrain map. The body marks them
+ * all, lands on the first, and puts arrows above the code to step between them
+ * (codeMentions.ts spells the params; FileCodeBody does the stepping).
+ *
+ * In a SOLO tab (a file popped out of the Terrain map — shell/solo.ts) the
+ * header also wears an ×. A popped-out tab starts with no history, so there
+ * is nowhere to go "back" to; the × goes to the Terrain map instead, still
+ * solo, so the tab stays one pane.
  */
 function parseLineRange(lines?: string): { start: number; end: number } | undefined {
   if (!lines) return undefined;
@@ -31,7 +45,21 @@ function parseLineRange(lines?: string): { start: number; end: number } | undefi
   return { start, end: Number.isFinite(end) ? end : start };
 }
 
-export function FileCodePage({ repo, path, lines }: { repo?: string; path?: string; lines?: string }) {
+export function FileCodePage({
+  repo,
+  path,
+  lines,
+  mentions,
+  of,
+}: {
+  repo?: string;
+  path?: string;
+  lines?: string;
+  /** Comma-separated 1-based lines that all name `of`, e.g. "4,9,30". */
+  mentions?: string;
+  /** What those lines name — a SQL table's name. */
+  of?: string;
+}) {
   // Nothing asked for yet — a bare /code, or a link that lost its search.
   if (!repo || !path) {
     return (
@@ -44,6 +72,8 @@ export function FileCodePage({ repo, path, lines }: { repo?: string; path?: stri
   }
 
   const name = path.split('/').filter(Boolean).slice(-1)[0] ?? path;
+  const navigate = useNavigate();
+  const solo = isSolo();
 
   return (
     <div className={styles.page}>
@@ -58,17 +88,41 @@ export function FileCodePage({ repo, path, lines }: { repo?: string; path?: stri
         <span className={styles.headerPath} title={path}>
           {path}
         </span>
+        {/* Leave a popped-out file for the Terrain map. Only a solo tab gets
+            this ×: anywhere else the page sits in a tile or behind the tab
+            strip, which already have their own ways out. The tab was opened
+            fresh, so it has no "back" — the × goes to the map, the place the
+            file was popped out of. `solo` is carried along so the map gets
+            the whole tab too, instead of the full workspace appearing around
+            it; a file tapped there opens over it, and ITS × comes back.
+            A push, so the browser's back button returns to this file.
+            Her ask: "when I open the new window, and there is no x button,
+            it takes me to a terrain view." */}
+        {solo ? (
+          <IconButton
+            className={styles.headerClose}
+            aria-label="Close — go to the Terrain map"
+            title="Go to the Terrain map"
+            data-track="code-solo-to-terrain"
+            onClick={() => void navigate({ to: '/terrain/files', search: { solo: true } })}
+          >
+            &times;
+          </IconButton>
+        ) : null}
       </div>
       {/* keyed on file + line range so switching files (or clicking a new
           lines= link to the SAME file) remounts clean — otherwise the
           scroll-once guard in FileCodeBody would fire for the first link and
-          never fire again for the second. */}
+          never fire again for the second. The mentions are in the key for the
+          same reason: a second table's card pointing at this same file should
+          land on ITS first mention, not stay where the last one left her. */}
       <FileCodeBody
-        key={`${repo}:${path}:${lines ?? ''}`}
+        key={`${repo}:${path}:${lines ?? ''}:${mentions ?? ''}`}
         repo={repo}
         path={path}
         fill
         highlight={parseLineRange(lines)}
+        mentions={mentionsFromSearch(mentions, of)}
       />
     </div>
   );

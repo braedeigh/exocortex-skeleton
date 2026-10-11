@@ -472,4 +472,10 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    # Put this run on the runtime map (runtime_sensor.py): which of our
+    # files actually execute, and which call which. Inside __main__ rather
+    # than at import, because some of these modules are also imported BY
+    # the web app, and only the standalone run is a process of its own.
+    import runtime_sensor
+    runtime_sensor.attach()
     sys.exit(main())

@@ -79,8 +79,8 @@ export function setFood(date: string, food_notes: string): Promise<OkResponse> {
 /**
  * Symptom columns for a date — routes/health.py log_symptoms. Values are
  * numbers for the 0–3 fields but STRINGS for histamine_flare ("yes"/"no")
- * and flare_trigger, so this is deliberately looser than endpoints.ts's
- * SymptomLevels (Record<string, number>).
+ * and flare_trigger, so this is deliberately looser than the Body tab's
+ * SymptomPayload (bodyApi.ts, Record<string, number>).
  */
 export type SymptomWriteValues = Record<string, number | string>;
 

@@ -1,0 +1,455 @@
+"""Messages reaching agents: mid-turn, between turns, and by interrupting.
+
+These drive the real turn loop (routes/observatory.py _run_turn) against a
+stub agent that speaks Claude Code's streaming-input format: it reads its
+first message, starts a "tool", and while that tool runs it listens for more
+input — echoing each message it reads (as `--replay-user-messages` does) and
+answering it in the same turn. That's the behaviour checked against the real
+CLI when this was built; the stub pins our side of it.
+"""
+import json
+import stat
+import threading
+import time
+
+import pytest
+
+import config
+import peermail
+import sqlstore
+import store
+from routes import observatory
+from tests.test_observatory_routes import (  # noqa: F401  (bot_client is a fixture)
+    bot_client, _seed_conv, _conv_log)
+
+
+STREAM_STUB = """#!/usr/bin/env python3
+import json, sys, select, time
+def say(obj):
+    print(json.dumps(obj), flush=True)
+first = json.loads(sys.stdin.readline())["message"]["content"]
+say({"type": "system", "subtype": "init", "session_id": "sid-s"})
+say({"type": "user", "isReplay": True, "message": {"role": "user", "content": first}})
+say({"type": "assistant", "message": {"role": "assistant", "content": [
+    {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "sleep"}}]}})
+# The "tool" runs for up to {hold} seconds; any message arriving meanwhile is
+# read, echoed and answered before the turn's result.
+heard = []
+deadline = time.time() + {hold}
+while time.time() < deadline:
+    ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+    if ready:
+        line = sys.stdin.readline()
+        if not line:
+            break
+        text = json.loads(line)["message"]["content"]
+        say({"type": "user", "isReplay": True, "message": {"role": "user", "content": text}})
+        heard.append(text)
+        break
+say({"type": "user", "message": {"role": "user", "content": [
+    {"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"}]}})
+say({"type": "assistant", "message": {"role": "assistant", "content": [
+    {"type": "text", "text": "first: " + first + " | heard: " + " / ".join(heard)}]}})
+say({"type": "result", "subtype": "success", "session_id": "sid-s", "total_cost_usd": 0.01})
+# A real agent waits for more input until it's closed; so does this one.
+sys.stdin.read()
+"""
+
+
+@pytest.fixture
+def streaming(bot_client, tmp_path, monkeypatch):
+    def make(hold=5):
+        stub = tmp_path / "claude-stream"
+        stub.write_text(STREAM_STUB.replace("{hold}", str(hold)))
+        stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+        monkeypatch.setattr(observatory, "CLAUDE_BIN", str(stub))
+        monkeypatch.setattr(config, "TURN_STREAM_INPUT", True)
+        monkeypatch.setattr(observatory.app_config, "TURN_STREAM_INPUT", True)
+        monkeypatch.setattr(observatory, "_INBOX_POLL_SEC", 0.1)
+        return stub
+    return make
+
+
+def _run(conv_id, text):
+    """Start a turn through the real send path and wait for it to finish."""
+    result = observatory.begin_turn(conv_id, text)
+    assert result["ok"], result
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        if not store.read("bot_chats/index", {})[conv_id].get("running"):
+            return
+        time.sleep(0.05)
+    raise AssertionError("turn never finished")
+
+
+def _seed_two():
+    a = _seed_conv("2026-09-27.100000")
+    b = _seed_conv("2026-09-27.110000")
+    return a, b
+
+
+def test_a_message_is_handed_in_mid_turn_and_answered_in_the_same_turn(streaming):
+    streaming(hold=5)
+    a, b = _seed_two()
+    threading.Timer(0.5, lambda: observatory.peer_send(a, b, "store.py changed")).start()
+    _run(b, "do the thing")
+
+    log = _conv_log(b)
+    peer = [e for e in log if e.get("type") == "peer"]
+    assert peer and peer[0]["direction"] == "in" and peer[0]["from_conv"] == a
+    reply = json.dumps([e for e in log if e.get("type") == "assistant"],
+                       ensure_ascii=False)
+    assert "heard: [A · " in reply and "store.py changed" in reply
+    # the echo is how the turn knew it was read — it isn't logged a second time
+    assert not [e for e in log if e.get("isReplay")]
+    assert peermail.waiting(b) == []
+    # and the chain depth moved on the recipient
+    assert store.read("bot_chats/index", {})[b]["peer_hops"] == 1
+
+
+def test_the_sender_sees_its_message_as_a_card(streaming):
+    streaming(hold=0)
+    a, b = _seed_two()
+    observatory.peer_send(a, b, "heads up")
+    out = [e for e in _conv_log(a) if e.get("type") == "peer"]
+    assert out[0]["direction"] == "out" and out[0]["to_conv"] == b
+
+
+def test_a_message_to_an_idle_session_wakes_it(bot_client, monkeypatch):
+    started = []
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, *a: started.append(text) or True)
+    a, b = _seed_two()
+    row = observatory.peer_send(a, b, "wake up")
+    assert row["started"] is True
+    assert "wake up" in started[0] and "[A · " in started[0]
+
+
+def test_everything_waiting_goes_out_together_labelled(bot_client, monkeypatch):
+    started = []
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, *a: started.append(text) or True)
+    a, b = _seed_two()
+    with store.mutate("bot_chats/index", {}) as index:
+        index[b]["running"] = True
+    monkeypatch.setattr(observatory, "_effective_running",
+                        lambda conv_id, entry: bool(entry.get("running")))
+    peermail.send(b, "fix the chevron", kind="B")
+    observatory.peer_send(a, b, "store.py changed", mode="queue")
+    assert started == []                       # busy: both wait
+    with store.mutate("bot_chats/index", {}) as index:
+        index[b]["running"] = False
+    assert observatory.drain_inbox(b) is True
+    assert "[B · " in started[0] and "fix the chevron" in started[0]
+    assert "store.py changed" in started[0]
+    log = _conv_log(b)
+    assert [e["type"] for e in log][-2:] == ["user", "peer"]
+
+
+def test_a_held_message_waits_for_her_release(bot_client, monkeypatch):
+    started = []
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, *a: started.append(text) or True)
+    # Nothing holds a message any more; an old held one is set up by hand.
+    monkeypatch.setattr(observatory, "_effective_running", lambda c, e: True)
+    a, b = _seed_two()
+    row = observatory.peer_send(a, b, "loop again")
+    from tests.test_peermail import _hold
+    _hold(row)
+    monkeypatch.setattr(observatory, "_effective_running",
+                        lambda c, e: bool(e.get("running")))
+    assert started == []
+    resp = bot_client.post(f"/api/observatory/peer/{row['id']}/release")
+    assert resp.status_code == 200
+    assert started and "loop again" in started[0]
+    assert [e for e in _conv_log(a) if e.get("type") == "peer-status"]
+
+
+def test_an_interrupt_stops_the_turn_and_restarts_with_the_message(streaming, monkeypatch):
+    streaming(hold=15)
+    a, b = _seed_two()
+    t0 = time.time()
+    threading.Timer(0.5, lambda: observatory.peer_send(
+        a, b, "stop, the plan changed", mode="interrupt")).start()
+    # the restart is a second turn; record it rather than run it
+    restarted = []
+    real_begin = observatory.begin_turn
+
+    def spy(conv_id, text, *args, **kw):
+        if kw.get("batch"):
+            restarted.append(observatory.peermail.compose(kw["batch"]))
+            return {"ok": True}
+        return real_begin(conv_id, text, *args, **kw)
+
+    monkeypatch.setattr(observatory, "begin_turn", spy)
+    _run(b, "long job")
+    assert time.time() - t0 < 10               # killed, not waited out
+    # the end-of-turn drain restarts it (give its thread a moment to get there)
+    deadline = time.time() + 5
+    while not restarted and time.time() < deadline:
+        observatory.drain_inbox(b)
+        time.sleep(0.05)
+    assert restarted and "stop, the plan changed" in restarted[0]
+    # stopped on purpose, so no red card
+    assert "last_error" not in store.read("bot_chats/index", {})[b]
+
+
+def test_queue_only_keeps_messages_out_until_the_turn_ends(streaming, monkeypatch):
+    streaming(hold=2)
+    # hold the end-of-turn drain, so what's waiting can be looked at
+    monkeypatch.setattr(observatory, "drain_inbox", lambda *a, **k: False)
+    a, b = _seed_two()
+    peermail.set_policy(b, "queue-only")
+    threading.Timer(0.3, lambda: peermail.send(b, "later please", from_conv=a)).start()
+    _run(b, "work")
+    reply = json.dumps([e for e in _conv_log(b) if e.get("type") == "assistant"])
+    assert "later please" not in reply
+    assert [r["text"] for r in peermail.waiting(b)] == ["later please"]
+
+
+def test_her_inbox_route_starts_an_idle_session_and_lists_waiting(bot_client, monkeypatch):
+    started = []
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, *a: started.append(text) or True)
+    a, b = _seed_two()
+    resp = bot_client.post(f"/api/observatory/conversation/{b}/inbox", json={"text": "hi"})
+    assert resp.get_json()["started"] is True and started == ["hi"]
+    # busy now (the fake host never clears it): the next one waits, and can be taken back
+    monkeypatch.setattr(observatory, "_effective_running", lambda c, e: True)
+    resp = bot_client.post(f"/api/observatory/conversation/{b}/inbox", json={"text": "and this"})
+    assert resp.get_json()["started"] is False
+    waiting = bot_client.get(f"/api/observatory/conversation/{b}/inbox").get_json()["waiting"]
+    assert [w["text"] for w in waiting] == ["and this"]
+    mid = waiting[0]["id"]
+    assert bot_client.delete(f"/api/observatory/conversation/{b}/inbox/{mid}").status_code == 200
+    assert bot_client.delete(f"/api/observatory/conversation/{b}/inbox/{mid}").status_code == 409
+
+
+# The real CLI doesn't look at its input while a step runs: a message handed
+# in during a long Bash call is read only when the call returns. This stub
+# does the same — it sits in its "tool" for {hold} seconds without reading,
+# then reads whatever arrived, echoes it and answers it.
+SLOW_READ_STUB = """#!/usr/bin/env python3
+import json, sys, select, time
+from datetime import datetime, timezone
+def say(obj):
+    print(json.dumps(obj), flush=True)
+first = json.loads(sys.stdin.readline())["message"]["content"]
+say({"type": "system", "subtype": "init", "session_id": "sid-slow"})
+say({"type": "user", "isReplay": True, "message": {"role": "user", "content": first}})
+stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+say({"type": "assistant", "timestamp": stamp, "message": {"role": "assistant", "content": [
+    {"type": "tool_use", "id": "toolu_slow", "name": "Bash", "input": {"command": "pytest -q"}}]}})
+time.sleep({hold})
+heard = []
+while select.select([sys.stdin], [], [], 0.2)[0]:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    text = json.loads(line)["message"]["content"]
+    say({"type": "user", "isReplay": True, "message": {"role": "user", "content": text}})
+    heard.append(text)
+say({"type": "user", "message": {"role": "user", "content": [
+    {"type": "tool_result", "tool_use_id": "toolu_slow", "content": "ok"}]}})
+say({"type": "assistant", "message": {"role": "assistant", "content": [
+    {"type": "text", "text": "heard: " + " / ".join(heard)}]}})
+say({"type": "result", "subtype": "success", "session_id": "sid-slow", "total_cost_usd": 0.01})
+sys.stdin.read()
+"""
+
+
+@pytest.fixture
+def slow_reader(streaming, tmp_path, monkeypatch):
+    def make(hold):
+        streaming()
+        stub = tmp_path / "claude-slow"
+        stub.write_text(SLOW_READ_STUB.replace("{hold}", str(hold)))
+        stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+        monkeypatch.setattr(observatory, "CLAUDE_BIN", str(stub))
+        monkeypatch.setattr(observatory, "_LIVE_INGEST_SEC", 0.1)
+    return make
+
+
+def _until(check, seconds=10):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        value = check()
+        if value:
+            return value
+        time.sleep(0.05)
+    raise AssertionError("never happened")
+
+
+def _her_lines(conv_id, text):
+    return [e for e in _conv_log(conv_id) if e.get("type") == "user" and e.get("text") == text]
+
+
+def test_her_message_lands_in_the_chat_when_the_agent_reads_it_and_says_after_which_step(
+        streaming, bot_client):
+    """Handed in mid-turn, read at the agent's next step: the transcript gets
+    her words at that spot with where they landed, and the mailbox records
+    the read."""
+    streaming(hold=5)
+    _, b = _seed_two()
+    threading.Timer(0.5, lambda: bot_client.post(
+        f"/api/observatory/conversation/{b}/inbox", json={"text": "use the other table"})).start()
+    _run(b, "do the thing")
+    log = _conv_log(b)
+    [line] = _her_lines(b, "use the other table")
+    assert line["arrived"] == {"how": "injected", "after_step": 1}
+    tool_at = next(i for i, e in enumerate(log) if e.get("type") == "assistant")
+    assert log.index(line) > tool_at           # after the step that was running
+    conn = sqlstore.open_db()
+    try:
+        how, at = conn.execute("SELECT delivered_how, delivered_at FROM agent_messages"
+                               " WHERE text = 'use the other table'").fetchone()
+    finally:
+        conn.close()
+    assert how == "injected" and at
+
+
+def test_her_send_into_a_turn_the_app_started_is_refused_as_busy_and_reaches_it_by_mailbox(
+        streaming, bot_client):
+    """A watch fires in a chat she has open: the app starts a turn her page
+    hasn't seen yet, and she sends. The send door refuses it marked `busy` and
+    writes nothing; the page answers that refusal by putting the same words in
+    the mailbox, and the running turn reads them. Nothing she sent is lost."""
+    streaming(hold=5)
+    _, b = _seed_two()
+    # the turn a fired watch starts (queue_followup ends in this same call)
+    assert observatory.begin_turn(
+        b, "[Watch] it shipped", system={"display": "Watch fired", "source": "helper-watch"})["ok"]
+    refused = bot_client.post(f"/api/observatory/conversation/{b}/send",
+                              json={"text": "one more thing"})
+    assert refused.status_code == 409 and refused.get_json()["busy"] is True
+    assert _her_lines(b, "one more thing") == []
+    # what the page does with a busy refusal (sendFailure.ts)
+    bot_client.post(f"/api/observatory/conversation/{b}/inbox", json={"text": "one more thing"})
+    _until(lambda: not store.read("bot_chats/index", {})[b].get("running"), seconds=20)
+    [line] = _her_lines(b, "one more thing")
+    assert line["arrived"]["how"] == "injected"
+    assert "one more thing" in json.dumps([e for e in _conv_log(b) if e.get("type") == "assistant"])
+
+
+def test_a_message_stuck_behind_a_long_step_says_why_and_send_now_restarts_with_it(
+        slow_reader, bot_client, monkeypatch):
+    """While the agent is inside a long step, her handed-in message stays on
+    her waiting list with the step it's stuck behind. "Send now" stops the
+    step, and the next turn starts with her message — written into the chat
+    once, marked as sent now."""
+    slow_reader(hold=20)
+    _, b = _seed_two()
+    t0 = time.time()
+    assert observatory.begin_turn(b, "run the whole suite")["ok"]
+    inbox = f"/api/observatory/conversation/{b}/inbox"
+    assert bot_client.post(inbox, json={"text": "stop, wrong branch"}).get_json()["started"] is False
+
+    def handed_with_step():
+        body = bot_client.get(inbox).get_json()
+        rows = body["waiting"]
+        return body if rows and rows[0]["handed"] and body["status"]["step"] else None
+    body = handed_with_step() or _until(handed_with_step)
+    assert body["status"]["running"] is True
+    assert body["status"]["step"]["name"] == "Bash"
+    assert body["status"]["step"]["target"] == "pytest -q"
+    assert _her_lines(b, "stop, wrong branch") == []     # not read, so not in the chat yet
+    mid = body["waiting"][0]["id"]
+    # Handed in: it can't be taken back any more — only sent now.
+    assert bot_client.delete(f"{inbox}/{mid}").status_code == 409
+
+    # The next turn is recorded rather than run.
+    started = []
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, *a: started.append(text) or True)
+    assert bot_client.post(f"{inbox}/{mid}/now").status_code == 200
+    # The agent never read it, so the end-of-turn drain starts the next turn with it.
+    _until(lambda: started)
+    assert time.time() - t0 < 15                # stopped, not waited out
+    assert started == ["stop, wrong branch"]
+    assert "last_error" not in store.read("bot_chats/index", {})[b]
+    [line] = _her_lines(b, "stop, wrong branch")
+    assert line["arrived"] == {"how": "interrupt"}
+    # …and once it has gone, send now has nothing left to do.
+    assert bot_client.post(f"{inbox}/{mid}/now").status_code == 409
+
+
+def test_a_message_handed_to_a_turn_that_died_goes_out_with_the_next(bot_client, monkeypatch):
+    """A host that dies never puts back what it handed in; the next drain
+    does, so the agent still gets it."""
+    started = []
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, *a: started.append(text) or True)
+    _, b = _seed_two()
+    row = peermail.send(b, "did you see this?", kind="B")
+    peermail.claim([row], "handed")
+    assert peermail.waiting(b) == []
+    assert observatory.drain_inbox(b) is True
+    assert started == ["did you see this?"]
+    assert len(_her_lines(b, "did you see this?")) == 1
+
+
+def test_a_turn_records_context_size_and_final_output_per_model_call(bot_client, tmp_path):
+    """The final output count exists only in the live stream, so the turn loop
+    writes it down (docs/swarms.md, stage 1), and keeps the session's current
+    context size on its index entry for the self-continuing cap."""
+    cid = _seed_conv("2026-09-27.120000")
+    log_path = store.DATA_DIR / "bot_chats" / f"{cid}.jsonl"
+    open_calls = {}
+    with open(log_path, "a") as log:
+        observatory._note_model_call({"type": "stream_event", "event": {
+            "type": "message_start", "message": {"id": "msg_9", "model": "claude-opus-5-5",
+                "usage": {"input_tokens": 2, "cache_creation_input_tokens": 10,
+                          "cache_read_input_tokens": 120000}}}}, open_calls, log, cid)
+        observatory._note_model_call({"type": "stream_event", "event": {
+            "type": "message_delta", "usage": {"output_tokens": 300,
+                "output_tokens_details": {"thinking_tokens": 200}}}}, open_calls, log, cid)
+    entry = store.read("bot_chats/index", {})[cid]
+    assert entry["context_tokens"] == 120012
+    assert entry["context_model"] == "claude-opus-5-5"
+    [line] = _conv_log(cid)
+    assert line["type"] == "call-usage" and line["message_id"] == "msg_9"
+    assert (line["output_tokens"], line["thinking_tokens"]) == (300, 200)
+
+
+def test_peers_cli_only_ever_sends_as_an_agent(bot_client, monkeypatch):
+    """scripts/peers.py has no way to send the owner's kind: whatever an agent
+    passes, the row it stores is an A message from that agent."""
+    monkeypatch.setattr(observatory, "_spawn_host", lambda *a: True)
+    from scripts import peers
+    a, b = _seed_two()
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", a)
+    assert peers.main(["send", b, "heads up"]) == 0
+    with pytest.raises(SystemExit):
+        peers.main(["send", b, "as her", "--kind", "B"])
+    conn = sqlstore.open_db()
+    try:
+        rows = conn.execute("SELECT kind, from_conv FROM agent_messages"
+                            " WHERE to_conv = ?", (b,)).fetchall()
+    finally:
+        conn.close()
+    assert rows == [("A", a)]
+
+
+def test_peers_cli_says_a_busy_database_only_delayed_a_stored_message(
+        bot_client, monkeypatch, capsys):
+    """A lock after the row is stored is 'sent, don't resend'; a lock before
+    it is 'not sent'."""
+    import sqlite3
+    from scripts import peers
+    a, b = _seed_two()
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", a)
+
+    def locked_after_storing(from_conv, to_conv, text, mode="inject"):
+        peermail.send(to_conv, text, from_conv=from_conv)
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(observatory, "peer_send", locked_after_storing)
+    assert peers.main(["send", b, "heads up"]) == 0
+    assert "Don't resend" in capsys.readouterr().out
+
+    def locked_before_storing(*a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(observatory, "peer_send", locked_before_storing)
+    assert peers.main(["send", b, "another"]) == 1
+    assert "not sent" in capsys.readouterr().err

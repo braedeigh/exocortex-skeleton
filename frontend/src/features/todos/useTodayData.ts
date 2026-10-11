@@ -15,10 +15,8 @@ import {
   updateStreak,
   autosortTodos,
   bulkTodos,
-  getSymptomDefinitions,
   incorporateGrowthNote,
   logActivity,
-  logSymptoms,
   moveTodo,
   promoteHabitCadence,
   reactivateGrowthNote,
@@ -40,7 +38,7 @@ import {
   toggleTodo,
   getTodayData,
 } from '../../api/endpoints';
-import type { AddTodoPayload, AddTodoResponse, BulkTodoAction, SymptomLevels, TodoDetailsPatch } from '../../api/endpoints';
+import type { AddTodoPayload, AddTodoResponse, BulkTodoAction, TodoDetailsPatch } from '../../api/endpoints';
 import {
   applyActivityLog,
   applyActivityRemove,
@@ -64,7 +62,6 @@ import {
   applySubtaskRemove,
   applyAgentNoteRemove,
   applySubtaskToggle,
-  applySymptomLog,
   applyToggle,
 } from './optimistic';
 import type { ReminderDef, SubTask, TodayData, TodoItem } from './types';
@@ -272,29 +269,6 @@ export function useReminderActions(onError: (message: string) => void) {
     snooze: (id: string, days: number) => snooze.mutate({ id, days }),
     update: (id: string, patch: Partial<ReminderDef>, all: ReminderDef[]) =>
       update.mutate({ id, patch, all }),
-  };
-}
-
-/** Custom "what 0–3 means" tooltips for the symptom buttons. Definitions only
- * change from the Body tab's editor, so a long staleTime keeps this off the
- * 5s poll cadence. */
-export function useSymptomDefinitions() {
-  return useQuery({
-    queryKey: ['data', 'symptom-definitions'] as const,
-    queryFn: ({ signal }) => getSymptomDefinitions(signal),
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-export function useSymptomActions(onError: (message: string) => void) {
-  const log = useOptimisticMutation(
-    (vars: { date: string; symptoms: SymptomLevels }) => logSymptoms(vars.date, vars.symptoms),
-    (data, vars) => applySymptomLog(data, vars.date, vars.symptoms),
-    onError,
-  );
-
-  return {
-    log: (date: string, symptoms: SymptomLevels) => log.mutate({ date, symptoms }),
   };
 }
 

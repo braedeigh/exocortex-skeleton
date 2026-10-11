@@ -5,6 +5,7 @@ import {
   formatAge,
   heatKeyTicks,
   heatTrackStops,
+  WINDOW_HALF_LIVES,
   computeFileHeat,
   fileCreatedWithin,
   CREATED_FRESH_WINDOW_SECONDS,
@@ -15,18 +16,30 @@ import {
   sessionFootprint,
   sessionLastSeconds,
   sessionFootprintByRecency,
+  sessionFootprintFiles,
   sessionTouchRings,
   topHeatFiles,
   LENS_HALF_LIFE_SECONDS,
   changedFileIds,
   breathHalfLife,
+  alternatingBreath,
+  computeRunHeat,
+  goldBreathWindow,
+  GOLD_BREATH_SECONDS,
+  RUN_HALF_LIFE_SECONDS,
+  fileLastAgentWrite,
+  writeFreshness,
+  WRITE_PEAK_SECONDS,
+  WRITE_FRESH_WINDOW_SECONDS,
   BREATH_PERIOD_MS,
   BREATH_TICK_MS,
   edgeKey,
   graphUnchanged,
   bucketHeat,
   halfLifeSeconds,
+  filesOutsideRange,
   filterTerrainData,
+  terrainEarliestRun,
   terrainEarliestTouch,
   terrainFileLoaded,
   terrainFileTotal,
@@ -518,15 +531,25 @@ describe('filterTerrainData — date range', () => {
     },
   ]);
 
-  it('keeps only files touched inside the range', () => {
+  // The range never removes a body from the map — it empties the ones outside
+  // it and lets the canvas skip painting them, so the layout can't move.
+  it('keeps every file, whatever the range', () => {
     const out = filterTerrainData(data, { from: NOW - 14 * DAY, to: NOW, count: null }, NOW);
-    expect(out.repos[0].files.map((f) => f.path)).toEqual(['mid.py', 'new.py']);
+    expect(out.repos[0].files.map((f) => f.path)).toEqual(['mid.py', 'new.py', 'old.py']);
   });
 
-  it('excludes files whose only touches are newer than the range end', () => {
-    // A historical window must not leak the present into it.
+  it('empties the files outside the range instead of dropping them', () => {
+    const out = filterTerrainData(data, { from: NOW - 14 * DAY, to: NOW, count: null }, NOW);
+    const byPath = new Map(out.repos[0].files.map((f) => [f.path, f]));
+    expect(byPath.get('old.py')?.touches).toEqual([]);
+    expect(byPath.get('mid.py')?.touches).toEqual([NOW - 10 * DAY]);
+  });
+
+  it('a historical window does not leak the present into it', () => {
     const out = filterTerrainData(data, { from: NOW - 40 * DAY, to: NOW - 20 * DAY, count: null }, NOW);
-    expect(out.repos[0].files.map((f) => f.path)).toEqual(['old.py']);
+    const byPath = new Map(out.repos[0].files.map((f) => [f.path, f]));
+    expect(byPath.get('old.py')?.touches).toEqual([NOW - 30 * DAY]);
+    expect(byPath.get('new.py')?.touches).toEqual([]);
   });
 
   it('strips out-of-range touches from the files it keeps', () => {
@@ -551,7 +574,7 @@ describe('filterTerrainData — date range', () => {
     expect(out.repos[0].files.map((f) => f.path)).toEqual(['uncommitted.py']);
   });
 
-  it('drops sessions whose writes fall outside the range', () => {
+  it('blanks an out-of-range session stamp but keeps the attribution', () => {
     const attributed = makeData([
       {
         id: 'r',
@@ -566,7 +589,63 @@ describe('filterTerrainData — date range', () => {
       },
     ]);
     const out = filterTerrainData(attributed, { from: NOW - 7 * DAY, to: NOW, count: null }, NOW);
-    expect(out.repos[0].files[0].sessions.map((s) => s.id)).toEqual(['recent']);
+    // Both agents still tether to the file — dropping one would change the
+    // graph's edges, and the map would re-settle every time she dragged a date
+    // handle. The out-of-range one loses its stamp instead, which is what
+    // takes it out of the heat sums.
+    expect(out.repos[0].files[0].sessions.map((s) => s.id)).toEqual(['recent', 'ancient']);
+    expect(out.repos[0].files[0].sessions.map((s) => s.last)).toEqual([NOW - 1 * DAY, null]);
+  });
+});
+
+describe('filesOutsideRange — the dots the date range hides', () => {
+  const data = makeData([
+    {
+      id: 'r',
+      name: 'R',
+      root: '/',
+      files: [file('old.py', [NOW - 30 * DAY]), file('new.py', [NOW - 1 * DAY])],
+    },
+  ]);
+
+  it('names the files with nothing inside the range, repo-prefixed', () => {
+    expect([...filesOutsideRange(data, NOW - 14 * DAY, NOW)]).toEqual(['r:file:old.py']);
+  });
+
+  it('hides nothing when the range covers everything', () => {
+    expect(filesOutsideRange(data, NOW - 90 * DAY, NOW).size).toBe(0);
+  });
+
+  it('counts a session write as being inside the range', () => {
+    const attributed = makeData([
+      {
+        id: 'r',
+        name: 'R',
+        root: '/',
+        files: [file('a.py', [NOW - 30 * DAY], [{ id: 's', title: 't', writes: 1, reads: 0, last: NOW - 2 * DAY }])],
+      },
+    ]);
+    expect(filesOutsideRange(attributed, NOW - 7 * DAY, NOW).size).toBe(0);
+  });
+
+  it('keeps a file with no timestamps at all — there is nothing to judge it by', () => {
+    const stampless = makeData([
+      {
+        id: 'r',
+        name: 'R',
+        root: '/',
+        files: [file('mystery.py', [], [{ id: 's', title: 't', writes: 1, reads: 0, last: null }])],
+      },
+    ]);
+    expect(filesOutsideRange(stampless, NOW - 7 * DAY, NOW).size).toBe(0);
+  });
+
+  it('never hides the pond tile — it is a landmark, not a dot to sort', () => {
+    const withTile = makeData([
+      { id: 'r', name: 'R', root: '/', files: [file('tulku/_system/data/cards/pond', [NOW - 60 * DAY])] },
+    ]);
+    withTile.repos[0].files[0].days = [{ day: '2026-09-01', touches: [NOW - 60 * DAY] }];
+    expect(filesOutsideRange(withTile, NOW - 7 * DAY, NOW).size).toBe(0);
   });
 });
 
@@ -734,6 +813,21 @@ describe('terrain totals and bounds', () => {
   });
 });
 
+describe('terrainEarliestRun', () => {
+  it('finds the oldest run across every repo', () => {
+    const d = makeData([
+      { id: 'a', name: 'A', root: '/', files: [{ ...file('x.py'), ran: [NOW - 600, NOW - 300] }] },
+      { id: 'b', name: 'B', root: '/', files: [{ ...file('y.py'), ran: [NOW - 7200] }] },
+    ]);
+    expect(terrainEarliestRun(d)).toBe(NOW - 7200);
+  });
+
+  it('says null when nothing has run', () => {
+    const d = makeData([{ id: 'r', name: 'R', root: '/', files: [file('a.tsx', [NOW])] }]);
+    expect(terrainEarliestRun(d)).toBeNull();
+  });
+});
+
 // --- the backdrop's breath ---------------------------------------------------
 
 describe('halfLifeSeconds', () => {
@@ -879,21 +973,21 @@ describe('sessionFileTouch / sessionTouchRings (focus rings)', () => {
   });
 });
 
-describe('formatAge / heatKeyTicks (the colour key, derived from the half-life)', () => {
-  it('reproduces the old Day key exactly at a one-day half-life', () => {
-    expect(heatKeyTicks(LENS_HALF_LIFE_SECONDS.day)).toEqual(['now', '6h', '1d+']);
+describe('formatAge / heatKeyTicks (the colour key, derived from the window)', () => {
+  it('reads now / midpoint / edge at a one-day window', () => {
+    expect(heatKeyTicks(86400)).toEqual(['now', '12h', '1d']);
   });
 
-  it('scales with the bar — a longer half-life pushes both ticks older', () => {
-    expect(heatKeyTicks(LENS_HALF_LIFE_SECONDS.week)).toEqual(['now', '2d', '7d+']);
-    expect(heatKeyTicks(LENS_HALF_LIFE_SECONDS.month)).toEqual(['now', '8d', '30d+']);
+  it('scales with the bar — a longer window pushes both ticks older', () => {
+    expect(heatKeyTicks(7 * 86400)).toEqual(['now', '4d', '7d']);
+    expect(heatKeyTicks(30 * 86400)).toEqual(['now', '15d', '30d']);
   });
 
-  it('always leads with now and marks the oldest tick as a floor', () => {
+  it('always leads with now and names the edge plainly — no "+" floor', () => {
     for (const days of [1, 3, 9, 17, 30]) {
       const ticks = heatKeyTicks(days * 86400);
       expect(ticks[0]).toBe('now');
-      expect(ticks[2].endsWith('+')).toBe(true);
+      expect(ticks[2]).toBe(`${days}d`);
     }
   });
 
@@ -915,35 +1009,44 @@ describe('heatTrackStops (the ramp painted along the heat slider)', () => {
     expect(stops[stops.length - 1].pct).toBe(100);
   });
 
-  it('reads as an age axis: the handle always lands on half-brightness', () => {
-    // The handle sits at the half-life, and one half-life old is t=0.5 by
-    // definition — so the colour under the thumb is the ramp's midpoint at
-    // every setting. That invariant is what makes the bar legible while it
-    // moves: the gradient slides past a fixed reference.
+  it('the thumb is the edge: the last visible colour sits at the dot, ash just past it', () => {
+    // At the window's edge a touch is WINDOW_HALF_LIVES half-lives old — an
+    // eighth at three — and one step older the fill is exactly zero. That's
+    // the whole point of the bar: the dot is where the colour ends.
     for (const days of [1, 7, 30]) {
       const at = heatTrackStops(days, days, days, 1)[0];
-      expect(at.t).toBeCloseTo(0.5, 10);
+      expect(at.t).toBeCloseTo(2 ** -WINDOW_HALF_LIVES, 10);
+      const past = heatTrackStops(days, days * 1.01, days * 1.01, 1)[0];
+      expect(past.t).toBe(0);
     }
   });
 
-  it('cools monotonically left to right — near days hot, month-old cold', () => {
+  it('half lit a third of the way along the window', () => {
+    const third = heatTrackStops(30, 10, 10, 1)[0];
+    expect(third.t).toBeCloseTo(0.5, 10);
+  });
+
+  it('cools left to right and never warms again — near days hot, past the edge ash', () => {
     const stops = heatTrackStops(7);
     for (let i = 1; i < stops.length; i += 1) {
-      expect(stops[i].t).toBeLessThan(stops[i - 1].t);
+      expect(stops[i].t).toBeLessThanOrEqual(stops[i - 1].t);
     }
-    expect(stops[0].t).toBeGreaterThan(0.9); // one day old under a week's memory
-    expect(stops[stops.length - 1].t).toBeLessThan(0.1); // a month old, all but out
+    expect(stops[0].t).toBeGreaterThan(0.7); // one day old under a week's window
+    expect(stops[stops.length - 1].t).toBe(0); // a year old — past the edge
   });
 
-  it('brightens the whole ramp as the half-life grows — a longer memory, shown', () => {
+  it('lengthens the fill as the window grows — a longer memory, shown', () => {
     const short = heatTrackStops(1);
     const long = heatTrackStops(30);
     for (let i = 0; i < short.length; i += 1) {
-      expect(long[i].t).toBeGreaterThan(short[i].t);
+      expect(long[i].t).toBeGreaterThanOrEqual(short[i].t);
     }
+    // Strictly brighter wherever the shorter window has already gone cold
+    // but the longer one is still lit.
+    expect(long[8].t).toBeGreaterThan(short[8].t);
   });
 
-  it('goes fully cold rather than dividing by zero on a zero half-life', () => {
+  it('goes fully cold rather than dividing by zero on a zero window', () => {
     expect(heatTrackStops(0).every((s) => s.t === 0)).toBe(true);
   });
 });
@@ -964,6 +1067,20 @@ describe('sessionFootprintByRecency (which files a spotlit agent gets to name)',
       NOW,
     ).nodes;
   }
+
+  it('lists the footprint as rows a report can print: address, and how it was touched', () => {
+    const made = file('made.py', [NOW], [{ id: 's3', title: 'y', writes: 2, reads: 0, creates: 1, last: NOW - 5 }]);
+    const looked = file('looked.py', [NOW], [{ id: 's3', title: 'y', writes: 0, reads: 4, last: NOW - 50 }]);
+    const graph = buildTerrainGraph(
+      makeData([{ id: 'skeleton', name: 'App code', root: '/app', files: [looked, made, other] }]),
+      'week',
+      NOW,
+    ).nodes;
+    expect(sessionFootprintFiles(graph, 's3')).toEqual([
+      { id: 'skeleton:file:made.py', repoId: 'skeleton', path: 'made.py', kind: 'created' },
+      { id: 'skeleton:file:looked.py', repoId: 'skeleton', path: 'looked.py', kind: 'read' },
+    ]);
+  });
 
   it('orders the footprint newest-touch-first', () => {
     expect(sessionFootprintByRecency(nodes(), 's1').slice(0, 3)).toEqual([
@@ -1174,5 +1291,174 @@ describe('graphUnchanged (the test that decides whether the map holds still)', (
     const prev = shapeOf(g);
     const dupes = [...g.nodes, { ...g.nodes[0] }];
     expect(graphUnchanged(prev.ids, prev.keys, dupes, g.edges)).toBe(false);
+  });
+});
+
+describe('the gold channel — what actually RAN, vs what edited it', () => {
+  const NOW = 1_700_000_000;
+  const ranFile = (path: string, touches: number[], ran: number[]) => ({
+    ...file(path, touches, []),
+    ran,
+  });
+
+  it('is zero for a file that never ran, however hot its git history', () => {
+    const committed = file('c.ts', [NOW, NOW - 10, NOW - 20], []);
+    expect(computeRunHeat(committed, NOW)).toBe(0);
+    expect(computeFileHeat(committed, 'day', NOW)).toBeGreaterThan(0);
+  });
+
+  it('ignores git and agents entirely — only the run buckets count', () => {
+    const edited = ranFile('a.py', [NOW, NOW - 5], [NOW - 60]);
+    const untouched = ranFile('b.py', [], [NOW - 60]);
+    expect(computeRunHeat(edited, NOW)).toBeCloseTo(computeRunHeat(untouched, NOW), 10);
+  });
+
+  it('runs on the fixed one-day window: half at eight hours, an eighth at the edge', () => {
+    const eightHours = ranFile('r.py', [], [NOW - RUN_HALF_LIFE_SECONDS]);
+    const aDay = ranFile('d.py', [], [NOW - 24 * 3600]);
+    expect(computeRunHeat(eightHours, NOW)).toBeCloseTo(0.5, 5);
+    expect(computeRunHeat(aDay, NOW)).toBeCloseTo(0.125, 5);
+  });
+
+  it('a file running all hour outshines one that ran once', () => {
+    const constant = ranFile('busy.py', [], Array.from({ length: 12 }, (_, i) => NOW - i * 300));
+    const once = ranFile('once.py', [], [NOW]);
+    expect(computeRunHeat(constant, NOW)).toBeGreaterThan(computeRunHeat(once, NOW));
+  });
+
+  it('a run stamped in the future (clock skew across processes) counts for nothing', () => {
+    expect(computeRunHeat(ranFile('f.py', [], [NOW + 600]), NOW)).toBe(0);
+  });
+});
+
+describe('the alternating breath — ember takes a cycle, then gold, then ember', () => {
+  const P = 10_000;
+  const DAY = LENS_HALF_LIFE_SECONDS.day;
+  const FIVE_MIN = GOLD_BREATH_SECONDS.min;
+
+  it('first cycle is ember: gold rests at five minutes while ember reaches back and returns', () => {
+    for (const t of [0, P * 0.2, P * 0.4, P * 0.7, P - 1]) {
+      const b = alternatingBreath(t, P);
+      expect(b.turn).toBe('ember');
+      expect(b.gold).toBe(FIVE_MIN);
+      expect(b.ember).toBeCloseTo(breathHalfLife(t, P), 3);
+    }
+  });
+
+  it('second cycle is gold: ember rests at a day while gold swells to a day and eases back', () => {
+    for (const t of [P, P * 1.2, P * 1.4, P * 1.7, 2 * P - 1]) {
+      const b = alternatingBreath(t, P);
+      expect(b.turn).toBe('gold');
+      expect(b.ember).toBe(DAY);
+      expect(b.gold).toBeCloseTo(goldBreathWindow(t - P, P), 3);
+    }
+    expect(alternatingBreath(P * 1.4, P).gold).toBeCloseTo(GOLD_BREATH_SECONDS.max, 3);
+  });
+
+  it('yellow is at its largest exactly when red is at its smallest, and quiet while red glows', () => {
+    // The top of gold's turn: a full day of runs lit, ember down at its day.
+    const top = alternatingBreath(P * 1.4, P);
+    expect(top.gold).toBeCloseTo(DAY, 3);
+    expect(top.ember).toBe(DAY);
+    // The top of ember's turn: a month of edits lit, gold down at five minutes.
+    const emberTop = alternatingBreath(P * 0.4, P);
+    expect(emberTop.ember).toBeCloseTo(LENS_HALF_LIFE_SECONDS.month, 3);
+    expect(emberTop.gold).toBe(FIVE_MIN);
+  });
+
+  it('hands off without a jump — both fires sit at their rest at every changeover', () => {
+    for (const edge of [P, 2 * P, 3 * P]) {
+      const before = alternatingBreath(edge - 1, P);
+      const after = alternatingBreath(edge + 1, P);
+      expect(before.ember).toBeCloseTo(DAY, -1);
+      expect(after.ember).toBeCloseTo(DAY, -1);
+      expect(before.gold).toBeCloseTo(FIVE_MIN, -1);
+      expect(after.gold).toBeCloseTo(FIVE_MIN, -1);
+    }
+  });
+
+  it('never breathes both at once', () => {
+    for (let i = 0; i < 40; i += 1) {
+      const b = alternatingBreath((i / 40) * 2 * P, P);
+      const emberMoving = Math.abs(b.ember - DAY) > 1;
+      const goldMoving = Math.abs(b.gold - FIVE_MIN) > 1;
+      expect(emberMoving && goldMoving).toBe(false);
+    }
+  });
+
+  it('repeats every two cycles', () => {
+    const a = alternatingBreath(P * 0.3, P);
+    const b = alternatingBreath(P * 2.3, P);
+    expect(b.ember).toBeCloseTo(a.ember, 3);
+    expect(b.gold).toBeCloseTo(a.gold, 3);
+  });
+});
+
+describe("the gold breath's shape — five minutes out to a day, the same motion as ember's", () => {
+  const P = 10_000;
+
+  it('starts at five minutes, swells to a day at the top of the inhale, and returns', () => {
+    expect(goldBreathWindow(0, P)).toBeCloseTo(GOLD_BREATH_SECONDS.min, 3);
+    expect(goldBreathWindow(P * 0.4, P)).toBeCloseTo(GOLD_BREATH_SECONDS.max, 3);
+    expect(goldBreathWindow(P, P)).toBeCloseTo(GOLD_BREATH_SECONDS.min, 3);
+  });
+
+  it('moves in step with ember — log-space positions match at every instant', () => {
+    const lo = Math.log(LENS_HALF_LIFE_SECONDS.day);
+    const hi = Math.log(LENS_HALF_LIFE_SECONDS.month);
+    const glo = Math.log(GOLD_BREATH_SECONDS.min);
+    const ghi = Math.log(GOLD_BREATH_SECONDS.max);
+    for (let i = 0; i <= 20; i += 1) {
+      const t = (i / 20) * P;
+      const uEmber = (Math.log(breathHalfLife(t, P)) - lo) / (hi - lo);
+      const uGold = (Math.log(goldBreathWindow(t, P)) - glo) / (ghi - glo);
+      expect(uGold).toBeCloseTo(uEmber, 6);
+    }
+  });
+
+  it('peaks at exactly the fixed window, so a preset and the top of the breath agree', () => {
+    expect(GOLD_BREATH_SECONDS.max).toBe(24 * 3600);
+  });
+});
+
+describe('write freshness — brightest for an hour, gone by 24', () => {
+  const NOW = 1_700_000_000;
+  const sess = (writes: number, reads: number, agoSeconds: number) => ({
+    id: 's', title: 's', writes, reads,
+    last: new Date((NOW - agoSeconds) * 1000).toISOString(),
+  });
+
+  it('ignores sessions that only read — a reader never lights the write core', () => {
+    expect(fileLastAgentWrite(file('a.ts', [], [sess(0, 9, 60)]), NOW)).toBeNull();
+    expect(fileLastAgentWrite(file('b.ts', [], [sess(1, 0, 60)]), NOW)).toBe(60);
+  });
+
+  it('takes the most recent writing session when several wrote', () => {
+    const f = file('c.ts', [], [sess(1, 0, 9000), { ...sess(1, 0, 120), id: 'newer' }]);
+    expect(fileLastAgentWrite(f, NOW)).toBe(120);
+  });
+
+  it('holds full strength through the first hour, then falls to nothing at 24', () => {
+    expect(writeFreshness(0)).toBe(1);
+    expect(writeFreshness(WRITE_PEAK_SECONDS)).toBe(1);
+    expect(writeFreshness(WRITE_FRESH_WINDOW_SECONDS)).toBe(0);
+    expect(writeFreshness(WRITE_FRESH_WINDOW_SECONDS + 1)).toBe(0);
+    expect(writeFreshness(null)).toBe(0);
+  });
+
+  it('falls off logarithmically, so the early hours cost more than the late ones', () => {
+    const twoHours = writeFreshness(2 * 3600);
+    const twelveHours = writeFreshness(12 * 3600);
+    expect(twoHours).toBeGreaterThan(twelveHours);
+    // Halfway through the window in LOG terms is ~4.9h, not 12h — a linear
+    // ramp would put 0.5 at roughly 12h, and that is the bug this guards.
+    expect(writeFreshness(12 * 3600)).toBeLessThan(0.5);
+    expect(writeFreshness(4 * 3600)).toBeGreaterThan(0.5);
+  });
+
+  it('is monotonic — a write never reads fresher as it ages', () => {
+    const ages = [0, 600, 3600, 7200, 20000, 60000, 86000, 86400];
+    const vals = ages.map((a) => writeFreshness(a));
+    for (let i = 1; i < vals.length; i += 1) expect(vals[i]).toBeLessThanOrEqual(vals[i - 1]);
   });
 });

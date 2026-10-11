@@ -51,10 +51,15 @@ def test_invalid_shape_is_rejected(data_dir, name):
 
 # --- {} and seeded defaults pass ------------------------------------------
 
+# Notes are rows (notestore.py), not a blob: an empty document reads back as
+# the notes document with no pages, which is how "no notes" is spelled there.
+EMPTY_READS_BACK_AS = {"dev_notes": {"tabs": {}}}
+
+
 @pytest.mark.parametrize("name", sorted(VALID))
 def test_empty_dict_is_accepted(data_dir, name):
     store.write(name, {})
-    assert store.read(name) == {}
+    assert store.read(name) == EMPTY_READS_BACK_AS.get(name, {})
 
 
 def test_seeded_todos_default_is_accepted(seed):

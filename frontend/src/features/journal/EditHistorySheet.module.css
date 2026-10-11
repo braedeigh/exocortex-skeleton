@@ -1,0 +1,36 @@
+/* An entry's edit history (EditHistorySheet.tsx): the current text, then
+   each earlier version under the date it was changed. */
+
+.version {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.version:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.label {
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.text {
+  font-size: var(--font-size-md);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Earlier versions read as history — a touch quieter than the current text. */
+.old {
+  color: var(--text-secondary);
+}
+
+.status {
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+}

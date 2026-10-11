@@ -1,0 +1,32 @@
+/* SourcePdf.module.css — the PDF button beside a study, and the pane it
+ * opens (SourcePdf.tsx). The button is a 40px pill like the app's chips. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.toggle {
+  align-self: flex-start;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.pane {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+}
+
+.note {
+  font-size: 14px;
+  color: var(--text-secondary);
+}

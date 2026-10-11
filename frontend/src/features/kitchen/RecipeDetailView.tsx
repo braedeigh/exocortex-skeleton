@@ -1,14 +1,48 @@
+/**
+ * RecipeDetailView.tsx — one recipe, read view, on the Kitchen tab.
+ *
+ * What this file does: draws the recipe (meta, ingredients, instructions),
+ * "Where it comes from", her autosaving "My notes", and past versions.
+ * Where it comes from follows each ingredient's food along its real links to
+ * map sources (ecoRecipeSourcing, features/ecosystem/ecoMatch.ts) and opens
+ * with one line — "3 of 9 traced" (traceSummary.ts). Each traced ingredient's
+ * name opens its food's page in the Food area, and each source name opens that
+ * source on the map. Untraced ones are listed with the closest-named source
+ * as a hint only, plus a "Request linking" button (ecosystem/RequestLinkButton)
+ * that queues the food for research — it doesn't link anything; requestState.ts
+ * says whether it's already asked. KitchenPage.tsx passes in the recipe, the
+ * map's sources, the recipe with its lines resolved to foods (eco_recipes) and
+ * the open requests (eco_requested). Below it, for her only, "Nutrients per
+ * serving" (./RecipeNutrients.tsx): one serving against her daily targets,
+ * and how each line was counted. Her Share button (./ShareRecipe.tsx) sits
+ * beside Edit and hands out a link to the recipe.
+ */
+import { Link } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { ecoRecipeSourcing, ecoTx } from './ecoMatch';
+import { ecoRecipeSourcing } from '../ecosystem/ecoMatch';
+import { RequestLinkButton } from '../ecosystem/RequestLinkButton';
+import type { EcoRecipe } from '../ecosystem/types';
+import { SourceDot, SourceLink } from './ComesFrom';
 import { walkRecipeChain } from './recipeHelpers';
+import { RecipeNutrients } from './RecipeNutrients';
+import { ShareRecipe } from './ShareRecipe';
 import { Section } from './Section';
-import type { EcoSource, Recipe } from './types';
+import { isLinkRequested } from './requestState';
+import { traceSummary } from './traceSummary';
+import type { EcoRequested, EcoSource, Recipe } from './types';
 import styles from './kitchen.module.css';
 
 export interface RecipeDetailViewProps {
   recipe: Recipe;
   allRecipes: Recipe[];
   sources: EcoSource[];
+  /** The same recipe with each line resolved to its food — what tracing follows. */
+  ecoRecipe: EcoRecipe | null;
+  /** Foods already queued for research, so their button reads "Requested". */
+  ecoRequested?: EcoRequested;
+  /** A request went through — refetch so eco_requested catches up. */
+  onRequested?: () => void;
+  onRequestError?: (message: string) => void;
   onBack: () => void;
   onEdit: () => void;
   onSendToList: () => void;
@@ -25,6 +59,10 @@ export function RecipeDetailView({
   recipe,
   allRecipes,
   sources,
+  ecoRecipe,
+  ecoRequested,
+  onRequested,
+  onRequestError,
   onBack,
   onEdit,
   onSendToList,
@@ -62,7 +100,9 @@ export function RecipeDetailView({
   if (recipe.cook_min) metaBits.push(`${recipe.cook_min} min cook`);
 
   const hasSections = Array.isArray(recipe.sections) && recipe.sections.length > 0;
-  const sourcing = ecoRecipeSourcing(recipe, sources);
+  // Where it comes from: each line's food, followed along its links to the map.
+  const sourcing = ecoRecipeSourcing(ecoRecipe, sources);
+  const summary = traceSummary(sourcing);
   const chain = walkRecipeChain(recipe, allRecipes);
 
   return (
@@ -83,6 +123,7 @@ export function RecipeDetailView({
                 Send to list
               </button>
             </div>
+            <ShareRecipe recipeId={recipe.id} />
             <button
               type="button"
               className={styles.mutedBtn}
@@ -141,27 +182,57 @@ export function RecipeDetailView({
             defaultOpen
             badge={
               <span className={styles.muted12} style={{ fontWeight: 400 }}>
-                traced {sourcing.traced.length}/{sourcing.total}
+                {summary.text}
               </span>
             }
           >
             <div style={{ padding: '0 0 12px' }}>
+              {/* Traced ingredients: the food's name opens its page, each source opens on the map.
+                  A visitor has no food pages, so there the food name is plain text. */}
               {sourcing.traced.length ? (
                 sourcing.traced.map((t, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 13 }}>
-                    <span
-                      style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: ecoTx(t.source).color, flex: 'none' }}
-                    />
-                    <span style={{ flex: 1 }}>{t.ing.item}</span>
-                    <span className={styles.muted12}>{t.source.name}</span>
+                  <div key={i} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 10px', fontSize: 14 }}>
+                    <span style={{ flex: '1 1 140px' }}>
+                      <FoodName item={t.ing.item || ''} foodName={t.ing.food_name} isPublic={isPublic} />
+                    </span>
+                    {t.sources.map((source) => (
+                      <span key={source.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <SourceDot source={source} />
+                        <SourceLink source={source} />
+                      </span>
+                    ))}
                   </div>
                 ))
               ) : (
-                <div className={styles.muted13}>Nothing traced yet — place these foods on the map.</div>
+                <div className={styles.muted13}>Nothing traced yet.</div>
               )}
+              {/* Untraced ingredients: each on its own row, with the closest-named source as a
+                  hint only — a guess from shared words, never drawn as a trace — and, for her,
+                  a button that queues the food for research (by id, or by name if uncataloged). */}
               {sourcing.place.length ? (
-                <div className={styles.muted12} style={{ marginTop: 8 }}>
-                  Not yet traced: {sourcing.place.map((p) => p.ing.item).join(', ')}
+                <div style={{ marginTop: 10 }}>
+                  <div className={styles.muted12} style={{ fontWeight: 700 }}>
+                    Not traced yet
+                  </div>
+                  {sourcing.place.map((p, i) => (
+                    <div key={i} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 10px', fontSize: 14, minHeight: 40 }}>
+                      <span style={{ flex: '1 1 140px' }}>
+                        <FoodName item={p.ing.item || ''} foodName={p.ing.food_name} isPublic={isPublic} />
+                      </span>
+                      {p.suggestion ? <span className={styles.muted12}>looks like: {p.suggestion.name}?</span> : null}
+                      {p.ing.food_id == null ? <span className={styles.muted12}>not in your food catalog</span> : null}
+                      {isPublic ? null : (
+                        <RequestLinkButton
+                          foodId={p.ing.food_id ?? null}
+                          foodName={p.ing.food_name || p.ing.item || ''}
+                          requested={isLinkRequested(ecoRequested, p.ing.food_id, p.ing.food_name || p.ing.item || '')}
+                          from={`recipe:${recipe.id}`}
+                          onRequested={onRequested}
+                          onError={onRequestError}
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
               ) : null}
               {sourcing.pantry.length ? (
@@ -169,11 +240,9 @@ export function RecipeDetailView({
                   + {sourcing.pantry.length} pantry staple{sourcing.pantry.length === 1 ? '' : 's'} (not traced)
                 </div>
               ) : null}
-              {/* Deep-link to the Ecosystem tab with this recipe selected (old
-                  switchTab(event,'ecosystem',{recipe:id})). The React ecosystem
-                  page reads ?recipe= when it lands. */}
+              {/* Open this recipe on the Food area's map: /food reads ?recipe= when it lands. */}
               <a
-                href={`/ecosystem?recipe=${encodeURIComponent(recipe.id)}`}
+                href={`/food?recipe=${encodeURIComponent(recipe.id)}`}
                 className={styles.mutedBtn}
                 style={{
                   display: 'inline-flex',
@@ -191,6 +260,9 @@ export function RecipeDetailView({
           </Section>
         </div>
       ) : null}
+
+      {/* What a serving gives against her targets — her own numbers, so not for a visitor. */}
+      {!isPublic ? <RecipeNutrients recipeId={recipe.id} /> : null}
 
       <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 16 }}>Instructions</div>
       {hasSections ? (
@@ -270,5 +342,22 @@ export function RecipeDetailView({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** An ingredient's name that opens its food's page in the Food area — keyed by
+ * the catalog food's name when the line resolved to one, else the line as
+ * written (the page still opens and says it isn't in the catalog yet). */
+function FoodName({ item, foodName, isPublic }: { item: string; foodName?: string | null; isPublic: boolean }) {
+  if (isPublic) return <>{item}</>;
+  return (
+    <Link
+      to="/food/foods/$name"
+      params={{ name: foodName || item }}
+      style={{ display: 'inline-flex', alignItems: 'center', minHeight: 40, color: 'var(--text)', textDecoration: 'underline dotted' }}
+      title="This food's page"
+    >
+      {item}
+    </Link>
   );
 }

@@ -1,28 +1,37 @@
 import { useState } from 'react';
 import styles from './TerrainAgentBar.module.css';
+import { useRooms } from '../observatory/roomsApi';
+import { isStandalone } from '../../shell/standalone';
 
 /**
  * TerrainAgentBar — the bottom agent control.
  *
- *   [ Active ▾ ]  ◀──────█████──────▶   [ Agents · 8 ]
+ *   [ Working ▾ ]  ◀──────█████──────▶   [ Agents · 8 ]
  *
  * - **The pool button** opens a popup anchored to itself with two rows of
  *   choices, and its own label becomes whatever you picked:
- *     · WHICH AGENTS — Active (did something within the hour) / Open (not
+ *     · WHICH AGENTS — Working (did something within the hour) / Open (not
  *       archived) / All (the whole roster).
  *     · WHICH SECTION — All / Personal / Orchestra.
  *   Both are server-side facts, so they mean the same thing on every device.
- *   "Active" used to mean a browser-local heartbeat, which was invisible and
+ *   This pool used to mean a browser-local heartbeat, which was invisible and
  *   evaporated half an hour after she looked away.
  * - **The window**: a dual-handle slider that slides over the *chosen pool*,
  *   ranked most-recent-first — not over the calendar (that's the top Dates
  *   dial's job). It is never dimmed or inert now: the button picks the pool,
  *   the window picks a slice of it, and those are two different questions.
- *   Before, Active and the window were two owners of one value, so one of them
- *   had to be switched off to stop them disagreeing.
+ *   Before, the pool and the window were two owners of one value, so one of
+ *   them had to be switched off to stop them disagreeing.
  * - **Agents button**: toggles a popup list of the agents currently shown —
  *   tap a row to spotlight that agent's footprint. No inline chips; the bar
  *   stays a control strip, the list is where identity lives.
+ * - **Hide**, at the end: takes every agent off the map — orbs, tethers,
+ *   rings, names — leaving files only. While hidden the whole bar folds down
+ *   to one **Show agents** button: the pool and the window choose among
+ *   agents that aren't being drawn, so showing them would be offering
+ *   controls that do nothing. Both choices are kept and come back as they
+ *   were. The switch itself stays across reloads (agentsHiddenPref.ts).
+ *   Prompt: "make it possible to hide agents".
  *
  * Selection/visibility state is owned by TerrainPage; this is presentation +
  * the gestures. The dual-handle mechanics mirror TerrainDials' Dates row
@@ -40,10 +49,15 @@ export type AgentPool = 'active' | 'open' | 'all';
 /** Which room they live in. '' = no filter. Mirrors the Observatory's lanes
  * (observatory/api.ts) — a room missing here would make its sessions
  * unreachable from this bar, so the two lists move together. */
-export type AgentSection = '' | 'personal' | 'coding' | 'orchestra';
+export type AgentSection = '' | 'personal' | 'coding' | 'research' | 'linear' | 'orchestra';
 
+/* 'active' shows as "Working", not "Active". The word was doing two unrelated
+   jobs one row apart: this button picks a POOL OF AGENTS (worked in the last
+   hour), while the Active bar directly above it puts a window on which FILES
+   ran. Two controls, one label, stacked vertically.
+   Prompt: "i also see that there are 3 bars at once right now". */
 export const POOL_LABELS: Record<AgentPool, string> = {
-  active: 'Active',
+  active: 'Working',
   open: 'Open',
   all: 'All',
 };
@@ -58,11 +72,41 @@ export const SECTION_LABELS: Record<AgentSection, string> = {
   '': 'All',
   personal: 'Personal',
   coding: 'Coding',
+  research: 'Research',
+  linear: 'Linear',
   orchestra: 'Orchestra',
 };
 
 const POOLS: readonly AgentPool[] = ['active', 'open', 'all'];
-const SECTIONS: readonly AgentSection[] = ['', 'personal', 'coding', 'orchestra'];
+const SECTIONS: readonly AgentSection[] = ['', 'personal', 'coding', 'research', 'linear', 'orchestra'];
+
+/** One row of the Section list: the lane to filter by ('' = all) and its name. */
+export interface AgentSectionChoice {
+  id: AgentSection;
+  label: string;
+}
+
+/**
+ * Which rooms the Section list offers.
+ *
+ * The site offers every room a session can be in. The desktop app
+ * (shell/standalone.ts) offers the person's own rooms, passed in as
+ * `desktopRooms` (observatory/roomsApi.ts): the research desk, the Linear
+ * board and the orchestra belong to the owner's own install, and no session
+ * there is ever in one. A desktop room's id is carried as an AgentSection
+ * though it isn't in that union; it is only ever compared with a session's
+ * lane.
+ */
+export function agentSectionsFor(
+  standalone: boolean,
+  desktopRooms: readonly { id: string; name: string }[] = [],
+): AgentSectionChoice[] {
+  if (!standalone) return SECTIONS.map((id) => ({ id, label: SECTION_LABELS[id] }));
+  return [
+    { id: '', label: SECTION_LABELS[''] },
+    ...desktopRooms.map((room) => ({ id: room.id as AgentSection, label: room.name })),
+  ];
+}
 
 export interface AgentEntry {
   id: string;
@@ -72,7 +116,7 @@ export interface AgentEntry {
   active: boolean;
   /** Not archived. */
   open: boolean;
-  /** 'personal' | 'coding' | 'orchestra' | ''. */
+  /** 'personal' | 'coding' | 'research' | 'linear' | 'orchestra' | ''. */
   lane: string;
   files: number;
   last: number | null;
@@ -91,6 +135,9 @@ export interface TerrainAgentBarProps {
   from: number;
   to: number;
   onWindow: (from: number, to: number) => void;
+  /** True while agents are hidden from the map altogether. */
+  hidden: boolean;
+  onHidden: (hidden: boolean) => void;
   /** The spotlighted agent id (footprint ringed on the map), or null. */
   spotlighted: string | null;
   onSpotlight: (id: string | null) => void;
@@ -106,6 +153,8 @@ export function TerrainAgentBar({
   from,
   to,
   onWindow,
+  hidden,
+  onHidden,
   spotlighted,
   onSpotlight,
 }: TerrainAgentBarProps) {
@@ -122,9 +171,28 @@ export function TerrainAgentBar({
   const shownList = ranked.filter((a) => shownIds.has(a.id));
   // The button says what it's showing. Section is only named when it's
   // actually filtering — "Active" beats "Active · All" for the common case.
-  const poolLabel = section
-    ? `${POOL_LABELS[pool]} · ${SECTION_LABELS[section]}`
-    : POOL_LABELS[pool];
+  const sectionChoices = agentSectionsFor(isStandalone(), useRooms());
+  const sectionLabel = sectionChoices.find((choice) => choice.id === section)?.label ?? section;
+  const poolLabel = section ? `${POOL_LABELS[pool]} · ${sectionLabel}` : POOL_LABELS[pool];
+
+  // Agents are hidden: fold the bar down to the one button that brings them
+  // back. Lit like any engaged control, so it reads as "a filter is on" and
+  // not as an empty bar.
+  if (hidden) {
+    return (
+      <div className={styles.bar} role="group" aria-label="Agents">
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.btnOn}`}
+          aria-pressed
+          onClick={() => onHidden(false)}
+          title="Agents are hidden — put them back on the map"
+        >
+          Show agents
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.bar} role="group" aria-label="Agents">
@@ -159,7 +227,7 @@ export function TerrainAgentBar({
               </button>
             ))}
             <div className={styles.popHead}>Section</div>
-            {SECTIONS.map((s) => (
+            {sectionChoices.map(({ id: s, label }) => (
               <button
                 key={s || 'all'}
                 type="button"
@@ -171,7 +239,7 @@ export function TerrainAgentBar({
                   setPoolOpen(false);
                 }}
               >
-                <span className={styles.popLabel}>{SECTION_LABELS[s]}</span>
+                <span className={styles.popLabel}>{label}</span>
               </button>
             ))}
           </div>
@@ -246,6 +314,21 @@ export function TerrainAgentBar({
           </div>
         ) : null}
       </div>
+
+      {/* Hide every agent. Closes both popups on the way out, so neither is
+          still open when the bar comes back. */}
+      <button
+        type="button"
+        className={styles.btn}
+        onClick={() => {
+          setListOpen(false);
+          setPoolOpen(false);
+          onHidden(true);
+        }}
+        title="Take every agent off the map — files only"
+      >
+        Hide
+      </button>
     </div>
   );
 }

@@ -191,6 +191,83 @@ export interface DocTextResponse {
   text: string;
 }
 
+// --- Claims table (GET /api/research/claims, /claims/<id>, /sources/<id>/claims) ---
+
+/** '' = not judged yet; the same tap-cycle vocabulary as a claim entry. */
+export type ClaimVerdict = '' | 'real' | 'shaky' | 'interesting';
+
+/** The measured thing a claim asserts, when it has one: "subject measure =
+ * amount unit (basis, year)", plus the evidence tier the session assigned. */
+export interface ClaimValue {
+  subject: string;
+  measure: string;
+  amount: number | null;
+  unit: string;
+  basis: string;
+  year: number | null;
+  tier: string;
+}
+
+export interface Claim {
+  id: string;
+  text: string;
+  verdict: ClaimVerdict;
+  /** topic ids */
+  topics: string[];
+  /** front ids */
+  fronts: string[];
+  created: string;
+  /** 'owner' | 'llm' | a session/agent name */
+  author: string;
+  reviewed: boolean;
+  source_count: number;
+  value: ClaimValue | null;
+}
+
+/** How a source bears on the claim it is linked to. */
+export type SourceStance = 'supports' | 'contradicts' | 'context';
+
+/** The passage in the source's text that backs the link — the same shape as
+ * an Annotation's selector, flattened, so the claims page can open the doc
+ * scrolled to it. */
+export interface ClaimSourceAnnotation {
+  id: string;
+  doc: string;
+  char_start: number;
+  char_end: number;
+  exact: string;
+  note: string;
+}
+
+export interface ClaimSource {
+  id: string;
+  text: string;
+  url: string;
+  verdict: string;
+  stance: SourceStance;
+  note: string;
+  annotation: ClaimSourceAnnotation | null;
+  /** annotation doc id, e.g. "entry:<id>" */
+  doc: string;
+  /** the doc has extracted text to read (GET /api/annotations/doc-text) */
+  has_text: boolean;
+}
+
+export interface ClaimsListResponse {
+  claims: Claim[];
+}
+
+export interface ClaimDetailResponse {
+  claim: Claim;
+  sources: ClaimSource[];
+  value: ClaimValue | null;
+}
+
+export interface SourceClaimsResponse {
+  source: { id: string; text: string; url: string };
+  claims: Claim[];
+}
+
 // --- Composer (page-local state, matches the old _rsrchComposer) ---
 
 export interface ContextItem {
@@ -217,4 +294,159 @@ export function emptyComposer(): ComposerState {
 
 export function emptyResearch(): ResearchState {
   return { topics: [], entries: [], sessions: [] };
+}
+
+// --- Research tables (routes/research_tables.py, hazardstore.py) ---------------
+
+export type Review = 'unreviewed' | 'confirmed' | 'disputed';
+export type MeasureKind = 'concentration' | 'detection_rate';
+export type VerdictKey = 'organic' | 'some' | 'conventional' | 'open';
+export type TableKind = 'measures' | 'judgments';
+export type FoodSet = 'all' | 'recipes' | 'rotation';
+
+/** One hazard on the map: `parents` are hazard ids (several allowed),
+ * `names` its other names, `measure_count` numbers sitting on it directly. */
+export interface Hazard {
+  id: number;
+  name: string;
+  note: string | null;
+  names: string[];
+  parents: number[];
+  measure_count: number;
+}
+
+export interface ResearchTable {
+  id: number;
+  name: string;
+  kind: TableKind;
+  topic_id: string | null;
+  hazard_id: number | null;
+  measure: MeasureKind | null;
+  foods: FoodSet;
+  note: string | null;
+  position: number;
+  created_at: string;
+}
+
+/** The words the page's pickers offer, from the server (GET /api/research/tables). */
+export interface TablesVocab {
+  measures: MeasureKind[];
+  units: Record<MeasureKind, string>;
+  lenses: string[];
+  verdicts: Record<VerdictKey, string>;
+  reviews: Review[];
+  food_sets: FoodSet[];
+  kinds: TableKind[];
+}
+
+/** A measurement as a grid cell shows it. */
+export interface MeasureSummary {
+  id: number;
+  hazard_id: number;
+  hazard: string;
+  measure: MeasureKind;
+  amount: number;
+  unit: string;
+  year: number | null;
+  measured_on: string | null;
+  review: Review;
+  author: 'llm' | 'owner';
+  sourced: boolean;
+}
+
+/** A verdict as a grid cell shows it. `shaken` = a number under it is disputed. */
+export interface JudgmentSummary {
+  id: number;
+  hazard: string | null;
+  verdict: VerdictKey;
+  review: Review;
+  author: 'llm' | 'owner';
+  shaken: boolean;
+}
+
+export type CellEntry = MeasureSummary | JudgmentSummary;
+
+export interface TableColumn {
+  /** A hazard id as a string, 'any' for the branch's own numbers, or a lens. */
+  id: string;
+  name: string;
+  hazard_id: number | null;
+}
+
+export interface TableRow {
+  food_id: number;
+  food: string;
+  cells: Record<string, CellEntry[]>;
+}
+
+export interface TableView {
+  table: ResearchTable;
+  columns: TableColumn[];
+  rows: TableRow[];
+  empty_foods: number;
+  counts: Record<Review, number>;
+}
+
+interface HistoryEntry<T> {
+  snapshot: T;
+  replaced_by: string | null;
+  replaced_at: string;
+}
+
+export interface MeasureDetail {
+  id: number;
+  food_id: number;
+  food: string;
+  hazard_id: number;
+  hazard: string;
+  measure: MeasureKind;
+  amount: number;
+  unit: string;
+  as_reported: string | null;
+  sample_size: number | null;
+  basis: string | null;
+  year: number | null;
+  measured_on: string | null;
+  source_id: string | null;
+  source: { id: string; text: string; url: string } | null;
+  claim_id: string | null;
+  claim: { id: string; text: string; url: string } | null;
+  passage: { id: string; doc: string; exact: string; note: string } | null;
+  tier: string | null;
+  note: string | null;
+  author: 'llm' | 'owner';
+  review: Review;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  judgments: { id: number; lens: string; verdict: VerdictKey; review: Review }[];
+  history: HistoryEntry<Record<string, unknown>>[];
+}
+
+export interface JudgmentDetail {
+  id: number;
+  food_id: number;
+  food: string;
+  lens: string;
+  hazard_id: number | null;
+  hazard: string | null;
+  verdict: VerdictKey;
+  reasoning: string | null;
+  tier: string | null;
+  author: 'llm' | 'owner';
+  review: Review;
+  reviewed_at: string | null;
+  grounds: MeasureSummary[];
+  shaken: boolean;
+  history: HistoryEntry<Record<string, unknown>>[];
+}
+
+export interface NewTableBody {
+  name: string;
+  kind: TableKind;
+  topic_id?: string | null;
+  hazard?: number | null;
+  measure?: MeasureKind | null;
+  foods?: FoodSet;
+  note?: string;
 }

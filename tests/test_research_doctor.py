@@ -62,7 +62,8 @@ def research_dir(data_dir, monkeypatch):
 
 def _healthy_research():
     return {
-        "topics": [{"id": "t1", "name": "Topic One", "status": "active", "created": "2026-07-01 09:00"}],
+        "topics": [{"id": "t1", "name": "Topic One", "status": "active", "created": "2026-07-01 09:00",
+                    "fronts": []}],
         "entries": [
             {"id": "q1", "kind": "question", "text": "Why?", "topics": ["t1"], "url": "",
              "verdict": "", "status": "open", "reply_to": None, "created": "2026-07-01 09:00"},
@@ -124,13 +125,17 @@ def test_reply_to_cycle_found(research_dir):
 
 # --- 2. duplicate ids / topic refs ---------------------------------------------
 
-def test_duplicate_entry_id_found(research_dir):
+def test_duplicate_entry_id_cannot_reach_the_doctor(research_dir):
+    """Entries are rows keyed by id (researchstore.py), so a document with the
+    same id twice collapses to one entry on the way in — the doctor's
+    duplicate check has nothing left to find, and says so."""
     research = _healthy_research()
     dup = dict(research["entries"][0])
     research["entries"].append(dup)
     _write_research(research)
+    assert [e["id"] for e in store.read("research.json")["entries"]].count("q1") == 1
     findings, _notes, _fixes = doctor.run(tmux_fn=_fake_tmux([]))
-    assert any("duplicate entry id" in f and "q1" in f for f in findings)
+    assert not any("duplicate entry id" in f for f in findings)
 
 
 def test_missing_topic_ref_found(research_dir):
@@ -194,6 +199,24 @@ def test_dead_running_worker_found(research_dir):
     _write_research(research)
     findings, _notes, _fixes = doctor.run(tmux_fn=_fake_tmux([]))
     assert any("s2" in f and "not live" in f for f in findings)
+
+
+def test_room_worker_is_judged_by_its_observatory_conversation(research_dir):
+    """A worker with a conv_id has no tmux pane; the doctor asks the
+    Observatory index whether its conversation is still running."""
+    research = _healthy_research()
+    research["sessions"].append({
+        "id": "s2", "entry_ids": ["q1"], "topics": [], "created": "2026-07-07 09:00",
+        "status": "running", "report": "", "worker": True, "conv_id": "2026-09-24.150000",
+    })
+    _write_research(research)
+    (store.DATA_DIR / "bot_chats").mkdir(exist_ok=True)
+    store.write("bot_chats/index", {"2026-09-24.150000": {"running": True}})
+    findings, _notes, _fixes = doctor.run(tmux_fn=_fake_tmux([]))
+    assert not any("s2" in f for f in findings)
+    store.write("bot_chats/index", {"2026-09-24.150000": {"running": False}})
+    findings, _notes, _fixes = doctor.run(tmux_fn=_fake_tmux([]))
+    assert any("s2" in f and "not running" in f for f in findings)
 
 
 def test_running_worker_with_live_tmux_not_found(research_dir):
