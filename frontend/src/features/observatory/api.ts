@@ -234,6 +234,13 @@ export interface SessionMeta {
   /** The row id of the brief this session was spun off on (briefstore.py).
    * Present means the session has a brief page (SessionBriefPage.tsx). */
   spinoff_brief?: number;
+  /** Which half of a planned spinoff this is (routes/spinoff.py): 'plan' reads
+   * and plans and can't edit; 'build' carries out the approved plan. Absent on
+   * a session that explores and builds in one go. */
+  spinoff_stage?: 'plan' | 'build';
+  /** On a build session: the planning session its plan was agreed in. The
+   * chat links back to it (SpinoffOffer.tsx PlanSessionLink). */
+  planned_in?: string;
   /** It handed its work on to a continuation that took over from it —
    * marked server-side off the whole index (routes/observatory.py). Rooms and
    * swarm pages sink it to the bottom, out of the way (roomOrder.ts). */
@@ -1080,11 +1087,14 @@ export function workOnLinearIssue(issueId: string): Promise<{ ok: true; id: stri
 }
 
 /** A /spinoff the agent staged as a Go button on this conversation
- * (routes/spinoff.py offer_spinoff). `sessions` carries each brief's title. */
+ * (routes/spinoff.py offer_spinoff). `sessions` carries each brief's title.
+ * `kind: 'build'` is a planning session offering its finished plan: Go starts
+ * the build session and closes the planning one. */
 export interface SpinoffOffer {
   slugs: string[];
   offered: string;
   lane?: string;
+  kind?: 'build';
   sessions: { slug: string; title: string }[];
 }
 
@@ -1092,14 +1102,18 @@ export interface SpinoffGoResult {
   ok: boolean;
   spawned: { slug: string; conversation_id: string; lane: string; newly_spawned: boolean; started: boolean }[];
   errors: { slug: string; error: string }[];
+  /** The planning session this Go came from was closed behind it. */
+  closed_source?: boolean;
 }
 
 export function getSpinoffOffer(convId: string, signal?: AbortSignal): Promise<{ offer: SpinoffOffer | null }> {
   return api.get(`/api/spinoff/offer/${encodeURIComponent(convId)}`, signal);
 }
 
-export function goSpinoffOffer(convId: string): Promise<SpinoffGoResult> {
-  return api.post(`/api/spinoff/offer/${encodeURIComponent(convId)}/go`, {});
+/** Go. `skipPlan` is the card's other button: start sessions that build
+ * straight away instead of planning sessions. */
+export function goSpinoffOffer(convId: string, skipPlan = false): Promise<SpinoffGoResult> {
+  return api.post(`/api/spinoff/offer/${encodeURIComponent(convId)}/go`, { skip_plan: skipPlan });
 }
 
 export function dismissSpinoffOffer(convId: string): Promise<{ ok: true }> {

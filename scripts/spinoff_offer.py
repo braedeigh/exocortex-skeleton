@@ -9,6 +9,11 @@ on instead is fine too: the card waits. Same narrow-door doctrine as
 request_input.py and spinoff_open.py: agents never write session state
 directly.
 
+Her Go starts a PLANNING session for each slug (the card's "Skip the plan"
+button starts a builder instead). A planning session calls this too, with its
+own slug, once she has agreed the plan and it has saved the plan as a new
+brief: that offer is the approval card, and its Go starts the build session.
+
     spinoff_offer.py <slug> [<slug> ...] [--room personal|coding]
 
 The conversation id comes from EXOCORTEX_CONV_ID, which every Observatory turn

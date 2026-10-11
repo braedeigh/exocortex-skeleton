@@ -11,7 +11,7 @@ On a spinoff's entry in `bot_chats/index`:
 | field | what it holds |
 |---|---|
 | `spawned_from` | the conversation id of the parent session. Absent when there is no parent session (a helper button, a terminal). |
-| `spawned_via` | how it was born: `skill` (the `/spinoff` script run from a session), `go` (her tap on the Go card), `fork` (the fork button), `helper` (a helper button), `steward` (the branches room), `terminal` (a Claude Code session outside the Observatory), `app` (anything else with no calling session). |
+| `spawned_via` | how it was born: `skill` (the `/spinoff` script run from a session), `go` (her tap on the Go card), `plan` (her Go on a planning session's plan: the build session it started), `fork` (the fork button), `helper` (a helper button), `steward` (the branches room), `terminal` (a Claude Code session outside the Observatory), `app` (anything else with no calling session). |
 
 Both are written once, when the conversation is minted, by `open_spinoff` in
 `routes/spinoff.py`. A rejoin never rewrites them.

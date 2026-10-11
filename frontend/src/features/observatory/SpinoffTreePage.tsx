@@ -119,6 +119,8 @@ function viaWord(via: string | null): string {
       return 'spun off';
     case 'go':
       return 'spun off (Go)';
+    case 'plan':
+      return 'built from this plan';
     case 'fork':
       return 'fork';
     case 'helper':

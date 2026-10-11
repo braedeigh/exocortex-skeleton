@@ -430,7 +430,8 @@ def _act_gate_hook_command():
 def _session_settings(config, tools):
     """The combined `--settings` dict for one turn: the doc-guard's
     permissions.deny (guard_docs), the act-vs-ask PreToolUse hook (act_gate)
-    and, for a helper, the lookups-only hook (helper_gate).
+    and, for a helper, the lookups-only hook (helper_gate); for a spinoff's
+    planning session, the plan-only hook (plan_gate).
     One payload, since Claude Code takes a single --settings. Each half binds to
     the session type (a write tool / Bash present) and defaults on with its own
     opt-out. A read-only legacy session triggers neither → {} → no --settings."""
@@ -455,6 +456,17 @@ def _session_settings(config, tools):
     # is every tool: `allowed_tools` only pre-approves, it forbids nothing.
     if config.get("helper_gate"):
         gate = Path(store.BUILD_DIR) / "tools" / "helper_gate.py"
+        settings.setdefault("hooks", {}).setdefault("PreToolUse", []).append({
+            "matcher": "*",
+            "hooks": [{"type": "command", "command":
+                       f"{sys.executable} {gate}"}],
+        })
+    # Keep a planning session to planning: every tool call it makes goes
+    # through tools/plan_gate.py, which lets through reading, lookups and the
+    # scripts that save and offer the plan, and denies the rest. The building
+    # is done by a fresh session her Go starts (routes/spinoff.py go_offer).
+    if config.get("plan_gate"):
+        gate = Path(store.BUILD_DIR) / "tools" / "plan_gate.py"
         settings.setdefault("hooks", {}).setdefault("PreToolUse", []).append({
             "matcher": "*",
             "hooks": [{"type": "command", "command":
@@ -570,6 +582,10 @@ def _conv_config(entry):
         # A helper only looks things up; it never builds. Bound to the role,
         # with no per-session opt-out. See _session_settings() / tools/helper_gate.py.
         "helper_gate": entry.get("role") in _HELPER_ROLES,
+        # A spinoff's planning session reads and plans; it never builds. Bound
+        # to the stage it was born in (routes/spinoff.py), with no opt-out.
+        # See _session_settings() / tools/plan_gate.py.
+        "plan_gate": entry.get("spinoff_stage") == "plan",
     }
 
 

@@ -10,7 +10,7 @@ import { TerrainBackdrop } from '../terrain/TerrainBackdrop';
 import { ConversationApprovals } from '../approvals/ConversationApprovals';
 import { ChatApprovalCard } from './ChatApprovalCard';
 import { QuestionsBlock, QuestionsCard, QuestionsChip, QuestionsFloating, type QuestionsFloat } from './QuestionsCard';
-import { CloseSourcePrompt, SpinoffOffer } from './SpinoffOffer';
+import { CloseSourcePrompt, PlanSessionLink, SpinoffOffer } from './SpinoffOffer';
 import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
 import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, noteSessionOpened, journalRestore, openQuestions, stopConversation, streamSend, useSessionRoster } from './api';
 import { MemoryPrompt } from '../runqueue/MemoryPrompt';
@@ -205,6 +205,8 @@ export function ObservatoryPage({
   const [sessionArchived, setSessionArchived] = useState(false);
   // Whether this session was spun off on a brief: it then gets a "brief" button.
   const [sessionHasBrief, setSessionHasBrief] = useState(false);
+  /** On a build session: the planning session its plan was agreed in. */
+  const [sessionPlannedIn, setSessionPlannedIn] = useState<string | null>(null);
   // Explicit journal state of this session (null until meta loads). Nothing
   // announces it in the composer — she knows which sessions are journaled; it
   // only gates the off-the-record toggle, which exists in journaled sessions.
@@ -406,6 +408,7 @@ export function ObservatoryPage({
         setSessionPinned(data.meta?.pinned === true);
         setSessionArchived(Boolean(data.meta?.archived));
         setSessionHasBrief(typeof data.meta?.spinoff_brief === 'number');
+        setSessionPlannedIn(data.meta?.planned_in ?? null);
         setSessionSpend(data.meta?.tokens ? formatSessionTokens(data.meta.tokens) : null);
         setSessionSummary(data.meta?.summary ?? null);
         if (data.meta?.title) setRoomTitle(data.meta.title);
@@ -903,6 +906,8 @@ export function ObservatoryPage({
       <div ref={scrollContract.scrollRef} className={styles.scroll}>
         <div ref={scrollContract.columnRef} className={styles.column}>
           {convId && cameFrom && cameFrom !== convId ? <CloseSourcePrompt convId={convId} from={cameFrom} /> : null}
+          {/* A build session links back to the planning session it came from. */}
+          {convId && sessionPlannedIn ? <PlanSessionLink plannedIn={sessionPlannedIn} /> : null}
           {firstShown > 0 ? (
             <button
               type="button"

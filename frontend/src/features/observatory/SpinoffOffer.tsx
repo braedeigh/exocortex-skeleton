@@ -10,6 +10,14 @@
  * `?from=<this chat>` in the URL. She can also ignore the card and keep
  * talking; it waits until she taps Go or ×, or the agent offers again.
  *
+ * A spinoff plans before it builds, so the card has two shapes. In an
+ * ordinary chat, Go starts a PLANNING session (it can read but not edit) and
+ * "Skip the plan" starts a session that builds straight away. In a planning
+ * session, the card is the plan's approval: "Approve plan — start building"
+ * starts a fresh build session on the plan and closes the planning one.
+ * `PlanSessionLink` sits at the top of that build session's chat and opens
+ * the planning session it came from.
+ *
  * `CloseSourcePrompt` is the other half. It sits at the top of the session
  * she was just taken to, asks whether to close the chat she came from, and
  * clears `from` from the URL either way so a reload doesn't ask again.
@@ -22,6 +30,11 @@
  * asking go, I can click a "go" button that emerges at the bottom of the chat,
  * or just keep talking. Then it takes me to that chat and prompts me to close
  * the existing chat or not"
+ *
+ * Prompt (the plan step): "separate. with a UI after the plan to go. make it
+ * default but with a skip the plan button. the plan session closes itself,
+ * but you can click back into it at the top of the build session chat from a
+ * button in the UI."
  */
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
@@ -68,10 +81,10 @@ export function SpinoffOffer({
   // Start everything offered, then open the first session that started. A
   // partial failure stays here to be read instead of vanishing behind the
   // navigation.
-  const go = () => {
+  const go = (skipPlan = false) => {
     setBusy(true);
     setError(null);
-    goSpinoffOffer(convId)
+    goSpinoffOffer(convId, skipPlan)
       .then((result) => {
         const first = result.spawned[0];
         const failed = result.errors.map((e) => `${e.slug}: ${e.error}`).join(' · ');
@@ -83,7 +96,12 @@ export function SpinoffOffer({
         void navigate({
           to: '/observatory/$botId',
           params: { botId: 'session' },
-          search: pinned ? { conv: first.conversation_id } : { conv: first.conversation_id, from: convId },
+          // Nothing to ask when the chat she came from can't be closed (the
+          // pinned Keeper) or already was (a planning session, on approval).
+          search:
+            pinned || result.closed_source
+              ? { conv: first.conversation_id }
+              : { conv: first.conversation_id, from: convId },
         });
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Go failed.'))
@@ -96,10 +114,12 @@ export function SpinoffOffer({
   };
 
   const many = offer.sessions.length > 1;
+  // A planning session's offer is the plan's approval card.
+  const approving = offer.kind === 'build';
   return (
-    <div className={styles.card} role="group" aria-label="Spin off">
+    <div className={styles.card} role="group" aria-label={approving ? 'Approve the plan' : 'Spin off'}>
       <div className={styles.head}>
-        <span className={styles.eyebrow}>⤴ Spin off</span>
+        <span className={styles.eyebrow}>{approving ? '⤴ Plan ready' : '⤴ Spin off'}</span>
         <IconButton aria-label="Not now" onClick={dismiss} disabled={busy}>
           ×
         </IconButton>
@@ -118,12 +138,50 @@ export function SpinoffOffer({
         <p className={styles.error}>{error}</p>
       ) : (
         <div className={styles.actions}>
-          <span className={styles.hint}>Or just keep talking.</span>
-          <Button onClick={go} disabled={busy} data-track="spinoff-go">
-            {busy ? 'Starting…' : many ? `Go — start ${offer.sessions.length}` : 'Go'}
-          </Button>
+          <span className={styles.hint}>
+            {approving
+              ? 'Starts a fresh session that builds this plan, and closes this one. Or keep talking to change it.'
+              : 'Each session plans first and builds nothing until you approve. Or just keep talking.'}
+          </span>
+          {approving ? (
+            <Button onClick={() => go()} disabled={busy} data-track="spinoff-approve-plan">
+              {busy ? 'Starting…' : 'Approve plan — start building'}
+            </Button>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => go(true)} disabled={busy} data-track="spinoff-skip-plan">
+                Skip the plan
+              </Button>
+              <Button onClick={() => go()} disabled={busy} data-track="spinoff-go">
+                {busy ? 'Starting…' : many ? `Go — plan ${offer.sessions.length}` : 'Go — plan first'}
+              </Button>
+            </>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The strip at the top of a build session's chat: a button back to the
+ * planning session its plan was agreed in. That session is closed, so it
+ * opens read-only unless she sends into it. */
+export function PlanSessionLink({ plannedIn }: { plannedIn: string }) {
+  const navigate = useNavigate();
+  return (
+    <div className={styles.prompt} role="group" aria-label="The plan this session is building">
+      <span>This session is building a plan you approved.</span>
+      <div className={styles.actions}>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            void navigate({ to: '/observatory/$botId', params: { botId: 'session' }, search: { conv: plannedIn } })
+          }
+          data-track="spinoff-open-plan-session"
+        >
+          Open the plan session
+        </Button>
+      </div>
     </div>
   );
 }

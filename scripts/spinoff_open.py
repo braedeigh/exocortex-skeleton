@@ -8,7 +8,13 @@ instead. Both wrap routes.spinoff.open_spinoff.
 Same narrow-door doctrine as stage_change.py: agents never write session state
 directly — one validated entry point, loud precise failures.
 
-    spinoff_open.py <slug> [--room personal|coding] [--model <name>]
+    spinoff_open.py <slug> [--plan] [--room personal|coding] [--model <name>]
+
+`--plan` starts a PLANNING session instead of a builder: it reads, explains
+and agrees a plan with her, can't edit anything (tools/plan_gate.py), and
+hands the approved plan to a fresh build session through a Go button. The
+/spinoff skill passes it whenever she says "go" in words; without it the
+session builds straight away.
 
 No tmux, no long-lived process needed: open_spinoff() mints (or rejoins) an
 Observatory conversation carrying the kickoff, and the session appears in the
@@ -35,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from routes.spinoff import open_spinoff  # noqa: E402
 
 
-USAGE = ("usage: spinoff_open.py <slug> [--room personal|coding] "
+USAGE = ("usage: spinoff_open.py <slug> [--plan] [--room personal|coding] "
          "[--model <name>] [--branch agent/<name>]")
 
 
@@ -45,6 +51,9 @@ def main():
     # argparse's stderr essay — the caller is an agent reading stdout.
     args = sys.argv[1:]
     room, model, branch = None, None, None
+    # --plan takes no value: plan first, in a session that can't edit.
+    stage = "plan" if "--plan" in args else None
+    args = [a for a in args if a != "--plan"]
     # Flag-value pairs pulled out wherever they sit; the server validates the
     # values (room against _LANES, model against _MODEL_CHOICES, branch as an
     # agent/* name) so a bad one comes back as the same one-JSON-line refusal
@@ -68,7 +77,7 @@ def main():
         print(json.dumps({"error": USAGE}))
         return 2
     payload, status = open_spinoff(args[0], lane=room, model=model,
-                                   branch=branch)
+                                   branch=branch, stage=stage)
     print(json.dumps(payload))
     return 0 if status == 200 else 1
 

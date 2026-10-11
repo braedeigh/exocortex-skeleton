@@ -8,6 +8,14 @@ tab". Your job here in the sender session has three parts: **distill, brief,
 spawn.** The heavy thinking happens now, in you — you're the one holding the
 context the new session won't have.
 
+**A spinoff plans before it builds, in two sessions.** Your brief goes to a
+*planning* session: it explores, teaches, and agrees a plan with the owner,
+and it cannot edit anything (`tools/plan_gate.py`). When the owner approves
+that plan with a second Go button, a fresh *build* session starts on the plan
+alone and the planning session closes. So your brief says what the task IS;
+it does not need to say how to build it. The owner can skip the planning
+session from the Go card ("Skip the plan"), or by saying so to you.
+
 ## 1. Distill — figure out what they mean
 
 Resolve their reference from this conversation: numbered items from a list you
@@ -64,11 +72,13 @@ spawn** — `spinoff_open.py` / the Go button reports which one, so fix it and
 offer again. Very large files aren't pasted; the child is told to read those
 itself.
 
-Don't write a Protocol — the general one (explore, teach, questions only if
-real ones exist, build, say it in the room) is attached to the child's instructions
-automatically, from `claude-commands/spinoff/protocol.md`. Write a
-`## Protocol` section only when this job genuinely needs a different one; if
-the brief has one, it replaces the general one.
+Don't write a Protocol — the right one is attached to the child's
+instructions automatically, from `claude-commands/spinoff/`: `plan_protocol.md`
+for a planning session, `build_protocol.md` for the build session that follows
+it, and `protocol.md` (explore, teach, questions only if real ones exist,
+build, say it in the room) for a session that skipped the plan. A `## Protocol`
+section of your own only takes effect when the plan is skipped; a planning or
+build session's own Protocol wins over it.
 
 ```markdown
 # Spinoff: <one-line title>
@@ -129,23 +139,29 @@ EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_offer.py <slug>
 resolves the repo's default `data/` instead of the instance's real data dir,
 and won't find your brief.)
 
-That puts a **Go** card at the bottom of her chat, listing each brief's title.
-End your turn there: one short line saying the Go button is up. Don't ask
-"shall I?" too. Her tap on Go IS the confirm. It starts the sessions, takes her
-to the first one, and that session asks whether to close this chat. You don't
-spawn anything yourself, and you won't see the tap.
+That puts a **Go** card at the bottom of her chat, listing each brief's title,
+with two buttons: **Go — plan first** starts a planning session for each brief,
+and **Skip the plan** starts sessions that build straight away. End your turn
+there: one short line saying the Go button is up. Don't ask "shall I?" too.
+Her tap IS the confirm. It starts the sessions, takes her to the first one,
+and that session asks whether to close this chat. You don't spawn anything
+yourself, and you won't see the tap.
 
 She can also ignore the card and keep talking. If what she says changes the
 plan, save the brief again (same slug) or save a new one, and run
 `spinoff_offer.py` again; a new offer replaces the old card. If she says "go"
-in words instead of tapping, spawn directly with `spinoff_open.py <slug>`, the
-same door the button uses.
+in words instead of tapping, spawn directly with `spinoff_open.py <slug>
+--plan`, the same door the button uses. **Always pass `--plan`**, unless she
+said in her own words to skip the plan ("just build it", "skip the plan",
+"no plan needed"); only then leave it off. Never decide for her that a job is
+too small to plan.
 
 **Not in an Observatory session** (a terminal, where there's no chat to put a
 button in): `spinoff_offer.py` refuses with "no EXOCORTEX_CONV_ID". Then fall
 back to the old way: ask in words, **wait for their go** (this starts a real
 agent doing real work, so never skip the confirm), and on yes run
-`scripts/spinoff_open.py <slug>` for each.
+`scripts/spinoff_open.py <slug> --plan` for each (same rule: `--plan` unless
+she said to skip it).
 
 **The room comes along by itself — don't name one unless they did.** A spinoff
 lands in the room THIS conversation is in: spun off from a Personal session it's
@@ -170,7 +186,8 @@ same core in `routes/spinoff.py`.) The JSON reply tells you `newly_spawned`,
 `conversation_id`, `lane` and `started`. There is no tmux tab: the endpoint
 mints an Observatory conversation (config'd as a builder session) and hands the
 kickoff to a detached `scripts/spinoff_runner.py`, which posts it through the
-real send route. **`started: true` means the session is already working** — she
+real send route. `stage` in the reply is `"plan"` for a planning session and
+null for one that builds straight away. **`started: true` means the session is already working** — she
 doesn't have to open it, doesn't have to be at the machine, and gets no chance
 to skim the kickoff first. If a live (non-archived) conversation for that slug
 already exists, the endpoint rejoins it instead of minting a new one
@@ -187,8 +204,9 @@ and a second send into a running conversation is refused with a 409. A
 `started: false` is the one case where she really does have to open it.
 
 When YOU spawned (the terminal path, or she said "go" in words), tell the owner
-the session(s) are **running now**, which room each went to (`lane`), and what
-each is working on. Either way, the sequencing decision is YOURS, made before
+the session(s) are **running now**, which room each went to (`lane`), what
+each is working on, and that each is **planning, not building** (unless she
+skipped the plan): nothing gets built until she approves its plan there. Either way, the sequencing decision is YOURS, made before
 you offer, not hers made at the door: if two spinoffs would
 edit the same files they must not be spawned together — propose combining them
 into one session, or spawn the first and hold the second until it ships. If

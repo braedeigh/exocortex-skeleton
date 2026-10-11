@@ -146,12 +146,14 @@ def _mask_quotes(command):
     return "".join(out)
 
 
-def _is_lookup_piece(piece):
-    """One piece of a command line (no chaining left in it) is a lookup."""
+def _is_lookup_piece(piece, scripts=_SCRIPTS):
+    """One piece of a command line (no chaining left in it) is a lookup.
+    `scripts` is which of the app's own doors count as one: a helper's by
+    default; tools/plan_gate.py passes a planning session's shorter list."""
     piece = _ENV_PREFIX.sub("", piece.strip())
     if not piece:
         return False
-    if _SCRIPTS.match(piece):
+    if scripts.match(piece):
         return not ("peers.py send" in piece and "--interrupt" in piece)
     if piece.startswith("git "):
         return bool(_GIT_READ.match(piece) or _GIT_BRANCH.match(piece)) \
@@ -204,7 +206,7 @@ _HEREDOC = re.compile(
     r"\A(?P<head>[^\n]*?) <<'(?P<mark>[A-Za-z_]\w*)'\n(?P<body>.*)\n(?P=mark)\n?\Z", re.S)
 
 
-def _is_brief_heredoc(command):
+def _is_brief_heredoc(command, scripts=_SCRIPTS):
     """True when a command is a lookup whose last piece is spinoff_brief.py
     fed by one quoted here-document, with nothing after it."""
     match = _HEREDOC.match(command or "")
@@ -217,18 +219,18 @@ def _is_brief_heredoc(command):
     # Everything before the text must itself be a lookup, and the command the
     # text is fed to — the last piece — must be the brief script.
     pieces = _pieces(match.group("head"))
-    return bool(pieces) and all(_is_lookup_piece(p) for p in pieces) \
+    return bool(pieces) and all(_is_lookup_piece(p, scripts) for p in pieces) \
         and bool(_BRIEF_SCRIPT.match(_ENV_PREFIX.sub("", pieces[-1].strip())))
 
 
-def bash_is_lookup(command):
+def bash_is_lookup(command, scripts=_SCRIPTS):
     """True when a Bash command only looks, or only saves a brief. The whole
     policy for Bash."""
     command = (command or "").strip()
-    if _is_brief_heredoc(command):
+    if _is_brief_heredoc(command, scripts):
         return True
     pieces = _pieces(command)
-    return bool(pieces) and all(_is_lookup_piece(p) for p in pieces)
+    return bool(pieces) and all(_is_lookup_piece(p, scripts) for p in pieces)
 
 
 # --- The reasons handed back on a deny --------------------------------------

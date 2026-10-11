@@ -21,6 +21,6 @@ fingerprint: 9ab2474e9b05
 written: 2026-10-03
 ---
 
-A session saves a brief with spinoff_brief.py, which takes the text on standard input and keeps it as a row in the database. It then calls spinoff_open.py, or it offers the spinoff with spinoff_offer.py. An offer puts a Go button in the owner's chat. Go opens each spinoff and takes the owner to the new session.
+A session saves a brief with spinoff_brief.py, which takes the text on standard input and keeps it as a row in the database. It then calls spinoff_open.py, or it offers the spinoff with spinoff_offer.py. An offer puts a Go button in the owner's chat. Go opens each spinoff as a planning session and takes the owner to it; Skip the plan opens a session that builds straight away. A planning session saves the agreed plan as a new brief and offers that. The owner's Go on it starts the build session and closes the planning one.
 
 The door mints the session, records its parent, and stages the brief as its first message. The brief's listed files go into the session's hidden instructions, which are kept in the database beside the brief and handed to every turn. Handoffs are kept there too. The session's brief page shows all three. Briefs written before October 2026 were folders of files; an import script brought them in.

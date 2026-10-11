@@ -812,3 +812,104 @@ def test_the_brief_page_shows_the_brief_what_was_preloaded_and_who_wrote_it(
     assert "VALUE = 7" in page["context"]
     # A session that was never spun off has no brief page.
     assert spinoff_client.get(f"/api/spinoff/brief/{sender}").status_code == 404
+
+
+# --- plan first, build second: two sessions with her approval between --------
+# Go starts a planning session (behind tools/plan_gate.py); the planner saves
+# the agreed plan as a new brief under its own slug and offers it; her Go on
+# THAT starts a fresh build session and closes the planning one.
+
+def _planned(spinoff_client, monkeypatch, slug="pond-colour"):
+    """Run a spinoff up to a live planning session. Returns its conversation id."""
+    sender = _offer_from(monkeypatch, slug)
+    body = spinoff_client.post(f"/api/spinoff/offer/{sender}/go").get_json()
+    return body["spawned"][0]["conversation_id"]
+
+
+def _approve(spinoff_client, monkeypatch, planner, slug="pond-colour",
+             plan="# Spinoff: paint the pond\n\n## The approved plan\nBlue.\n"):
+    """The planner saves the plan and offers it; then her Go."""
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", planner)
+    briefstore.save(slug, plan, written_by=planner)
+    payload, status = spinoff.offer_spinoff(planner, [slug])
+    assert status == 200, payload
+    monkeypatch.delenv("EXOCORTEX_CONV_ID")
+    return spinoff_client.post(f"/api/spinoff/offer/{planner}/go").get_json()
+
+
+def test_go_starts_a_planning_session_that_cannot_build(spinoff_client, monkeypatch):
+    planner = _planned(spinoff_client, monkeypatch)
+    entry = _index()[planner]
+    assert entry["spinoff_stage"] == "plan" and entry["title"] == "plan: pond-colour"
+    context = _context(entry)
+    assert "PLANNING session" in context and "Say it in the room" not in context
+    # The gate rides on every turn of it: an edit is refused by the hook.
+    config = observatory._conv_config(entry)
+    settings = observatory._session_settings(config, config["allowed_tools"])
+    commands = [hook["command"] for group in settings["hooks"]["PreToolUse"]
+                for hook in group["hooks"]]
+    assert any("plan_gate.py" in command for command in commands)
+
+
+def test_skip_the_plan_starts_a_session_that_builds_straight_away(spinoff_client, monkeypatch):
+    sender = _offer_from(monkeypatch, "quick-fix")
+    body = spinoff_client.post(f"/api/spinoff/offer/{sender}/go",
+                               json={"skip_plan": True}).get_json()
+    entry = _index()[body["spawned"][0]["conversation_id"]]
+    assert "spinoff_stage" not in entry and entry["title"] == "spin: quick-fix"
+    assert "Say it in the room" in _context(entry)
+    assert observatory._conv_config(entry)["plan_gate"] is False
+
+
+def test_approving_the_plan_starts_a_fresh_builder_and_closes_the_planner(
+        spinoff_client, monkeypatch):
+    planner = _planned(spinoff_client, monkeypatch)
+    body = _approve(spinoff_client, monkeypatch, planner)
+    builder = body["spawned"][0]["conversation_id"]
+    index = _index()
+    assert builder != planner and body["closed_source"] is True
+    assert index[planner].get("archived")
+    entry = index[builder]
+    # The builder starts on the plan, not the original brief, and knows where
+    # the plan was agreed so its chat can link back.
+    assert entry["spinoff_stage"] == "build" and entry["planned_in"] == planner
+    assert entry["spawned_from"] == planner and entry["spawned_via"] == "plan"
+    assert "## The approved plan" in entry["draft"]
+    assert "BUILD session" in _context(entry)
+    assert observatory._conv_config(entry)["plan_gate"] is False
+
+
+def test_a_planner_cannot_offer_before_it_has_saved_a_plan(spinoff_client, monkeypatch):
+    """Its own slug already has a brief — the one it was started on. Offering
+    that would start a builder on the unplanned task."""
+    planner = _planned(spinoff_client, monkeypatch)
+    payload, status = spinoff.offer_spinoff(planner, ["pond-colour"])
+    assert status == 400 and "no plan saved" in payload["error"]
+    assert "spinoff_offer" not in _index()[planner]
+
+
+def test_a_planner_cannot_offer_some_other_job(spinoff_client, monkeypatch):
+    planner = _planned(spinoff_client, monkeypatch)
+    _write_brief(store.SPINOFF_DIR, "side-quest")
+    payload, status = spinoff.offer_spinoff(planner, ["side-quest"])
+    assert status == 400
+    assert spinoff_client._launches == spinoff_client._launches[:1]
+
+
+def test_a_plan_naming_a_missing_file_is_refused_at_the_offer(spinoff_client, monkeypatch):
+    planner = _planned(spinoff_client, monkeypatch)
+    briefstore.save("pond-colour", "# Spinoff: x\n\n## Where to look\n- /no/such/file.py\n",
+                    written_by=planner)
+    payload, status = spinoff.offer_spinoff(planner, ["pond-colour"])
+    assert status == 400 and "/no/such/file.py" in payload["error"]
+
+
+def test_a_changed_plan_replaces_the_one_on_offer(spinoff_client, monkeypatch):
+    """She keeps talking instead of tapping: the builder gets the last plan."""
+    planner = _planned(spinoff_client, monkeypatch)
+    briefstore.save("pond-colour", "# Spinoff: first\n\nGreen.\n", written_by=planner)
+    spinoff.offer_spinoff(planner, ["pond-colour"])
+    body = _approve(spinoff_client, monkeypatch, planner,
+                    plan="# Spinoff: second\n\nBlue.\n")
+    assert "Blue." in _index()[body["spawned"][0]["conversation_id"]]["draft"]
+    assert len(spinoff_client._launches) == 2   # one planner, one builder

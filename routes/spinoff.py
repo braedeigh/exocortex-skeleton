@@ -46,6 +46,15 @@ her to the new session, which asks whether to close the one she came from.
 Not tapping it and simply talking on is the other answer; the offer waits
 until she taps Go or ×, or the agent offers again.
 
+A /spinoff PLANS BEFORE IT BUILDS, in two sessions (see "The stages" below).
+Go starts a planning session, which can read but not edit (tools/plan_gate.py)
+and works a plan out with her. When she says the plan is right it saves the
+plan as a new brief under its own slug and offers that; her second Go starts a
+fresh build session on that brief alone and closes the planning session. The
+Go card's "Skip the plan" button starts a single session that builds straight
+away, as every spinoff used to. The app's own spawns (helpers, triage, forks,
+stewards, the nightly fixer, continuations) name no stage and are unchanged.
+
 The entry keeps `draft`+`autostart` anyway, as the fallback for a runner that
 never starts: opening the session then fires the kickoff the old way. The two
 can't both land — whichever send arrives first pops both fields, and a second
@@ -67,7 +76,8 @@ import store
 import worktrees
 from routes.observatory import (_BUILDER_TOOLS, _CONV_ID_RE, _DEFAULT_LANE, _LANES,
                                 _MODEL_CHOICES, _chats_dir, _conv_lane,
-                                _lane_profile, _new_conv_id, _now)
+                                _lane_profile, _new_conv_id, _now,
+                                close_conversation)
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 
@@ -191,8 +201,25 @@ def _live_conv_for(index, slug):
 # loaded. Should I have it read them or inject them? If it's sturdy enough to
 # ask it to read them all, hybrid." (Measured: not sturdy — inject.)
 
-PROTOCOL_FILE = (Path(__file__).resolve().parents[1]
-                 / "claude-commands" / "spinoff" / "protocol.md")
+_PROTOCOL_DIR = Path(__file__).resolve().parents[1] / "claude-commands" / "spinoff"
+PROTOCOL_FILE = _PROTOCOL_DIR / "protocol.md"
+
+# --- The stages: plan in one session, build in another ----------------------
+# A session's stage picks the Protocol in its hidden instructions and is kept
+# on its entry as `spinoff_stage`. No stage (None) is the single session that
+# explores and builds in one go. "plan" explores, teaches and agrees a plan
+# with her, behind a hook that refuses edits. "build" starts fresh on the
+# approved plan, which is its brief, and stops when the code doesn't match it.
+# A staged session always gets its stage's Protocol, even when the brief
+# carries one of its own: the stage is what her Go button chose.
+#
+# Prompt: "it would work best if it had a plan session and then i made and
+# corrected the plan and then it provided a new brief to a new session fresh
+# so that it didn't have a bunch of side information"
+STAGE_PROTOCOLS = {
+    "plan": _PROTOCOL_DIR / "plan_protocol.md",
+    "build": _PROTOCOL_DIR / "build_protocol.md",
+}
 PRELOAD_FILE_MAX = 60_000     # characters; a bigger file is read by the session
 PRELOAD_TOTAL_MAX = 200_000   # the whole snapshot; the Keeper boots on ~214 KB
 
@@ -237,17 +264,25 @@ def _where_to_look(brief_text, cwd):
     return entries, errors
 
 
-def _build_context(brief_text, entries):
+def _build_context(brief_text, entries, stage=None):
     """Build the session's hidden instructions. Returns (text, preloaded, too_big).
 
     The default Protocol goes in when the brief has none of its own (the app's
     own briefs — triage, helpers, forks, stewards — carry theirs, and it shows
-    in the chat with the rest of the brief). Then each listed file, fenced,
+    in the chat with the rest of the brief). A staged session ("plan" or
+    "build") gets its stage's Protocol whatever the brief says, with a line
+    saying it wins. Then each listed file, fenced,
     under its path, until the size caps; what doesn't fit, or isn't text, is
     returned as `too_big` for the kickoff to name. `text` is None when there
     was nothing to put in it, so the brief gets no context at all."""
     parts, preloaded, too_big, total = [], [], [], 0
-    if _section(brief_text, "Protocol") is None:
+    if stage in STAGE_PROTOCOLS:
+        protocol = STAGE_PROTOCOLS[stage].read_text(encoding="utf-8").strip()
+        if _section(brief_text, "Protocol") is not None:
+            protocol += ("\n\nThe brief carries a Protocol section of its own. "
+                         "This one wins wherever the two disagree.")
+        parts.append(protocol)
+    elif _section(brief_text, "Protocol") is None:
         parts.append(PROTOCOL_FILE.read_text(encoding="utf-8").strip())
     snapshots = []
     for as_written, path, start, end in entries:
@@ -294,7 +329,7 @@ def _kickoff_text(brief_text, preloaded, too_big):
 
 
 def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
-                 parent=None, via=None, brief_id=None):
+                 parent=None, via=None, brief_id=None, stage=None):
     """Core shared by the route and scripts/spinoff_open.py (the agents' door).
 
     Mints (or rejoins) an Observatory conversation for the spinoff and, by
@@ -346,6 +381,12 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
     the rejoin — a continuation (continuation.py) keeps its job's slug, and the
     session it continues is still live under that slug when it is opened.
 
+    `stage` is "plan" or "build" for the two halves of a planned spinoff (see
+    "The stages" above); left None the session explores and builds in one go.
+    It picks the Protocol, is written on the entry as `spinoff_stage`, and
+    titles a planning session "plan: <slug>". A build session also carries
+    `planned_in`, the planning session it came from, which is its `parent`.
+
     The kickoff is the brief's text (_kickoff_text), and a brief whose "Where
     to look" names a file that doesn't exist is refused with a 400 before
     anything is minted. The listed files are preloaded into the brief's context
@@ -364,6 +405,9 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
     if model is not None and model not in _MODEL_CHOICES:
         return {"error": f"unknown model {model!r} "
                          f"(choices: {', '.join(_MODEL_CHOICES)})"}, 400
+    if stage is not None and stage not in STAGE_PROTOCOLS:
+        return {"error": f"unknown stage {stage!r} "
+                         f"(choices: {', '.join(STAGE_PROTOCOLS)})"}, 400
 
     _chats_dir()   # the index (and its .lock) lives inside it
 
@@ -421,7 +465,7 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
 
     # The first message is the brief itself; its files and (if it has none of
     # its own) the Protocol ride in the hidden instructions.
-    context, preloaded, too_big = _build_context(brief_text, entries)
+    context, preloaded, too_big = _build_context(brief_text, entries, stage)
     kickoff = _kickoff_text(brief_text, preloaded, too_big)
 
     raced = None
@@ -430,7 +474,8 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
         if not raced:
             conv_id = _new_conv_id(index)
             index[conv_id] = {
-                "bot": "keeper", "spinoff_slug": slug, "title": f"spin: {slug}",
+                "bot": "keeper", "spinoff_slug": slug,
+                "title": f"plan: {slug}" if stage == "plan" else f"spin: {slug}",
                 "started": _now(), "last_at": _now(), "claude_session_id": None,
                 "cost_usd": 0.0, "journal": False, "lane": room,
                 "cwd": cwd,
@@ -444,6 +489,14 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
             # Which brief row this session was started on. Its context, if
             # it has one, is handed to every turn from the database.
             index[conv_id]["spinoff_brief"] = brief["id"]
+            # Which half of a planned spinoff this is. "plan" is what puts
+            # the session behind the plan gate (routes/observatory.py
+            # _conv_config); a build session remembers its planning session
+            # so its chat can link back to it.
+            if stage:
+                index[conv_id]["spinoff_stage"] = stage
+            if stage == "build" and parent:
+                index[conv_id]["planned_in"] = parent
             if model:
                 # On the entry, not the reply alone: per-turn resolution
                 # (observatory's effective_model) reads it from here, so the
@@ -481,6 +534,7 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
         "staged": True,
         "autostart": True,
         "model": model,
+        "stage": stage,
         "spawned_from": parent,
         "brief": brief["id"],
         "worktree": str(wt_path) if wt_path else None,
@@ -563,7 +617,13 @@ def offer_spinoff(conv_id, slugs, lane=None):
     card shouldn't offer a session that can't start. A new offer REPLACES the
     old one: when the agent re-offers after she's talked it through, the button
     she sees is the current plan, not the first draft of it. `lane` is kept for
-    Go; left None, Go lands the sessions in the sender's room like any spinoff."""
+    Go; left None, Go lands the sessions in the sender's room like any spinoff.
+
+    An offer from a PLANNING session is the plan's approval card instead
+    (`kind: "build"`): it may name only that session's own slug, and only once
+    a new brief — the approved plan — has been saved under it. Its file list
+    is checked here, so the planner hears about a missing path itself rather
+    than her Go failing on it."""
     if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
         return {"error": "invalid conversation id"}, 400
     slugs = list(dict.fromkeys(slugs or []))
@@ -583,6 +643,22 @@ def offer_spinoff(conv_id, slugs, lane=None):
     if lane:
         offer["lane"] = lane
     _chats_dir()
+    # Refuse a planning session's offer that isn't its own plan, saved.
+    sender = store.read("bot_chats/index", {}).get(conv_id)
+    if isinstance(sender, dict) and sender.get("spinoff_stage") == "plan":
+        own = sender.get("spinoff_slug")
+        if slugs != [own]:
+            return {"error": "a planning session offers only its own plan — "
+                             f"save the builder's brief under {own!r} and offer that"}, 400
+        plan = briefstore.latest(own)
+        if plan["conv"] is not None:
+            return {"error": "no plan saved yet — save the builder's brief first: "
+                             f"scripts/spinoff_brief.py {own} (the brief on standard input)"}, 400
+        _, missing = _where_to_look(plan["body"], sender.get("cwd") or ".")
+        if missing:
+            return {"error": "Where to look names files that don't exist: "
+                             + ", ".join(missing)}, 400
+        offer["kind"] = "build"
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
@@ -601,8 +677,14 @@ def read_offer(conv_id):
                                  for slug in offer["slugs"]])
 
 
-def go_offer(conv_id):
+def go_offer(conv_id, skip_plan=False):
     """Her Go: spawn every offered spinoff. Returns (payload, status).
+
+    An ordinary offer starts a PLANNING session for each slug; `skip_plan`
+    (the card's other button) starts sessions that build straight away
+    instead. A planning session's own offer (`kind: "build"`) is her approval
+    of the plan: it starts the build session on the brief the planner just
+    saved, and then closes the planning session.
 
     The offer is TAKEN under the lock before anything spawns, so a double tap
     (or two open windows) can't start the work twice — the second Go finds
@@ -622,21 +704,42 @@ def go_offer(conv_id):
     if not isinstance(offer, dict) or not offer.get("slugs"):
         return {"error": "nothing offered here (already started?)"}, 409
     lane = offer.get("lane") or room
+    approving = offer.get("kind") == "build"
     spawned, errors = [], []
     # Outside the lock: open_spinoff takes it itself, and launches runners.
     for slug in offer["slugs"]:
         # The offer sits on the sender's own conversation, so the sender is
         # the parent even though Go arrives as a web request.
-        payload, status = open_spinoff(slug, lane=lane, parent=conv_id, via="go")
+        if approving:
+            # Start the builder on the plan the planner saved, named by its
+            # row: the planning session is still live under this slug, and a
+            # plain open would rejoin it.
+            plan = briefstore.latest(slug)
+            if plan is None or plan["conv"] is not None:
+                errors.append({"slug": slug, "error": "the plan's brief is gone — "
+                               "ask the planning session to save and offer it again"})
+                continue
+            payload, status = open_spinoff(slug, lane=lane, parent=conv_id, via="plan",
+                                           brief_id=plan["id"], stage="build")
+        else:
+            payload, status = open_spinoff(slug, lane=lane, parent=conv_id, via="go",
+                                           stage=None if skip_plan else "plan")
         if status == 200:
             spawned.append({"slug": slug,
                             "conversation_id": payload["conversation_id"],
                             "lane": payload["lane"],
                             "newly_spawned": payload["newly_spawned"],
-                            "started": payload.get("started", False)})
+                            "started": payload.get("started", False),
+                            "stage": payload.get("stage")})
         else:
             errors.append({"slug": slug, "error": payload.get("error", "failed")})
-    return {"ok": bool(spawned), "spawned": spawned, "errors": errors}, 200
+    # Close the planning session once its builder exists. Its chat stays
+    # readable, and the builder's chat links back to it (`planned_in`).
+    closed = False
+    if approving and spawned:
+        closed = close_conversation(conv_id)[1] == 200
+    return {"ok": bool(spawned), "spawned": spawned, "errors": errors,
+            "closed_source": closed}, 200
 
 
 def dismiss_offer(conv_id):
@@ -750,9 +853,11 @@ def register(app):
     def spinoff_offer_read(conv_id):
         return jsonify({"offer": read_offer(conv_id)})
 
+    # `skip_plan` is the card's "Skip the plan" button: build straight away.
     @app.route("/api/spinoff/offer/<conv_id>/go", methods=["POST"])
     def spinoff_offer_go(conv_id):
-        payload, status = go_offer(conv_id)
+        data = request.get_json(silent=True) or {}
+        payload, status = go_offer(conv_id, skip_plan=data.get("skip_plan") is True)
         return jsonify(payload), status
 
     @app.route("/api/spinoff/offer/<conv_id>/dismiss", methods=["POST"])
@@ -770,6 +875,8 @@ def register(app):
         lane = data.get("lane") or data.get("room")
         payload, status = open_spinoff(
             data.get("slug", ""), lane=(lane or "").strip() or None,
+            # `stage: "plan"` starts a planning session instead of a builder.
+            stage=(data.get("stage") or "").strip() or None,
             model=(data.get("model") or "").strip() or None,
             # `branch` = stand on an EXISTING agent/* branch in its own
             # worktree — the steward door and the future escalation spawner
