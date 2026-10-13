@@ -516,6 +516,68 @@ def test_parsed_receipt_import_404s_for_unknown_expense(client):
     assert r.status_code == 404
 
 
+def test_a_bank_row_that_posts_days_after_the_receipt_is_the_same_purchase(client):
+    # A Saturday receipt whose charge posts the Tuesday after a long weekend.
+    store.write("expenses", {"items": [
+        {"id": "r1", "date": "2026-05-23", "amount": 48.76, "category": "Groceries",
+         "comments": "HEB · 11 units", "receipt": "receipts/grocery/x.jpg",
+         "source": "receipt_import"},
+    ]})
+    r = _post(client, "/api/csv/import", {"selections": [
+        {"date": "2026-05-26", "amount": -48.76, "desc": "H-E-B #218 05/23 MOBILE PURCHASE",
+         "category": "Uncategorized", "include": True},
+    ]})
+    assert r.get_json()["merged_with_receipt"] == 1
+    items = read_expenses()
+    assert [(e["id"], e["date"], e["bank_date"], e["category"]) for e in items] == [
+        ("r1", "2026-05-23", "2026-05-26", "Groceries")]
+
+
+def test_a_same_priced_trip_weeks_apart_stays_its_own_expense(client):
+    store.write("expenses", {"items": [
+        {"id": "r1", "date": "2026-06-01", "amount": 54.32, "category": "Groceries",
+         "comments": "HEB · 12 units", "receipt": "receipts/grocery/x.jpg",
+         "source": "receipt_import"},
+    ]})
+    r = _post(client, "/api/csv/import", {"selections": [
+        {"date": "2026-06-15", "amount": -54.32, "desc": "H-E-B #218", "category": "Groceries", "include": True},
+    ]})
+    assert r.get_json() == {**r.get_json(), "merged_with_receipt": 0, "added": 1}
+    assert len(read_expenses()) == 2
+
+
+def test_a_grocery_receipt_imported_after_its_statement_is_counted_once(data_dir):
+    from flask import Flask
+    from routes import kitchen
+    app = Flask(__name__)
+    app.config.update(TESTING=True)
+    kitchen.register(app)
+    store.write("expenses", {"items": [
+        {"id": "b1", "date": "2026-08-03", "amount": 52.96, "category": "Groceries",
+         "comments": "H-E-B #425 08/02 MOBILE PURCHASE", "title": "HEB"},
+        {"id": "pay", "date": "2026-08-03", "amount": 52.96, "category": "Income", "comments": "refund"},
+    ]})
+    grocery_dir = RECEIPTS_DIR / "grocery"
+    grocery_dir.mkdir(parents=True, exist_ok=True)
+    parsed = grocery_dir / "2026-08-02-receipt-test.jpg.parsed.json"
+    parsed.write_text(json.dumps({"store": "HEB", "date": "2026-08-02", "total": 52.96}))
+    try:
+        r = _post(app.test_client(), "/api/kitchen/parsed-receipts/import", {
+            "filename": parsed.name,
+            "selections": [{"name": "MILK", "qty": 1, "price": 4.5, "include": True}],
+        })
+        assert r.status_code == 200
+    finally:
+        parsed.unlink(missing_ok=True)
+    items = {e["id"]: e for e in read_expenses()}
+    assert set(items) == {"b1", "pay"}  # no third row for the receipt
+    assert items["b1"]["receipt"] == "receipts/grocery/2026-08-02-receipt-test.jpg"
+    assert items["b1"]["comments"] == "H-E-B #425 08/02 MOBILE PURCHASE"
+    assert "receipt" not in items["pay"]
+    trip = store.read("grocery_trips", {"trips": []})["trips"][0]
+    assert trip["expense_id"] == "b1"
+
+
 # --- category kinds + one-time things ------------------------------------------
 
 def test_category_kind_is_set_and_validated(client):

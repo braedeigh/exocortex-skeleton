@@ -49,6 +49,8 @@ export interface Expense {
   /** 'receipt_import' rows get merged with bank rows on CSV import. */
   source?: string;
   bank_matched?: boolean;
+  /** The statement's own date for a merged row, which keeps the receipt's date. */
+  bank_date?: string;
   /** A one-time purchase (a mattress), not everyday spending in its category. */
   one_time?: boolean;
   /** Where the one-time thing was filed in Inventory (routes/inventory.py file_purchase). */

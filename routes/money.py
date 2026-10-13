@@ -1,7 +1,7 @@
 """Money routes — budget, expense log, subscriptions, CSV import, receipts."""
 from flask import request, jsonify, send_from_directory
 from data_helpers import DATA_DIR, RECEIPTS_DIR
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 import csv
 import json
@@ -17,6 +17,62 @@ from routes.inventory import file_purchase
 # "" = not sorted yet. Separate from `type` (variable/fixed/savings), which
 # decides whether a category counts against the monthly budget.
 CATEGORY_KINDS = {"recurring", "cut_back", "one_time", ""}
+
+
+# Categories that aren't spending: money in, and moving her own money around.
+_NOT_SPENDING = {"income", "transfer (in)", "savings/transfer"}
+
+# How far apart a receipt's date and its bank row's date may sit and still be
+# the same purchase. The bank dates a row by when the charge posts, which is
+# the next business day or later over a weekend or holiday; a receipt
+# photographed the morning after carries the day after the purchase.
+BANK_POSTS_UP_TO_DAYS_AFTER = 5
+BANK_POSTS_UP_TO_DAYS_BEFORE = 1
+SAME_PURCHASE_WITHIN_DOLLARS = 0.10
+
+
+def _same_purchase_gap(receipt_date, bank_date, receipt_amount, bank_amount):
+    """How many days apart a receipt and a bank row are, or None if they can't
+    be the same purchase (amounts differ, or the dates are too far apart)."""
+    try:
+        if abs(float(receipt_amount) - float(bank_amount)) >= SAME_PURCHASE_WITHIN_DOLLARS:
+            return None
+        days_after = (date.fromisoformat(bank_date) - date.fromisoformat(receipt_date)).days
+    except (TypeError, ValueError):
+        return None
+    if -BANK_POSTS_UP_TO_DAYS_BEFORE <= days_after <= BANK_POSTS_UP_TO_DAYS_AFTER:
+        return abs(days_after)
+    return None
+
+
+def find_receipt_for_bank_row(items, bank_date, bank_amount):
+    """Find the receipt expense a bank row is paying for, so the two count once.
+
+    Looks among receipt expenses no bank row has claimed yet, and takes the one
+    closest in date. Returns the expense dict or None."""
+    candidates = [
+        (gap, e) for e in items
+        if e.get("source") == "receipt_import" and not e.get("bank_matched")
+        for gap in [_same_purchase_gap(e.get("date"), bank_date, e.get("amount", 0), bank_amount)]
+        if gap is not None
+    ]
+    return min(candidates, key=lambda pair: pair[0])[1] if candidates else None
+
+
+def find_bank_row_for_receipt(items, receipt_date, receipt_amount):
+    """Find the bank row that already paid for a receipt, so the two count once.
+
+    The mirror of find_receipt_for_bank_row, for a receipt that arrives after
+    its statement: looks among spending rows that have no receipt of their own,
+    and takes the one closest in date. Returns the expense dict or None."""
+    candidates = [
+        (gap, e) for e in items
+        if e.get("source") != "receipt_import" and not e.get("receipt")
+        and (e.get("category") or "").strip().lower() not in _NOT_SPENDING
+        for gap in [_same_purchase_gap(receipt_date, e.get("date"), receipt_amount, e.get("amount", 0))]
+        if gap is not None
+    ]
+    return min(candidates, key=lambda pair: pair[0])[1] if candidates else None
 
 
 def _apply_one_time(expense, one_time):
@@ -362,8 +418,6 @@ def register(app):
     # --- CSV Import (rules-based with learning loop) ---
 
     CSV_DIR = DATA_DIR / "bank_csvs"
-    # Categories that aren't spending: money in, and moving her own money around.
-    _NOT_SPENDING = {"income", "transfer (in)", "savings/transfer"}
 
     def _load_merchant_rules():
         return store.read("merchant_categories.json", {"patterns": []})
@@ -494,9 +548,12 @@ def register(app):
             # without ticking each one. Left unticked: moving her own money between
             # her accounts, in either direction.
             r["include"] = r["category"] not in ("Savings/Transfer", "Transfer (in)")
-        # Detect already-imported rows (match by date+amount+desc)
+        # Detect already-imported rows (match by date+amount+desc). A row that was
+        # merged into a receipt keeps the receipt's date, so it is matched on the
+        # statement date it remembered instead.
         existing = store.read("expenses.json", {"items": []}).get("items", [])
-        existing_keys = {(e.get("date"), abs(e.get("amount", 0)), e.get("comments", "")) for e in existing}
+        existing_keys = {(e.get("bank_date") or e.get("date"), abs(e.get("amount", 0)), e.get("comments", ""))
+                         for e in existing}
         for r in rows:
             key = (r["date"], abs(r["amount"]), r["desc"])
             r["already_imported"] = key in existing_keys
@@ -544,24 +601,24 @@ def register(app):
             # Name the expense: the name she gave the row in the preview wins,
             # else whatever an already-learned merchant label says.
             title = (s.get("title") or "").strip() or _label_for(comments, ldata)
-            # Receipt-link dedup: if an existing entry is a receipt-import with the same
-            # date + amount (and same category if both have one), merge bank info INTO that
-            # entry instead of creating a duplicate. The receipt keeps its photo + items,
-            # the bank's title/comments overwrite the placeholder.
-            match = None if is_refund else next(
-                (e for e in edata["items"]
-                 if e.get("source") == "receipt_import"
-                 and e.get("date") == row_date
-                 and abs(float(e.get("amount", 0)) - row_amount) < 0.10
-                 and not e.get("bank_matched")),
-                None,
-            )
+            # Count a purchase once when its receipt is already here: merge the bank
+            # row INTO the receipt's expense instead of adding a second one. The
+            # receipt keeps its photo, items and purchase date; the bank's
+            # description and name replace the placeholder, and a real category
+            # from the statement wins over the receipt's. `bank_date` remembers
+            # the statement's own date so this row reads as already imported next
+            # time. The match is by amount and nearby date, not exact date (see
+            # find_receipt_for_bank_row).
+            # Prompt: "can you make it such that HEB receipts are not double counted"
+            match = None if is_refund else find_receipt_for_bank_row(
+                edata["items"], row_date, row_amount)
             if match:
                 match["comments"] = comments or match.get("comments", "")
                 match["title"] = title
-                if s.get("category"):
+                if s.get("category") and s["category"] != "Uncategorized":
                     match["category"] = s["category"]
                 match["bank_matched"] = True
+                match["bank_date"] = row_date
                 merged_with_receipt += 1
                 continue
             expense = {

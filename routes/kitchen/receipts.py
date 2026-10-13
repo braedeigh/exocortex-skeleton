@@ -13,6 +13,7 @@ from data_helpers import RECEIPTS_DIR
 import store
 from . import shared
 from routes import helpers
+from routes.money import find_bank_row_for_receipt
 
 GROCERY_RECEIPTS_DIR = RECEIPTS_DIR / "grocery"
 
@@ -171,12 +172,14 @@ def register(app):
             ],
         }
 
-        # Create a Money-tab expense entry for this trip + link the receipt photo to it.
-        # Future bank-statement CSV imports should match by (date, amount) within $0.10
-        # against entries with category='Groceries' to dedup; that match logic lives in
-        # routes/money.py's CSV import handler (TODO).
+        # Give this trip its Money-tab expense, and link the receipt photo to it.
+        # Three cases, so a purchase is counted once: this receipt was imported
+        # before (reuse its expense); the bank statement already brought the
+        # purchase in (attach the receipt to that row, which keeps its bank
+        # description, date and category); neither (add a new expense, which a
+        # later statement import merges into — routes/money.py import_csv).
+        # Prompt: "can you make it such that HEB receipts are not double counted"
         edata = store.read("expenses.json", {"items": []})
-        # Idempotency: skip if an expense with same date+amount+receipt already exists
         receipt_rel = trip["receipt"]
         existing_expense = next(
             (e for e in edata["items"]
@@ -185,8 +188,18 @@ def register(app):
              and e.get("receipt") == receipt_rel),
             None,
         )
+        bank_row = None if existing_expense else find_bank_row_for_receipt(
+            edata["items"], trip["date"], trip["total"])
         if existing_expense:
             expense_id = existing_expense["id"]
+        elif bank_row:
+            expense_id = bank_row["id"]
+            bank_row["receipt"] = receipt_rel
+            bank_row["source"] = "receipt_import"
+            bank_row["bank_matched"] = True
+            if (bank_row.get("category") or "Uncategorized") == "Uncategorized":
+                bank_row["category"] = "Groceries"
+            store.write("expenses.json", edata)
         else:
             expense_id = str(uuid.uuid4())
             store_label = trip["store"] or "Grocery"
