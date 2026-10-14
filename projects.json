@@ -458,6 +458,7 @@
       "name": "Workshop",
       "what": "Where the app gets built: agent sessions in the Observatory, spinoffs, the run queue and scheduled jobs, the night crew, dev notes and the build queue, the terminal.",
       "modules": [
+        "buildlog.py",
         "notestore.py",
         "devnote_judgments.py",
         "jobstore.py",
@@ -499,6 +500,7 @@
         "act_ask_gate.py"
       ],
       "scripts": [
+        "build_log.py",
         "run_dispatcher.py",
         "turn_host.py",
         "nightcrew_run.py",
@@ -508,6 +510,8 @@
         "sort_bot_chats.py", "peers.py", "sudo_request.py", "open_file.py", "room_moves.py", "freeze_swarm.py", "helper_watch.py", "helper_rule.py", "linear_feed.py", "spinoff_brief.py", "import_spinoff_briefs.py"
       ],
       "tables": [
+        "build_items",
+        "build_notes",
         "notes",
         "note_judgments",
         "job_runs", "agent_messages", "message_summaries", "message_thread_summaries", "swarms", "swarm_members", "swarm_helper_runs",

@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 55
+_SCHEMA_VERSION = 56
 
 
 def _db_path():
@@ -236,6 +236,9 @@ _EXPECTED_TABLES = (
     "thread_summaries",
     # The short current-facts sheet kept for each person, newest on top (rung 55).
     "person_sheets",
+    # The build log: what's planned, built, or decided against (rung 56).
+    "build_items",
+    "build_notes",
 )
 
 
@@ -3400,6 +3403,46 @@ def _run_ladder(conn):
             " BEFORE UPDATE ON person_sheets"
             " BEGIN SELECT RAISE(ABORT, 'a person sheet is never rewritten: add a new one'); END"
         )
+    if version < 56:
+        # The build log (buildlog.py): one row per thing planned, built or
+        # decided against, which replaced the vault's dev_todo.md. Items are
+        # never deleted when they close; the status says how it ended.
+        #
+        # Prompt: "I'd want to save this as a log of things I do and plan to
+        # do and build out or not."
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS build_items ("
+            "  id INTEGER PRIMARY KEY,"
+            "  title TEXT NOT NULL,"
+            # The write-up, in markdown. Later findings go in build_notes.
+            "  body TEXT NOT NULL DEFAULT '',"
+            "  status TEXT NOT NULL CHECK (status IN"
+            "    ('idea', 'open', 'paused', 'shipped', 'dropped')),"
+            # Who raised it: 'hers', a persona, a session.
+            "  raised_by TEXT NOT NULL,"
+            # The day it was raised; empty for an old item that never said.
+            "  raised_on TEXT,"
+            "  added_at TEXT NOT NULL,"
+            # The day it shipped or was dropped; empty while it's live.
+            "  closed_on TEXT,"
+            # Where an imported item came from ('dev_todo.md:<line>').
+            "  source TEXT)"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS build_items_by_status"
+                     " ON build_items (status, raised_on)")
+        # What happened to an item afterwards, one dated line each, oldest
+        # first: a finding ('note') or a change of status ('status').
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS build_notes ("
+            "  id INTEGER PRIMARY KEY,"
+            "  item_id INTEGER NOT NULL REFERENCES build_items (id),"
+            "  written_at TEXT NOT NULL,"
+            "  author TEXT NOT NULL,"
+            "  kind TEXT NOT NULL CHECK (kind IN ('note', 'status')),"
+            "  text TEXT NOT NULL)"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS build_notes_by_item"
+                     " ON build_notes (item_id, written_at)")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

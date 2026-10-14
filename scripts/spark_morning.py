@@ -149,18 +149,6 @@ def _inbox_path():
     return store.DATA_DIR / INBOX_NAME
 
 
-def _dev_todo_path():
-    """The build queue, resolved rather than hardcoded.
-
-    It sits in the VAULT on this install — it was moved out of the shared repo
-    because it carries personal context — but a fresh skeleton checkout may
-    still ship its own, so prefer the vault copy and fall back to the checkout.
-    This mattered: the prompt named `<skeleton>/dev_todo.md` for two and a half
-    weeks after the file moved, so the ritual read one backlog while its own
-    instructions claimed two, and nothing anywhere said so."""
-    vault = Path(store.CONTENT_DIR).parent / "dev_todo.md"
-    return vault if vault.exists() else Path(SKELETON_CWD) / "dev_todo.md"
-
 KICKOFF = """/spark
 
 Good morning. Structural read on the build — not a restatement of my notes,
@@ -170,7 +158,9 @@ FIVE PHASES, IN ORDER. Do not skip ahead. Phase 3 must not influence phase 2.
 
 PHASE 1 — FIRE CHECK (cheap; you do this yourself, no subagents)
 Read:
-  - {todo} — the big structural write-ups; fires usually live here
+  - `{skel}/venv/bin/python3 {skel}/scripts/build_log.py list` — the build log's
+    live items, one line each (`show <id>` for one in full). The big structural
+    write-ups; fires usually live here
   - {data}/dev_notes.json — ~180 per-page notes across all tabs; the pool
   - `git -C {skel} log --oneline -25` and `git -C {skel} status --short`
 Do NOT open code files yourself in this phase, and do NOT read the findings
@@ -212,16 +202,15 @@ Per pick, in this shape:
 Then write the machine record to {inbox} using the Write tool, as JSON:
   {{"findings": [{{"key": ..., "label": ..., "source": ...,
                   "verdict": ..., "summary": ...}}]}}
-`key` is a stable slug — "devnote:<id>" for a dev note, "devtodo:<short-slug>"
-for a dev_todo.md item. Write the file even if you picked nothing (empty list).
+`key` is a stable slug — "devnote:<id>" for a dev note, "build:<id>"
+for a build log item. Write the file even if you picked nothing (empty list).
 
 Staleness is REPORTED here and never acted on — the beetles do the deleting
 and they ask first. Do not edit or delete any note.
 
 This is orientation ONLY: don't edit code, and spawn nothing beyond the
 read-only subagents above. When I pick something, we'll spin it off together.
-""".format(data=store.DATA_DIR, skel=SKELETON_CWD, todo=_dev_todo_path(),
-           registry=store.DATA_DIR / REGISTRY,
+""".format(data=store.DATA_DIR, skel=SKELETON_CWD, registry=store.DATA_DIR / REGISTRY,
            inbox=store.DATA_DIR / INBOX_NAME)
 
 

@@ -104,9 +104,8 @@ it when asked. The real build backlog is the **per-page dev notes** the owner le
 every tab of the site, stored in `data/dev_notes.json` — a
 `{"tabs": {<tab>: [{id, text, created}, ...]}}` structure (see
 `frontend/src/features/ideas/byPage.ts` for the current tab list — don't hardcode one
-here, it drifts). A formally-queued backlog, if the owner keeps one, may live outside
-this repo (e.g. `<VAULT_DIR>/dev_todo.md`) rather than in the shared skeleton — ask
-rather than assume.
+here, it drifts). The formal backlog is the build log: `scripts/build_log.py list` for
+what's live, `show <id>` for one item, `add` / `note` / `status` to file and close.
 
 When you greet them, don't summarize the backlog — you haven't read it. Just say it's
 there (per-page dev notes in `dev_notes.json`, plus wherever their formal backlog

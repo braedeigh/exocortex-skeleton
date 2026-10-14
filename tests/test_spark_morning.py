@@ -211,26 +211,6 @@ def test_findings_past_the_ceiling_are_dropped(data_dir):
     assert sm._merge_findings("2026-08-04.050001") == sm.MAX_FINDINGS
 
 
-def test_the_build_queue_resolves_to_the_vault_copy(data_dir, monkeypatch, tmp_path):
-    """Regression. The prompt hardcoded `<skeleton>/dev_todo.md`, the file moved
-    into the vault, and for two and a half weeks the ritual read one backlog
-    while telling itself it read two — silently, because a prompt naming a
-    missing path just gets a failed read the model shrugs off."""
-    vault = tmp_path / "vault"
-    (vault / "tulku").mkdir(parents=True)
-    (vault / "dev_todo.md").write_text("queue", encoding="utf-8")
-    monkeypatch.setattr(store, "CONTENT_DIR", vault / "tulku")
-    assert sm._dev_todo_path() == vault / "dev_todo.md"
-
-
-def test_build_queue_falls_back_to_the_checkout(data_dir, monkeypatch, tmp_path):
-    """A fresh install with no vault copy still gets a usable path rather than
-    a path into a directory that isn't there."""
-    (tmp_path / "tulku").mkdir()
-    monkeypatch.setattr(store, "CONTENT_DIR", tmp_path / "tulku")
-    assert sm._dev_todo_path() == Path(sm.SKELETON_CWD) / "dev_todo.md"
-
-
 def test_clearing_the_inbox_stops_yesterdays_findings_being_rebanked(data_dir):
     """Why _clear_inbox runs BEFORE the turn: otherwise a turn that writes
     nothing today would have yesterday's file merged as today's work, and

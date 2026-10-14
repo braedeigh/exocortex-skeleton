@@ -191,6 +191,9 @@ TABLES = {
     "thread_summaries": "frosted",
     # The current-facts sheet kept for each person (personsheets.py).
     "person_sheets": "frosted",
+    # The build log (buildlog.py): what is planned, built, or dropped.
+    "build_items": "frosted",
+    "build_notes": "frosted",
     # Dev and idea notes (notestore.py), and the verdicts on them.
     "notes": "frosted",
     "note_judgments": "frosted",

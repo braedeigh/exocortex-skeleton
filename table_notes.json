@@ -595,6 +595,37 @@
       }
     }
   },
+  "build_items": {
+    "holds": "The build log: everything planned, built, or decided against for the app, one row per item. An item is never deleted when it closes; its status says how it ended (idea, open, paused, shipped, dropped).",
+    "source": "Written by buildlog.py; sessions add and close items through scripts/build_log.py. The rows with a source came from the vault's dev_todo.md, moved in on 2026-10-14. A record: nothing else holds it.",
+    "kind": "record",
+    "time_column": "raised_on",
+    "columns": {
+      "id": {"holds": "The item's number, used to show, note or close it."},
+      "title": {"holds": "What the item is, in a line."},
+      "body": {"holds": "The write-up, in markdown, as it was first filed. Later findings go in build_notes."},
+      "status": {"holds": "Where it stands: idea, open, paused, shipped, or dropped."},
+      "raised_by": {"holds": "Who raised it: 'hers', a persona, or a session name. 'unknown' when an old heading never said."},
+      "raised_on": {"holds": "The day it was raised. Empty for an old item that never said."},
+      "added_at": {"holds": "When the row was written."},
+      "closed_on": {"holds": "The day it was shipped or dropped; empty while it is live."},
+      "source": {"holds": "For an item moved in from the old markdown file: the file and line its heading was on."}
+    }
+  },
+  "build_notes": {
+    "holds": "What happened to a build item after it was filed, one dated line each: a finding or follow-up ('note'), or a move from one status to another ('status').",
+    "source": "Written by buildlog.py through scripts/build_log.py note and status. A record: nothing else holds it.",
+    "kind": "record",
+    "time_column": "written_at",
+    "columns": {
+      "id": {"holds": "A running number that identifies the row."},
+      "item_id": {"holds": "The build item it is about (build_items.id)."},
+      "written_at": {"holds": "When it was written, in local time."},
+      "author": {"holds": "Who wrote it."},
+      "kind": {"holds": "'note' for a finding or follow-up, 'status' for a change of status."},
+      "text": {"holds": "The note itself; for a status change, 'old → new' and the reason."}
+    }
+  },
   "person_sheets": {
     "holds": "The short current-facts sheet kept for each person in the vault: one row per sheet. A new sheet is added as a new row and the older ones are never changed, so a person's rows read newest first are their sheets stacked on top of each other. Each sheet is five labelled lines (Who, Pronouns, Tied to, Now, Last contact) and at most 100 words.",
     "source": "Written by personsheets.py; a cricket adds one through scripts/person_sheet.py. The Keeper does not write here. A record: nothing else holds it. The database refuses an UPDATE on this table.",
