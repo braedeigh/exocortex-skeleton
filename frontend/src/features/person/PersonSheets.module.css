@@ -1,0 +1,106 @@
+/* The stack of fact sheets on a person's page (PersonSheets.tsx). Same card
+   look as the thread summaries stack: the newest is full strength and the
+   older ones are quieter. Each line's label is bold and muted; its value is
+   plain text beside it. */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.card {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xl);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-3);
+}
+
+.older {
+  border-color: var(--border-soft);
+  box-shadow: none;
+}
+
+.meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.older .label {
+  color: var(--text-muted);
+}
+
+.byline {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+.lines {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+}
+
+.lineLabel {
+  flex: 0 0 7.5em;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.lineValue {
+  flex: 1 1 12em;
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.sources {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+}
+
+/* The button that opens the older sheets, a full tap target tall. */
+.olderToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target);
+  width: fit-content;
+  padding: 0 var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.olderToggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

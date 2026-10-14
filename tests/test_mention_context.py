@@ -370,3 +370,65 @@ def test_the_tracker_reads_back_each_load_beside_her_message_and_the_reply(vault
     # A window that ended last week holds nothing from today.
     last_week = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
     assert context_loads.loads(days=7, until=last_week) == []
+
+
+# --- The fact sheet at the top of a person's section ---------------------------
+
+SHEET = ("Who: Robin Vale, her landlord\n"
+         "Pronouns: he\n"
+         "Tied to: the flat on Elm Street\n"
+         "Now: the sink repair is still open\n"
+         "Last contact: 2026-03-22")
+
+
+def test_a_person_with_a_sheet_gets_it_above_their_cards_with_its_date(vault):
+    import personsheets
+    personsheets.add("robin", "cricket:person-sheet", SHEET, written_at="2026-03-10T03:00:00")
+    pack = pack_of(send("Robin wants the rent early"))
+    assert "Fact sheet, written 2026-03-10 (a summary; her cards below are the evidence):" in pack
+    assert "Who: Robin Vale, her landlord" in pack and "Last contact: 2026-03-22" in pack
+    assert pack.index("Last contact: 2026-03-22") < pack.index("4 of her cards") \
+        < pack.index("kind in January")
+    assert pack.index("Person: Robin Vale") < pack.index("Fact sheet, written")
+    # A thread never gets a sheet, and the tracker still says "loaded" with the cards.
+    assert "Fact sheet" not in pack_of(send("moving house soon"))
+    assert loads()[0][2] == "loaded"
+
+
+def test_a_sheet_comes_once_even_when_every_card_is_already_on_the_record(vault, data_dir):
+    import personsheets
+    personsheets.add("robin", "cricket:person-sheet", SHEET, written_at="2026-03-10T03:00:00")
+    loadrecord.add("conv-1", cards=["2026-03-20.0900b", "2026-03-21.0900b",
+                                    "2026-03-22.0900b", "2026-01-05.0900b"])
+    pack = pack_of(send("Robin called"))
+    assert "Who: Robin Vale, her landlord" in pack and "of her cards" not in pack
+    assert send("Robin again") is None
+    (row,) = loads()
+    assert (row[0], row[2], row[3], row[4]) == ("robin", "loaded", 0, 4)
+    line = json.loads((data_dir / "bot_chats" / "conv-1.jsonl").read_text().splitlines()[0])
+    assert line["text"] == "loaded: Robin Vale — fact sheet"
+
+
+def test_the_grey_line_says_a_sheet_came_with_the_cards(vault, data_dir):
+    import personsheets
+    personsheets.add("robin", "cricket:person-sheet", SHEET, written_at="2026-03-10T03:00:00")
+    send("Robin wants the rent early")
+    line = json.loads((data_dir / "bot_chats" / "conv-1.jsonl").read_text().splitlines()[0])
+    assert line["text"] == "loaded: Robin Vale — fact sheet, 4 cards, 2026-01-05 to 2026-03-22"
+
+
+def test_the_pack_with_a_sheet_still_stays_under_the_limit(vault, monkeypatch):
+    import personsheets
+    personsheets.add("robin", "cricket:person-sheet", SHEET, written_at="2026-03-10T03:00:00")
+    conn = sqlstore.open_db()
+    for minute in range(10, 30):
+        add_card(conn, f"2026-03-26.09{minute}b", "Robin " + "long " * 800, tags=["robin"])
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(mention_context, "OUTPUT_BUDGET", 3000)
+    monkeypatch.setattr(mention_context, "SMALLEST_SHARE", 1200)
+    reply = send("Robin came by")
+    pack = pack_of(reply)
+    assert len(json.dumps(reply)) < 3500
+    assert "Who: Robin Vale, her landlord" in pack and "Last contact: 2026-03-22" in pack
+    assert "…" in pack

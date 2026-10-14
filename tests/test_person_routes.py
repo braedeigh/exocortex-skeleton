@@ -139,3 +139,38 @@ def test_person_threads_empty_when_not_in_any_cast(threads_vault_client):
 def test_person_threads_unknown_slug_404(threads_vault_client):
     resp = threads_vault_client.get("/api/person/nobody/threads")
     assert resp.status_code == 404
+
+
+# --- The fact sheets on the person's page ------------------------------------
+
+def _sheet_body(now):
+    return ("Who: a made-up landlord\nPronouns: not on record\n"
+            f"Tied to: the flat\nNow: {now}\nLast contact: 2026-07-03")
+
+
+def test_person_api_carries_the_sheets_newest_first(client, data_dir):
+    import personsheets
+    personsheets.add("sage", "cricket:person-sheet", _sheet_body("deposit pending"),
+                     based_on=["2026-07-03"], written_at="2026-07-04T03:00:00")
+    personsheets.add("sage", "cricket:person-sheet", _sheet_body("deposit paid"),
+                     based_on=["2026-07-10.0900b"], written_at="2026-07-11T03:00:00")
+    sheets = client.get("/api/person/sage").get_json()["sheets"]
+    assert [sheet["body"].splitlines()[3] for sheet in sheets] == [
+        "Now: deposit paid", "Now: deposit pending"]
+    assert sheets[0]["based_on"] == ["2026-07-10.0900b"]
+    assert set(sheets[0]) == {"id", "author", "written_at", "body", "based_on"}
+
+
+def test_person_api_without_sheets_has_an_empty_list(client, data_dir):
+    assert client.get("/api/person/sage").get_json()["sheets"] == []
+
+
+def test_a_person_whose_file_has_a_qualifier_gets_the_sheets_filed_under_the_full_stem(
+        client, vault, data_dir):
+    import personsheets
+    (vault / "people" / "sam-okafor.md").write_text("# Sam Okafor\n\nA made-up dentist.\n")
+    personsheets.add("sam-okafor", "cricket:person-sheet", _sheet_body("checkup booked"))
+    personsheets.add("sam", "cricket:person-sheet", _sheet_body("someone else entirely"))
+    # The page is reached by the first-name key; the sheets are filed under the stem.
+    sheets = client.get("/api/person/sam").get_json()["sheets"]
+    assert [sheet["body"].splitlines()[3] for sheet in sheets] == ["Now: checkup booked"]

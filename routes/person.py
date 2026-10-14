@@ -10,6 +10,10 @@ Two tiers:
      button that opens a Claude session (same pattern as routes/triage.py) to
      draft the `## Impression` section with her, live, before it's saved.
 
+The person's page also carries `sheets`: the short current-facts sheets kept
+for them in exo.db (personsheets.py), newest first, filed under the stem of
+their people/ file (not the first-name key).
+
 All vault parsing (frontmatter, blurb/impression extraction, mention counting)
 lives in entities.py — this module only orchestrates: resolve -> assemble ->
 respond. See dev_todo.md's rule against a 4th independent people-file parser.
@@ -41,12 +45,26 @@ def register(app):
         # would double-count every card), so its existence is reported here.
         views_rel = f"people/views/{person['id']}.md"
         card_view = views_rel if (store.CONTENT_DIR / views_rel).exists() else None
+        # The person's fact sheets, newest first. Filed under the people file's
+        # stem (people/sam-okafor.md -> "sam-okafor"), the same stem
+        # person_threads uses, never the first-name id. Imported here, like
+        # routes/threads.py does for threadsummaries, so the rest of the file
+        # needs no database.
+        import personsheets
+
+        stem = person["file"].rsplit("/", 1)[-1]
+        if stem.endswith(".md"):
+            stem = stem[:-3]
+        sheets = [{"id": row["id"], "author": row["author"], "written_at": row["written_at"],
+                   "body": row["body"], "based_on": row["based_on"]}
+                  for row in personsheets.for_person(stem)]
         return jsonify({
             "person": person,
             "stats": stats,
             "days": days,
             "mentions": mentions,
             "card_view": card_view,
+            "sheets": sheets,
         })
 
     @app.route("/api/person/<slug>/threads")

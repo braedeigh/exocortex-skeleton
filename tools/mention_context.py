@@ -22,6 +22,16 @@ its words (two cards can say the same thing; and a card made from a message
 she typed in this very chat is already in front of the agent). So a pack holds
 only what is new to the session, and two names in one day don't share cards.
 
+**The fact sheet.** For a person (not a thread), the newest sheet in
+`person_sheets` (`personsheets.py`) goes at the top of their section, above the
+cards, labelled with the day it was written and as a summary. It is five short
+lines (who they are, pronouns, what they're tied to, where things stand, last
+contact) written by a night helper, so it is a map and the cards are the
+evidence: where the two disagree, the card wins. The sheet is never cut to
+make room; the cards are. A person with a sheet but nothing new to hand over
+still gets a section holding just the sheet, once. If the table isn't there,
+there is simply no sheet.
+
 **"About them"** means a card tagged with their slug, or a card whose text
 names them. Both, because tagging happens overnight: today's cards about
 someone are not tagged yet.
@@ -386,19 +396,43 @@ def _span(cards):
     return first if first == last else f"{first} to {last}"
 
 
-def render_section(entry, cards, room):
-    """One person's or thread's cards as text that fits in `room` characters,
-    or None when even the shortest form won't fit. Tries shorter and shorter
-    cards first, then drops the oldest."""
+def newest_sheet(conn, entry):
+    """A person's newest fact sheet as (written_at, body), or None. One read on
+    the hook's own read-only connection; a threads entry has none, and a
+    database without the table (sqlite3.Error) simply has no sheet."""
+    if entry["kind"] != "person":
+        return None
+    try:
+        row = conn.execute(
+            "SELECT written_at, body FROM person_sheets WHERE slug = ?"
+            " ORDER BY written_at DESC, id DESC LIMIT 1", (entry["slug"],)).fetchone()
+    except sqlite3.Error:
+        return None
+    return (row[0], row[1]) if row and (row[1] or "").strip() else None
+
+
+def render_section(entry, cards, room, sheet=None):
+    """One person's or thread's section as text that fits in `room`
+    characters, or None when even the shortest form won't fit. Returns
+    (text, cards shown). The fact sheet, when there is one, sits under the
+    header and above the cards and is never cut: it counts inside `room`, and
+    the cards are what gives way. Tries shorter and shorter cards first, then
+    drops the oldest. A section whose cards all had to go is None (they wait
+    for the next mention), unless there were no cards to begin with."""
     kind = "Person" if entry["kind"] == "person" else "Thread"
     cards = list(cards)
+    top = f"## {kind}: {entry['name']} — file `{entry['file']}`"
+    if sheet:
+        top += (f"\nFact sheet, written {(sheet[0] or '')[:10]} (a summary; her cards"
+                f" below are the evidence):\n{sheet[1].strip()}")
+    if not cards:
+        return (top, []) if sheet and len(top) <= room else None
     while cards:
         for length in CARD_LENGTHS:
             lines = [f"- {(card['ts'] or card['id'])[:16]} [{card['id']}] "
                      f"{_one_line(card['body'], length)}" for card in cards]
-            head = (f"## {kind}: {entry['name']} — file `{entry['file']}`\n"
-                    f"{len(cards)} of her cards, {_span(cards)}, oldest first:")
-            text = head + "\n" + "\n".join(lines)
+            head = f"{len(cards)} of her cards, {_span(cards)}, oldest first:"
+            text = top + "\n" + head + "\n" + "\n".join(lines)
             if len(text) <= room:
                 return text, cards
         cards = cards[1:]
@@ -413,8 +447,11 @@ PACK_HEADER = (
     " boot package, in an earlier pack, or made from what she typed in this chat"
     " are left out, so a pack can reach well into the past. Each name loads once"
     " per session. A card ending in … was cut"
-    " short: its full text is in the card pool under the id in brackets. This is"
-    " a starting point, not a boundary — read further when the moment calls for it."
+    " short: its full text is in the card pool under the id in brackets. A"
+    " person's section may open with their fact sheet, a short dated summary"
+    " written by a night helper; where it and a card disagree, trust the card."
+    " This is a starting point, not a boundary — read further when the moment"
+    " calls for it."
 )
 
 
@@ -427,7 +464,8 @@ def build_pack(mentions, conn, record=None):
     Returns (text, loaded, results). `loaded` is one summary dict per section
     written. `results` is one dict per mention for the tracker and the record:
     {entry, matched, outcome, card_ids, bodies, skipped}, where outcome is
-    'loaded', 'nothing new', 'no cards' or 'no room'."""
+    'loaded', 'nothing new', 'no cards' or 'no room'. A person with a fact
+    sheet and no new cards is 'loaded' with no card ids."""
     record = record if record is not None else {"names": set(), "cards": set(), "texts": set()}
     sections, loaded, results = [], [], []
     room = OUTPUT_BUDGET - len(PACK_HEADER) - 200
@@ -438,12 +476,13 @@ def build_pack(mentions, conn, record=None):
         # may stay on it.
         trial = {part: set(record[part]) for part in record}
         cards, result["skipped"] = cards_about(conn, entry, trial)
-        if not cards:
+        sheet = newest_sheet(conn, entry)
+        if not cards and not sheet:
             result["outcome"] = "nothing new" if result["skipped"] else "no cards"
             continue
         # Share what's left evenly among the names still to come.
         share = room // max(1, len(mentions) - position)
-        rendered = (render_section(entry, cards, max(share, SMALLEST_SHARE))
+        rendered = (render_section(entry, cards, max(share, SMALLEST_SHARE), sheet)
                     if room >= SMALLEST_SHARE else None)
         if rendered is None:
             result["outcome"] = "no room"
@@ -457,8 +496,9 @@ def build_pack(mentions, conn, record=None):
         record["texts"].update(mark for mark in map(loadrecord.fingerprint, result["bodies"])
                                if mark)
         loaded.append({"key": entry["key"], "kind": entry["kind"], "name": entry["name"],
-                       "cards": len(shown),
-                       "first": shown[0]["id"][:10], "last": shown[-1]["id"][:10]})
+                       "cards": len(shown), "sheet": bool(sheet),
+                       "first": shown[0]["id"][:10] if shown else None,
+                       "last": shown[-1]["id"][:10] if shown else None})
     if not sections:
         return "", loaded, results
     text = PACK_HEADER + "\n\n" + "\n\n".join(sections)
@@ -472,12 +512,17 @@ def build_pack(mentions, conn, record=None):
 # --- Remembering what a session already has ----------------------------------
 
 def summary_line(loaded):
-    """What the owner is shown: `loaded: Name — 14 cards, 2026-09-03 to 2026-10-02`."""
+    """What the owner is shown: `loaded: Name — 14 cards, 2026-09-03 to 2026-10-02`,
+    with "fact sheet, " in front of the count when a sheet came too, and
+    nothing after the dash but "fact sheet" when it came alone."""
     parts = []
     for item in loaded:
-        count = f"{item['cards']} card" + ("" if item["cards"] == 1 else "s")
-        span = item["first"] if item["first"] == item["last"] else f"{item['first']} to {item['last']}"
-        parts.append(f"{item['name']} — {count}, {span}")
+        pieces = ["fact sheet"] if item.get("sheet") else []
+        if item["cards"]:
+            pieces.append(f"{item['cards']} card" + ("" if item["cards"] == 1 else "s"))
+            pieces.append(item["first"] if item["first"] == item["last"]
+                          else f"{item['first']} to {item['last']}")
+        parts.append(f"{item['name']} — " + ", ".join(pieces))
     return "loaded: " + "; ".join(parts)
 
 

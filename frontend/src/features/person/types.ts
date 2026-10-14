@@ -56,6 +56,19 @@ export interface PersonMention {
   count: number;
 }
 
+/** One fact sheet kept for a person (personsheets.py): five labelled lines
+ * ("Who: …", "Pronouns: …", "Tied to: …", "Now: …", "Last contact: …"). */
+export interface PersonSheet {
+  id: number;
+  /** "cricket:<name>" for a night helper. */
+  author: string;
+  /** "YYYY-MM-DDTHH:MM:SS", local time — sliced as a string, never Date-parsed. */
+  written_at: string;
+  body: string;
+  /** Card ids and bare days it was based on. */
+  based_on: string[];
+}
+
 /** GET /api/person/<slug> (routes/person.py person_api). */
 export interface PersonResponse {
   person: PersonDetail;
@@ -64,6 +77,8 @@ export interface PersonResponse {
   mentions: PersonMention[];
   /** people/views/<slug>.md when the rendered card view exists, else null. */
   card_view: string | null;
+  /** The person's fact sheets, newest first (empty when they have none). */
+  sheets: PersonSheet[];
 }
 
 /** POST /api/person/<slug>/facts -> the re-serialized facts map. */

@@ -6,6 +6,7 @@ import { entityHue, mdToHtml } from '../journal/markdown';
 import { useToasts } from '../journal/useJournalData';
 import { FactsSection } from './FactsSection';
 import { Heatmap } from './Heatmap';
+import { PersonSheets } from './PersonSheets';
 import { ReceiptsSection } from './ReceiptsSection';
 import { monthYear, storyText, type ReceiptNav } from './personLogic';
 import { usePerson, useSummarize } from './usePersonData';
@@ -18,7 +19,8 @@ export interface PersonPageProps {
 /**
  * The deep single-person view — native port of templates/person.html +
  * static/js/person.js (/person/<slug>): sticky header (name, tags, date
- * range, Open file), inline-editable Facts, the activity heat map,
+ * range, Open file), the Fact sheet stack (PersonSheets, shown only when the
+ * person has one), inline-editable Facts, the activity heat map,
  * Impression (+ Regenerate), Story, Receipts. One fetch feeds the whole
  * page (/api/person/<slug>, routes/person.py).
  */
@@ -134,6 +136,13 @@ export function PersonPage({ slug }: PersonPageProps) {
             </div>
           ) : null}
         </div>
+
+        {data.sheets?.length ? (
+          <div className={styles.section}>
+            <div className={styles.sectionTitle}>Fact sheet</div>
+            <PersonSheets sheets={data.sheets} />
+          </div>
+        ) : null}
 
         <div className={styles.duo}>
           <div className={styles.section}>
