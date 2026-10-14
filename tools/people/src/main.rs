@@ -205,8 +205,8 @@ fn check_file(text: &str, re: &Regex) -> (Vec<String>, Vec<String>) {
                         }
                     };
                     let key = key.trim().to_lowercase();
+                    // Other keys (relationship, age, ...) are the web app's; they are fine.
                     if key != "tags" && key != "aliases" {
-                        warns.push(format!("unknown frontmatter key `{}` (only tags/aliases are read)", key));
                         continue;
                     }
                     for item in parse_list(val) {
@@ -405,7 +405,7 @@ fn run_add_alias(args: AddAliasArgs) -> Result<(), Box<dyn Error>> {
     }
 
     let text = fs::read_to_string(&path)?;
-    let (mut tags, mut aliases, body, had_fm) = split_frontmatter(&text);
+    let (mut tags, mut aliases, other_lines, body, had_fm) = split_frontmatter(&text);
 
     if aliases.iter().any(|a| a.to_lowercase() == alias) {
         println!("already present: {} already lists alias `{}`", file_label(&path), alias);
@@ -415,12 +415,14 @@ fn run_add_alias(args: AddAliasArgs) -> Result<(), Box<dyn Error>> {
     // tags is left exactly as-is — aliases are the daily cricket's, tags are the weekly's.
     let _ = &mut tags;
 
-    let updated = format!(
-        "---\ntags: {}\naliases: {}\n---\n{}",
-        format_list(&tags),
-        format_list(&aliases),
-        body
-    );
+    // Rewrite the frontmatter: tags, aliases, then every other line as it was
+    // (the same order the web app's own writer uses), then the untouched body.
+    let mut frontmatter = format!("tags: {}\naliases: {}\n", format_list(&tags), format_list(&aliases));
+    for line in &other_lines {
+        frontmatter.push_str(line);
+        frontmatter.push('\n');
+    }
+    let updated = format!("---\n{}---\n{}", frontmatter, body);
     atomic_write(&path, &ensure_trailing_newline(&updated))?;
 
     let slug = slug_of(&path);
@@ -522,32 +524,32 @@ write early. Nothing here is authored by hand.\n"
 //  Frontmatter + list helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Split a file into (tags, aliases, body-after-frontmatter, had_frontmatter).
-/// Only tags/aliases are understood; any other frontmatter key would be lost on
-/// rewrite, so add-alias only ever runs on files whose frontmatter is just these
-/// two (or none) — which is the shape the crickets and stubs produce.
-fn split_frontmatter(text: &str) -> (Vec<String>, Vec<String>, String, bool) {
+/// Split a file into (tags, aliases, other-frontmatter-lines, body-after-frontmatter,
+/// had_frontmatter). Only tags and aliases are parsed. Every other frontmatter line
+/// (the web app adds `relationship:`, `age:` and the like) comes back verbatim and in
+/// its original order, so a rewrite can write it back out unchanged.
+fn split_frontmatter(text: &str) -> (Vec<String>, Vec<String>, Vec<String>, String, bool) {
     if !text.starts_with("---") {
-        return (Vec::new(), Vec::new(), text.to_string(), false);
+        return (Vec::new(), Vec::new(), Vec::new(), text.to_string(), false);
     }
     let lines: Vec<&str> = text.lines().collect();
     let end = match lines.iter().skip(1).position(|l| l.trim() == "---") {
         Some(rel) => rel + 1,
-        None => return (Vec::new(), Vec::new(), text.to_string(), false),
+        None => return (Vec::new(), Vec::new(), Vec::new(), text.to_string(), false),
     };
     let mut tags = Vec::new();
     let mut aliases = Vec::new();
+    let mut other_lines = Vec::new();
     for line in &lines[1..end] {
-        if let Some((k, v)) = line.split_once(':') {
-            match k.trim().to_lowercase().as_str() {
-                "tags" => tags = parse_list(v),
-                "aliases" => aliases = parse_list(v),
-                _ => {}
-            }
+        let key = line.split_once(':').map(|(k, _)| k.trim().to_lowercase());
+        match (key.as_deref(), line.split_once(':')) {
+            (Some("tags"), Some((_, v))) => tags = parse_list(v),
+            (Some("aliases"), Some((_, v))) => aliases = parse_list(v),
+            _ => other_lines.push(line.to_string()),
         }
     }
     let body = after_frontmatter(text).to_string();
-    (tags, aliases, body, true)
+    (tags, aliases, other_lines, body, true)
 }
 
 /// The slice of `text` after the closing `---` of a leading frontmatter block.
@@ -645,7 +647,7 @@ fn resolve_person(pdir: &Path, query: &str) -> Result<PathBuf, Box<dyn Error>> {
     // 2. first name of the `# Heading`, 3. any alias
     for p in &files {
         let text = fs::read_to_string(p).unwrap_or_default();
-        let (_, aliases, body, _) = split_frontmatter(&text);
+        let (_, aliases, _, body, _) = split_frontmatter(&text);
         if let Some(h1) = body.lines().find_map(|l| l.trim().strip_prefix("# ")) {
             if h1.split_whitespace().next().map(|w| w.to_lowercase()) == Some(q.clone()) {
                 return Ok(p.clone());
@@ -774,9 +776,31 @@ mod tests {
     }
 
     #[test]
-    fn unknown_frontmatter_key_warns() {
-        let w = warns("---\ncolor: blue\n---\n# X\n\nb\n\n## Referenced In\n- 2026-01-01 (x)\n");
-        assert!(w.iter().any(|m| m.contains("unknown frontmatter key")));
+    fn add_alias_keeps_app_written_frontmatter_keys() {
+        // The web app writes plain `key: value` lines (relationship, age) into people
+        // files; add-alias must carry them through and validate must accept them.
+        let root = std::env::temp_dir().join(format!("people-test-{}", std::process::id()));
+        let pdir = root.join("people");
+        fs::create_dir_all(&pdir).unwrap();
+        let file = pdir.join("casey.md");
+        let original = "---\ntags: [friend]\naliases: [neighbor]\nrelationship: Housemate, 2026\nage: 50\n---\n# Casey\n\nA blurb.\n\n## Referenced In\n- [[2026-05-10]] (tea)\n";
+        fs::write(&file, original).unwrap();
+
+        run_add_alias(AddAliasArgs {
+            person: "casey".into(),
+            alias: "the tall one".into(),
+            content: ContentDir { content_dir: Some(root.clone()) },
+        })
+        .unwrap();
+
+        let after = fs::read_to_string(&file).unwrap();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(
+            after,
+            "---\ntags: [friend]\naliases: [neighbor, the tall one]\nrelationship: Housemate, 2026\nage: 50\n---\n# Casey\n\nA blurb.\n\n## Referenced In\n- [[2026-05-10]] (tea)\n"
+        );
+        let (e, w) = check_file(&after, &ref_re());
+        assert!(e.is_empty() && w.is_empty(), "{:?} {:?}", e, w);
     }
 
     #[test]
@@ -801,10 +825,11 @@ mod tests {
 
     #[test]
     fn split_and_rebuild_frontmatter_preserves_body() {
-        let (tags, aliases, body, had) = split_frontmatter(GOOD);
+        let (tags, aliases, other_lines, body, had) = split_frontmatter(GOOD);
         assert!(had);
         assert_eq!(tags, vec!["austin"]);
         assert_eq!(aliases, vec!["my landlord"]);
+        assert!(other_lines.is_empty());
         assert!(body.starts_with("# Sally"));
     }
 
