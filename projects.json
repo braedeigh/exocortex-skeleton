@@ -78,7 +78,8 @@
         "namerisk.py",
         "pagestore.py",
         "loadrecord.py",
-        "threadsummaries.py"
+        "threadsummaries.py",
+        "personsheets.py"
       ],
       "routes": [
         "cards.py",
@@ -111,6 +112,8 @@
         "cricket_swarm.sh",
         "thread_tending.py",
         "thread_summary.py",
+        "person_sheet.py",
+        "person_cards.py",
         "cricket_housekeep.sh",
         "make_photo_thumbs.py"
       ],
@@ -120,6 +123,7 @@
         "journal_pages",
         "context_loads",
         "thread_summaries",
+        "person_sheets",
         "cards_fts",
         "cards_fts_data",
         "cards_fts_idx",

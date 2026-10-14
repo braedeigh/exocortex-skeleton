@@ -189,6 +189,8 @@ TABLES = {
     "tags": "frosted",
     # The summaries written of each journal thread (threadsummaries.py).
     "thread_summaries": "frosted",
+    # The current-facts sheet kept for each person (personsheets.py).
+    "person_sheets": "frosted",
     # Dev and idea notes (notestore.py), and the verdicts on them.
     "notes": "frosted",
     "note_judgments": "frosted",

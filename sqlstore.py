@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 54
+_SCHEMA_VERSION = 55
 
 
 def _db_path():
@@ -234,6 +234,8 @@ _EXPECTED_TABLES = (
     "context_loads",
     # The summaries written of each thread, newest on top (rung 49).
     "thread_summaries",
+    # The short current-facts sheet kept for each person, newest on top (rung 55).
+    "person_sheets",
 )
 
 
@@ -3366,6 +3368,38 @@ def _run_ladder(conn):
             conn.execute("ALTER TABLE swarm_members DROP COLUMN topic_id")
         except sqlite3.OperationalError:
             pass  # the column is already gone
+    if version < 55:
+        # The current-facts sheet kept for each person in the vault
+        # (personsheets.py): one row per sheet. A new sheet is a new row; the
+        # older ones stay underneath it and are read newest first. A record,
+        # not a copy of anything: the person's own file holds no sheet.
+        #
+        # Prompt: "Don't overwrite old summaries, just make a new summary."
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS person_sheets ("
+            "  id INTEGER PRIMARY KEY,"
+            # The person, by the stem of their file name in people/.
+            "  slug TEXT NOT NULL,"
+            # Who wrote it: 'cricket:<name>' for a night helper.
+            "  author TEXT NOT NULL,"
+            # When it was written, in local time.
+            "  written_at TEXT NOT NULL,"
+            # Five labelled lines, one fact each.
+            "  body TEXT NOT NULL,"
+            # The card ids and days it was based on, as a JSON list.
+            "  based_on TEXT NOT NULL DEFAULT '[]')"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS person_sheets_by_slug"
+                     " ON person_sheets (slug, written_at)")
+        # Refuse any change to a sheet once it is written, same as the thread
+        # summaries: the database itself turns down an UPDATE on this table.
+        # Deleting a row is still allowed, for a sheet filed under the wrong
+        # person.
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS person_sheets_no_rewrite"
+            " BEFORE UPDATE ON person_sheets"
+            " BEGIN SELECT RAISE(ABORT, 'a person sheet is never rewritten: add a new one'); END"
+        )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
