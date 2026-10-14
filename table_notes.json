@@ -597,7 +597,7 @@
   },
   "build_items": {
     "holds": "The build log: everything planned, built, or decided against for the app, one row per item. An item is never deleted when it closes; its status says how it ended (idea, open, paused, shipped, dropped).",
-    "source": "Written by buildlog.py; sessions add and close items through scripts/build_log.py. The rows with a source came from the vault's dev_todo.md, moved in on 2026-10-14. A record: nothing else holds it.",
+    "source": "Written by buildlog.py; sessions add and close items through scripts/build_log.py, and add her words from her journal cards with --card or quote. The rows with a source came from the vault's dev_todo.md, moved in on 2026-10-14. A record: nothing else holds it.",
     "kind": "record",
     "time_column": "raised_on",
     "columns": {
@@ -609,7 +609,9 @@
       "raised_on": {"holds": "The day it was raised. Empty for an old item that never said."},
       "added_at": {"holds": "When the row was written."},
       "closed_on": {"holds": "The day it was shipped or dropped; empty while it is live."},
-      "source": {"holds": "For an item moved in from the old markdown file: the file and line its heading was on."}
+      "source": {"holds": "For an item moved in from the old markdown file: the file and line its heading was on."},
+      "owner_words": {"holds": "The owner's own words about the item, verbatim, copied from the journal cards she said them in. Empty when none were kept."},
+      "owner_cards": {"holds": "The journal card ids her words were copied from, as a JSON list."}
     }
   },
   "build_notes": {

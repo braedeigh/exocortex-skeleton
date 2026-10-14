@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 56
+_SCHEMA_VERSION = 57
 
 
 def _db_path():
@@ -3443,6 +3443,18 @@ def _run_ladder(conn):
         )
         conn.execute("CREATE INDEX IF NOT EXISTS build_notes_by_item"
                      " ON build_notes (item_id, written_at)")
+    if version < 57:
+        # The owner's own words beside a build item's write-up, copied
+        # verbatim from the journal cards she said them in (buildlog.py).
+        #
+        # Prompt: "I want it to save my output verbatim next to the keeper
+        # output in the database."
+        for column in ("owner_words TEXT NOT NULL DEFAULT ''",
+                       "owner_cards TEXT NOT NULL DEFAULT '[]'"):
+            try:
+                conn.execute(f"ALTER TABLE build_items ADD COLUMN {column}")
+            except sqlite3.OperationalError:
+                pass  # the column is already there
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

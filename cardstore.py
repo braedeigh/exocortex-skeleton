@@ -130,6 +130,17 @@ def _parse_card(path: Path):
     }
 
 
+def read(cid: str):
+    """One card from the pool, as _parse_card gives it, or None.
+
+    Read from the pool file itself, not the exo.db mirror, so a card written
+    a minute ago is there before the hourly sync has run."""
+    if not _CARD_ID_RE.match(cid or ""):
+        return None
+    path = pool_dir() / f"{cid}.md"
+    return _parse_card(path) if path.exists() else None
+
+
 def _load_casts():
     """The deletion log as {card_id: cast entry}. Missing file = no casts yet
     (the log only exists once something has been deleted)."""

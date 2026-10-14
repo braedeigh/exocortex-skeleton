@@ -119,3 +119,36 @@ def test_an_import_that_fails_partway_leaves_nothing_behind(data_dir, monkeypatc
     except RuntimeError:
         pass
     assert buildlog.items(buildlog.STATUSES) == []
+
+
+def test_her_words_are_kept_verbatim_from_her_own_cards(data_dir, tmp_path, monkeypatch, capsys):
+    """Her words sit beside the filer's write-up, copied from the journal
+    cards she said them in, never retyped, and never from someone else's card."""
+    import cardstore
+    import store
+    monkeypatch.setattr(store, "CONTENT_DIR", tmp_path / "content")
+    pool = cardstore.pool_dir()
+    pool.mkdir(parents=True)
+    said = "I want an MCP for my app so people can record stuff maybe?\n\n  — *with* \"quotes\""
+    (pool / "2026-10-14.1630b.md").write_text(f"---\nts: 16:30\nwho: B\n---\n{said}\n")
+    (pool / "2026-10-14.1631k.md").write_text("---\nts: 16:31\nwho: K\n---\nThe Keeper's take.\n")
+    (pool / "2026-10-15.0900b.md").write_text("---\nts: 09:00\nwho: B\n---\nAnd a follow-up.\n")
+
+    assert door.main(["add", "--title", "An MCP server", "--by", "keeper", "--status", "idea",
+                      "--body", "The Keeper's summary.", "--card", "2026-10-14.1630b"]) == 0
+    item = buildlog.items()[0]
+    assert (item["owner_words"], item["body"]) == (said, "The Keeper's summary.")
+
+    # Quoting adds later cards after the first; the same card twice changes nothing.
+    assert door.main(["quote", str(item["id"]), "--card", "2026-10-15.0900b", "2026-10-14.1630b"]) == 0
+    item = buildlog.get(item["id"])
+    assert item["owner_words"] == said + "\n\nAnd a follow-up."
+    assert item["owner_cards"] == ["2026-10-14.1630b", "2026-10-15.0900b"]
+    assert [i["id"] for i in buildlog.items(search="follow-up")] == [item["id"]]
+
+    # A Keeper card, or one that isn't there, is refused and nothing changes.
+    assert door.main(["quote", str(item["id"]), "--card", "2026-10-14.1631k"]) == 2
+    assert door.main(["add", "--title", "x", "--by", "keeper", "--card", "2026-01-01.0000b"]) == 2
+    assert "not the owner's" in capsys.readouterr().err
+    assert buildlog.get(item["id"])["owner_cards"] == ["2026-10-14.1630b", "2026-10-15.0900b"]
+    assert len(buildlog.items()) == 1

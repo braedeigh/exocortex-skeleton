@@ -7,6 +7,12 @@ paused, shipped, or dropped. Nothing is deleted when it ships or is turned
 down: the log keeps what was done *and* what was decided against, so an old
 idea that comes back can be found with its first answer attached.
 
+Beside the write-up, an item can hold the owner's own words, verbatim:
+`owner_words`, copied from the journal cards she said them in (her captured
+messages, `who: B`), with those card ids in `owner_cards`. They come only from
+a card, never retyped, so what's stored is exactly what she said — and the
+write-up beside it is whoever filed the item putting it in their words.
+
 Whatever happens to an item later goes in a second table, `build_notes`, as a
 dated line under it — a finding, a follow-up, a change of status. The item's
 own write-up is never rewritten; the notes pile up beneath it in order, the
@@ -16,17 +22,19 @@ The log replaced the vault's `dev_todo.md` (one long markdown file) on
 2026-10-14. `import_markdown()` is the one-time move of that file's `## `
 sections into rows; the file itself stays in the vault's archive.
 
-Touches: `sqlstore.py` (the two tables), `scripts/build_log.py` (the door a
+Touches: `sqlstore.py` (the two tables), `cardstore.py` (reads her cards), `scripts/build_log.py` (the door a
 session uses), `scripts/spark_morning.py` (reads the open items each morning).
 
 Prompt: "is it possible to turn [the dev todo] into a database powered item
 instead" … "I'd want to save this as a log of things I do and plan to do and
 build out or not."
 """
+import json
 import re
 from contextlib import contextmanager
 from datetime import date, datetime
 
+import cardstore
 import sqlstore
 
 # Where an item stands.
@@ -40,7 +48,8 @@ LIVE = ("idea", "open", "paused")
 CLOSED = ("shipped", "dropped")
 
 _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_ITEM_COLUMNS = "id, title, body, status, raised_by, raised_on, added_at, closed_on, source"
+_ITEM_COLUMNS = ("id, title, body, status, raised_by, raised_on, added_at, closed_on, source,"
+                 " owner_words, owner_cards")
 
 
 def _now():
@@ -48,8 +57,27 @@ def _now():
 
 
 def _item(row):
-    return dict(zip(("id", "title", "body", "status", "raised_by", "raised_on",
-                     "added_at", "closed_on", "source"), row))
+    item = dict(zip(("id", "title", "body", "status", "raised_by", "raised_on",
+                     "added_at", "closed_on", "source", "owner_words", "owner_cards"), row))
+    item["owner_cards"] = json.loads(item["owner_cards"] or "[]")
+    return item
+
+
+def owner_words(card_ids):
+    """The owner's words from her journal cards, verbatim, in the order given.
+
+    Refuses a card that isn't in the pool or isn't hers (`who: B`): a Keeper
+    or system card would put someone else's words under her name. Several
+    cards are joined with a blank line between them."""
+    bodies = []
+    for card_id in card_ids:
+        card = cardstore.read(card_id)
+        if card is None:
+            raise ValueError(f"no journal card {card_id!r}")
+        if card["who"] != "B":
+            raise ValueError(f"card {card_id} is not the owner's (who: {card['who']})")
+        bodies.append(card["body"])
+    return "\n\n".join(bodies)
 
 
 def _check(title=None, by=None, status=None, raised_on=None):
@@ -95,12 +123,36 @@ def _insert(conn, title, by, body, status, raised_on, source):
     return cursor.lastrowid
 
 
-def add(title, by, body="", status="open", raised_on=None):
-    """Add one item to the log and return it. raised_on defaults to today."""
+def add(title, by, body="", status="open", raised_on=None, cards=()):
+    """Add one item to the log and return it. raised_on defaults to today;
+    `cards` are the owner's journal cards to keep her words from."""
     _check(title=title, by=by, status=status, raised_on=raised_on)
+    words = owner_words(cards)
     with _writing() as conn:
         item_id = _insert(conn, title, by, body, status,
                           raised_on or date.today().isoformat(), None)
+        if cards:
+            conn.execute("UPDATE build_items SET owner_words = ?, owner_cards = ? WHERE id = ?",
+                         (words, json.dumps(list(cards)), item_id))
+    return get(item_id)
+
+
+def quote(item_id, cards):
+    """Add the owner's words from more journal cards to an item, verbatim.
+
+    They go after any words already there; a card already quoted is skipped,
+    so quoting the same card twice changes nothing."""
+    with _writing() as conn:
+        row = conn.execute("SELECT owner_words, owner_cards FROM build_items WHERE id = ?",
+                           (item_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"no build item #{item_id}")
+        have = json.loads(row[1] or "[]")
+        new = [card for card in dict.fromkeys(cards) if card not in have]
+        if new:
+            words = "\n\n".join(part for part in (row[0], owner_words(new)) if part)
+            conn.execute("UPDATE build_items SET owner_words = ?, owner_cards = ? WHERE id = ?",
+                         (words, json.dumps(have + new), item_id))
     return get(item_id)
 
 
@@ -127,7 +179,7 @@ def get(item_id, conn=None):
 def items(statuses=LIVE, search=None):
     """The items in the given statuses, newest raised first, without notes.
 
-    `search` keeps only items whose title, write-up or notes contain the
+    `search` keeps only items whose title, write-up, her words or notes contain the
     words, ignoring case."""
     statuses = tuple(statuses)
     for status in statuses:
@@ -136,9 +188,9 @@ def items(statuses=LIVE, search=None):
              f" WHERE status IN ({', '.join('?' * len(statuses))})")
     values = list(statuses)
     if search:
-        query += (" AND (title LIKE ? OR body LIKE ? OR id IN"
+        query += (" AND (title LIKE ? OR body LIKE ? OR owner_words LIKE ? OR id IN"
                   " (SELECT item_id FROM build_notes WHERE text LIKE ?))")
-        values += [f"%{search}%"] * 3
+        values += [f"%{search}%"] * 4
     query += " ORDER BY raised_on DESC, id DESC"
     conn = sqlstore.open_db()
     try:

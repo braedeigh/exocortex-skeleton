@@ -8,12 +8,18 @@ session — files a new build task or bug, reads what's open, adds a finding
 under an item, or marks it shipped or dropped. It replaced appending a `## `
 section to the vault's `dev_todo.md`.
 
-    build_log.py add --title "..." --by keeper [--status idea] --body-file /tmp/item.md
+    build_log.py add --title "..." --by keeper [--status idea] --body-file /tmp/item.md \\
+        --card 2026-10-14.1630b
+    build_log.py quote 42 --card 2026-10-15.0910b
     build_log.py list [--status shipped ...] [--all] [--search word]
     build_log.py show 42
     build_log.py note 42 --by spark --text "found the cause: ..."
     build_log.py status 42 shipped --by spark --why "skeleton abc1234"
     build_log.py import-markdown /path/to/dev_todo.md     # the one-time move
+
+`--card` keeps the owner's own words beside the write-up, copied verbatim
+from her journal cards (only cards she wrote are accepted). `quote` adds
+more cards to an item already filed.
 
 Words with quote marks in them are safest through a file (`--body-file`,
 `--text-file`).
@@ -44,7 +50,7 @@ def _line(item):
 
 def add(args):
     item = buildlog.add(args.title, args.by, _words(args.body, args.body_file),
-                        status=args.status, raised_on=args.raised_on)
+                        status=args.status, raised_on=args.raised_on, cards=args.card)
     print(json.dumps({"ok": True, "id": item["id"], "status": item["status"]}))
 
 
@@ -65,11 +71,20 @@ def show(args):
         print(f"closed {item['closed_on']}")
     if item["source"]:
         print(f"from {item['source']}")
+    if item["owner_words"]:
+        print(f"\nHer words (cards {', '.join(item['owner_cards'])}):\n")
+        print(item["owner_words"])
+        print(f"\nWrite-up ({item['raised_by']}):")
     print()
     print(item["body"] or "(no write-up)")
     for entry in item["notes"]:
         print(f"\n--- {entry['written_at']}  {entry['author']}  [{entry['kind']}]")
         print(entry["text"])
+
+
+def quote(args):
+    item = buildlog.quote(args.id, args.card)
+    print(json.dumps({"ok": True, "id": item["id"], "cards": item["owner_cards"]}))
 
 
 def note(args):
@@ -100,7 +115,14 @@ def main(argv=None):
     words = adding.add_mutually_exclusive_group()
     words.add_argument("--body")
     words.add_argument("--body-file")
+    adding.add_argument("--card", nargs="+", default=[],
+                        help="the owner's journal card(s) to keep her words from, verbatim")
     adding.set_defaults(run=add)
+
+    quoting = commands.add_parser("quote", help="add the owner's words from journal cards to an item")
+    quoting.add_argument("id", type=int)
+    quoting.add_argument("--card", nargs="+", required=True)
+    quoting.set_defaults(run=quote)
 
     listing = commands.add_parser("list", help="one line per item, newest first (default: idea, open, paused)")
     listing.add_argument("--status", nargs="+", choices=buildlog.STATUSES)
