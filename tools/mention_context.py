@@ -292,24 +292,18 @@ def _fts_query(terms):
     return " OR ".join('"' + term.replace('"', '""') + '"' for term in terms)
 
 
-def cards_about(conn, entry, record=None):
-    """Her newest cards about one person or thread that the session does not
-    already have, oldest first, plus how many were left out as already had.
+def matching_cards(conn, entry):
+    """Every one of her cards about one person or thread, newest first, as
+    (row, tagged): the row has id, ts and body; `tagged` is True when the card
+    carries the slug, False when only its text names them.
 
     A card counts when it is tagged with the slug (`card_tags`, or the
     universal `tags` table under this kind's namespace) or when its text names
     them. The word index finds text candidates quickly but folds word endings,
     so each untagged candidate is checked again with the whole-word pattern.
     Only trusted terms are matched in text: a weak or shared name counts by
-    tag alone.
-
-    `record` is the session's record (loadrecord.py). A card on it is left
-    out, by id or by its words, and each card kept is put on it, so the next
-    name in the same message can't take the same card. The walk goes from the
-    newest card back and stops at MENTION_CONTEXT_CARDS kept, so the pack
-    reaches as far into the past as it needs to fill up."""
-    limit = app_config.MENTION_CONTEXT_CARDS
-    record = record if record is not None else {"names": set(), "cards": set(), "texts": set()}
+    tag alone. This is the one place that decides "about them"; the hook and
+    scripts/person_cards.py both read it."""
     untrusted = _untrusted(entry)
     text_terms = [term for term in entry["terms"] if term.lower() not in untrusted]
     pattern = _term_pattern(text_terms) if text_terms else None
@@ -330,10 +324,33 @@ def cards_about(conn, entry, record=None):
            ") ORDER BY c.ts DESC, c.id DESC")
     rows = conn.execute(sql, [entry["slug"], entry["kind"], entry["slug"]]
                         + ([_fts_query(text_terms)] if text_terms else []))
-    kept, skipped = [], 0
     for row in rows:
-        if not (row["id"] in tagged or (pattern and pattern.search(row["body"] or ""))):
-            continue
+        if row["id"] in tagged:
+            yield row, True
+        elif pattern and pattern.search(row["body"] or ""):
+            yield row, False
+
+
+def cards_about(conn, entry, record=None):
+    """Her newest cards about one person or thread that the session does not
+    already have, oldest first, plus how many were left out as already had.
+
+    A card counts when it is tagged with the slug (`card_tags`, or the
+    universal `tags` table under this kind's namespace) or when its text names
+    them. The word index finds text candidates quickly but folds word endings,
+    so each untagged candidate is checked again with the whole-word pattern.
+    Only trusted terms are matched in text: a weak or shared name counts by
+    tag alone.
+
+    `record` is the session's record (loadrecord.py). A card on it is left
+    out, by id or by its words, and each card kept is put on it, so the next
+    name in the same message can't take the same card. The walk goes from the
+    newest card back and stops at MENTION_CONTEXT_CARDS kept, so the pack
+    reaches as far into the past as it needs to fill up."""
+    limit = app_config.MENTION_CONTEXT_CARDS
+    record = record if record is not None else {"names": set(), "cards": set(), "texts": set()}
+    kept, skipped = [], 0
+    for row, _ in matching_cards(conn, entry):
         if loadrecord.has(record, row["id"], row["body"]):
             skipped += 1
             continue
