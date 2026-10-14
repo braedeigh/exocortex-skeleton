@@ -27,6 +27,11 @@ job file and write a report file.
    weekly housekeeper, an approval, a hand edit), the script notices by
    comparing each thread file's status with the one it remembered. The
    session reads the thread and writes its summary.
+6. **One person-sheet session per person who got newly tagged cards.** A
+   nightly refresh, capped at 10 a night. The session sees the person's
+   current fact sheet (if there is one) and the new cards, and reports no
+   change, or a new sheet with the cards it rests on. It runs after the
+   person sessions, so a tag they added tonight counts.
 
 **What gets written, and through which door.**
 - A tag is added with the journal engine's own `tag` verb (`tools/stream/stream.py`).
@@ -48,13 +53,19 @@ job file and write a report file.
   (`threadsummaries.py`), added on top of the older ones, which are never
   changed. A status summary is marked with the new status. A summary is at
   most 120 words; a longer one loses whole sentences from its end.
+- A person's sheet is five short labelled lines of dated facts (`personsheets.py`),
+  one row in the `person_sheets` table in exo.db, added on top of the older
+  ones, which are never changed. Only a card tagged with the person counts as
+  new, and at most 10 people are refreshed a night; the rest come up the next
+  night. A session that finds nothing to change adds no row, and the person is
+  still marked judged. `PERSON_SHEETS=0` turns the whole step off.
 - Each night's job files, reports, log and a readable `digest.md` are kept in
   `thread_tending/<date>/`. The newest movement notes and recording problems
   per thread are kept in `thread_tending/summaries/<slug>.json`.
 
 **Where the prompts are.** Each session is told to read one prompt file from
 the crickets folder (`thread-main.md`, `thread-helper.md`, `person-helper.md`,
-`thread-reconcile.md`, `thread-status.md`) and its job file. The sessions run one at a time.
+`thread-reconcile.md`, `thread-status.md`, `person-sheet.md`) and its job file. The sessions run one at a time.
 
 Usage:
     thread_tending.py                      tend for yesterday
@@ -62,6 +73,10 @@ Usage:
     thread_tending.py --dry-run            print the plan; run and write nothing
     thread_tending.py --no-apply           run the sessions, apply nothing
     thread_tending.py --only-thread SLUG   just that thread's session
+
+Prompt for the person sheets: "A nightly refresh: one session per person who got
+newly tagged cards that day, capped at 10 a night. The session sees the current
+sheet and the new cards, and reports no change or a new sheet with sources."
 
 Prompt: "I want a cricket system similar to the helpers. There is a main
 cricket that detects every night if all of the threads tagged are accurate and
@@ -89,6 +104,7 @@ if str(SKELETON) not in sys.path:
     sys.path.insert(0, str(SKELETON))
 
 import namerisk  # noqa: E402
+import personsheets  # noqa: E402
 import store  # noqa: E402
 import threadsummaries  # noqa: E402
 
@@ -114,6 +130,11 @@ HISTORY_TEXT_LENGTH = 300
 MAX_STATUS_SESSIONS = 12
 # The author recorded on a summary a thread session wrote.
 SUMMARY_AUTHOR = "cricket:thread-helper"
+# The most person-sheet sessions run in one night. The busiest people go first;
+# the rest are not marked judged, so they come up on later nights.
+MAX_SHEET_SESSIONS = 10
+# The author recorded on a sheet a person-sheet session wrote.
+SHEET_AUTHOR = "cricket:person-sheet"
 # A thread alias shorter than this is not searched for in card text: two
 # letters match too many things.
 SHORTEST_ALIAS = 3
@@ -190,7 +211,8 @@ def load_state():
     """The memory between nights: `threads` and `names` map a slug or a name
     to the last day it was judged through; `untag_proposed` lists every
     card-and-tag removal already put to the owner; `statuses` maps a thread's
-    slug to the status its file had when last looked at."""
+    slug to the status its file had when last looked at; `sheets` maps a
+    person's slug to the last day their fact sheet was judged through."""
     try:
         state = json.loads((_work_dir() / "state.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -199,6 +221,7 @@ def load_state():
     state.setdefault("names", {})
     state.setdefault("untag_proposed", [])
     state.setdefault("statuses", {})
+    state.setdefault("sheets", {})
     return state
 
 
@@ -360,6 +383,44 @@ def person_jobs(target, cards, people, risky, state):
             "people": [{"slug": slug, "name": by_slug[slug]["name"],
                         "file": str(store.CONTENT_DIR / by_slug[slug]["file"])} for slug in slugs],
             "cards": chosen,
+        })
+    return jobs
+
+
+def sheet_jobs(target, cards, people, state, newest=personsheets.newest):
+    """One job per person who has cards tagged with their slug in their
+    unjudged window, the busiest first (ties by slug), at most
+    MAX_SHEET_SESSIONS. The window is the same rolling one threads use. A
+    person over the cap is not marked judged, so they come up the next night.
+
+    Each job carries the person's current sheet (None if they have none) and
+    `same_name`: other people files that share one of this person's names."""
+    found = []
+    for person in people:
+        slug = person["slug"]
+        start = window_start(target, state["sheets"].get(slug))
+        if start > target:
+            continue
+        fresh = [card for card in _in_days(cards, start, target) if slug in card["tags"]]
+        if fresh:
+            found.append((person, start, fresh))
+    found.sort(key=lambda item: (-len(item[2]), item[0]["slug"]))
+    jobs = []
+    for person, start, fresh in found[:MAX_SHEET_SESSIONS]:
+        terms = {term.lower() for term in person["terms"]}
+        current = newest(person["slug"])
+        jobs.append({
+            "slug": person["slug"], "name": person["name"],
+            "person_file": str(store.CONTENT_DIR / person["file"]),
+            "target": target.isoformat(), "window_start": start.isoformat(),
+            "max_words": personsheets.MAX_WORDS, "labels": list(personsheets.LABELS),
+            "current_sheet": ({"written_at": current["written_at"], "body": current["body"],
+                               "based_on": current["based_on"]} if current else None),
+            "cards": [{"id": card["id"], "ts": card["ts"], "text": card["body"]} for card in fresh],
+            "same_name": [{"slug": other["slug"], "name": other["name"],
+                           "file": str(store.CONTENT_DIR / other["file"])}
+                          for other in people if other["slug"] != person["slug"]
+                          and terms & {term.lower() for term in other["terms"]}],
         })
     return jobs
 
@@ -533,6 +594,49 @@ def apply_person_reports(jobs, reports, state, target, apply):
     return tagged, removals
 
 
+def apply_sheet_reports(jobs, reports, state, target, apply):
+    """Turn the person-sheet sessions' reports into new sheets.
+
+    A report is {"change": false, ...} or {"change": true, "sheet": the five
+    lines, "based_on": [card ids], ...}. Every source must be one of this
+    job's cards or one of the current sheet's own sources, and there must be
+    at least one. A report that came back, stored or refused or no change,
+    marks the person judged through `target`; a session that failed
+    (report None) is listed in `failed` by the caller and tried again.
+    Returns [{slug, changed, words, ok, error}] for the digest."""
+    results = []
+    for job in jobs:
+        slug, report = job["slug"], reports.get(job["slug"])
+        if report is None:
+            continue
+        if apply:
+            state["sheets"][slug] = target.isoformat()
+        if not report.get("change"):
+            results.append({"slug": slug, "changed": False, "words": 0, "ok": True, "error": ""})
+            continue
+        sheet = str(report.get("sheet") or "").strip()
+        based_on = [str(source) for source in report.get("based_on") or []]
+        allowed = {card["id"] for card in job["cards"]} | set((job["current_sheet"] or {}).get("based_on") or [])
+        refused = {"slug": slug, "changed": True, "words": 0, "ok": False}
+        if not based_on:
+            results.append({**refused, "error": "no source given"})
+        elif not set(based_on) <= allowed:
+            results.append({**refused, "error": "a source is not one of this job's cards or the current sheet's"})
+        else:
+            done = {"slug": slug, "changed": True, "words": personsheets.word_count(sheet),
+                    "ok": True, "error": ""}
+            if apply:
+                try:
+                    row = personsheets.add(slug, SHEET_AUTHOR, sheet, based_on)
+                except (ValueError, sqlite3.Error) as error:
+                    results.append({**refused, "error": str(error)})
+                    continue
+                if row is None:     # word for word the newest sheet: nothing was added
+                    done["changed"] = False
+            results.append(done)
+    return results
+
+
 def save_summaries(jobs, reports, facts, apply):
     """Add a new summary on top of each thread that got a fact tonight.
 
@@ -669,6 +773,11 @@ def write_digest(night_dir, target, outcome):
         why = f", now {item['status']}" if item.get("status") else ""
         lines.append(f"- new summary on `{item['slug']}` ({item['words']} words{why})" if item["ok"]
                      else f"- summary for `{item['slug']}` NOT kept: {item['error']}")
+    for item in outcome["sheets"]:
+        if item["ok"] and item["changed"]:
+            lines.append(f"- new fact sheet for `{item['slug']}` ({item['words']} words)")
+        elif not item["ok"]:
+            lines.append(f"- fact sheet for `{item['slug']}` NOT kept: {item['error']}")
     for item in outcome["staged"]:
         lines.append(f"- asked you: remove `{item['tag']}` from `{item['card_id']}` — {item['reason']}")
     for item in outcome["held"]:
@@ -683,6 +792,11 @@ def write_digest(night_dir, target, outcome):
 
 
 # --- The night ---------------------------------------------------------------
+
+def sheets_enabled():
+    """False when the environment says PERSON_SHEETS=0."""
+    return os.environ.get("PERSON_SHEETS") != "0"
+
 
 def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=False,
          apply=True, only_thread=None, session=run_session, out=print):
@@ -708,7 +822,11 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
         out("person sessions:")
         for item in plan_people:
             out(f"  {item['name']:20s} {[p['slug'] for p in item['people']]}  {len(item['cards'])} card(s)")
-        return {"threads": plan_threads, "people": plan_people}
+        plan_sheets = sheet_jobs(target, cards, people, state) if sheets_enabled() and not only_thread else []
+        out("person-sheet sessions:")
+        for item in plan_sheets:
+            out(f"  {item['slug']:32s} from {item['window_start']}  {len(item['cards'])} card(s)")
+        return {"threads": plan_threads, "people": plan_people, "sheets": plan_sheets}
 
     night_dir.mkdir(parents=True, exist_ok=True)
     failed = []
@@ -763,6 +881,25 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
         people_jobs, people_reports, state, target, apply)
     summaries = save_summaries(jobs, reports, facts, apply)
 
+    # The person-sheet sessions: one per person with newly tagged cards. Tags
+    # added tonight are folded into the in-memory cards first (only when they
+    # were really written), so they count without re-reading the pool.
+    if apply:
+        by_card = {card["id"]: card for card in cards}
+        for item in tagged + people_tagged:
+            card = by_card.get(item["card"])
+            if item["ok"] and card and item["tag"] not in card["tags"]:
+                card["tags"].append(item["tag"])
+    sheet_plan = [] if only_thread or not sheets_enabled() else sheet_jobs(target, cards, people, state)
+    sheet_reports = {}
+    for item in sheet_plan:
+        report = session("person-sheet", item, night_dir, f"sheet.{item['slug']}",
+                         crickets_dir, model, log)
+        if report is None:
+            failed.append(f"sheet {item['slug']}")
+        sheet_reports[item["slug"]] = report
+    sheets = apply_sheet_reports(sheet_plan, sheet_reports, state, target, apply)
+
     # The status sessions: one per thread whose status changed since last night.
     statuses = thread_statuses()
     changed = [] if only_thread else status_jobs(target, cards, statuses, state)
@@ -782,11 +919,12 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
         save_state(state)
     outcome = {"target": target.isoformat(), "tagged": tagged + people_tagged, "facts": facts,
                "staged": staged, "held": held, "movement": movement, "failed": failed,
-               "hints": hints, "summaries": summaries, "applied": apply}
+               "hints": hints, "summaries": summaries, "sheets": sheets, "applied": apply}
     write_digest(night_dir, target, outcome)
     (night_dir / "outcome.json").write_text(json.dumps(outcome, indent=1), encoding="utf-8")
     out(f"thread tending {target}: {len(jobs)} thread(s), {len(people_reports)} name(s),"
         f" {len(outcome['tagged'])} tag(s), {len(facts)} fact(s), {len(staged)} removal(s) asked,"
+        f" {sum(1 for item in sheets if item['ok'] and item['changed'])} sheet(s),"
         f" {len(failed)} failed — {night_dir / 'digest.md'}")
     return outcome
 

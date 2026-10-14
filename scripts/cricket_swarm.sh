@@ -106,7 +106,9 @@ done
 # check that the day's cards sit under the right threads and people — one main
 # session, then one isolated session per active thread and per ambiguous name.
 # The script does every write; see scripts/thread_tending.py. Skipped when a
-# single cricket was asked for by id. THREAD_TENDING=0 turns it off.
+# single cricket was asked for by id. THREAD_TENDING=0 turns it off. The python
+# process inherits this script's environment, so PERSON_SHEETS=0 (set by whatever
+# runs this script) turns off just its person fact-sheet step.
 if [ -z "$ONLY" ] && [ "${THREAD_TENDING:-1}" != "0" ] && [ "${CRICKET_DRY_RUN:-0}" != "1" ]; then
   log "--- thread tending start ---"
   EXOCORTEX_DATA_DIR="${EXOCORTEX_DATA_DIR:-$VAULT/data}" EXOCORTEX_CONTENT_DIR="${EXOCORTEX_CONTENT_DIR:-$VAULT/tulku}" CLAUDE_BIN="$CLAUDE_BIN" \

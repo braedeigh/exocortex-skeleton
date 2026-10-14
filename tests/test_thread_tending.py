@@ -16,6 +16,7 @@ import pytest
 from flask import Flask
 
 import store
+import personsheets
 import threadsummaries
 from routes import pending, threads
 
@@ -92,6 +93,8 @@ ANSWERS = {
     "reconcile": {"keep": {"2026-03-10.0900b": ["garden", "knee"]}},
     "person.shared_sam": {"verdicts": [
         {"card": "2026-03-10.0920b", "person": "sam-okafor", "reason": "teeth: the dentist"}]},
+    "sheet.sam": {"change": False, "reason": "nothing new"},
+    "sheet.sam-okafor": {"change": False, "reason": "nothing new"},
 }
 
 
@@ -241,3 +244,80 @@ def test_a_trial_run_stores_no_summary(vault, facts_written):
         "main": {"threads": {"garden": ["2026-03-11.0900b"]}},
         "thread.garden": {"belongs": ["2026-03-11.0900b"], "facts": [BEAN_FACT], "summary": "Beans up."}}))
     assert threadsummaries.for_thread("garden") == [] and facts_written == []
+
+
+OLD_SHEET = ("Who: a neighbour\nPronouns: not on record\nTied to: the street\n"
+             "Now: nothing pending\nLast contact: 2026-03-08")
+NEW_SHEET = OLD_SHEET.replace("2026-03-08", "2026-03-10")
+
+
+def sheet_sessions(seen):
+    return sorted(name for name in seen if name.startswith("sheet."))
+
+
+def test_a_changed_sheet_lands_on_top_and_is_not_asked_for_again_that_night(vault):
+    personsheets.add("sam", "cricket:person-sheet", OLD_SHEET, ["2026-03-08"])
+    answers = {**ANSWERS, "sheet.sam": {"change": True, "sheet": NEW_SHEET,
+                                        "based_on": ["2026-03-10.0920b"], "reason": "new date"}}
+    seen = {}
+    outcome = night(answers, seen)
+    assert seen["sheet.sam"]["current_sheet"]["body"] == OLD_SHEET
+    assert [p["slug"] for p in seen["sheet.sam"]["same_name"]] == ["sam-okafor"]
+    top, under = personsheets.for_person("sam")
+    assert (top["body"], top["author"], top["based_on"]) == (NEW_SHEET, "cricket:person-sheet", ["2026-03-10.0920b"])
+    assert under["body"] == OLD_SHEET
+    assert [item["slug"] for item in outcome["sheets"] if item["changed"] and item["ok"]] == ["sam"]
+    assert "new fact sheet for `sam`" in (store.DATA_DIR / "thread_tending" / "2026-03-10" / "digest.md").read_text()
+    again = {}
+    night(answers, again)
+    assert "sheet.sam" not in again and len(personsheets.for_person("sam")) == 2
+
+
+def test_no_change_judges_a_failure_retries_and_a_foreign_source_is_refused(vault):
+    seen = {}
+    outcome = night({**ANSWERS, "sheet.sam": {"change": False, "reason": "same"},
+                     "sheet.sam-okafor": None}, seen)
+    assert personsheets.for_person("sam") == []
+    assert outcome["failed"] == ["sheet sam-okafor"]
+    again = {}
+    night(ANSWERS, again)
+    assert sheet_sessions(again) == ["sheet.sam-okafor"]
+
+    # A source that was not in the job is refused, and the person is still judged.
+    mint(vault, "2026-03-11.0900b", "Sam again", tags=["sam"])
+    mint(vault, "2026-03-11.0910b", "unrelated note")
+    outcome = night({"sheet.sam": {"change": True, "sheet": NEW_SHEET, "based_on": ["2026-03-11.0910b"]}},
+                    target=date(2026, 3, 11))
+    assert personsheets.for_person("sam") == []
+    (refused,) = [item for item in outcome["sheets"] if item["slug"] == "sam"]
+    assert not refused["ok"] and "source" in refused["error"]
+    assert "NOT kept" in (store.DATA_DIR / "thread_tending" / "2026-03-11" / "digest.md").read_text()
+    later = {}
+    night({}, later, target=date(2026, 3, 11))
+    assert "sheet.sam" not in later
+
+
+def test_only_the_busiest_people_get_a_sheet_session_each_night(vault, monkeypatch):
+    monkeypatch.setattr(tending, "MAX_SHEET_SESSIONS", 2)
+    for index, (slug, count) in enumerate((("ann", 3), ("bo", 2), ("cy", 2))):
+        (vault / "people" / f"{slug}.md").write_text(f"# {slug.title()}\n\nMade up.\n")
+        for number in range(count):
+            mint(vault, f"2026-03-10.10{number}{index}b", f"saw {slug.title()}", tags=[slug])
+    first, second = {}, {}
+    night({}, first)
+    night({}, second)
+    assert sheet_sessions(first) == ["sheet.ann", "sheet.bo"]
+    # Nobody was judged (every session failed), so the same two come up again.
+    assert sheet_sessions(second) == ["sheet.ann", "sheet.bo"]
+    done = {name: {"change": False, "reason": "x"} for name in ("sheet.ann", "sheet.bo")}
+    night(done)
+    after = {}
+    night({}, after)
+    assert sheet_sessions(after) == ["sheet.cy", "sheet.sam"]
+
+
+def test_person_sheets_off_runs_no_sheet_session(vault, monkeypatch):
+    monkeypatch.setenv("PERSON_SHEETS", "0")
+    seen = {}
+    outcome = night(ANSWERS, seen)
+    assert sheet_sessions(seen) == [] and outcome["sheets"] == []
