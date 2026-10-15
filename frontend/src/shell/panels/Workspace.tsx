@@ -5,6 +5,9 @@ import { PanelTree } from './PanelTree';
 import { RoutePanel } from './RoutePanel';
 import { TabBar } from './TabBar';
 import { pathOf, sectionForUrl } from './sections';
+import { appTabSets, sectionsOf } from './tabSets';
+import { useTabSets } from './useTabSets';
+import { AppContext, appOfSet } from '../apps';
 import { usePaneStack } from './PaneStack';
 import {
   canClosePanel,
@@ -70,6 +73,10 @@ export function Workspace({ children }: { children: ReactNode }) {
   // The primary panel's tab bar has to reflect the REAL address bar, so it
   // reads the router rather than the layout tree.
   const href = useRouterState({ select: (s) => s.location.href });
+  // Her sets and the apps', to know which sections a panel's bar holds.
+  const { sets } = useTabSets();
+  const setsRef = useRef([...appTabSets(), ...sets]);
+  setsRef.current = [...appTabSets(), ...sets];
 
   // The reading room is only wired up when a saved layout still has one. Its
   // hooks always run (hooks can't be conditional), but everything they
@@ -139,7 +146,11 @@ export function Workspace({ children }: { children: ReactNode }) {
       setLayout((cur) => {
         const panel = listPanels(cur).find((p) => p.id === panelId);
         if (!panel) return cur;
-        const section = sectionForUrl(url);
+        // The panel's own anchors win the page (sections.ts `prefer`), so an
+        // app's front pages — /map on the Journal's bar — open no extra tab.
+        const setId = panel.setId ?? (panel.kind === 'primary' ? 'life' : 'work');
+        const anchorIds = sectionsOf(setsRef.current, setId).map((a) => a.id);
+        const section = sectionForUrl(url, anchorIds);
         if (section && pathOf(section.home) === pathOf(url)) return cur;
         return setPanelTabs(cur, panelId, openTab(panel.tabs ?? [], url, Date.now()));
       });
@@ -354,12 +365,18 @@ export function Workspace({ children }: { children: ReactNode }) {
       // The wrapper is inert layout glue except for one job: when the
       // conversation router says "it's already right here", this is the panel
       // that blinks — the answer to "open this" being a place, not an action.
-      return (
+      const host = (
         <div className={styles.flashHost}>
           {body}
           {flashId === panel.id ? <div className={styles.flashRing} aria-hidden="true" /> : null}
         </div>
       );
+      if (panel.kind === 'pane') return host;
+      // Hand the panel's app down: a panel wearing an app's set IS that app
+      // (shell/apps.ts), so its session list and doors are that app's. A
+      // panel wearing one of her own sets belongs to no app (null).
+      const setId = panel.setId ?? (panel.kind === 'primary' ? 'life' : 'work');
+      return <AppContext.Provider value={appOfSet(setId)}>{host}</AppContext.Provider>;
     },
     [children, pane.body, onPanelUrlChanged, flashId],
   );

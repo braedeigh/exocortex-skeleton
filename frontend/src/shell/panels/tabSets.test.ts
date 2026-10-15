@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SETS,
+  appTabSets,
   createSet,
   isPinned,
   isTabSetList,
@@ -177,5 +178,30 @@ describe('the defaults match the server', () => {
     for (const set of DEFAULT_SETS) {
       expect(sectionsOf(DEFAULT_SETS, set.id)).toHaveLength(set.sections.length);
     }
+  });
+});
+
+describe('the apps, as built-in sets', () => {
+  const apps = appTabSets(false);
+
+  it('offers one read-only set per app, holding that app\'s tabs', () => {
+    expect(apps.map((set) => set.id)).toEqual(['app:journal', 'app:observatory', 'app:finances', 'app:inventory']);
+    const journal = [...apps, ...sets()];
+    expect(sectionsOf(journal, 'app:journal').map((s) => s.id).slice(0, 4)).toEqual(['journal', 'todos', 'keeper', 'sessions']);
+    // No link-out tab becomes a section.
+    expect(apps.every((set) => !set.sections.includes('based-foods'))).toBe(true);
+  });
+
+  it('can\'t be changed: pinning, unpinning and reordering only ever touch her own sets', () => {
+    const hers = sets();
+    expect(pin(hers, 'app:journal', 'sql')).toBe(hers);
+    expect(unpin(hers, 'app:journal', 'journal')).toBe(hers);
+    expect(reorder(hers, 'app:journal', 0, 1)).toBe(hers);
+    expect(createSet(hers, 'app:mine', 'Mine')).toBe(hers);
+  });
+
+  it('leaves her saved sets as they are, and is absent in the desktop app', () => {
+    expect(removedBuiltIns(DEFAULT_SETS)).toEqual([]);
+    expect(appTabSets(true)).toEqual([]);
   });
 });

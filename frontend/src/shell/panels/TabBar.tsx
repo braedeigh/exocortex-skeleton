@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionRoster } from '../../features/observatory/api';
 import { convIdOf, pageLabel, pathOf, sectionForUrl, sectionById, type Section } from './sections';
 import {
+  appTabSets,
   createSet,
   isPinned,
   menuSections,
@@ -25,6 +26,7 @@ import { gapToPosition, useTabDrag, type DropSlot, type TabDrag, type TabDragSou
 import { useLiveSessions } from './useLiveSessions';
 import { useTabSets } from './useTabSets';
 import { useMenuFit } from '../menuFit';
+import { appOfSet } from '../apps';
 import styles from './TabBar.module.css';
 
 /**
@@ -82,6 +84,11 @@ import styles from './TabBar.module.css';
  * guarding. The last set offers nothing at all — deleting it would leave no ▾
  * to make another from.
  *
+ * THE APPS ARE SETS TOO, listed first in the ▾ (tabSets.ts appTabSets).
+ * Picking one puts that app in this panel: its tabs, and its pages behaving
+ * as that app's (Workspace.tsx hands the app down). They're read-only — no
+ * stars, no delete, anchors don't reorder — and never saved.
+ *
  * Touches: panelTabs.ts (what belongs on the bar), tabDrag.ts (the drag),
  * useLiveSessions.ts (running/waiting state), sections.ts (what a tab means),
  * tabSets.ts (create/remove/pin/unpin/reorder), PanelFrame.tsx (draws this in
@@ -122,7 +129,15 @@ export function TabBar({
   /** An open tab of THIS row was dropped on another panel's row. */
   onMoveToPanel: (url: string, toPanelId: string, index: number) => void;
 }) {
-  const { sets, save } = useTabSets();
+  const { sets, save: saveSets } = useTabSets();
+  /* The apps are sets too, listed first (tabSets.ts appTabSets): built in and
+     read-only. Her own sets are the only ones ever saved, and an operation on
+     an app's set changes nothing — so nothing is sent for it. */
+  const appSets = useMemo(() => appTabSets(), []);
+  const allSets = useMemo(() => [...appSets, ...sets], [appSets, sets]);
+  const save = useCallback((next: typeof sets) => {
+    if (next !== sets) saveSets(next);
+  }, [sets, saveSets]);
   const sessionStates = useLiveSessions();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -149,11 +164,20 @@ export function TabBar({
     [],
   );
 
-  const activeIndex = Math.max(0, sets.findIndex((s) => s.id === setId));
-  const active = sets[activeIndex];
-  const activeSetId = active?.id ?? '';
-  const anchors = useMemo(() => sectionsOf(sets, activeSetId), [sets, activeSetId]);
-  const here = sectionForUrl(url);
+  /* Which set this panel wears: an app, or one of hers (by position, falling
+     back to her first when the saved id is gone). */
+  const activeApp = appOfSet(setId);
+  const activeIndex = activeApp ? -1 : Math.max(0, sets.findIndex((s) => s.id === setId));
+  const activeSetId = activeApp ? setId : (sets[activeIndex]?.id ?? '');
+  const setMark = activeApp ? activeApp.glyph : String(activeIndex + 1);
+  const setName = activeApp ? activeApp.name : `set ${activeIndex + 1}`;
+  const anchors = useMemo(() => sectionsOf(allSets, activeSetId), [allSets, activeSetId]);
+  // Which section the page is in — this bar's own anchors first, so on an
+  // app's bar /todos is To Do rather than the Dashboard (sections.ts).
+  const here = sectionForUrl(
+    url,
+    anchors.map((a) => a.id),
+  );
 
   // Rebuilt on every roster poll, which is what lets an open session's tab
   // change colour the moment it starts or stops.
@@ -288,10 +312,10 @@ export function TabBar({
           onClick={() => setMenuOpen((v) => !v)}
           aria-expanded={menuOpen}
           aria-haspopup="menu"
-          title={`Set ${activeIndex + 1} — switch set, or pin a tab`}
-          aria-label="Switch tab set or pin a tab"
+          title={activeApp ? `${activeApp.name} — switch app or set` : `Set ${activeIndex + 1} — switch set, or pin a tab`}
+          aria-label="Switch app or tab set, or pin a tab"
         >
-          <span className={styles.setNum}>{activeIndex + 1}</span>
+          <span className={styles.setNum}>{setMark}</span>
           <span aria-hidden="true">&#9662;</span>
         </button>
         {menuOpen ? (
@@ -300,7 +324,30 @@ export function TabBar({
             role="menu"
             style={menuFit ? { maxHeight: menuFit.maxHeight } : undefined}
           >
-            <div className={styles.groupLabel}>Sets</div>
+            {appSets.length > 0 ? <div className={styles.groupLabel}>Apps</div> : null}
+            {appSets.map((s) => {
+              const app = appOfSet(s.id);
+              const isActive = s.id === activeSetId;
+              return (
+                <div key={s.id} className={styles.menuRow}>
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={isActive}
+                    className={styles.menuItem}
+                    onClick={() => {
+                      onSetId(s.id);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <span className={styles.radio}>{isActive ? '●' : '○'}</span>
+                    <span className={styles.setNumRow}>{app?.glyph}</span>
+                    <span className={styles.setPreview}>{s.name}</span>
+                  </button>
+                </div>
+              );
+            })}
+            <div className={styles.groupLabel}>{appSets.length > 0 ? 'Your sets' : 'Sets'}</div>
             {sets.map((s, i) => {
               const isActive = s.id === activeSetId;
               return (
@@ -362,9 +409,10 @@ export function TabBar({
               New set
             </button>
 
-            <div className={styles.groupLabel}>Go, or pin to set {activeIndex + 1}</div>
+            {/* An app's tabs are fixed, so on an app's bar this list only goes. */}
+            <div className={styles.groupLabel}>{activeApp ? 'Go' : `Go, or pin to set ${activeIndex + 1}`}</div>
             {menuSections().map((section) => {
-              const isOn = isPinned(sets, activeSetId, section.id);
+              const isOn = isPinned(allSets, activeSetId, section.id);
               return (
                 <div key={section.id} className={styles.menuRow}>
                   <button
@@ -379,6 +427,7 @@ export function TabBar({
                     <span className={styles.icon}>{section.icon}</span>
                     {section.label}
                   </button>
+                  {activeApp ? null : (
                   <button
                     type="button"
                     className={[styles.star, isOn ? styles.starOn : ''].filter(Boolean).join(' ')}
@@ -395,6 +444,7 @@ export function TabBar({
                   >
                     {isOn ? '★' : '☆'}
                   </button>
+                  )}
                 </div>
               );
             })}
@@ -446,7 +496,11 @@ export function TabBar({
               role="tab"
               aria-selected
               className={[styles.tab, styles.tabActive, styles.tabVisiting].join(' ')}
-              title={`${here?.label} — not pinned to set ${activeIndex + 1}. Use the ▾ to pin it.`}
+              title={
+                activeApp
+                  ? `${here?.label} — not one of ${activeApp.name}'s tabs`
+                  : `${here?.label} — not pinned to ${setName}. Use the ▾ to pin it.`
+              }
               onClick={() => here && onNavigate(here.home)}
             >
               <span className={styles.icon}>{here?.icon}</span>

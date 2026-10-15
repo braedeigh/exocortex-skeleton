@@ -1,5 +1,7 @@
 import { SECTIONS, sectionById, type Section } from './sections';
 import { isStandalone } from '../standalone';
+import { APPS, appSetId } from '../apps';
+import { appSectionIds } from '../appTabs';
 
 /**
  * tabSets.ts — the sets of pinned tabs, as data.
@@ -25,8 +27,11 @@ import { isStandalone } from '../standalone';
  * when a section existed, and loaded after it was renamed, should cost her that
  * one tab — not the whole bar.
  *
+ * The apps are sets too — built in, read-only, and never saved; see
+ * appTabSets below.
+ *
  * Touches: sections.ts (what an id means), useTabSets.ts (loads and saves),
- * TabBar.tsx (draws a set).
+ * TabBar.tsx (draws a set), shell/apps.ts (the apps).
  */
 
 export interface TabSet {
@@ -66,6 +71,25 @@ export function defaultSetsFor(standalone: boolean): TabSet[] {
  *  isn't empty for the first moment of every page load. */
 export const DEFAULT_SETS: TabSet[] = defaultSetsFor(isStandalone());
 
+/**
+ * The apps, as tab sets: one per app (apps.json), holding that app's tabs.
+ *
+ * Built in and read-only — derived here every load, never saved, so they
+ * can't be pinned to, reordered or deleted (each operation below finds no
+ * such set among hers and changes nothing). A pane wearing one IS that app:
+ * its tabs are the app's, and the pages in it behave as that app's
+ * (shell/apps.ts AppContext). The ▾ lists them first, then her own sets,
+ * which keep working as they always have. None in the desktop app, which has
+ * no apps. Ids are `app:<id>`, which a set she makes can never be.
+ *
+ * Her ask: "desktop should be able to click per app ... click an app to be
+ * in a split screen window."
+ */
+export function appTabSets(standalone: boolean = isStandalone()): TabSet[] {
+  if (standalone) return [];
+  return APPS.map((app) => ({ id: appSetId(app.id), name: app.name, sections: appSectionIds(app) }));
+}
+
 /* ---------- making and unmaking sets ---------- */
 
 /** A new, empty set on the end. Empty rather than a copy of anything: the bar
@@ -73,7 +97,7 @@ export const DEFAULT_SETS: TabSet[] = defaultSetsFor(isStandalone());
  *  instruction. A duplicate or blank id is refused, since two sets answering to
  *  one id would make every operation below ambiguous. */
 export function createSet(sets: TabSet[], id: string, name: string): TabSet[] {
-  if (!id || sets.some((s) => s.id === id)) return sets;
+  if (!id || id.startsWith('app:') || sets.some((s) => s.id === id)) return sets;
   return [...sets, { id, name, sections: [] }];
 }
 
