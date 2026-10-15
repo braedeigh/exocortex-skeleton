@@ -5,26 +5,25 @@ import { TAB_META, TAB_ROUTES, VIEW_META, isValidTab, tabForPath, type LegacyTab
 import { useMediaQuery, DESKTOP_QUERY } from './useMediaQuery';
 import { isEmbed } from './embed';
 import { SETUP_PATH, isStandalone, standaloneAllows } from './standalone';
-import { useSessionsContext } from './SessionsContext';
+import { appAllows, useCurrentApp } from './apps';
+import { AppStrip, OutsideAppBar } from './AppStrip';
 import { useChatSurfaceObservatory } from './chatSurface';
 import { useMenuFit } from './menuFit';
 import styles from './TopTabs.module.css';
 
 /**
- * Top tab strip — two stacked rows, restoring the old app's double tab bar.
+ * Top tab strip. Since the site was cut into apps (shell/apps.ts,
+ * docs/apps.md), a window inside an app wears that app's one row of tabs
+ * (AppStrip.tsx); see TopTabs at the bottom for the whole order. What stays
+ * here is the public visitors' header and the old dashboard row, which her
+ * own desktop tab sets still show over the Dashboard's pages.
  *
- * Row 1 ("dash bar") is a port of split.html's `.dash-bar` (lines 52-82):
- * Chat (mobile only) / Journal / Dashboard / Research switcher plus a
- * Settings gear, always rendered above everything else.
- *
- * Row 2 is the React port of the old dashboard's #tab-selector row + More ▾
+ * The dashboard row is the React port of the old dashboard's #tab-selector row + More ▾
  * menu (templates/index.html:24-52): primary tabs always shown, optional
  * tabs shown while they fit and overflowed into More when the pane is narrow
  * (layoutTabs port, static/js/core.js:2615), plus a fixed set of tabs/links
- * that always live in More. In the old app this row lived inside the
- * dashboard iframe, so it only mounts here while a dashboard route (/todos
- * or /legacy/*) is active — Journal/Research/Settings no longer need it
- * since they're reachable from row 1.
+ * that always live in More. It only mounts while a dashboard route is
+ * active.
  *
  * Public (unauthenticated) visitors get neither row — row 1's views are all
  * auth-only (mirroring split.html's `body.public-mode .dash-bar
@@ -109,9 +108,7 @@ function useActiveKey(pathname: string): ActiveKey {
 
 /** Dashboard routes are the native tab routes — the routes that, in the old
  * app, lived inside the dashboard iframe under row 2. */
-type DashboardTarget = { to: string };
-
-function parseDashboardTarget(pathname: string): DashboardTarget | null {
+function parseDashboardTarget(pathname: string): { to: string } | null {
   if (tabForPath(pathname)) return { to: pathname };
   return null;
 }
@@ -481,37 +478,28 @@ function DashboardTabRow({ pathname, isPublic = false }: { pathname: string; isP
 }
 
 /**
- * `subRowOnly` renders JUST the dashboard's own tab row (To Do / Life Map /
- * …), leaving out the Journal / Dashboard / Terrain bar above it. The desktop
- * workspace passes it, because each panel now carries its own configurable tab
- * bar in its header (panels/TabBar.tsx) and the fixed bar would say the same
- * thing twice. Mobile and public visitors pass nothing and get both rows,
- * which is what they've always had.
+ * The window's tab strip, decided in this order:
+ *
+ *   - public visitors: the PublicHeader, plus the public dashboard row;
+ *   - the desktop app (standalone): its own short strip;
+ *   - inside an app (shell/apps.ts): that app's one row of tabs
+ *     (AppStrip.tsx) — or, on a page the app doesn't hold, a bare bar with a
+ *     way back (OutsideAppBar);
+ *   - no app: nothing on the launcher ("/"), and a bar back to it anywhere
+ *     else. The old everything-strip (Chat / Journal / Dashboard / Terrain /
+ *     ⚙) retired with the everything-app.
+ *
+ * `subRowOnly` is what the desktop workspace asks for above its primary
+ * panel: the dashboard's own row (To Do / Life Map / …) when the panel wears
+ * one of her own sets, nothing when it wears an app — the pane's tab bar
+ * already is that app's tabs.
  */
 export function TopTabs({ subRowOnly = false }: { subRowOnly?: boolean } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
-  const isDesktop = useMediaQuery(DESKTOP_QUERY);
-  // Mobile Chat tab's label (the active tmux session name) — shared with
-  // /chat and /sessions via SessionsContext, so switching sessions on the
-  // session page updates the label immediately.
-  const sessions = useSessionsContext();
-  // Settings can point the Chat tab at the Keeper bot instead of the tmux
-  // terminal ("wanting it to replace the terminal") — see chatSurface.ts.
-  const chatBots = useChatSurfaceObservatory();
-  // Last dashboard route visited, so clicking Dashboard from Journal/Research
-  // returns you where you left off instead of always resetting to /todos.
-  const lastDashboardTarget = useRef<DashboardTarget>({ to: '/todos' });
+  const app = useCurrentApp();
 
-  const dashboardTarget = parseDashboardTarget(location.pathname);
-  const dashboardActive = dashboardTarget !== null;
-
-  useEffect(() => {
-    if (dashboardTarget) lastDashboardTarget.current = dashboardTarget;
-    // Deliberately keyed on pathname, not the freshly-allocated dashboardTarget
-    // object, so this doesn't re-run (harmlessly, but pointlessly) every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
+  const dashboardActive = parseDashboardTarget(location.pathname) !== null;
 
   if (typeof window !== 'undefined' && window.VIEW_MODE === 'public') {
     // The embed view (shell/embed.ts) is the bare map inside a frame on the
@@ -572,101 +560,20 @@ export function TopTabs({ subRowOnly = false }: { subRowOnly?: boolean } = {}) {
   }
 
   if (subRowOnly) {
-    return dashboardActive ? <DashboardTabRow pathname={location.pathname} /> : null;
+    return !app && dashboardActive ? <DashboardTabRow pathname={location.pathname} /> : null;
   }
 
-  return (
-    <>
-      <div className={styles.dashBar}>
-        {!isDesktop ? (
-          // Mobile only — desktop already has the terminal permanently docked
-          // in the left split pane (SplitLayout), no need for a tab to it.
-          // A second tap while already on /chat opens the full-page session
-          // switcher (/sessions, SessionListPage); from there — or anywhere
-          // else — the tab goes (back) to the active terminal.
-          chatBots ? (
-            // Chat tab → the Observatory roster in general (her 07-27 ask),
-            // not straight into the Keeper conversation. The Keeper sits pinned
-            // at the top of the roster, one tap away.
-            <button
-              type="button"
-              className={joinClass(
-                styles.dashBtn,
-                styles.chatBtn,
-                location.pathname.startsWith('/observatory') && styles.dashBtnActive,
-              )}
-              onClick={() => void navigate({ to: '/observatory' })}
-            >
-              <span className={styles.chatLabel}>Chat</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={joinClass(
-                styles.dashBtn,
-                styles.chatBtn,
-                (location.pathname === '/chat' || location.pathname === '/sessions') && styles.dashBtnActive,
-              )}
-              onClick={() => {
-                if (location.pathname === '/chat') void navigate({ to: '/sessions' });
-                else void navigate({ to: '/chat' });
-              }}
-            >
-              <span className={styles.chatLabel}>
-                {sessions.titles[sessions.active] || sessions.active || 'Chat'}
-              </span>
-            </button>
-          )
-        ) : null}
-        <button
-          type="button"
-          className={joinClass(styles.dashBtn, location.pathname === '/journal' && styles.dashBtnActive)}
-          onClick={() => void navigate({ to: '/journal' })}
-        >
-          Journal
-        </button>
-        <button
-          type="button"
-          className={joinClass(styles.dashBtn, dashboardActive && styles.dashBtnActive)}
-          onClick={() => {
-            if (dashboardActive) return;
-            void navigate(lastDashboardTarget.current);
-          }}
-        >
-          Dashboard
-        </button>
-        {/* Terrain holds this slot instead of Research (her call — it's the
-            surface she actually works from now). Research kept its route and
-            moved into the More menu. startsWith, not equality: the terrain is
-            several full pages sharing the /terrain prefix (/terrain/files, where
-            /terrain lands, plus the rooms /terrain/usage and /terrain/sql),
-            and the tab stays lit in every one of them. */}
-        <button
-          type="button"
-          className={joinClass(
-            styles.dashBtn,
-            location.pathname.startsWith('/terrain') && styles.dashBtnActive,
-          )}
-          onClick={() => void navigate({ to: '/terrain' })}
-        >
-          Terrain
-        </button>
-        <button
-          type="button"
-          className={joinClass(
-            styles.dashBtn,
-            styles.gearBtn,
-            location.pathname === '/settings' && styles.dashBtnActive,
-          )}
-          onClick={() => void navigate({ to: '/settings' })}
-          title="Settings"
-          aria-label="Settings"
-        >
-          &#9881;&#65038;
-        </button>
-      </div>
+  // Inside an app: its own tabs, or — on a page it doesn't hold — the page
+  // bare with a way back. Never a redirect: a link out of a session must
+  // still open.
+  if (app) {
+    return appAllows(location.pathname, app) ? (
+      <AppStrip app={app} href={location.href} />
+    ) : (
+      <OutsideAppBar app={app} />
+    );
+  }
 
-      {dashboardActive ? <DashboardTabRow pathname={location.pathname} /> : null}
-    </>
-  );
+  // No app: the launcher stands alone; any other page gets a way back to it.
+  return location.pathname === '/' ? null : <OutsideAppBar app={null} />;
 }

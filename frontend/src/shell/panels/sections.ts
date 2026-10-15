@@ -27,6 +27,10 @@ import { SETUP_PATH, isStandalone, standaloneSectionIds } from '../standalone';
  * reading it the tab that's active is Observatory, wearing that conversation's
  * name.
  *
+ * THE APPS ARE MADE OF SECTIONS. Each app's tabs (apps.json) name section
+ * ids, so the phone strip and a desktop pane wearing that app draw the same
+ * tabs from this one list. See appTabs.ts.
+ *
  * THE DESKTOP APP HOLDS FEWER. There, only the Observatory and Terrain exist
  * (shell/standalone.ts), so SECTIONS is cut down to the ids that file names,
  * plus Setup, which exists nowhere else. See sectionsFor below.
@@ -86,6 +90,24 @@ export const ALL_SECTIONS: Section[] = [
     home: '/todos',
     claims: VALID_TABS.map((t) => TAB_ROUTES[t]),
   },
+  // The apps' own tabs (apps.json, shell/apps.ts): each app's strip is made
+  // of sections, so the pages it holds that had no section get one here.
+  // Listed AFTER Dashboard on purpose: four of them share a claim with it,
+  // and on her own tab sets the Dashboard keeps those pages as it always
+  // has. Where an app's set is pinned, its own section wins — the anchors are
+  // passed to sectionForUrl as `prefer` (TabBar.tsx, Workspace.tsx).
+  { id: 'todos', label: 'To Do', icon: '☑️', home: '/todos', claims: ['/todos'] },
+  { id: 'map', label: 'Life Map', icon: '🗺', home: '/map', claims: ['/map'] },
+  { id: 'fronts', label: 'Fronts', icon: '🧭', home: '/fronts', claims: ['/fronts'] },
+  { id: 'people', label: 'People', icon: '👥', home: '/people', claims: ['/people', '/person'] },
+  { id: 'body', label: 'Body', icon: '🩺', home: '/body', claims: ['/body'] },
+  { id: 'ideas', label: 'Ideas', icon: '💡', home: '/ideas', claims: ['/ideas'] },
+  { id: 'media', label: 'Media', icon: '🎬', home: '/media', claims: ['/media'] },
+  { id: 'inventory', label: 'Inventory', icon: '📦', home: '/inventory', claims: ['/inventory'] },
+  { id: 'automations', label: 'Automations', icon: '⏰', home: '/automations', claims: ['/automations'] },
+  // The Observatory's session list under the name the Journal app gives it.
+  // A shortcut (no claims): reading a session, Observatory is the section.
+  { id: 'sessions', label: 'Sessions', icon: '💬', home: '/observatory', claims: [] },
   { id: 'code', label: 'Code', icon: '📄', home: '/code', claims: ['/code'] },
   { id: 'threads', label: 'Threads', icon: '🧵', home: '/threads', claims: ['/threads'] },
   { id: 'files', label: 'Files', icon: '🗂️', home: '/files', claims: ['/files'] },
@@ -131,16 +153,22 @@ function owns(claim: string, path: string): boolean {
   return path === claim || path.startsWith(claim + '/');
 }
 
-/** Which section this page belongs to. Longest claim wins (see the header). */
-export function sectionForUrl(url: string): Section | null {
+/** Which section this page belongs to. Longest claim wins (see the header).
+ *
+ * `prefer` names sections that win over any others that claim the page — the
+ * ones pinned on the bar asking. An app's own set holds To Do, while the
+ * Dashboard (listed first) claims /todos too; on that app's bar the page is
+ * To Do, on her own sets it stays the Dashboard's. */
+export function sectionForUrl(url: string, prefer: readonly string[] = []): Section | null {
   const path = pathOf(url);
   let best: Section | null = null;
-  let bestLen = -1;
+  let bestRank = -1;
   for (const s of SECTIONS) {
+    const bonus = prefer.includes(s.id) ? 100_000 : 0;
     for (const claim of s.claims) {
-      if (owns(claim, path) && claim.length > bestLen) {
+      if (owns(claim, path) && claim.length + bonus > bestRank) {
         best = s;
-        bestLen = claim.length;
+        bestRank = claim.length + bonus;
       }
     }
   }

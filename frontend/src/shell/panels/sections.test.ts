@@ -72,8 +72,10 @@ describe('shortcut sections', () => {
   });
 
   it('every section has a front page that resolves back to itself or its parent', () => {
+    // On a bar that pins it: an app's To Do shares /todos with the Dashboard,
+    // and wins it only where it's pinned (see sectionForUrl's `prefer`).
     for (const s of SECTIONS) {
-      const landed = sectionForUrl(s.home);
+      const landed = sectionForUrl(s.home, [s.id]);
       if (s.claims.length === 0) continue; // shortcuts belong to someone else
       expect(landed?.id, `${s.id} home should belong to ${s.id}`).toBe(s.id);
     }

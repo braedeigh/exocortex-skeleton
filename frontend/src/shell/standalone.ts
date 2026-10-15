@@ -26,6 +26,7 @@
  * Prompt that produced it: "What would it take to turn the observatory and
  * terrain into a downloadable desktop app?"
  */
+import { appAllows, currentApp, type AppDef } from './apps';
 
 /** True in the desktop app. Read off the boot global the server injects, so
  * the shell knows before anything is drawn or fetched. */
@@ -150,8 +151,13 @@ export function standaloneRedirect(
   return wideWindow ? '/terrain/files' : '/observatory';
 }
 
-/** Should a door to `url` be drawn? Always on the normal site; in the desktop
- * app only when the page behind it exists. */
-export function pageIsOffered(url: string): boolean {
-  return !isStandalone() || standaloneAllows(url);
+/** Should a door to `url` be drawn? In the desktop app only when the page
+ * behind it exists. On the site, inside an app (shell/apps.ts), only when that
+ * app shows the page — the Observatory's Terrain hallway leaves out the
+ * Journal's Pond, the Journal's session list leaves out the Observatory's
+ * rooms. With no app, always. `app` defaults to the window's; a component in
+ * a desktop pane passes its pane's (useCurrentApp). */
+export function pageIsOffered(url: string, app: AppDef | null = currentApp()): boolean {
+  if (isStandalone()) return standaloneAllows(url);
+  return app === null || appAllows(url, app);
 }
