@@ -1,0 +1,128 @@
+/* AppsRoom — the Terrain's Apps room (AppsRoom.tsx): a full page like the
+   other rooms, with a row of columns that scrolls sideways on a narrow
+   screen. Red is kept for crossings, the one thing here asking to shrink. */
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.columns {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--space-3);
+  overflow: auto;
+  align-items: flex-start;
+}
+
+.column {
+  flex: 0 0 300px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  padding: var(--space-3);
+  font-size: var(--font-size-md);
+}
+
+.name {
+  margin: 0;
+  font-size: var(--font-size-lg);
+}
+
+.projects {
+  margin: var(--space-1) 0 var(--space-2);
+  color: var(--text-secondary);
+}
+
+.part {
+  border-top: 1px solid var(--border-soft);
+}
+
+.partHead {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.count {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.list {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.crossHead,
+.cross {
+  color: #c0392b;
+}
+
+.kind {
+  font-weight: 600;
+}
+
+.toApp {
+  color: var(--text-secondary);
+}
+
+.newMark {
+  display: inline-block;
+  margin-right: var(--space-1);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  background: #c0392b;
+  color: #fff;
+  font-size: 12px;
+}
+
+.clean {
+  color: var(--text-secondary);
+}
+
+.port {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-1) 0;
+}
+
+.toPort,
+.ported {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+}
+
+.toPort {
+  background: color-mix(in srgb, #d98c1f 25%, transparent);
+}
+
+.ported {
+  background: color-mix(in srgb, #3f9f5f 25%, transparent);
+}
+
+.note {
+  flex-basis: 100%;
+  color: var(--text-secondary);
+}
+
+.error {
+  color: #c0392b;
+}

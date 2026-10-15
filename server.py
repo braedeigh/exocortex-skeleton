@@ -34,7 +34,7 @@ from routes import (
     branches, worktree_map, sudo, file_edit, research_room, linear_room,
     sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
     exposure, nutrition, georegions, recipe_nutrition, recipe_share,
-    token_burn,
+    token_burn, apps,
 )
 from routes.shell import VALID_TABS
 
@@ -1212,6 +1212,9 @@ nutrition.register(app)
 recipe_nutrition.register(app)
 recipe_share.register(app)
 georegions.register(app)
+# The apps the site is cut into and where they still cross (routes/apps.py) —
+# the Terrain's Apps room reads it.
+apps.register(app)
 
 # --- Startup ---
 # Seed the journaling engine (stream.py + friends) into a fresh CONTENT_DIR — see

@@ -67,3 +67,15 @@ def test_project_map_splits_rebuilt_tables_from_the_owners_record(data_dir, caps
     printed = capsys.readouterr().out
     own, rebuilt = printed.split("## Rebuilt from a source")
     assert "foods " in own and "recipe_lines " in rebuilt and "recipe_lines " not in own
+
+
+def test_every_project_belongs_to_an_app_or_is_shared():
+    """apps.json cuts the app into apps out of these projects (docs/apps.md):
+    a project no app claims would fall out of every app's boundary map."""
+    apps = json.loads((ROOT / "apps.json").read_text())
+    claimed = Counter(project for app in apps["apps"].values() for project in app["projects"])
+    claimed.update(apps["shared"]["projects"])
+    claimed.update(apps["based_foods"]["projects"])
+    assert sorted(set(PROJECTS) - set(claimed)) == [], "projects with no app"
+    assert sorted(p for p, n in claimed.items() if n > 1) == [], "projects in two apps"
+    assert sorted(set(claimed) - set(PROJECTS)) == [], "apps.json names a project that isn't one"

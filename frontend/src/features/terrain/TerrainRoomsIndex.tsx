@@ -4,6 +4,7 @@ import { getCollections } from './sqlab/api';
 import { compact, monthLabel, type GrowthData } from './growthMath';
 import { formatDwell, rankPlaces, type UsageRecord } from './usageRanking';
 import { isStandalone, pageIsOffered } from '../../shell/standalone';
+import { useCurrentApp } from '../../shell/apps';
 import styles from './TerrainRoomsIndex.module.css';
 
 /**
@@ -25,7 +26,9 @@ import styles from './TerrainRoomsIndex.module.css';
  *
  * The desktop app leaves two rooms out, Pond and Creek, because they draw the
  * owner's journal: each card asks pageIsOffered() (shell/standalone.ts) for
- * its own address before it's drawn. On the normal site every card shows.
+ * its own address before it's drawn. On the site, inside an app, the same
+ * question leaves out rooms another app holds — the Pond is the Journal's.
+ * With no app every card shows.
  *
  * Adding a room = one entry in ROOMS (name, line, address, motif). A room
  * that isn't in ROOMS can only be reached by a link from somewhere else,
@@ -322,6 +325,21 @@ function MapMotif() {
   );
 }
 
+/** Four boxes with one red thread between two — the apps, and a crossing. */
+function AppsMotif() {
+  return (
+    <svg viewBox="0 0 64 40" width="64" height="40" aria-hidden="true">
+      <g fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="2" y="4" width="12" height="32" rx="2" opacity="0.9" />
+        <rect x="18" y="4" width="12" height="32" rx="2" opacity="0.6" />
+        <rect x="34" y="4" width="12" height="32" rx="2" opacity="0.6" />
+        <rect x="50" y="4" width="12" height="32" rx="2" opacity="0.4" />
+      </g>
+      <path d="M14 14 C22 14 26 26 34 26" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const ROOMS: ReadonlyArray<{
   key: string;
   to: string;
@@ -424,6 +442,13 @@ const ROOMS: ReadonlyArray<{
     motif: RunsMotif,
   },
   {
+    key: 'apps',
+    to: '/terrain/apps',
+    name: 'Apps',
+    line: 'The site as separate apps, and where they still reach into each other.',
+    motif: AppsMotif,
+  },
+  {
     key: 'sql',
     to: '/terrain/sql',
     name: 'Data',
@@ -435,6 +460,9 @@ const ROOMS: ReadonlyArray<{
 export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: () => void }) {
   // Which room this hallway was opened from, so its card can say so.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  // Inside an app only its own rooms show: the Observatory's hallway leaves
+  // out the Journal's Pond.
+  const app = useCurrentApp();
 
   useEffect(() => {
     if (!open) return;
@@ -589,7 +617,7 @@ export function TerrainRoomsIndex({ open, onClose }: { open: boolean; onClose: (
     // Tapping the blur — anywhere that isn't a card — steps back to the map.
     <div className={styles.backdrop} onClick={onClose} role="presentation">
       <nav className={styles.cards} aria-label="Rooms" onClick={(e) => e.stopPropagation()}>
-        {ROOMS.filter((room) => pageIsOffered(room.to)).map((room, i) => {
+        {ROOMS.filter((room) => pageIsOffered(room.to, app)).map((room, i) => {
           const Motif = room.motif;
           const here = pathname === room.to;
           return (

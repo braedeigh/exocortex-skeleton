@@ -24,7 +24,8 @@
         "standalone_app.py",
         "standalone_jobs.py",
         "standalone_journal.py",
-        "appmap.py"
+        "appmap.py",
+        "appboundaries.py"
       ],
       "routes": [
         "spa.py",
@@ -38,7 +39,8 @@
         "claude_auth.py",
         "tags.py",
         "fronts.py",
-        "annotations.py"
+        "annotations.py",
+        "apps.py"
       ],
       "frontend": [
         "settings",
