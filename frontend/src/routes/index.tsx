@@ -1,13 +1,16 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { PublicLanding } from '../shell/PublicLanding';
+import { LauncherPage } from '../features/launcher/LauncherPage';
+import { isStandalone } from '../shell/standalone';
 import { useDeactivateFrames } from '../shell/useIframeView';
 import { DESKTOP_QUERY } from '../shell/useMediaQuery';
 
 /**
- * "/" — authed users go straight to /todos. Public visitors:
- *   - desktop: also /todos — the FakeTerminal intro is already docked in
- *     SplitLayout's left pane, so the front door IS the (frosted) dashboard,
- *     exactly like the old split.html public mode.
+ * "/" — signed in, the launcher: one card per app (features/launcher, the
+ * apps in apps.json). There is no everything-app to land in any more. The
+ * desktop app (standalone) is sent home by the root route before this runs.
+ * Public visitors:
+ *   - desktop, or the public-only mirror: the Terrain map (see beforeLoad).
  *   - mobile: the PublicLanding (full-bleed FakeTerminal + explore/sign-in),
  *     since there's no split pane to carry the intro.
  * The breakpoint is read once per navigation, not reactively — crossing 769px
@@ -27,12 +30,12 @@ export const Route = createFileRoute('/')({
       }
       return;
     }
-    throw redirect({ to: '/todos' });
   },
   component: Index,
 });
 
 function Index() {
   useDeactivateFrames();
-  return <PublicLanding />;
+  const isPublic = typeof window !== 'undefined' && window.VIEW_MODE === 'public';
+  return isPublic || isStandalone() ? <PublicLanding /> : <LauncherPage />;
 }

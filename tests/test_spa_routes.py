@@ -11,6 +11,7 @@ every native page path serves the shell, /assets/<built asset> is 200, and
 /legacy/<tab> redirects to the native tab (the legacy frontend is retired).
 """
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -165,9 +166,86 @@ def test_geo_only_serves_geojson():
 
 # --- root-level PWA files ---------------------------------------------------------
 
-def test_manifest_webmanifest_served_from_dist():
-    r = _client().get("/manifest.webmanifest")
+# --- the apps: one manifest each (apps.json, appmap.py) ------------------------
+
+import appmap  # noqa: E402
+
+
+def test_page_opened_as_an_app_links_that_apps_manifest_icon_and_name():
+    # What "Add to Home Screen" reads: the Journal installs as the Journal.
+    html = _client().get("/journal?app=journal").get_data(as_text=True)
+    assert '<link rel="manifest" href="/apps/journal.webmanifest">' in html
+    assert 'href="/apps/journal-192.png"' in html
+    assert "<title>Journal</title>" in html
+    assert '<meta name="apple-mobile-web-app-title" content="Journal">' in html
+
+
+def test_page_without_an_app_links_no_manifest():
+    # There is no everything-app to install any more.
+    for path in ("/", "/journal", "/observatory"):
+        assert 'rel="manifest"' not in _client().get(path).get_data(as_text=True), path
+
+
+def test_unknown_app_id_is_ignored():
+    r = _client().get('/journal?app=nonsense"><script>')
     assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert 'rel="manifest"' not in html and "nonsense" not in html
+
+
+@pytest.mark.parametrize("app_id", list(appmap.apps()))
+def test_each_app_serves_its_own_installable_manifest(app_id):
+    r = _client().get(f"/apps/{app_id}.webmanifest")
+    assert r.status_code == 200
+    manifest = json.loads(r.get_data())
+    entry = appmap.apps()[app_id]
+    # Its own id and start page make the phone treat it as a separate app;
+    # the shared scope lets its pages link to the other apps' pages.
+    assert manifest["id"] == f"/?app={app_id}"
+    assert manifest["start_url"] == f"{entry['start']}?app={app_id}"
+    assert manifest["scope"] == "/"
+    assert manifest["name"] == entry["name"] and manifest["display"] == "standalone"
+    for icon in manifest["icons"]:
+        assert _client().get(icon["src"]).status_code == 200, icon["src"]
+
+
+def test_unknown_app_manifest_404s():
+    assert _client().get("/apps/nonsense.webmanifest").status_code == 404
+    assert _client().get("/apps/journal.json").status_code == 404
+
+
+def test_based_foods_link_comes_from_config(monkeypatch):
+    monkeypatch.setenv("EXOCORTEX_BASED_FOODS_URL", "https://foods.example:8443")
+    assert b'window.BASED_FOODS_URL = "https://foods.example:8443";' in _client().get("/journal").data
+    monkeypatch.delenv("EXOCORTEX_BASED_FOODS_URL")
+    assert b'window.BASED_FOODS_URL = "";' in _client().get("/journal").data
+
+
+def test_every_spa_page_belongs_to_one_app_or_is_shared_launcher_or_based_foods():
+    """A page added to spa.py without a home in apps.json fails here."""
+    data = appmap.load()
+    shared = set(data["shared"]["pages"]) | set(data["set_down"]["pages"]) | {data["launcher"]}
+    foods = {re.sub(r"\$\w+", "x", page["path"]) for page in data["based_foods"]["pages"]}
+    app = _make_app()
+    unfiled = []
+    for rule in app.url_map.iter_rules():
+        if rule.endpoint != "spa_shell":
+            continue
+        # /threads/<slug> → /threads/$slug, the spelling apps.json uses.
+        path = re.sub(r"<(?:path:)?(\w+)>", r"$\1", rule.rule)
+        concrete = re.sub(r"\$\w+", "x", path)
+        owners = [aid for aid, entry in appmap.apps().items()
+                  if any(appmap._under(prefix, concrete) for prefix in entry["pages"])]
+        filed = (appmap.owner_of(concrete) is not None or path in shared
+                 or any(appmap._under(page, concrete) for page in (shared | foods) - {"/"}))
+        if not filed:
+            unfiled.append(rule.rule)
+        # Two apps both claiming a page is fine only when one prefix is
+        # longer (that one wins, like /terrain/pond); equal claims are a clash.
+        lengths = [max(len(p) for p in appmap.apps()[aid]["pages"] if appmap._under(p, concrete))
+                   for aid in owners]
+        assert len(lengths) == len(set(lengths)), f"{rule.rule} held equally by {owners}"
+    assert unfiled == []
 
 
 def test_sw_js_is_never_cached():
@@ -196,7 +274,7 @@ def test_sw_precache_root_files_are_public():
     from public_config import is_public_path
 
     for path in ("/index.html", "/icon-192.png", "/icon-512.png", "/sw.js",
-                 "/registerSW.js", "/manifest.webmanifest"):
+                 "/registerSW.js", "/apps/journal.webmanifest", "/apps/journal-192.png"):
         assert is_public_path(path), path
 
 

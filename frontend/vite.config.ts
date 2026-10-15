@@ -31,21 +31,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon-192.png', 'icon-512.png'],
-      manifest: {
-        name: 'Exocortex',
-        short_name: 'Exocortex',
-        description: 'A personal exocortex',
-        start_url: '/',
-        display: 'standalone',
-        background_color: '#aba3b2',
-        theme_color: '#7c5cbf',
-        icons: [
-          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-        ],
-      },
+      includeAssets: ['icon-192.png', 'icon-512.png', 'apps/*.png'],
+      // No site-wide manifest: each app has its own, written by the server
+      // (routes/spa.py serves /apps/<id>.webmanifest from apps.json, and a
+      // page opened with ?app=<id> links it). One service worker still
+      // serves every app — scope "/" — so push-sw.js and the network-first
+      // navigations below are shared by all of them. See docs/apps.md.
+      manifest: false,
       workbox: {
         // precache the app shell (JS/CSS/HTML/icons)
         globPatterns: ['**/*.{js,css,html,png,svg,ico,webmanifest}'],
@@ -103,6 +95,10 @@ export default defineConfig({
     }),
   ],
   server: {
+    // apps.json sits at the repo root, one folder above this one, and the
+    // shell imports it (src/shell/apps.ts); the dev server must be allowed
+    // to read it.
+    fs: { allow: ['..'] },
     proxy: {
       '/api': 'http://127.0.0.1:5000',
       '/login': 'http://127.0.0.1:5000',

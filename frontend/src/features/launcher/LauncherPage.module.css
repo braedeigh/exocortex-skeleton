@@ -1,0 +1,71 @@
+/* The launcher at "/": a column of app cards, then how to install them. */
+
+.page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+  padding: var(--space-8) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  margin: 0;
+}
+
+.cards {
+  width: 100%;
+  max-width: 480px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 112px;
+  padding: var(--space-4);
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.card:hover,
+.card:focus-visible {
+  border-color: var(--accent, var(--border-soft));
+}
+
+.glyph {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.name {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.install {
+  width: 100%;
+  max-width: 480px;
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+}
+
+.installTitle {
+  font-size: var(--font-size-lg);
+  color: var(--text);
+  margin: 0 0 var(--space-2);
+}

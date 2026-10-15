@@ -6,10 +6,14 @@ reachable at "/classic" as a rollback path, and the design doc this implements
 URL scheme:
   - "/" and every SPA route ("/todos", "/legacy/<tab>", "/journal", "/research",
     "/settings", "/files", "/chat") → `frontend/dist/index.html`, with `window.THEME_OVERRIDES`,
-    `window.VIEW_MODE`, `window.PUBLIC_ONLY`, `window.STANDALONE`, and `window.PUBLIC_INTRO_HTML` injected before `</head>`.
+    `window.VIEW_MODE`, `window.PUBLIC_ONLY`, `window.STANDALONE`, `window.BASED_FOODS_URL` and `window.PUBLIC_INTRO_HTML` injected before `</head>`.
     Client-side routing (TanStack Router) takes it from there. Cache-Control:
     no-store — this HTML is the one thing here that's never safe to cache (the
     injected values are per-request).
+  - "/apps/<id>.webmanifest" and "/apps/<id>-<size>.png" → one app's own
+    manifest and Home Screen icons (appmap.py, apps.json). A page asked for
+    with `?app=<id>` links that manifest and wears that app's name and icon;
+    without one it links no manifest. See docs/apps.md.
   - "/api/build" → the name of the build in `dist/` right now, so an open
     page can tell it has fallen behind.
   - "/assets/<path>" → the hashed, content-addressed build output — safe to
@@ -32,10 +36,12 @@ survives only as a redirect for old bookmarks.
 """
 import json
 import re
+from html import escape
 from pathlib import Path
 
 from flask import request, make_response, send_from_directory, abort, jsonify
 
+import appmap
 import config
 from routes.settings import load_theme
 from routes.shell import _load_public_intro_html
@@ -74,13 +80,37 @@ def build_id():
     return "+".join(sorted(set(re.findall(r"/assets/(index-[\w-]+\.(?:js|css))", html))))
 
 
+def _app_head(html, app_id):
+    """Dress the page as one app: its manifest, its icon, its name.
+
+    A phone's "Add to Home Screen" reads the manifest the page links, so the
+    link has to name the app being added — /journal?app=journal links the
+    Journal's. The apple-touch-icon and the titles are what an iPhone shows
+    under the icon. With no app (or an id that isn't one) the page links no
+    manifest at all: there is no everything-app to install any more.
+    """
+    entry = appmap.app(app_id)
+    if entry is None or config.standalone():
+        return html
+    name = escape(entry["name"])
+    html = html.replace('href="/icon-192.png"', f'href="{appmap.icon_path(app_id, 192)}"')
+    html = re.sub(r"<title>.*?</title>", f"<title>{name}</title>", html, count=1, flags=re.S)
+    return html.replace(
+        "</head>",
+        f'<link rel="manifest" href="/apps/{app_id}.webmanifest">'
+        f'<meta name="apple-mobile-web-app-title" content="{name}"></head>',
+        1,
+    )
+
+
 def _spa_response():
     """Render frontend/dist/index.html with the shell's boot globals injected.
 
     Reads the view mode off `request.view_mode` (set by server.py's
     before_request gate in production) via getattr so a bare test app — which
     has no such gate — still renders (defaulting to "authed"), same pattern
-    routes/shell.py's _split_response uses.
+    routes/shell.py's _split_response uses. `?app=<id>` dresses the page as
+    that app (_app_head).
     """
     view_mode = getattr(request, "view_mode", "authed")
     # "</" escaped so no value can close the injected <script> tag early
@@ -112,9 +142,13 @@ def _spa_response():
         f"window.STANDALONE_EXTRAS = {'[\"journal\"]' if config.standalone() else '[]'};"
         f"window.PUBLIC_INTRO_HTML = {intro_json};"
         f"window.APP_META = {meta_json};"
+        # Where this install's Based Foods app lives, for the link in each
+        # app's tabs (config.based_foods_url); "" draws no link.
+        f"window.BASED_FOODS_URL = {json.dumps(config.based_foods_url())};"
         "</script></head>"
     )
-    html = INDEX_PATH.read_text().replace("</head>", injected, 1)
+    html = _app_head(INDEX_PATH.read_text(), request.args.get("app"))
+    html = html.replace("</head>", injected, 1)
     resp = make_response(html)
     resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -247,6 +281,27 @@ def register(app):
             abort(404)
         resp = make_response(send_from_directory(GEO_DIR, filename))
         resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
+
+    # One app's web manifest, and its Home Screen icons (appmap.py). Each app
+    # gets its own manifest so a phone installs each one as a separate app.
+    # Open to visitors (public_config): a phone fetches the manifest without
+    # the login cookie.
+    # Prompt: "separate PWAs for now."
+    @app.route("/apps/<filename>")
+    def spa_app_file(filename):
+        if filename.endswith(".webmanifest"):
+            manifest = appmap.manifest(filename[: -len(".webmanifest")])
+            if manifest is None:
+                abort(404)
+            resp = make_response(json.dumps(manifest, ensure_ascii=False))
+            resp.headers["Content-Type"] = "application/manifest+json"
+            resp.headers["Cache-Control"] = "no-cache"
+            return resp
+        if not filename.endswith(".png"):
+            abort(404)
+        resp = make_response(send_from_directory(DIST_DIR / "apps", filename))
+        resp.headers["Cache-Control"] = "no-cache"
         return resp
 
     @app.route("/<filename>")

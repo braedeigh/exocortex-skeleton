@@ -23,7 +23,8 @@
         "llm.py",
         "standalone_app.py",
         "standalone_jobs.py",
-        "standalone_journal.py"
+        "standalone_journal.py",
+        "appmap.py"
       ],
       "routes": [
         "spa.py",
@@ -43,7 +44,8 @@
         "settings",
         "approvals",
         "fronts",
-        "setup"
+        "setup",
+        "launcher"
       ],
       "tools": [],
       "scripts": [
@@ -69,7 +71,7 @@
     },
     "journal": {
       "name": "Journal",
-      "what": "The Keeper and the journal: capture of every turn as cards, the day view, threads, people and the wiki built over them, search, photos and recordings.",
+      "what": "The Keeper and the journal: capture of every turn as cards, the day view, threads, people and the wiki built over them, search, photos and recordings. Plus media and the ideas page.",
       "modules": [
         "cardstore.py",
         "cardsearch.py",
@@ -90,7 +92,9 @@
         "entities.py",
         "person.py",
         "photos.py",
-        "coming_up.py"
+        "coming_up.py",
+        "media.py",
+        "ideas.py"
       ],
       "frontend": [
         "journal",
@@ -98,7 +102,9 @@
         "threads",
         "people",
         "person",
-        "personality"
+        "personality",
+        "media",
+        "ideas"
       ],
       "tools": [
         "stream",
@@ -133,7 +139,8 @@
       ],
       "collections": [
         "recordings",
-        "coming_up"
+        "coming_up",
+        "media"
       ],
       "dev_note_tabs": [
         "journal",
@@ -184,7 +191,7 @@
     },
     "kitchen": {
       "name": "Kitchen",
-      "what": "Food in and out: the food catalog, grocery lists and trips, receipts, recipes and meals, and the buy-organic-or-not estimates.",
+      "what": "Food in and out: the food catalog, grocery lists and trips, receipts, recipes and meals, and the buy-organic-or-not estimates. Plus the ecosystem map of where foods come from. Bound for Based Foods (apps.json based_foods).",
       "modules": [
         "foodstore.py",
         "estimatestore.py",
@@ -193,8 +200,15 @@
         "provenance.py",
         "georegions.py",
         "measures.py",
-        "fdcdb.py", "dri.py", "nutrition.py", "nutrient_facts.py", "nutrient_storage.py", "histamine.py",
-        "recipe_nutrition.py", "recipe_shares.py", "label_products.py",
+        "fdcdb.py",
+        "dri.py",
+        "nutrition.py",
+        "nutrient_facts.py",
+        "nutrient_storage.py",
+        "histamine.py",
+        "recipe_nutrition.py",
+        "recipe_shares.py",
+        "label_products.py",
         "openfoodfacts.py"
       ],
       "routes": [
@@ -203,11 +217,13 @@
         "nutrition.py",
         "georegions.py",
         "recipe_nutrition.py",
-        "recipe_share.py"
+        "recipe_share.py",
+        "ecosystem.py"
       ],
       "frontend": [
         "kitchen",
-        "nutrition"
+        "nutrition",
+        "ecosystem"
       ],
       "tools": [],
       "scripts": [
@@ -252,7 +268,9 @@
         "grocery_trips",
         "meal_defaults",
         "meal_notes",
-        "recipes"
+        "recipes",
+        "ecosystem",
+        "ecosystem_config"
       ],
       "dev_note_tabs": [
         "kitchen"
@@ -332,12 +350,10 @@
         "research_sources.py",
         "research_tables.py",
         "research_text.py",
-        "ideas.py",
         "exposure.py"
       ],
       "frontend": [
         "research",
-        "ideas",
         "exposure"
       ],
       "tools": [],
@@ -419,19 +435,15 @@
     },
     "life": {
       "name": "Life",
-      "what": "The rest of the owner's world: things owned and to buy, archivals, car, housing, travel, places, contacts, media, and the ecosystem map of where things come from.",
+      "what": "The rest of the owner's world: things owned and to buy, archivals, car, housing, travel, places and contacts.",
       "modules": [],
       "routes": [
         "inventory.py",
         "archivals.py",
-        "places.py",
-        "media.py",
-        "ecosystem.py"
+        "places.py"
       ],
       "frontend": [
-        "inventory",
-        "media",
-        "ecosystem"
+        "inventory"
       ],
       "tools": [],
       "scripts": [],
@@ -444,10 +456,7 @@
         "car_notes",
         "housing",
         "places",
-        "contacts",
-        "media",
-        "ecosystem",
-        "ecosystem_config"
+        "contacts"
       ],
       "dev_note_tabs": [
         "inventory",
@@ -466,7 +475,23 @@
         "procmem.py",
         "activityfeed.py",
         "chatsearch.py",
-        "lanes.py", "fairywall.py", "linear_api.py", "peermail.py", "swarms.py", "swarm_helper.py", "helper_chat.py", "room_helper.py", "watches.py", "linear_feed.py", "edited_files.py", "file_alerts.py", "continuation.py", "sudo_requests.py", "file_edits.py", "briefstore.py", "message_summaries.py"
+        "lanes.py",
+        "fairywall.py",
+        "linear_api.py",
+        "peermail.py",
+        "swarms.py",
+        "swarm_helper.py",
+        "helper_chat.py",
+        "room_helper.py",
+        "watches.py",
+        "linear_feed.py",
+        "edited_files.py",
+        "file_alerts.py",
+        "continuation.py",
+        "sudo_requests.py",
+        "file_edits.py",
+        "briefstore.py",
+        "message_summaries.py"
       ],
       "routes": [
         "observatory.py",
@@ -507,18 +532,48 @@
         "spinoff_runner.py",
         "backfill_spawned_from.py",
         "spark_morning.py",
-        "sort_bot_chats.py", "peers.py", "sudo_request.py", "open_file.py", "room_moves.py", "freeze_swarm.py", "helper_watch.py", "helper_rule.py", "linear_feed.py", "spinoff_brief.py", "import_spinoff_briefs.py"
+        "sort_bot_chats.py",
+        "peers.py",
+        "sudo_request.py",
+        "open_file.py",
+        "room_moves.py",
+        "freeze_swarm.py",
+        "helper_watch.py",
+        "helper_rule.py",
+        "linear_feed.py",
+        "spinoff_brief.py",
+        "import_spinoff_briefs.py"
       ],
       "tables": [
         "build_items",
         "build_notes",
         "notes",
         "note_judgments",
-        "job_runs", "agent_messages", "message_summaries", "message_thread_summaries", "swarms", "swarm_members", "swarm_helper_runs",
-        "chat_lines_fts", "chat_lines_fts_data", "chat_lines_fts_idx",
-        "chat_lines_fts_content", "chat_lines_fts_docsize", "chat_lines_fts_config",
+        "job_runs",
+        "agent_messages",
+        "message_summaries",
+        "message_thread_summaries",
+        "swarms",
+        "swarm_members",
+        "swarm_helper_runs",
+        "chat_lines_fts",
+        "chat_lines_fts_data",
+        "chat_lines_fts_idx",
+        "chat_lines_fts_content",
+        "chat_lines_fts_docsize",
+        "chat_lines_fts_config",
         "chat_line_sources",
-        "session_summaries", "swarm_pins", "room_moves", "room_helper_runs", "helper_watches", "file_alerts", "linear_events", "swarm_closings", "spinoff_briefs", "spinoff_contexts", "spinoff_handoffs"
+        "session_summaries",
+        "swarm_pins",
+        "room_moves",
+        "room_helper_runs",
+        "helper_watches",
+        "file_alerts",
+        "linear_events",
+        "swarm_closings",
+        "spinoff_briefs",
+        "spinoff_contexts",
+        "spinoff_handoffs"
       ],
       "collections": [
         "dev_notes",

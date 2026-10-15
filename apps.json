@@ -1,0 +1,131 @@
+{
+  "_about": "The apps the site is cut into — what someone installs on a phone, and what a desktop pane wears. Each app holds some pages, shows only its own tabs, and is made of some projects (projects.json). This is the ONE list: the frontend (frontend/src/shell/apps.ts), routes/spa.py (the per-app manifests), appmap.py, appboundaries.py and the tests all read it. Keep generic: no personal details, this repo is shareable. See docs/apps.md.",
+  "_fields": {
+    "pages": "Address prefixes the app holds: the address itself and every page under it. Each page belongs to one app; the longest prefix wins (/terrain/pond is the Journal's, the rest of /terrain the Observatory's).",
+    "borrows": "Exact addresses the app shows in its own shell though another app holds them. A borrow is a crossing, and the boundary map lists it.",
+    "tabs": "In order. section = an id from frontend/src/shell/panels/sections.ts (or 'based-foods', the link out). place: bar = always shown, fit = shown while it fits, more = always in More.",
+    "rooms": "The Observatory rooms its session list shows; null = every room.",
+    "keeper": "Whether the pinned Keeper session shows on its session list.",
+    "projects": "Its projects from projects.json. Core is shared by every app and is listed under shared.projects."
+  },
+  "apps": {
+    "journal": {
+      "name": "Journal",
+      "short_name": "Journal",
+      "glyph": "📓",
+      "letter": "J",
+      "color": "#7c5cbf",
+      "start": "/journal",
+      "pages": ["/journal", "/todos", "/threads", "/people", "/person", "/map", "/fronts", "/body", "/ideas", "/media", "/terrain/pond", "/files", "/personality"],
+      "borrows": ["/observatory", "/observatory/session"],
+      "tabs": [
+        {"section": "journal", "place": "bar"},
+        {"section": "todos", "place": "bar"},
+        {"section": "keeper", "place": "bar"},
+        {"section": "sessions", "place": "bar"},
+        {"section": "map", "place": "fit"},
+        {"section": "fronts", "place": "fit"},
+        {"section": "threads", "place": "fit"},
+        {"section": "people", "place": "fit"},
+        {"section": "body", "place": "fit"},
+        {"section": "ideas", "place": "fit"},
+        {"section": "media", "place": "fit"},
+        {"section": "pond", "place": "fit"},
+        {"section": "settings", "place": "more"},
+        {"section": "based-foods", "place": "more"}
+      ],
+      "rooms": ["personal"],
+      "keeper": true,
+      "projects": ["journal", "todos", "health"]
+    },
+    "observatory": {
+      "name": "Observatory",
+      "short_name": "Observatory",
+      "glyph": "🔭",
+      "letter": "O",
+      "color": "#2f6f8f",
+      "start": "/observatory",
+      "pages": ["/observatory", "/bots", "/terrain", "/research", "/sql", "/automations", "/chat", "/sessions", "/atlas", "/demo/swarm"],
+      "borrows": [],
+      "tabs": [
+        {"section": "observatory", "place": "bar"},
+        {"section": "terrain", "place": "bar"},
+        {"section": "research", "place": "bar"},
+        {"section": "sql", "place": "fit"},
+        {"section": "automations", "place": "fit"},
+        {"section": "settings", "place": "more"},
+        {"section": "based-foods", "place": "more"}
+      ],
+      "rooms": null,
+      "keeper": false,
+      "projects": ["research", "workshop", "observatory", "transcripts"]
+    },
+    "finances": {
+      "name": "Finances",
+      "short_name": "Finances",
+      "glyph": "💰",
+      "letter": "F",
+      "color": "#3f7f4f",
+      "start": "/money",
+      "pages": ["/money"],
+      "borrows": [],
+      "tabs": [
+        {"section": "money", "place": "bar"},
+        {"section": "settings", "place": "more"},
+        {"section": "based-foods", "place": "more"}
+      ],
+      "rooms": [],
+      "keeper": false,
+      "projects": ["money"]
+    },
+    "inventory": {
+      "name": "Inventory",
+      "short_name": "Inventory",
+      "glyph": "📦",
+      "letter": "I",
+      "color": "#8f5f2f",
+      "start": "/inventory",
+      "pages": ["/inventory"],
+      "borrows": [],
+      "tabs": [
+        {"section": "inventory", "place": "bar"},
+        {"section": "settings", "place": "more"},
+        {"section": "based-foods", "place": "more"}
+      ],
+      "rooms": [],
+      "keeper": false,
+      "projects": ["life"]
+    }
+  },
+  "shared": {
+    "_about": "Pages every app may show, and the code every app stands on.",
+    "pages": ["/settings", "/code", "/login", "/about"],
+    "projects": ["core"]
+  },
+  "launcher": "/",
+  "set_down": {
+    "_about": "Addresses routes/spa.py still serves whose pages are in the shed (shed/), or folded into another page. No app holds them; /shed restore brings a page back, and then it needs an app.",
+    "pages": ["/wiki", "/recordings", "/transcripts", "/notes", "/build", "/scratchpad", "/vscode", "/car", "/meditation", "/movement", "/housing", "/travel"]
+  },
+  "based_foods": {
+    "_about": "Based Foods is its own app at its own address (config.based_foods_url, EXOCORTEX_BASED_FOODS_URL), linked from the others, never proxied. The kitchen project's pages here belong to no exocortex app; each says whether Based Foods already has it (in-based-foods) or it still has to be rebuilt there (to-port). They stay reachable at their addresses.",
+    "name": "Based Foods",
+    "glyph": "🥕",
+    "projects": ["kitchen"],
+    "pages": [
+      {"path": "/kitchen", "status": "to-port", "note": "Based Foods has the grocery list, pantry, recipes, meals and week plan. Not there yet: receipt import, purchase history and spend trend, the organic-or-not verdicts, food experiments on the page, 'where it comes from'."},
+      {"path": "/food", "status": "to-port", "note": "The ecosystem map of where foods come from — nothing like it in Based Foods."},
+      {"path": "/ecosystem", "status": "to-port", "note": "Old address of /food; it redirects there."},
+      {"path": "/food/foods", "status": "in-based-foods", "note": "Based Foods' Foods screen: search, barcode, label."},
+      {"path": "/food/foods/$name", "status": "to-port", "note": "Based Foods has a food page with nutrients; this one also shows sources and hazards, which it lacks."},
+      {"path": "/food/nutrients", "status": "in-based-foods", "note": "Based Foods' Nutrients screen."},
+      {"path": "/food/nutrients/$key", "status": "in-based-foods", "note": "Based Foods' nutrient page."},
+      {"path": "/food/contaminants", "status": "to-port", "note": "Contaminants and exposure — not in Based Foods."},
+      {"path": "/food/contaminants/$id", "status": "to-port", "note": "One contaminant's page — not in Based Foods."},
+      {"path": "/food/review", "status": "to-port", "note": "Reviewing machine-proposed sources — not in Based Foods."},
+      {"path": "/food-map", "status": "to-port", "note": "The public food map — not in Based Foods."},
+      {"path": "/share/recipes", "status": "in-based-foods", "note": "Based Foods' public recipes screen."},
+      {"path": "/share/r/$token", "status": "in-based-foods", "note": "Based Foods' shared recipe page."}
+    ]
+  }
+}

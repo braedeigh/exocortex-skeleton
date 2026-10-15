@@ -20,6 +20,8 @@ declare global {
     STANDALONE?: boolean;
     /** Extra parts the desktop server offers beyond the Observatory and Terrain, e.g. ['journal']. See shell/standalone.ts. */
     STANDALONE_EXTRAS?: string[];
+    /** This install's Based Foods address ('' = none, so no link). See shell/apps.ts. */
+    BASED_FOODS_URL?: string;
     /** The desktop window's own bridge, when the page runs inside it. Missing in a plain browser, so feature-detect. */
     exoDesktop?: {
       /** The system's choose-a-folder dialog: one absolute path, or null if cancelled. */

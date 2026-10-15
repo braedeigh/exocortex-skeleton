@@ -85,6 +85,16 @@ def standalone_sample_repo() -> str:
     return os.environ.get("EXOCORTEX_STANDALONE_SAMPLE_REPO", STANDALONE_SAMPLE_REPO).strip()
 
 
+def based_foods_url() -> str:
+    """Where this install's Based Foods app lives (EXOCORTEX_BASED_FOODS_URL),
+    for the "Based Foods" link in each app's tabs. Based Foods is its own app
+    at its own address and is only ever linked to, never proxied. Empty (the
+    default) means no link is drawn. Install-specific, so set in the service's
+    environment, never here. Read at call time, like public_only().
+    The apps and the link: docs/apps.md."""
+    return os.environ.get("EXOCORTEX_BASED_FOODS_URL", "").strip()
+
+
 def frame_ancestors():
     """Origins allowed to put this site in an <iframe>, read from
     EXOCORTEX_FRAME_ANCESTORS (space-separated, e.g.

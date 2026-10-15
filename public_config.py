@@ -277,6 +277,9 @@ _SHELL_PATHS = (
     "/geo/",
     "/icon-192.png",
     "/icon-512.png",
+    # Each app's own manifest and Home Screen icons (routes/spa.py,
+    # docs/apps.md): a phone fetches the manifest without the login cookie.
+    "/apps/",
 )
 
 PRESENTABLE_PATHS = (
