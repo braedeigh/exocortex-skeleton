@@ -7,8 +7,12 @@ import { TabBar } from './TabBar';
 import { pathOf, sectionForUrl } from './sections';
 import { usePaneStack } from './PaneStack';
 import {
+  canClosePanel,
   closePanel,
+  findPanel,
+  heirOf,
   listPanels,
+  moveTabToPanel,
   resizeSplit,
   setPanelSet,
   setPanelTabs,
@@ -16,7 +20,8 @@ import {
   splitPanel,
   type PanelNode,
 } from './layoutTree';
-import { openTab, type OpenTab } from './panelTabs';
+import { fallbackAfterClose, neighbourAfterClose, openTab, type OpenTab } from './panelTabs';
+import type { TabDrag } from './tabDrag';
 import { newId, newRoutePanel, useLayout } from './panelStore';
 import { routeConversation, windowAcceptsConversations } from './conversationRouting';
 import { routeActivity } from './activityRouting';
@@ -29,7 +34,9 @@ import styles from './Workspace.module.css';
  *
  * It opens on the Observatory beside the routed content. Every panel header
  * carries a tab bar (TabBar.tsx) and the same three moves — split beside,
- * split below, close — and the boundaries drag.
+ * split below, close — and the boundaries drag. Any panel closes while more
+ * than one is open, down to the last; an open tab drags from one panel's row
+ * to another's.
  *
  * THE KINDS OF PANEL, and why there's more than one:
  *
@@ -37,8 +44,11 @@ import styles from './Workspace.module.css';
  *   bar (RoutePanel.tsx). This is the ordinary kind, and the one that lets the
  *   terrain map and a code file be open at once, or two conversations.
  * - The PRIMARY panel is the one wired to the browser's real address bar, the
- *   back button, and every existing link. There is exactly one and it can't be
- *   closed. Keeping it intact is why nothing else in the app had to change.
+ *   back button, every existing link, and the app's popups (sudo, approvals,
+ *   file edits — they ride in `children`). There is always exactly one.
+ *   Closing it promotes another panel to the job (layoutTree.closePanel): the
+ *   address bar is pointed at that panel's page first, so reload, a pasted
+ *   link and the popups all keep working in what's left.
  * - The READING ROOM panel is the old left box — Observatory / session /
  *   Terminal behind one switcher (PaneStack.tsx). It's no longer in the default
  *   arrangement: it bundles a terminal she doesn't use and is the one panel
@@ -78,7 +88,28 @@ export function Workspace({ children }: { children: ReactNode }) {
     [setLayout],
   );
 
-  const onClose = useCallback((panelId: string) => setLayout((cur) => closePanel(cur, panelId)), [setLayout]);
+  // The handlers below outlive renders (registration churn would drop
+  // cross-window announcements), so they read the live tree and href here.
+  const latest = useRef({ layout, href });
+  latest.current = { layout, href };
+
+  /* Close a panel. Closing the PRIMARY first moves the real address bar to the
+     page its heir is showing — replacing, not pushing, because closing a panel
+     isn't a step she'd want Back to undo — and only once the address bar is
+     there does the heir take over as primary in the tree. Swapping first
+     would hand the heir the OLD address for a moment, and it would open a tab
+     for a page it never showed. */
+  const onClose = useCallback(
+    (panelId: string) => {
+      const tree = latest.current.layout;
+      const close = () => setLayout((cur) => closePanel(cur, panelId));
+      if (findPanel(tree, panelId)?.kind !== 'primary') return close();
+      const heir = heirOf(tree, panelId);
+      if (!heir) return;
+      void navigate({ to: heir.url ?? '/', replace: true }).finally(close);
+    },
+    [navigate, setLayout],
+  );
 
   const onPick = useCallback(
     (panelId: string, url: string) => setLayout((cur) => setPanelUrl(cur, panelId, url)),
@@ -124,6 +155,15 @@ export function Workspace({ children }: { children: ReactNode }) {
     },
     [onPick, rememberArrival],
   );
+
+  /* A link inside the primary panel opens a tab too. The primary has no
+     private router to report its moves (RoutePanel's onUrlChange), so it
+     watches the real address bar instead — the same rule as every other
+     panel, whichever panel happens to be primary right now. */
+  const primaryId = useMemo(() => listPanels(layout).find((p) => p.kind === 'primary')?.id, [layout]);
+  useEffect(() => {
+    if (primaryId) rememberArrival(primaryId, href);
+  }, [primaryId, href, rememberArrival]);
 
   /** Something in the bar was clicked. */
   const navigatePanel = useCallback(
@@ -174,10 +214,6 @@ export function Workspace({ children }: { children: ReactNode }) {
     [],
   );
 
-  // The handler outlives renders (registration churn would drop cross-window
-  // announcements), so it reads the live tree and href through refs.
-  const latest = useRef({ layout, href });
-  latest.current = { layout, href };
   const accepts = useMemo(() => windowAcceptsConversations(layout, href), [layout, href]);
   useEffect(() => {
     if (paneOpen || !accepts) return;
@@ -271,6 +307,31 @@ export function Workspace({ children }: { children: ReactNode }) {
     return unregister;
   }, [navigate, onPick, rememberArrival, setLayout, flashPanel]);
 
+  /* DRAGGING A TAB ACROSS THE SPLIT. The drag in flight is held here, not in
+     a row, because the row it's over has to draw the drop line while the row
+     it came from runs the gesture (tabDrag.ts).
+
+     A drop on another panel's row moves the tab there (layoutTree
+     moveTabToPanel) and that panel opens it. If the panel it came from was
+     showing it, that one steps to the tab beside it — the same landing as
+     closing the tab — so one conversation is never up in two panels. */
+  const [tabDrag, setTabDrag] = useState<TabDrag | null>(null);
+  const onMoveTab = useCallback(
+    (fromId: string, url: string, toId: string, index: number) => {
+      const { layout: tree, href: primaryHref } = latest.current;
+      const from = findPanel(tree, fromId);
+      const to = findPanel(tree, toId);
+      if (!from || !to || to.kind === 'pane' || fromId === toId) return;
+      const showing = (p: PanelNode) => (p.kind === 'primary' ? primaryHref : (p.url ?? ''));
+      const landing =
+        showing(from) === url ? (neighbourAfterClose(from.tabs ?? [], url) ?? fallbackAfterClose(url)) : null;
+      setLayout((cur) => moveTabToPanel(cur, fromId, toId, url, index));
+      navigatePanel(toId, url, to.kind === 'primary');
+      if (landing) navigatePanel(fromId, landing, from.kind === 'primary');
+    },
+    [setLayout, navigatePanel],
+  );
+
   const renderContent = useCallback(
     (panel: PanelNode): ReactNode => {
       let body: ReactNode;
@@ -317,16 +378,20 @@ export function Workspace({ children }: { children: ReactNode }) {
       const isPrimary = panel.kind === 'primary';
       return (
         <TabBar
+          panelId={panel.id}
           url={isPrimary ? href : (panel.url ?? '/')}
           setId={panel.setId ?? (isPrimary ? 'life' : 'work')}
           openTabs={panel.tabs ?? []}
+          drag={tabDrag}
           onSetId={(setId) => onSetId(panel.id, setId)}
           onOpenTabs={(tabs) => onOpenTabs(panel.id, tabs)}
           onNavigate={(url) => navigatePanel(panel.id, url, isPrimary)}
+          onDrag={setTabDrag}
+          onMoveToPanel={(url, toId, index) => onMoveTab(panel.id, url, toId, index)}
         />
       );
     },
-    [pane.header, href, onSetId, onOpenTabs, navigatePanel],
+    [pane.header, href, tabDrag, onSetId, onOpenTabs, navigatePanel, onMoveTab],
   );
 
   return (
@@ -340,7 +405,7 @@ export function Workspace({ children }: { children: ReactNode }) {
         onDragChange={setDragging}
         renderContent={renderContent}
         renderHeaderLeft={renderHeaderLeft}
-        isClosable={(p) => p.kind !== 'primary'}
+        isClosable={(p) => canClosePanel(layout, p.id)}
       />
       {/* While a boundary is being dragged this sits over everything, so the
           pointer isn't swallowed by a terminal iframe or a page that captures

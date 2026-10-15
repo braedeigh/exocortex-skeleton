@@ -33,11 +33,11 @@
 /**
  * What a panel is showing.
  *
- * - 'primary' — the app's normal routed content (the tab strip and whatever
- *   page the address bar says). Exactly one of these exists and it can't be
- *   closed: it's the panel the browser URL, the back button, and the tab bar
- *   all drive. Everything that worked before this file existed still works
- *   because this panel is unchanged.
+ * - 'primary' — the app's normal routed content (whatever page the address
+ *   bar says). Exactly one of these exists: it's the panel the browser URL,
+ *   the back button, and the app's popups ride on. It CAN be closed — another
+ *   panel is promoted to take the job over first (closePanel below), so there
+ *   is never none.
  * - 'pane'    — the reading room stack: Observatory / the open session /
  *   Terminal, with its own switcher and its own back. This is the old left box.
  * - 'route'   — any other page in the app, running on its own private router
@@ -58,10 +58,9 @@ export interface PanelNode {
    *  monitor running sessions wants a different bar from the one running the
    *  journal. Absent = the first set. */
   setId?: string;
-  /** What she has OPEN in this panel, with when each was last in front of her
-   *  (panelTabs.ts). Saved, so tabs survive a reload; the ones she's been
-   *  ignoring age off the bar on their own. Live sessions aren't here — those
-   *  are computed from the roster every render. */
+  /** What she has OPEN in this panel, in the order she arranged them, with
+   *  when she last arrived at each (panelTabs.ts). Saved, so tabs and their
+   *  order survive a reload; a tab stays until she closes it. */
   tabs?: { url: string; at: number }[];
 }
 
@@ -161,11 +160,68 @@ export function splitPanel(
  *
  * Removing the last panel is refused: the workspace has to be showing
  * something.
+ *
+ * CLOSING THE PRIMARY PROMOTES AN HEIR. The primary is the panel the browser's
+ * address bar drives, and the tree must always hold exactly one
+ * (panelStore.ts refuses a saved layout without). So before it goes, the heir
+ * (heirOf) becomes the primary: same id, same tab set, same open tabs, and
+ * its own `url` dropped, since the address bar says where a primary is.
+ * Workspace.tsx points the address bar at the heir's page first. With no
+ * route panel to promote — only reading-room panels left — the primary stays.
+ *
+ * Prompt: "then i need to be able to close the right side of the split screen
+ * ... maybe if i have more than 1 split screen open, i would be able to close
+ * until there's only 1 open."
  */
 export function closePanel(root: LayoutNode, id: string): LayoutNode {
   if (root.type === 'panel') return root; // the last panel standing
-  const next = removeNode(root, id);
+  const closing = findPanel(root, id);
+  if (!closing) return root;
+  let tree: LayoutNode = root;
+  if (closing.kind === 'primary') {
+    const heir = heirOf(root, id);
+    if (!heir) return root;
+    const { url: _url, ...rest } = heir;
+    tree = replaceNode(root, heir.id, { ...rest, kind: 'primary', setId: heir.setId ?? ROUTE_DEFAULT_SET });
+  }
+  const next = removeNode(tree, id);
   return next ?? root;
+}
+
+/** The set a route panel without one wears (Workspace.tsx renderHeaderLeft).
+ *  An heir keeps it explicitly, because a primary without one wears 'life'. */
+const ROUTE_DEFAULT_SET = 'work';
+
+/**
+ * Who takes over when the primary panel `id` closes: the route panel nearest
+ * it in its own split — the neighbour that grows into its space — else the
+ * first route panel anywhere. Null when there's no route panel to promote.
+ */
+export function heirOf(root: LayoutNode, id: string): PanelNode | null {
+  const parent = parentOf(root, id);
+  if (parent) {
+    const at = parent.children.findIndex((c) => c.id === id);
+    // Siblings by distance, the one after it first (it's what a split of two
+    // collapses into either way).
+    const byDistance = parent.children
+      .map((child, i) => ({ child, distance: Math.abs(i - at) + (i < at ? 0.5 : 0) }))
+      .filter((c) => c.child.id !== id)
+      .sort((a, b) => a.distance - b.distance);
+    for (const { child } of byDistance) {
+      const found = listPanels(child).find((p) => p.kind === 'route');
+      if (found) return found;
+    }
+  }
+  return listPanels(root).find((p) => p.kind === 'route' && p.id !== id) ?? null;
+}
+
+/** Can this panel be closed right now? Any panel while there's more than one,
+ *  except a primary with nobody to hand the address bar to. */
+export function canClosePanel(root: LayoutNode, id: string): boolean {
+  if (root.type === 'panel') return false;
+  const panel = findPanel(root, id);
+  if (!panel) return false;
+  return panel.kind !== 'primary' || heirOf(root, id) !== null;
 }
 
 function removeNode(node: LayoutNode, id: string): LayoutNode | null {
@@ -244,6 +300,39 @@ export function setPanelTabs(
   const panel = findPanel(root, id);
   if (!panel || panel.tabs === tabs) return root;
   return replaceNode(root, id, { ...panel, tabs });
+}
+
+/**
+ * Move an open tab from one panel's row to another's, at gap `index` of the
+ * target's open tabs — a tab dragged across the split.
+ *
+ * It LEAVES the source: one conversation is never open in two panels' rows at
+ * once, since that would be two mounted views of the same chat. If the target
+ * already has it, it just stays where it is there. Same tree back when nothing
+ * moves (unknown panel, same panel, a url the source doesn't have open).
+ */
+export function moveTabToPanel(
+  root: LayoutNode,
+  fromPanelId: string,
+  toPanelId: string,
+  url: string,
+  index: number,
+): LayoutNode {
+  if (fromPanelId === toPanelId) return root;
+  const from = findPanel(root, fromPanelId);
+  const to = findPanel(root, toPanelId);
+  if (!from || !to) return root;
+  const fromTabs = from.tabs ?? [];
+  const tab = fromTabs.find((t) => t.url === url);
+  if (!tab) return root;
+  const toTabs = to.tabs ?? [];
+  let nextTo = toTabs;
+  if (!toTabs.some((t) => t.url === url)) {
+    nextTo = [...toTabs];
+    nextTo.splice(Math.max(0, Math.min(index, toTabs.length)), 0, tab);
+  }
+  const moved = replaceNode(root, fromPanelId, { ...from, tabs: fromTabs.filter((t) => t.url !== url) });
+  return nextTo === toTabs ? moved : replaceNode(moved, toPanelId, { ...to, tabs: nextTo });
 }
 
 /* ---------- helpers ---------- */

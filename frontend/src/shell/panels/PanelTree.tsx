@@ -41,7 +41,7 @@ export interface PanelTreeProps {
   /** What fills the left of a panel's header row — its tab bar, or the
    *  reading room's switcher. */
   renderHeaderLeft?: (panel: PanelNode) => ReactNode | undefined;
-  /** A panel that must not be closable (the primary). */
+  /** Whether a panel can be closed right now (layoutTree.canClosePanel). */
   isClosable: (panel: PanelNode) => boolean;
 }
 

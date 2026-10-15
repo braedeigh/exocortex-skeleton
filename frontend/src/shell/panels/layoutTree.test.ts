@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   MIN_PCT,
+  canClosePanel,
   closePanel,
   findPanel,
   isLayoutNode,
   listPanels,
+  moveTabToPanel,
   parentOf,
   resizeSplit,
   setPanelUrl,
@@ -101,6 +103,110 @@ describe('closing', () => {
   it('is a no-op for an id that is not in the tree', () => {
     const tree = twoUp();
     expect(closePanel(tree, 'nope')).toBe(tree);
+  });
+});
+
+describe('closing either side, the primary included', () => {
+  const withTabs = (): LayoutNode => ({
+    type: 'split',
+    id: 's1',
+    dir: 'row',
+    sizes: [50, 50],
+    children: [
+      { type: 'panel', id: 'left', kind: 'route', url: '/observatory/session?conv=c1', setId: 'work',
+        tabs: [{ url: '/observatory/session?conv=c1', at: 1 }] },
+      { type: 'panel', id: 'right', kind: 'primary', setId: 'life', tabs: [{ url: '/code?path=a.py', at: 1 }] },
+    ],
+  });
+
+  it('closing the primary hands the job to the other side, which keeps its tabs and set', () => {
+    const next = closePanel(withTabs(), 'right');
+    expect(next).toEqual({
+      type: 'panel',
+      id: 'left',
+      kind: 'primary',
+      setId: 'work',
+      tabs: [{ url: '/observatory/session?conv=c1', at: 1 }],
+    });
+  });
+
+  it('always leaves exactly one primary, whichever panel of many is closed', () => {
+    let tree: LayoutNode = splitPanel(withTabs(), 'right', 'col', panel('below'), 's2');
+    tree = splitPanel(tree, 'left', 'row', panel('beside'), 's3');
+    for (const id of ['right', 'left', 'beside']) {
+      tree = closePanel(tree, id);
+      expect(listPanels(tree).filter((p) => p.kind === 'primary')).toHaveLength(1);
+    }
+    expect(listPanels(tree).map((p) => p.id)).toEqual(['below']);
+  });
+
+  it('the heir is the neighbour that grows into the closed space', () => {
+    const three: LayoutNode = {
+      type: 'split', id: 's', dir: 'row', sizes: [34, 33, 33],
+      children: [panel('a'), panel('p', 'primary'), panel('b')],
+    };
+    const next = closePanel(three, 'p');
+    expect(findPanel(next, 'b')?.kind).toBe('primary');
+    expect(findPanel(next, 'a')?.kind).toBe('route');
+  });
+
+  it('a route panel without a set keeps wearing the one it wore', () => {
+    const tree: LayoutNode = { type: 'split', id: 's', dir: 'row', sizes: [50, 50],
+      children: [panel('a', 'route', '/code'), panel('p', 'primary')] };
+    expect((closePanel(tree, 'p') as PanelNode).setId).toBe('work');
+  });
+
+  it('the last panel has no close, and a primary beside only a reading room stays', () => {
+    expect(canClosePanel(panel('p', 'primary'), 'p')).toBe(false);
+    const legacy = twoUp(); // the reading room beside the primary
+    expect(canClosePanel(legacy, 'p-main')).toBe(false);
+    expect(closePanel(legacy, 'p-main')).toBe(legacy);
+    expect(canClosePanel(legacy, 'p-pane')).toBe(true);
+    expect(canClosePanel(withTabs(), 'right')).toBe(true);
+  });
+});
+
+describe('dragging a tab to another panel', () => {
+  const conv = (id: string) => `/observatory/session?conv=${id}`;
+  const tree = (): LayoutNode => ({
+    type: 'split', id: 's', dir: 'row', sizes: [50, 50],
+    children: [
+      { type: 'panel', id: 'L', kind: 'route', url: conv('a'),
+        tabs: [{ url: conv('a'), at: 1 }, { url: conv('b'), at: 2 }] },
+      { type: 'panel', id: 'R', kind: 'primary', tabs: [{ url: '/x', at: 1 }, { url: '/y', at: 1 }] },
+    ],
+  });
+  const tabsOf = (t: LayoutNode, id: string) => (findPanel(t, id)?.tabs ?? []).map((x) => x.url);
+
+  it('leaves one row and joins the other at the gap it was dropped in', () => {
+    const next = moveTabToPanel(tree(), 'L', 'R', conv('a'), 1);
+    expect(tabsOf(next, 'L')).toEqual([conv('b')]);
+    expect(tabsOf(next, 'R')).toEqual(['/x', conv('a'), '/y']);
+  });
+
+  it('never leaves one conversation open in two rows, even if the target had it', () => {
+    let t = tree();
+    t = moveTabToPanel(t, 'L', 'R', conv('b'), 0);
+    // And back, then across again: still exactly one copy in the whole window.
+    t = moveTabToPanel(t, 'R', 'L', conv('b'), 2);
+    t = moveTabToPanel(t, 'L', 'R', conv('b'), 9);
+    const all = listPanels(t).flatMap((p) => (p.tabs ?? []).map((x) => x.url));
+    expect(all.filter((u) => u === conv('b'))).toHaveLength(1);
+    expect(tabsOf(t, 'R')).toEqual(['/x', '/y', conv('b')]);
+
+    const dup = tree();
+    const R = findPanel(dup, 'R')!;
+    R.tabs = [...(R.tabs ?? []), { url: conv('a'), at: 9 }];
+    const merged = moveTabToPanel(dup, 'L', 'R', conv('a'), 0);
+    expect(tabsOf(merged, 'R')).toEqual(['/x', '/y', conv('a')]);
+    expect(tabsOf(merged, 'L')).toEqual([conv('b')]);
+  });
+
+  it('a drop that moves nothing returns the same tree', () => {
+    const t = tree();
+    expect(moveTabToPanel(t, 'L', 'L', conv('a'), 0)).toBe(t);
+    expect(moveTabToPanel(t, 'L', 'R', '/not-open', 0)).toBe(t);
+    expect(moveTabToPanel(t, 'L', 'nope', conv('a'), 0)).toBe(t);
   });
 });
 

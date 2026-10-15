@@ -75,8 +75,10 @@ export function defaultLayout(): LayoutNode {
  * A stored layout is only usable if it still contains exactly one primary
  * panel — that's the one wired to the browser URL and the tab strip, and a
  * tree with none (or two) would leave the app with no address bar (or two
- * fighting over it). Older or hand-edited JSON can fail this, so it's checked
- * on the way in rather than trusted.
+ * fighting over it). Closing panels keeps this true — closing the primary
+ * promotes another panel first (layoutTree.closePanel) — but older or
+ * hand-edited JSON can fail it, so it's checked on the way in rather than
+ * trusted.
  */
 function usable(node: unknown): node is LayoutNode {
   if (!isLayoutNode(node)) return false;

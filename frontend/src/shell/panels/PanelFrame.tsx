@@ -13,10 +13,10 @@ import styles from './PanelFrame.module.css';
  * That's the entire vocabulary of the workspace: whatever you can arrange, you
  * arrange with those three.
  *
- * The primary panel can't be closed — it's the one holding the browser's
- * address and the back button, so closing it would leave the window with no way
- * to navigate. Its close button is absent rather than disabled, because a
- * disabled button invites you to wonder what you did wrong.
+ * Every panel can be closed while more than one is open — the primary too,
+ * which hands the address bar to a neighbour first (layoutTree.closePanel).
+ * The last panel standing has no close button: absent rather than disabled,
+ * because a disabled button invites you to wonder what you did wrong.
  *
  * Touches: PanelTree.tsx (renders these), TabBar.tsx and PaneStack.tsx (what
  * goes in the header).
@@ -30,7 +30,7 @@ export function PanelFrame({
 }: {
   onSplitRight: () => void;
   onSplitDown: () => void;
-  /** Omitted for the primary panel, which must always exist. */
+  /** Omitted when this panel can't close — it's the last one. */
   onClose?: () => void;
   headerLeft?: ReactNode;
   children: ReactNode;

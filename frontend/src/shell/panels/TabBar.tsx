@@ -11,48 +11,56 @@ import {
   sectionsOf,
   unpin,
 } from './tabSets';
-import { buildBar, closeTab, pruneStale, touchTab, urlsOnBar, type BarItem, type OpenTab } from './panelTabs';
+import {
+  buildBar,
+  closeTab,
+  fallbackAfterClose,
+  moveTab,
+  neighbourAfterClose,
+  urlsOnBar,
+  type BarItem,
+  type OpenTab,
+} from './panelTabs';
+import { gapToPosition, useTabDrag, type DropSlot, type TabDrag, type TabDragSource } from './tabDrag';
 import { useLiveSessions } from './useLiveSessions';
-import { urlForIntent } from './panelIntents';
 import { useTabSets } from './useTabSets';
 import { useMenuFit } from '../menuFit';
 import styles from './TabBar.module.css';
 
 /**
- * TabBar.tsx — the row across the top of a panel: what's pinned, what's alive,
- * and what she has open.
+ * TabBar.tsx — the row across the top of a panel: what's pinned, and what she
+ * has open. It works like a browser's tab row.
  *
- * THREE GROUPS, always in this order so nothing moves around under her:
+ * TWO GROUPS, always in this order:
  *
- *   ANCHORS  the pinned sections of this panel's set. Always there.
- *   LIVE     sessions working now, or stopped and waiting on her. They appear
- *            on their own and leave on their own.
- *   OPEN     what she opened, for as long as she keeps using it.
+ *   ANCHORS  the pinned sections of this panel's set. Always there, at the
+ *            left; changed only from the ▾.
+ *   OPEN     what she opened, in the order she arranged them. Arriving
+ *            somewhere opens a tab (Workspace.tsx), and it stays until she
+ *            closes it with its ×.
+ *
+ * NOTHING ELSE APPEARS. A session running or waiting on her that she hasn't
+ * opened gets no tab, no dot, no count — the roster shows those. A session she
+ * HAS opened wears its state on its own tab: purple breathing toward teal
+ * while it runs, amber and still while it waits on her. The breathing is on
+ * the underline and a dot rather than the label, so the name stays readable,
+ * and every pulse shares one clock (see the stylesheet) so several running
+ * sessions breathe together.
+ *
+ * THE × CLOSES THE VIEW, NEVER THE SESSION. The session keeps running and
+ * stays in the Observatory; opening it again brings the tab back at the end.
+ * Closing the tab she's ON moves her to the tab beside it — right, else left,
+ * else the section's front page — the way a browser does, so the page never
+ * sits there with nothing lit.
+ *
+ * DRAGGING (tabDrag.ts): pinned tabs rearrange among pinned tabs, open tabs
+ * among open tabs, by mouse or by press-and-hold on a touch screen. An open
+ * tab can also be dropped on ANOTHER panel's row, which moves it there
+ * (Workspace.tsx does the move). The order is saved with the layout.
  *
  * AN ANCHOR ALWAYS SAYS ITS OWN NAME, and clicking it always goes to that
- * room's front page. It used to rename itself to whatever she was looking at
- * inside the section — which made sense when tabs were only destinations, and
- * stopped making sense the moment open tabs existed: opening a session left
- * the Observatory anchor reading the session's name while the session ALSO had
- * its own tab beside it, saying the same thing twice and leaving nothing to
- * click to get back to the roster.
- *
- * So the division is clean. The anchor is the room's front door. The tabs
- * beside it are what's actually open in that room, and one of those is what
- * says where she is.
- *
- * THE LIVE COLOURS. A running session is purple and breathes toward teal and
- * back; one waiting on her is amber and still. They sit in the same group,
- * because both are "something is happening here" — only the colour says which,
- * so a session changing state doesn't make the bar reshuffle. The breathing is
- * on the underline and a dot rather than the label: a name that changes colour
- * continuously is harder to read, and reading which session it is was the
- * whole point. Every pulse shares one clock (see the stylesheet) so several
- * running sessions breathe together instead of flickering out of phase.
- *
- * WHAT DROPS OFF. An open tab she hasn't touched in an hour leaves the bar.
- * It does not end the session and the session stays in the Observatory — the
- * tab is a view, and only the view goes.
+ * room's front page. The tabs beside it are what's actually open in that
+ * room, and one of those is what says where she is.
  *
  * WHICH SET this panel wears is per window (stored with the layout); the sets
  * themselves are shared from the vault (useTabSets.ts). They're numbered
@@ -74,39 +82,48 @@ import styles from './TabBar.module.css';
  * guarding. The last set offers nothing at all — deleting it would leave no ▾
  * to make another from.
  *
- * Touches: panelTabs.ts (what belongs on the bar), useLiveSessions.ts (the
- * live feed), sections.ts (what a tab means), tabSets.ts (create/remove/pin/
- * unpin/reorder), PanelFrame.tsx (draws this in the header row).
+ * Touches: panelTabs.ts (what belongs on the bar), tabDrag.ts (the drag),
+ * useLiveSessions.ts (running/waiting state), sections.ts (what a tab means),
+ * tabSets.ts (create/remove/pin/unpin/reorder), PanelFrame.tsx (draws this in
+ * the header row), Workspace.tsx (opens tabs, holds the drag).
  *
- * Prompt that produced it: "i want tabs for open and running both. i want the
- * running ones to be purple but glow teal back and forth... the open ones that
- * have been used in the past hour to also display... anything that i've been
- * ignoring just drops from the tabs until i interact with it again. it doesn't
- * close in the observatory, just in the tabs up top."
+ * Prompt that produced it: "function basically like a browser tab except
+ * clicking the x button doesn't close the actual session. i want to be able to
+ * drag to rearrange them and i want it to automatically place those that i
+ * open up there, but don't place them up there until i open it again." Later:
+ * "I should be able to like, have tabs open on the right window too ... or be
+ * draggable between the split screen windows."
  */
 
-/** Stable empty list — a fresh [] each render would re-run the bar memo and
- *  the prune effect on every poll for a panel that shows no sessions. */
-const EMPTY_LIVE: ReturnType<typeof useLiveSessions> = [];
-
 export function TabBar({
+  panelId,
   url,
   setId,
   openTabs,
+  drag,
   onSetId,
   onOpenTabs,
   onNavigate,
+  onDrag,
+  onMoveToPanel,
 }: {
+  /** Which panel this row belongs to — what a tab dropped on it lands in. */
+  panelId: string;
   /** Where this panel currently is. */
   url: string;
   setId: string;
   openTabs: OpenTab[];
+  /** The tab being dragged anywhere in the window, or null. */
+  drag: TabDrag | null;
   onSetId: (setId: string) => void;
   onOpenTabs: (next: OpenTab[]) => void;
   onNavigate: (url: string) => void;
+  onDrag: (drag: TabDrag | null) => void;
+  /** An open tab of THIS row was dropped on another panel's row. */
+  onMoveToPanel: (url: string, toPanelId: string, index: number) => void;
 }) {
   const { sets, save } = useTabSets();
-  const liveSessions = useLiveSessions();
+  const sessionStates = useLiveSessions();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   /* This menu is the longest thing in the app's chrome — every set, then every
@@ -115,7 +132,6 @@ export function TabBar({
      they're a scroll away. See menuFit.ts. */
   const [menuBtn, setMenuBtn] = useState<HTMLButtonElement | null>(null);
   const menuFit = useMenuFit(menuBtn, menuOpen);
-  const [drag, setDrag] = useState<{ from: number; over: number } | null>(null);
   /* Which bin is currently asking "Sure?". One at a time, and it gives up on
      its own after a few seconds — an armed delete left sitting there is a trap
      for the next click. */
@@ -139,48 +155,20 @@ export function TabBar({
   const anchors = useMemo(() => sectionsOf(sets, activeSetId), [sets, activeSetId]);
   const here = sectionForUrl(url);
 
-  const liveUrlFor = (convId: string) => urlForIntent({ kind: 'conversation', convId }) ?? '/observatory';
-
-  /* Live sessions belong to the panel that's ABOUT the observatory — the one
-     with it pinned. Showing them on every bar sounds generous and isn't: the
-     other panel's own anchors get squeezed until they truncate, to make room
-     for work it has nothing to do with.
-
-     Pinning the OBSERVATORY opts a panel in; pinning the Keeper does not. The
-     Keeper is a shortcut to one particular conversation, and wanting that one
-     to hand isn't the same as wanting every session in the house on your
-     journal bar. */
-  const watchesSessions = useMemo(() => anchors.some((a) => a.id === 'observatory'), [anchors]);
-  const live = watchesSessions ? liveSessions : EMPTY_LIVE;
-
-  // Rebuilt on every roster poll, which is what makes a starting session
-  // appear without anything being told about it.
+  // Rebuilt on every roster poll, which is what lets an open session's tab
+  // change colour the moment it starts or stops.
   const bar = useMemo(
     () =>
       buildBar({
         anchors: anchors.map((a) => a.id),
-        live,
         open: openTabs,
-        now: Date.now(),
-        liveUrlFor,
+        stateFor: (u) => {
+          const id = convIdOf(u);
+          return id ? (sessionStates.get(id) ?? null) : null;
+        },
       }),
-    [anchors, live, openTabs],
+    [anchors, openTabs, sessionStates],
   );
-
-  /* She's here, so this isn't being ignored — restart its hour, and sweep off
-     anything that has been. The page in front of her and everything currently
-     live are spared whatever their age. */
-  const onOpenTabsRef = useRef(onOpenTabs);
-  onOpenTabsRef.current = onOpenTabs;
-  const spared = useMemo(() => new Set([url, ...urlsOnBar(bar)]), [url, bar]);
-  useEffect(() => {
-    const now = Date.now();
-    const kept = pruneStale(touchTab(openTabs, url, now), now, spared);
-    if (kept !== openTabs) onOpenTabsRef.current(kept);
-    // Deliberately keyed on the url and the tab list, not on a timer: the
-    // sweep happens when she moves, which is the only moment the answer can
-    // change in a way she'd notice.
-  }, [url, openTabs, spared]);
 
   /* What to call a tab. A conversation url carries only an opaque id, so the
      roster the app already keeps warm supplies the name — without this an open
@@ -195,6 +183,38 @@ export function TabBar({
     },
     [roster],
   );
+
+  /* Close a tab: the view goes, the session doesn't. Closing the one she's on
+     moves her beside it first, so the page doesn't stay up with nothing lit. */
+  const onCloseOpen = (closing: string) => {
+    onOpenTabs(closeTab(openTabs, closing));
+    if (closing === url) onNavigate(neighbourAfterClose(openTabs, closing) ?? fallbackAfterClose(closing));
+  };
+
+  /* Put a dragged tab down. Within this row it's a reorder of its own group;
+     on another panel's row it's a move, which the workspace owns because it
+     changes two panels at once. */
+  const rowRef = useRef<HTMLDivElement>(null);
+  const onDrop = (source: TabDragSource, slot: DropSlot) => {
+    if (slot.panelId !== panelId) {
+      if (source.kind === 'open') onMoveToPanel(source.url, slot.panelId, slot.index);
+      return;
+    }
+    const to = gapToPosition(source.index, slot.index);
+    if (source.kind === 'anchor') save(reorder(sets, activeSetId, source.index, to));
+    else onOpenTabs(moveTab(openTabs, source.index, to));
+  };
+  const { start: startDrag, swallowClick } = useTabDrag({ rowRef, onDrag, onDrop });
+
+  /* Where this row draws the drop line: only while a drag is over THIS row,
+     and not in the two gaps either side of the tab's own place in its own row,
+     where dropping would change nothing. */
+  const dropGap =
+    drag?.over && drag.over.panelId === panelId
+      ? drag.panelId === panelId && (drag.over.index === drag.index || drag.over.index === drag.index + 1)
+        ? null
+        : { kind: drag.kind, index: drag.over.index }
+      : null;
 
   // A bin left armed behind a closed menu would fire on the next visit.
   useEffect(() => {
@@ -377,23 +397,41 @@ export function TabBar({
         ) : null}
       </div>
 
-      <div className={styles.tabs} role="tablist" aria-label="Panel tabs">
-        {bar.map((item, i) => (
-          <Tab
-            key={item.kind === 'anchor' ? `a:${item.sectionId}` : item.url}
-            item={item}
-            index={i}
-            currentUrl={url}
-            titleFor={titleFor}
-            drag={drag}
-            onDrag={setDrag}
-            onGoSection={goToSection}
-            onGoUrl={onNavigate}
-            onCloseOpen={(u) => onOpenTabs(closeTab(openTabs, u))}
-            onReorderAnchors={(from, to) => save(reorder(sets, activeSetId, from, to))}
-            anchorCount={anchors.length}
-          />
-        ))}
+      <div
+        ref={rowRef}
+        className={styles.tabs}
+        role="tablist"
+        aria-label="Panel tabs"
+        data-tab-row={panelId}
+        onClickCapture={swallowClick}
+      >
+        {bar.map((item, i) => {
+          const isAnchor = item.kind === 'anchor';
+          const groupIndex = isAnchor ? i : i - anchors.length;
+          const groupSize = isAnchor ? anchors.length : bar.length - anchors.length;
+          const dropHere = dropGap && dropGap.kind === item.kind;
+          return (
+            <Tab
+              key={isAnchor ? `a:${item.sectionId}` : item.url}
+              item={item}
+              groupIndex={groupIndex}
+              currentUrl={url}
+              titleFor={titleFor}
+              lifted={drag?.panelId === panelId && drag.kind === item.kind && drag.index === groupIndex}
+              dropBefore={Boolean(dropHere && dropGap.index === groupIndex)}
+              dropAfter={Boolean(dropHere && dropGap.index === groupSize && groupIndex === groupSize - 1)}
+              onStartDrag={(e, source) => startDrag(e, { ...source, panelId })}
+              onGoSection={goToSection}
+              onGoUrl={onNavigate}
+              onCloseOpen={onCloseOpen}
+            />
+          );
+        })}
+        {/* A row with no open tabs still takes an open tab dropped from
+            another panel; the line shows where it would go. */}
+        {dropGap?.kind === 'open' && bar.length === anchors.length ? (
+          <span className={styles.dropEnd} aria-hidden="true" />
+        ) : null}
         {visiting ? (
           <div className={styles.tabWrap} role="presentation">
             <button
@@ -417,32 +455,35 @@ export function TabBar({
   );
 }
 
-/** One tab. Split out because an anchor, a live session and an open page share
- *  a shape but almost nothing else. */
+/** One tab. Split out because an anchor and an open page share a shape but
+ *  little else. */
 function Tab({
   item,
-  index,
+  groupIndex,
   currentUrl,
   titleFor,
-  drag,
-  onDrag,
+  lifted,
+  dropBefore,
+  dropAfter,
+  onStartDrag,
   onGoSection,
   onGoUrl,
   onCloseOpen,
-  onReorderAnchors,
-  anchorCount,
 }: {
   item: BarItem;
-  index: number;
+  /** Its place within its own group (anchors, or open tabs). */
+  groupIndex: number;
   currentUrl: string;
   titleFor: (url: string) => string;
-  drag: { from: number; over: number } | null;
-  onDrag: (d: { from: number; over: number } | null) => void;
+  /** This is the tab being dragged. */
+  lifted: boolean;
+  /** Draw the drop line at its left edge, or (last in its group) its right. */
+  dropBefore: boolean;
+  dropAfter: boolean;
+  onStartDrag: (e: React.PointerEvent<HTMLElement>, source: Omit<TabDragSource, 'panelId'>) => void;
   onGoSection: (s: Section) => void;
   onGoUrl: (url: string) => void;
   onCloseOpen: (url: string) => void;
-  onReorderAnchors: (from: number, to: number) => void;
-  anchorCount: number;
 }) {
   const isAnchor = item.kind === 'anchor';
   const section = isAnchor ? sectionById(item.sectionId) : null;
@@ -454,39 +495,29 @@ function Tab({
      the Observatory anchor and the session's own tab at once. */
   const selected = isAnchor ? pathOf(currentUrl) === pathOf(url) : currentUrl === url;
 
-  const label = isAnchor ? section!.label : item.kind === 'live' ? item.title : titleFor(url);
+  const label = isAnchor ? section!.label : titleFor(url);
 
-  const running = item.kind === 'live' && item.running && !item.awaiting;
-  const awaiting = item.kind === 'live' && item.awaiting;
+  const running = item.kind === 'open' && item.running && !item.awaiting;
+  const awaiting = item.kind === 'open' && item.awaiting;
 
   return (
     <div
       role="presentation"
+      data-tab-kind={item.kind}
       className={[
         styles.tabWrap,
-        drag?.over === index && drag.from !== index ? styles.tabDropTarget : '',
+        lifted ? styles.tabLifted : '',
+        dropBefore ? styles.tabDropBefore : '',
+        dropAfter ? styles.tabDropAfter : '',
       ]
         .filter(Boolean)
         .join(' ')}
-      // Only anchors reorder — the live group is ordered by the roster and the
-      // open group by when she opened things, neither of which is hers to drag.
-      draggable={isAnchor}
-      onDragStart={() => isAnchor && onDrag({ from: index, over: index })}
-      onDragOver={(e) => {
-        if (!isAnchor) return;
-        e.preventDefault(); // without this the drop never fires
-        if (drag && drag.over !== index) onDrag({ ...drag, over: index });
-      }}
-      onDrop={() => {
-        if (drag && isAnchor && index < anchorCount) onReorderAnchors(drag.from, index);
-        onDrag(null);
-      }}
-      onDragEnd={() => onDrag(null)}
     >
       <button
         type="button"
         role="tab"
         aria-selected={selected}
+        draggable={false}
         // Spoken, not just coloured — the state is the point of the tab.
         aria-label={running ? `${label} — running` : awaiting ? `${label} — waiting for you` : label}
         className={[
@@ -507,6 +538,7 @@ function Tab({
                 ? `Back to ${section!.label}`
                 : label
         }
+        onPointerDown={(e) => onStartDrag(e, { kind: item.kind, index: groupIndex, url })}
         onClick={() => (isAnchor ? onGoSection(section!) : onGoUrl(url))}
       >
         {running || awaiting ? (
@@ -516,13 +548,13 @@ function Tab({
         )}
         <span className={styles.tabLabel}>{label}</span>
       </button>
-      {/* Only the open ones close. An anchor is unpinned from the ▾, and a live
-          session isn't hers to dismiss — it leaves when it stops. */}
+      {/* Only the open ones close, and closing is the view only — the session
+          behind it keeps going. An anchor is unpinned from the ▾. */}
       {item.kind === 'open' ? (
         <button
           type="button"
           className={styles.close}
-          title={`Close ${label}`}
+          title={`Close ${label} (the session keeps going)`}
           aria-label={`Close ${label}`}
           onClick={(e) => {
             e.stopPropagation(); // the × sits over the tab

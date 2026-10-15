@@ -1,16 +1,14 @@
 import { useMemo } from 'react';
 import { useSessionRoster } from '../../features/observatory/api';
-import type { LiveTab } from './panelTabs';
+import type { SessionState } from './panelTabs';
 
 /**
- * useLiveSessions.ts — the sessions that belong on the bar without her having
- * opened them.
+ * useLiveSessions.ts — which sessions are working or waiting on her right now,
+ * by conversation id, so a tab she opened can wear that state.
  *
- * Two states count as live, and they're deliberately one group: a session
- * WORKING right now, and a session that stopped and is WAITING on her. Both
- * are things happening that she'd want to see from any panel; they're told
- * apart by colour on the tab, not by position, so the group never reshuffles
- * when one changes state.
+ * This is a LOOKUP, not a feed of tabs: a session she hasn't opened gets
+ * nothing on the bar however busy it is (the roster shows those). TabBar asks
+ * it about each session tab it already has.
  *
  * Both facts are the server's, not guessed here. `running` is set server-side
  * because a turn outlives the HTTP connection that started it, and
@@ -18,29 +16,23 @@ import type { LiveTab } from './panelTabs';
  *
  * ONE QUERY, not one per panel. Every tab bar calls this, but they all share
  * react-query's roster cache under the same key, so three panels poll once
- * between them. Kept on the fast cadence rather than the idle one: this is the
- * feed that makes a starting session appear, and a status light that takes
- * half a minute to notice isn't one.
+ * between them. Kept on the fast cadence: a status light that takes half a
+ * minute to notice isn't one.
  *
- * Touches: panelTabs.ts (the shape it feeds), TabBar.tsx (the caller),
+ * Touches: panelTabs.ts (the shape it answers in), TabBar.tsx (the caller),
  * features/observatory/api.ts (the roster query it rides on).
  */
-export function useLiveSessions(): LiveTab[] {
+export function useLiveSessions(): ReadonlyMap<string, SessionState> {
   const { data } = useSessionRoster(true);
   const sessions = data?.sessions;
 
   return useMemo(() => {
-    if (!sessions) return [];
-    return sessions
-      // A question in a session she saved for later waits with it, off the bar.
-      .filter((s) => s.running || (s.awaiting_input && !s.saved_at))
-      .map((s) => ({
-        convId: s.id,
-        title: s.title,
-        running: Boolean(s.running),
-        // A session can be running again after having asked — running wins for
-        // the label's sake, but both flags travel so the tab can decide.
-        awaiting: Boolean(s.awaiting_input),
-      }));
+    const states = new Map<string, SessionState>();
+    for (const s of sessions ?? []) {
+      // A question in a session she saved for later waits with it, uncoloured.
+      const awaiting = Boolean(s.awaiting_input) && !s.saved_at;
+      if (s.running || awaiting) states.set(s.id, { running: Boolean(s.running), awaiting });
+    }
+    return states;
   }, [sessions]);
 }
