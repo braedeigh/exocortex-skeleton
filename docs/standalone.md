@@ -6,7 +6,9 @@ by one command on a computer that has none of that. It is what a desktop window
 wraps.
 
 Off by default. The live site never sets it, and `server.py` never imports any
-of it.
+of it. (The live site itself is cut into separate apps — [`apps.md`](apps.md); the
+desktop app has none of that, and a per-app server would follow this file's
+pattern.)
 
 ```
 python3 scripts/standalone.py                     # default data folder, port 5123

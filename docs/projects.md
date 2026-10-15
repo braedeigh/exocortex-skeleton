@@ -43,3 +43,11 @@ that can say exactly which code and tables it is, is one that could one day be
 packaged. The projects are separate from the life *fronts* (`fronts.json`) and the
 Observatory's session *domains* (`exo_domains.json`); whether domains should become
 projects is an open question.
+
+## Apps
+
+Projects are grouped into **apps** — Journal, Observatory, Finances, Inventory, and
+Based Foods' kitchen pages — in `apps.json`; Core is shared by every app. Each project
+belongs to exactly one app (`tests/test_projects.py`), and the places one app's code
+still uses another's are listed and held to a shrinking baseline. See
+[`apps.md`](apps.md).
