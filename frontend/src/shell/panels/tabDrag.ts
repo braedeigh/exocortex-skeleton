@@ -21,6 +21,12 @@ import { useCallback, useEffect, useRef, type MouseEvent, type PointerEvent, typ
  * "which row" and "between which two tabs" — across panels too, which is what
  * lets a tab be dragged from one side of the split to the other.
  *
+ * WHAT SHE SEES while dragging: a lifted copy of the tab rides under the
+ * pointer (the ghost, below), and the tabs at the spot it would land slide
+ * apart to open a gap for it (TabBar.module.css). The ghost is moved by hand
+ * on every pointer move rather than through React, so carrying a tab never
+ * re-renders the workspace — only a change of landing spot does.
+ *
  * The drag itself (what's lifted, where it would land) is held by
  * Workspace.tsx and handed to every row, so the row being dragged OVER can
  * draw the drop line even though the drag started in another one.
@@ -80,9 +86,18 @@ function slotUnder(x: number, y: number, source: TabDragSource): DropSlot | null
   if (!row || !panelId) return null;
   if (source.kind === 'anchor' && panelId !== source.panelId) return null;
   const tabs = Array.from(row.querySelectorAll<HTMLElement>(`[data-tab-kind="${source.kind}"]`));
+  /* Where each tab would sit WITHOUT the gap. The gap is a margin that
+     shifts the tabs after it, and measuring the shifted positions would move
+     the landing spot as the gap opens — the gap chasing the pointer back and
+     forth. So every margin up to a tab is taken back out first. */
+  let opened = 0;
   const middles = tabs.map((tab) => {
     const rect = tab.getBoundingClientRect();
-    return rect.left + rect.width / 2;
+    const style = getComputedStyle(tab);
+    opened += parseFloat(style.marginLeft) || 0;
+    const middle = rect.left - opened + rect.width / 2;
+    opened += parseFloat(style.marginRight) || 0;
+    return middle;
   });
   return { panelId, index: insertionIndex(middles, x) };
 }
@@ -94,6 +109,8 @@ function slotUnder(x: number, y: number, source: TabDragSource): DropSlot | null
  */
 export function useTabDrag(options: {
   rowRef: RefObject<HTMLElement | null>;
+  /** The class that styles the copy of the tab riding under the pointer. */
+  ghostClass: string;
   onDrag: (drag: TabDrag | null) => void;
   onDrop: (source: TabDragSource, slot: DropSlot) => void;
 }) {
@@ -138,9 +155,32 @@ export function useTabDrag(options: {
     const startY = e.clientY;
     let over: DropSlot | null = null;
     let holdTimer: ReturnType<typeof setTimeout> | null = null;
+    let ghost: HTMLElement | null = null;
+    let grabX = 0;
+    let grabY = 0;
+
+    /* The ghost: a copy of the tab, fixed to the window, following the pointer
+       from the point she grabbed it by. It ignores the pointer itself, so the
+       page underneath is still what elementFromPoint finds. */
+    const moveGhost = (x: number, y: number) => {
+      if (ghost) ghost.style.transform = `translate(${x - grabX}px, ${y - grabY}px)`;
+    };
+    const liftGhost = (x: number, y: number) => {
+      const rect = element.getBoundingClientRect();
+      grabX = startX - rect.left;
+      grabY = startY - rect.top;
+      ghost = element.cloneNode(true) as HTMLElement;
+      ghost.removeAttribute('id');
+      ghost.setAttribute('aria-hidden', 'true');
+      ghost.className = `${element.className} ${latest.current.ghostClass}`;
+      ghost.style.width = `${rect.width}px`;
+      ghost.style.height = `${rect.height}px`;
+      document.body.appendChild(ghost);
+      moveGhost(x, y);
+    };
 
     // Pick it up: from here on the pointer is carrying a tab.
-    const begin = () => {
+    const begin = (x = startX, y = startY) => {
       if (holdTimer) clearTimeout(holdTimer);
       holdTimer = null;
       dragging.current = true;
@@ -149,6 +189,7 @@ export function useTabDrag(options: {
       } catch {
         // The pointer already went away; the up/cancel handler tidies.
       }
+      liftGhost(x, y);
       latest.current.onDrag({ ...source, over: null });
     };
 
@@ -158,6 +199,8 @@ export function useTabDrag(options: {
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onCancel);
       cleanup.current = null;
+      ghost?.remove();
+      ghost = null;
       if (dragging.current) {
         dragging.current = false;
         latest.current.onDrag(null);
@@ -170,10 +213,11 @@ export function useTabDrag(options: {
         const distance = Math.hypot(ev.clientX - startX, ev.clientY - startY);
         // A finger that moves before the hold is up is scrolling, not dragging.
         if (isTouch && distance > TOUCH_SLOP_PX) finish();
-        else if (!isTouch && distance > MOUSE_SLOP_PX) begin();
+        else if (!isTouch && distance > MOUSE_SLOP_PX) begin(ev.clientX, ev.clientY);
         return;
       }
       ev.preventDefault();
+      moveGhost(ev.clientX, ev.clientY);
       const next = slotUnder(ev.clientX, ev.clientY, source);
       if (next?.panelId !== over?.panelId || next?.index !== over?.index) {
         over = next;
@@ -198,7 +242,7 @@ export function useTabDrag(options: {
       if (ev.pointerId === pointerId) finish();
     };
 
-    if (isTouch) holdTimer = setTimeout(begin, TOUCH_HOLD_MS);
+    if (isTouch) holdTimer = setTimeout(() => begin(), TOUCH_HOLD_MS);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);

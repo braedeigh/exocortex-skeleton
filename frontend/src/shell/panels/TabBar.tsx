@@ -204,7 +204,12 @@ export function TabBar({
     if (source.kind === 'anchor') save(reorder(sets, activeSetId, source.index, to));
     else onOpenTabs(moveTab(openTabs, source.index, to));
   };
-  const { start: startDrag, swallowClick } = useTabDrag({ rowRef, onDrag, onDrop });
+  const { start: startDrag, swallowClick } = useTabDrag({
+    rowRef,
+    ghostClass: styles.ghost,
+    onDrag,
+    onDrop,
+  });
 
   /* Where this row draws the drop line: only while a drag is over THIS row,
      and not in the two gaps either side of the tab's own place in its own row,
@@ -430,7 +435,9 @@ export function TabBar({
         {/* A row with no open tabs still takes an open tab dropped from
             another panel; the line shows where it would go. */}
         {dropGap?.kind === 'open' && bar.length === anchors.length ? (
-          <span className={styles.dropEnd} aria-hidden="true" />
+          <span className={styles.dropEnd} aria-hidden="true">
+            <span className={styles.dropLine} />
+          </span>
         ) : null}
         {visiting ? (
           <div className={styles.tabWrap} role="presentation">

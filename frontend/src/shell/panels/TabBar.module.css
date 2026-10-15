@@ -273,27 +273,96 @@
   text-overflow: ellipsis;
 }
 
-/* Where a dragged tab would land. A line rather than a moving preview — the
-   bar is small enough that showing the gap is clearer than animating the
-   whole row around the pointer. Before a tab, or after the last of its
-   group; .dropEnd is the line in a row that has no open tabs yet. */
+/* WHERE A DRAGGED TAB WOULD LAND: the tabs there slide apart to open a gap,
+   and an accent line stands in the middle of it. The slide is a margin that
+   eases open, before a tab or after the last of its group; tabDrag.ts takes
+   the margin back out when it measures, so the gap can't chase the pointer.
+   .dropEnd is the gap in a row with no open tabs yet. */
+.tabWrap {
+  transition: margin 0.16s ease-out, opacity 0.16s;
+}
+
 .tabDropBefore {
-  box-shadow: inset 3px 0 0 var(--accent);
+  margin-left: 56px;
 }
 
 .tabDropAfter {
-  box-shadow: inset -3px 0 0 var(--accent);
+  margin-right: 56px;
 }
 
-.dropEnd {
-  flex: 0 0 3px;
-  align-self: stretch;
+.tabDropBefore::before,
+.tabDropAfter::after,
+.dropLine {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
   background: var(--accent);
 }
 
-/* The tab being carried. Dimmed in place so she can see where it came from. */
+.tabDropBefore::before {
+  left: -30px;
+}
+
+.tabDropAfter::after {
+  right: -30px;
+}
+
+.dropEnd {
+  position: relative;
+  flex: 0 0 56px;
+  animation: dropEndOpen 0.16s ease-out;
+}
+
+.dropLine {
+  left: 26px;
+}
+
+@keyframes dropEndOpen {
+  from {
+    flex-basis: 0;
+  }
+}
+
+/* The tab being carried, left behind in place, faded so she can see where it
+   came from. */
 .tabLifted {
-  opacity: 0.45;
+  opacity: 0.35;
+}
+
+/* The copy riding under the pointer. Fixed to the window and lifted off the
+   page with a shadow and a slight tilt, so it reads as "in her hand". It lets
+   the pointer through, or it would hide the row it's being dropped on. */
+.ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+  margin: 0;
+  background: var(--card-bg);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+  opacity: 0.95;
+  rotate: -2deg;
+  scale: 1.04;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabWrap {
+    transition: none;
+  }
+  .dropEnd {
+    animation: none;
+  }
+  .ghost {
+    rotate: none;
+    scale: none;
+  }
 }
 
 /* Room for the × so it never sits on top of the label. Only on tabs that have
