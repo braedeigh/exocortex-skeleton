@@ -29,7 +29,7 @@ import {
 } from './api';
 import { sessionLocation } from './sessionLocation';
 import { openedMap, setConversationRead } from './readReceipts';
-import { applyFilter, filterCounts, roomRoster, type StateFilter } from './sessionFilters';
+import { applyFilter, filterCounts, roomRoster, rosterView, type StateFilter } from './sessionFilters';
 import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
 import { NightCrewDoor } from './NightCrewDoor';
@@ -50,6 +50,7 @@ import { NotesPill } from '../todos/NotesPill';
 import { useToasts } from '../journal/useJournalData';
 import { ToastStack } from '../../ui';
 import { isStandalone, pageIsOffered } from '../../shell/standalone';
+import { useCurrentApp } from '../../shell/apps';
 import { ChatFinder } from './ChatFinder';
 import styles from './RosterPage.module.css';
 
@@ -273,7 +274,16 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   const [creating, setCreating] = useState<Lane | 'unset' | null>(null);
   // The rooms to draw: the fixed two on the site, the person's own list in
   // the desktop app (roomsApi.ts), where "Edit rooms" opens their editor.
-  const rooms = useRooms();
+  // Inside an app (shell/apps.ts) the list is that app's: the Journal shows
+  // the Keeper and the Personal room, the Observatory every room but no
+  // Keeper. Doors to other rooms show only where the app holds their page.
+  const app = useCurrentApp();
+  const view = rosterView(app);
+  const offered = (url: string) => pageIsOffered(url, app);
+  const rooms = useRooms().filter((room) => view.rooms === null || view.rooms.includes(room.id));
+  // The rail's roomless '+' can only skip asking which room when the app has
+  // just one — then a new session starts there (the Journal: Personal).
+  const onlyRoom: Lane | null = view.rooms?.length === 1 ? toLane(view.rooms[0]) : null;
   const [editingRooms, setEditingRooms] = useState(false);
   const [editTarget, setEditTarget] = useState<SessionMeta | null>(null);
 
@@ -308,7 +318,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // ONE list, so a count can't describe a population the page doesn't draw.
   // roomRoster (sessionFilters.ts) owns what's eligible and why; it's a function
   // there rather than a line here precisely because the two used to disagree.
-  const roomable = roomRoster(ordered, opened);
+  const roomable = roomRoster(ordered, opened, Date.now(), view.rooms);
 
   // Recomputed every render, which is what keeps the hour window and the unread
   // comparison honest as the poll ticks.
@@ -338,7 +348,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // work she's triaging, and the Keeper isn't that. Filtering to Unread and
   // watching the door to her day disappear would break the "always at the top"
   // promise the moment she used a filter.
-  const keeper = ordered.filter((s) => s.pinned);
+  const keeper = view.keeper ? ordered.filter((s) => s.pinned) : [];
   // Sessions she saved for later: out of the rooms (roomRoster drops them) and
   // into their own shut section under them. Read off `ordered` like the Keeper,
   // so the rail's colours never narrow them away or count them.
@@ -489,7 +499,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
 
           {/* Which agents are working in which copy of the code — at the top,
               just under the Keeper, so it's the first thing seen above the rooms. */}
-          {pageIsOffered('/observatory/worktrees') ? <WorktreeMapDoor /> : null}
+          {offered('/observatory/worktrees') ? <WorktreeMapDoor /> : null}
 
           {rooms.map(({ id: lane, name }) => (
             <SessionLane
@@ -530,29 +540,29 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               where its section used to sit, because that's where she already
               scrolls to look for it. It carries no census: that call is slow, so
               the crew loads only once she clicks through. */}
-          {pageIsOffered('/observatory/nightcrew') ? <NightCrewDoor /> : null}
+          {offered('/observatory/nightcrew') ? <NightCrewDoor /> : null}
 
           {/* The button-fired jobs (triage, recipe/receipt parses, person
               impressions) — a door like the night crew's, but carrying a census,
               where the "System agents — coming later" note used to sit. */}
-          {pageIsOffered('/observatory/helpers') ? <HelpersDoor state={helpersState} /> : null}
+          {offered('/observatory/helpers') ? <HelpersDoor state={helpersState} /> : null}
 
           {/* The research room — her desk sessions and the dispatched research
               workers, which left tmux for this lane. A door like the two
               above; the sessions themselves stay out of the rooms
               (sessionFilters.roomRoster). */}
-          {pageIsOffered('/observatory/research') ? <ResearchDoor state={researchState} /> : null}
+          {offered('/observatory/research') ? <ResearchDoor state={researchState} /> : null}
 
           {/* The Linear room — sessions that work in Linear with her. A door
               like Research's, and its sessions stay out of the rooms too. */}
-          {pageIsOffered('/observatory/linear') ? <LinearDoor state={linearState} /> : null}
+          {offered('/observatory/linear') ? <LinearDoor state={linearState} /> : null}
 
           {/* The spinoff family tree — which session came from which. */}
-          <SpinoffTreeDoor />
+          {offered('/observatory/tree') ? <SpinoffTreeDoor /> : null}
 
           {/* What the agents spend — tokens by model, session, room and kind,
               and when. A plain door: the numbers load once she walks in. */}
-          {pageIsOffered('/observatory/burn') ? <TokenBurnDoor /> : null}
+          {offered('/observatory/burn') ? <TokenBurnDoor /> : null}
 
           {/* Seeded from the '+' she actually pressed, and NOT seeded at all
               from the rail's — that one gets a null lane, which makes the sheet
@@ -615,7 +625,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
           <button
             type="button"
             className={styles.railNew}
-            onClick={() => setCreating('unset')}
+            onClick={() => setCreating(onlyRoom ?? 'unset')}
             title="New session"
             aria-label="New session"
           >

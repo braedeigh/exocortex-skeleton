@@ -13,9 +13,11 @@ import {
   filterCounts,
   matchesFilter,
   roomRoster,
+  rosterView,
   sessionIs,
 } from './sessionFilters';
 import type { SessionMeta } from './api';
+import { appById } from '../../shell/apps';
 
 const NOW = Date.parse('2026-07-30T12:00:00Z');
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -349,5 +351,34 @@ describe('roomRoster', () => {
     // actual contract: a pressed red button must not empty the page.
     expect(applyFilter(roomRoster(payload), {}, ['error'], NOW)).toHaveLength(counts.error);
     expect(applyFilter(roomRoster(payload), {}, ['unread'], NOW)).toHaveLength(counts.unread);
+  });
+});
+
+describe('an app\'s session list', () => {
+  // The roster as RosterPage draws it: the Keeper slot, then the rooms.
+  const drawn = (app: string | null, sessions: SessionMeta[]) => {
+    const view = rosterView(appById(app));
+    return {
+      keeper: view.keeper ? sessions.filter((s) => s.pinned).map((s) => s.id) : [],
+      rooms: roomRoster(sessions, {}, NOW, view.rooms).map((s) => s.id),
+    };
+  };
+  const roster = [
+    session('keeper', { pinned: true, lane: 'personal' }),
+    session('diary', { lane: 'personal' }),
+    session('build', { lane: 'coding' }),
+    session('old', { lane: 'orchestra' }),
+  ];
+
+  it('is the Keeper and the Personal room in the Journal', () => {
+    expect(drawn('journal', roster)).toEqual({ keeper: ['keeper'], rooms: ['diary'] });
+  });
+
+  it('is every room and no Keeper in the Observatory', () => {
+    expect(drawn('observatory', roster)).toEqual({ keeper: [], rooms: ['diary', 'build', 'old'] });
+  });
+
+  it('is everything, as before, outside any app', () => {
+    expect(drawn(null, roster)).toEqual({ keeper: ['keeper'], rooms: ['diary', 'build', 'old'] });
   });
 });

@@ -42,6 +42,7 @@
  * there's an error/aborted one"; "you can press more than one at a time".
  */
 import type { SessionMeta } from './api';
+import type { AppDef } from '../../shell/apps';
 import { isUnread } from './readReceipts';
 
 export type StateFilter = 'running' | 'active' | 'unread' | 'error';
@@ -258,16 +259,22 @@ export function matchesFilter(
  * pressing it emptied both rooms. Counting a population you don't render is
  * always this bug. One list, one definition, here.
  *
+ *   another app's room  inside an app (shell/apps.ts), a session whose room
+ *                     that app doesn't show — the Journal shows only Personal;
+ *                     `rooms` comes from rosterView below
+ *
  * [prompt: "why does the orange one say 32 when i don't have that many open and
  * why does the red one say 3 when i don't see any"] */
 export function roomRoster(
   sessions: SessionMeta[],
   opened: Record<string, string> = {},
   nowMs: number = Date.now(),
+  rooms: readonly string[] | null = null,
 ): SessionMeta[] {
   return sessions.filter(
     (s) =>
       !s.pinned &&
+      (rooms === null || rooms.includes(s.lane ?? '')) &&
       s.origin !== 'nightcrew' &&
       s.origin !== 'helper' &&
       s.origin !== 'research' &&
@@ -276,6 +283,21 @@ export function roomRoster(
       !s.saved_at &&
       !retiredOrange(s, opened[s.id], nowMs),
   );
+}
+
+/**
+ * What one app's session list shows: which rooms (null = every room) and
+ * whether the pinned Keeper sits above them. Read off apps.json, so the
+ * Journal's list is the Keeper and the Personal room, and the Observatory's
+ * is every room with no Keeper (the Keeper lives in the Journal). Outside any
+ * app — her own desktop sets, a window opened at an old address — everything,
+ * as before. RosterPage feeds `rooms` to roomRoster above, so the rail's
+ * counts and the drawn rooms stay one population.
+ *
+ * Her ask: "The Keeper lives only in the Journal app."
+ */
+export function rosterView(app: AppDef | null): { rooms: readonly string[] | null; keeper: boolean } {
+  return app ? { rooms: app.rooms, keeper: app.keeper } : { rooms: null, keeper: true };
 }
 
 /** A retired session still wearing orange: it handed its work on, yet it's
