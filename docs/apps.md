@@ -38,7 +38,10 @@ on its own on a phone and each showing only its own tabs:
 
 - `?app=<id>` on load names the app; it is remembered for the life of the window in
   **sessionStorage** (not localStorage, which Android shares between installed apps
-  on one site). If an iPhone app window ever loses it, it falls back to the launcher.
+  on one site). A phone window opened with neither — an old bookmark, a
+  notification's link, an iPhone window that lost its storage — takes on the app
+  that holds the page it opened on. A page no app holds (Settings, a kitchen page)
+  with no app gets a bar back to the launcher.
 - In an app, the strip at the top is that app's tabs only (`shell/AppStrip.tsx`):
   some always shown, some shown while they fit, the rest under More, with "All apps"
   at the bottom. A page the app doesn't hold opens **bare, with a way back** — never
@@ -61,8 +64,10 @@ workspace and put Journal beside Observatory.
 
 ## Based Foods
 
-Its address is per install: `EXOCORTEX_BASED_FOODS_URL` (`config.based_foods_url`),
-set in the service's environment. Empty means no link is drawn. The kitchen and Food
+Its address is per install (`config.based_foods_url`): the one-line file
+`based_foods_url` in the data dir, read on every request, or `EXOCORTEX_BASED_FOODS_URL`
+in the service's environment, which wins but needs a restart. Neither means no link
+is drawn. The kitchen and Food
 pages here (Kitchen, the ecosystem map, foods, nutrients, contaminants, review, the
 food map, shared recipes) belong to no exocortex app; `apps.json` `based_foods.pages`
 marks each `in-based-foods` or `to-port` — the port checklist, also drawn in the

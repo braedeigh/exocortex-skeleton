@@ -86,13 +86,23 @@ def standalone_sample_repo() -> str:
 
 
 def based_foods_url() -> str:
-    """Where this install's Based Foods app lives (EXOCORTEX_BASED_FOODS_URL),
-    for the "Based Foods" link in each app's tabs. Based Foods is its own app
-    at its own address and is only ever linked to, never proxied. Empty (the
-    default) means no link is drawn. Install-specific, so set in the service's
-    environment, never here. Read at call time, like public_only().
-    The apps and the link: docs/apps.md."""
-    return os.environ.get("EXOCORTEX_BASED_FOODS_URL", "").strip()
+    """Where this install's Based Foods app lives, for the "Based Foods" link
+    in each app's tabs. Based Foods is its own app at its own address and is
+    only ever linked to, never proxied. Empty means no link is drawn.
+
+    Install-specific, so never written here: EXOCORTEX_BASED_FOODS_URL wins if
+    set; otherwise the one-line file `based_foods_url` in the data dir, the
+    way the Linear key is kept — a file is picked up on the next request,
+    where a new environment variable needs a full restart of the service.
+    Read at call time. The apps and the link: docs/apps.md."""
+    from_env = os.environ.get("EXOCORTEX_BASED_FOODS_URL", "").strip()
+    if from_env:
+        return from_env
+    import store
+    try:
+        return (store.DATA_DIR / "based_foods_url").read_text().strip()
+    except OSError:
+        return ""
 
 
 def frame_ancestors():

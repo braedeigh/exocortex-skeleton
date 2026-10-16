@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { APPS, appAllows, appById, appFromSearch, appOfSet, appOwning, appSetId } from './apps';
 import { appSectionIds, appTabs } from './appTabs';
 import { ALL_SECTIONS, sectionForUrl } from './panels/sections';
@@ -104,5 +104,46 @@ describe('an app’s tabs', () => {
     expect(sectionForUrl('/todos', appSectionIds(journal))?.id).toBe('todos');
     expect(sectionForUrl('/map', appSectionIds(journal))?.id).toBe('map');
     expect(sectionForUrl('/person/someone', appSectionIds(journal))?.id).toBe('people');
+  });
+});
+
+describe('a phone window opened with no app', () => {
+  // A stand-in window: an address, a session store, and a phone-width screen.
+  const fakeWindow = (path: string, over: Record<string, unknown> = {}) => {
+    const store = new Map<string, string>();
+    return {
+      location: { pathname: path.split('?')[0], search: path.includes('?') ? `?${path.split('?')[1]}` : '' },
+      sessionStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+        removeItem: (k: string) => void store.delete(k),
+      },
+      matchMedia: () => ({ matches: false }),
+      VIEW_MODE: 'authed',
+      ...over,
+    };
+  };
+
+  it('takes on the app that holds its page, and keeps it after moving on', async () => {
+    const { currentApp } = await import('./apps');
+    const win = fakeWindow('/observatory/session?conv=abc');
+    vi.stubGlobal('window', win);
+    expect(currentApp()?.id).toBe('observatory');
+    win.location = { pathname: '/settings', search: '' };
+    expect(currentApp()?.id).toBe('observatory');
+    vi.unstubAllGlobals();
+  });
+
+  it('stays without one on the launcher, on a desktop, and for visitors', async () => {
+    const { currentApp } = await import('./apps');
+    for (const win of [
+      fakeWindow('/'),
+      fakeWindow('/journal', { matchMedia: () => ({ matches: true }) }),
+      fakeWindow('/journal', { VIEW_MODE: 'public' }),
+    ]) {
+      vi.stubGlobal('window', win);
+      expect(currentApp()).toBeNull();
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 import appsData from '../../../apps.json';
+import { DESKTOP_QUERY } from './useMediaQuery';
 
 /**
  * apps.ts — which APP is this window (or this desktop pane), and which pages
@@ -15,7 +16,8 @@ import appsData from '../../../apps.json';
  * manifest's start_url, routes/spa.py). That id is remembered for the life of
  * the window in sessionStorage — NOT localStorage, which Android shares
  * between installed apps on one site, so two apps would fight over it. A
- * window with no app shows the launcher at "/" (features/launcher). On the
+ * phone window opened with neither takes on the app that holds its page
+ * (currentApp). "/" is the launcher (features/launcher). On the
  * desktop each workspace pane can wear a different app: the pane's tab set
  * says which (an app set's id is `app:<id>`, panels/tabSets.ts), handed down
  * through AppContext below, so useCurrentApp() answers per pane.
@@ -114,6 +116,13 @@ export function appFromSearch(search: string): AppDef | null {
  * A `?app=` in the address wins and is remembered for the rest of the
  * window's life; after that the remembered one answers, so the app survives
  * every navigation that drops the query. An `?app=` naming no app is ignored.
+ *
+ * With neither — an old bookmark, a notification's link, an iPhone window
+ * that lost its storage — a phone-width window takes on the app that holds
+ * the page it opened on, and remembers it, so it lands inside that app
+ * rather than on a bare page. Not on a desktop, where each pane's set says
+ * which app it is; not for public visitors or in the desktop app, which
+ * have no apps.
  */
 export function currentApp(): AppDef | null {
   if (typeof window === 'undefined') return null;
@@ -123,11 +132,22 @@ export function currentApp(): AppDef | null {
       window.sessionStorage.setItem(STORAGE_KEY, fromUrl.id);
       return fromUrl;
     }
-    return appById(window.sessionStorage.getItem(STORAGE_KEY));
+    const remembered = appById(window.sessionStorage.getItem(STORAGE_KEY));
+    if (remembered) return remembered;
+    const adopted = adoptable() ? appOwning(window.location.pathname) : null;
+    if (adopted) window.sessionStorage.setItem(STORAGE_KEY, adopted.id);
+    return adopted;
   } catch {
     // Storage refused (a locked-down browser): the address alone decides.
     return fromUrl;
   }
+}
+
+/** May this window take on an app from its page? Phone-width, signed in,
+ * and not the desktop app. */
+function adoptable(): boolean {
+  if (window.VIEW_MODE === 'public' || window.STANDALONE === true) return false;
+  return typeof window.matchMedia !== 'function' || !window.matchMedia(DESKTOP_QUERY).matches;
 }
 
 /** Forget the window's app — what choosing "All apps" does, so the

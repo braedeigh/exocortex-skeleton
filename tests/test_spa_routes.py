@@ -221,6 +221,13 @@ def test_based_foods_link_comes_from_config(monkeypatch):
     assert b'window.BASED_FOODS_URL = "";' in _client().get("/journal").data
 
 
+def test_based_foods_link_can_come_from_a_data_file(monkeypatch, data_dir):
+    # A file in the data dir is read on the next request — no restart.
+    monkeypatch.delenv("EXOCORTEX_BASED_FOODS_URL", raising=False)
+    (data_dir / "based_foods_url").write_text("https://foods.example\n")
+    assert b'window.BASED_FOODS_URL = "https://foods.example";' in _client().get("/journal").data
+
+
 def test_every_spa_page_belongs_to_one_app_or_is_shared_launcher_or_based_foods():
     """A page added to spa.py without a home in apps.json fails here."""
     data = appmap.load()
