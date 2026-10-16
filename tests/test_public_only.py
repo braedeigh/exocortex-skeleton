@@ -135,7 +135,7 @@ def test_presentable_and_shell_stay_open(mirror):
     assert mirror.get("/terrain/map").status_code == 200
     assert mirror.get("/api/observatory/terrain").status_code == 200
     assert mirror.get("/api/version").status_code == 200
-    assert mirror.get("/manifest.webmanifest").status_code == 200
+    assert mirror.get("/apps/observatory.webmanifest").status_code == 200
 
 
 # The map's shape-only companions, opened 2026-09-22 so the public map draws
