@@ -355,3 +355,10 @@
 .menuLink:hover {
   background: rgba(124, 92, 191, 0.08);
 }
+
+/* An app's one row (AppStrip.tsx) is the top of the window, with no dash bar
+ * above it to clear the iOS status bar — so it clears it itself, the same
+ * way .dashBar does. 0 in a normal browser tab. */
+.appStrip {
+  padding-top: env(safe-area-inset-top, 0px);
+}

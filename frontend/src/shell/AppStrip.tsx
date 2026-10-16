@@ -154,7 +154,7 @@ export function AppStrip({ app, href }: { app: AppDef; href: string }) {
   );
 
   return (
-    <div className={styles.strip}>
+    <div className={joinClass(styles.strip, styles.appStrip)}>
       <div className={styles.row} ref={rowRef}>
         {items
           .filter((item) => item.place !== 'more')
