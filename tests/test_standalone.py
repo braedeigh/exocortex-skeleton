@@ -36,6 +36,10 @@ def standalone(data_dir, monkeypatch):
     # The interrupted-jobs sweep reads a module-level folder; without this the
     # heartbeat would read (and wake the sessions of) the machine's real jobs.
     monkeypatch.setattr(run_detached, "JOBS_DIR", data_dir / "jobs")
+    # Terrain keeps its built map in a process-wide cache; an earlier test's
+    # map of this checkout would otherwise answer here instead of the empty one.
+    from routes import terrain
+    monkeypatch.setattr(terrain, "_terrain_cache", {})
     standalone_app._history_loads.clear()
     standalone_app._version_cache.clear()
     standalone_journal._import.update(state=None, detail="", error="")
