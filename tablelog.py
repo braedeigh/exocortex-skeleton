@@ -214,13 +214,25 @@ def structure_changed(tables):
     """Note that these tables were just created or had their definition
     changed. Called by sqlstore's migration ladder with the tables whose
     definition differs from before it ran. Never raises."""
-    if _off():
+    if _off() or not tables:
         return
-    for table in tables:
+    # Write the whole batch through one connection, in one transaction. A fresh
+    # database's ladder makes well over a hundred tables, and a connection per
+    # table cost a sync each — about 12 seconds before the first open returned.
+    try:
+        now = time.time()
+        caller = store._stats_caller()
+        conn = _connect()
         try:
-            _note(table, STRUCTURE, force=True)
-        except Exception:
-            pass
+            conn.execute("BEGIN")
+            for table in tables:
+                _noted[(str(_db_path()), table, STRUCTURE)] = now
+                _write(conn, table, STRUCTURE, now, caller)
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+    except Exception:
+        pass
 
 
 # The app's own processes. One of these can be STARTED by an agent (a session
@@ -239,30 +251,34 @@ def _session(caller):
     return os.environ.get("EXOCORTEX_CONV_ID") or ""
 
 
-def _note(table, kind, force=False):
+def _note(table, kind):
     """Write one sighting down — this is a debounce: a table already noted by
     this process in the last minute is skipped, so a burst of a thousand
     inserts costs one small write, not a thousand."""
     now = time.time()
     key = (str(_db_path()), table, kind)
-    if not force and now - _noted.get(key, 0) < _DEBOUNCE_SEC:
+    if now - _noted.get(key, 0) < _DEBOUNCE_SEC:
         return
     _noted[key] = now
-    stamp = int(now)
-    caller = store._stats_caller()
     conn = _connect()
     try:
-        conn.execute(
-            "INSERT INTO table_activity"
-            " (table_name, kind, conv, caller, day, first_at, last_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)"
-            " ON CONFLICT(table_name, kind, conv, caller, day) DO UPDATE SET"
-            "  last_at = excluded.last_at, count = count + 1",
-            (table, kind, _session(caller), caller,
-             datetime.fromtimestamp(now).strftime("%Y-%m-%d"), stamp, stamp),
-        )
+        _write(conn, table, kind, now, store._stats_caller())
     finally:
         conn.close()
+
+
+def _write(conn, table, kind, now, caller):
+    """Add one sighting to the log, or bump the day's row if it's there."""
+    stamp = int(now)
+    conn.execute(
+        "INSERT INTO table_activity"
+        " (table_name, kind, conv, caller, day, first_at, last_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)"
+        " ON CONFLICT(table_name, kind, conv, caller, day) DO UPDATE SET"
+        "  last_at = excluded.last_at, count = count + 1",
+        (table, kind, _session(caller), caller,
+         datetime.fromtimestamp(now).strftime("%Y-%m-%d"), stamp, stamp),
+    )
 
 
 # --- reading -----------------------------------------------------------------
