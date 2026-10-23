@@ -1368,7 +1368,7 @@ export function ObservatoryPage({
                 else void navigate(sessionLocation(helperLink.conv));
               }}
             >
-              {helperLink.kind === 'swarm' ? 'swarm helper' : 'room helper'}
+              {helperLink.kind === 'swarm' ? 'swarm helper' : helperLink.kind === 'project' ? 'project helper' : 'room helper'}
             </button>
           ) : null}
           {/* In a helper's own chat: open what it is working from — the

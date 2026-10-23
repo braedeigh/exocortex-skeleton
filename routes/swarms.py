@@ -44,7 +44,13 @@ summaries (swarm_helper.py). These routes hand that to the page:
     GET  /api/swarms/room/<room>  the room seen from above, for the room map:
                                   the room helper's session, the sessions
                                   working alone (with its summary of each),
-                                  and its recent moves (room_helper.py).
+                                  and its recent moves (room_helper.py) —
+                                  plus `projects`: each project room inside
+                                  it (project_rooms.py) with its helper, the
+                                  ids of its swarms, its solo sessions and
+                                  its helper's moves. A project's sessions
+                                  and swarms are in its block, not the room's.
+    GET  /api/swarms/project/<id> one project room the same way, for its page.
     GET  /api/swarms/helper-of/<conv>
                                   the helper one session's chat links to (the
                                   button above its message box): its swarm's
@@ -84,6 +90,7 @@ import config
 import helper_chat
 import lanes
 import message_summaries
+import project_rooms
 import room_helper
 import sqlstore
 import store
@@ -154,7 +161,16 @@ def detail(swarm_id):
     return {**card, "runs": runs, "messages": messages,
             "differences": latest.get("differences") or [],
             "closings": list(reversed(swarm_helper.closings(swarm_id))),
-            "link_buttons": swarm_links(swarm_id)}
+            "link_buttons": swarm_links(swarm_id),
+            "project": _project_of(members)}
+
+
+def _project_of(member_convs):
+    """The project room a swarm belongs to, as {id, name}, or None."""
+    index = store.read("bot_chats/index", {})
+    found = project_rooms.find(project_rooms.swarm_room(
+        member_convs, index if isinstance(index, dict) else {}) or "")
+    return {"id": found["id"], "name": found["name"]} if found else None
 
 
 def line_messages(swarm_id, side_a, side_b):
@@ -241,30 +257,57 @@ def line_messages(swarm_id, side_a, side_b):
                          for mid, at, sender, receiver, text, mode, status in rows]}
 
 
-def room(room_name):
-    """The room from above: its helper, who's working alone, the recent moves."""
-    index = store.read("bot_chats/index", {})
-    index = index if isinstance(index, dict) else {}
-    cards = room_helper.open_swarms(room_name)
-    solos = room_helper.solo_sessions(room_name, index, cards)
+def _scope_view(scope, index, members, cards=None):
+    """One helper's part of a room: its helper, the ids of its open swarms,
+    its sessions working alone with their summaries, its recent moves."""
+    cards = room_helper.open_swarms(scope, index, members) if cards is None else cards
+    solos = room_helper.solo_sessions(scope, index, cards, members)
     summaries = room_helper._stored_summaries(solos)
     return {
-        "room": room_name,
-        "helper_conv": room_helper.find_helper(room_name, index),
+        "helper_conv": room_helper.find_helper(scope, index),
+        "swarm_ids": [card["id"] for card in cards],
         "solos": [{"conv": conv, "title": index[conv].get("title") or conv,
                    "state": swarms._status(index[conv]),
                    "summary": summaries.get(conv, (None,))[0]} for conv in solos],
-        "moves": room_helper.recent_moves(room_name),
+        "moves": room_helper.recent_moves(scope),
     }
+
+
+def project(project_id, index=None, members=None):
+    """One project room from above, or None when it isn't switched on."""
+    found = project_rooms.find(project_id)
+    if found is None:
+        return None
+    index = store.read("bot_chats/index", {}) if index is None else index
+    index = index if isinstance(index, dict) else {}
+    members = project_rooms.sync(index) if members is None else members
+    return {"id": found["id"], "name": found["name"], "room": project_rooms.ROOM,
+            **_scope_view(f"{project_rooms.ROOM}:{found['id']}", index, members)}
+
+
+def room(room_name):
+    """The room from above: its helper, who's working alone, the recent moves,
+    and each project room inside it as a block of its own."""
+    index = store.read("bot_chats/index", {})
+    index = index if isinstance(index, dict) else {}
+    members = room_helper._project_members(room_name)
+    view = _scope_view(room_name, index, members)
+    rooms = project_rooms.rooms() if room_name == project_rooms.ROOM else []
+    return {"room": room_name, "helper_conv": view["helper_conv"], "solos": view["solos"],
+            "moves": view["moves"],
+            "projects": [project(r["id"], index, members) for r in rooms]}
 
 
 def helper_of(conv_id):
     """The helper one session's chat links to, for the button above its
-    message box — {"kind": "swarm" | "room", "conv", "title"}, or None.
+    message box — {"kind": "swarm" | "project" | "room", "conv", "title"}, or
+    None.
 
-    Its swarm's helper when it's in a swarm that has one; otherwise its room's
-    helper. A swarm helper links up to its room's helper; the room helper is
-    the top of the stack and links nowhere.
+    Its swarm's helper when it's in a swarm that has one; otherwise its
+    project room's helper when it's in one; otherwise its room's helper. A
+    swarm helper links up to its project's helper (its swarm's project room)
+    or its room's; a project helper to its room's; the room helper is the top
+    of the stack and links nowhere.
     Prompt: "click a button up above the text input spot to go to that agent's
     helper, whether it's a swarm helper or just the room's helper"."""
     index = store.read("bot_chats/index", {})
@@ -294,8 +337,21 @@ def helper_of(conv_id):
             found = link("swarm", row[0] if row else None)
             if found:
                 return found
-    # Otherwise the room's helper (None when the room has none).
+    # Then its project room's helper: the session's own room, or for a swarm
+    # helper its swarm's. A project helper itself goes on up to the room's.
     room = entry.get("room") or lanes.derive_lane(entry)
+    if entry.get("role") == "swarm_helper":
+        project = project_rooms.swarm_room(
+            swarms.overview_members(entry.get("swarm_id")), index)
+    elif entry.get("role") in swarms.HELPER_ROLES:
+        project = None
+    else:
+        project = project_rooms.room_of(conv_id)
+    if project:
+        found = link("project", room_helper.find_helper(f"{room}:{project}", index))
+        if found:
+            return found
+    # Otherwise the room's helper (None when the room has none).
     return link("room", room_helper.find_helper(room, index))
 
 
@@ -388,6 +444,13 @@ def register(app):
     @app.route("/api/swarms/room/<room_name>")
     def swarm_room(room_name):
         return jsonify(room(room_name))
+
+    @app.route("/api/swarms/project/<project_id>")
+    def swarm_project(project_id):
+        found = project(project_id)
+        if found is None:
+            return jsonify({"error": "no such project room"}), 404
+        return jsonify(found)
 
     @app.route("/api/swarms/helper-of/<conv_id>")
     def swarm_helper_of(conv_id):

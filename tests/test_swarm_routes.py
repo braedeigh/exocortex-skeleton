@@ -301,3 +301,54 @@ def test_a_line_opens_into_the_messages_it_counts(client):
     assert client.get(f"{line}?a=a&b=stranger").status_code == 400
     assert client.get(f"{line}?a=a").status_code == 400
     assert client.get("/api/swarms/99999/line?a=a&b=b").status_code == 404
+
+
+# --- Project rooms -----------------------------------------------------------------
+
+@pytest.fixture
+def project_client(client, tmp_path):
+    """The client's swarm a↔b working in a switched-on build "shop", one
+    session working alone in it (c), and one outside it (d)."""
+    import subprocess
+    import project_rooms
+    import room_helper
+    root = tmp_path / "shop"
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    store.write("terrain_builds", {"builds": [
+        {"id": "shop", "name": "Shop", "root": str(root), "project_room": True}]})
+    project_rooms._REPO_CACHE.clear()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c"] = {"title": "C", "lane": "coding"}
+        index["d"] = {"title": "D", "lane": "coding"}
+    conn = sqlstore.open_db()
+    for n, conv in enumerate(("a", "b", "c")):
+        conn.execute("INSERT INTO tool_calls (tool_use_id, source, conv, at, day, hour, name,"
+                     " target) VALUES (?, 'observatory', ?, '2026-10-23T10:00:00', '2026-10-23',"
+                     " 10, 'Edit', ?)", (f"t{n}", conv, str(root / f"{conv}.txt")))
+    conn.commit()
+    conn.close()
+    [swarm_id] = swarms.sync()
+    room_helper.ensure_room_helper("coding")
+    lead = room_helper.ensure_room_helper("coding:shop")
+    return client, swarm_id, lead
+
+
+def test_the_room_view_holds_each_project_room_as_a_block(project_client):
+    client, swarm_id, lead = project_client
+    found = client.get("/api/swarms/room/coding").get_json()
+    assert [s["conv"] for s in found["solos"]] == ["d"]
+    [shop] = found["projects"]
+    assert (shop["id"], shop["name"], shop["helper_conv"]) == ("shop", "Shop", lead)
+    assert shop["swarm_ids"] == [swarm_id] and [s["conv"] for s in shop["solos"]] == ["c"]
+    assert client.get("/api/swarms/project/shop").get_json() == shop
+    assert client.get("/api/swarms/project/nope").status_code == 404
+
+
+def test_a_project_swarms_page_and_chats_link_up_to_the_project(project_client):
+    client, swarm_id, lead = project_client
+    detail = client.get(f"/api/swarms/{swarm_id}").get_json()
+    assert detail["project"] == {"id": "shop", "name": "Shop"}
+    helper = client.get("/api/swarms/helper-of/c").get_json()["helper"]
+    assert (helper["kind"], helper["conv"]) == ("project", lead)
+    up = client.get(f"/api/swarms/helper-of/{lead}").get_json()["helper"]
+    assert up["kind"] == "room"

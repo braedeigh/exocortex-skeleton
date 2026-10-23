@@ -24,6 +24,14 @@
  *   - every session WORKING ALONE (in no swarm) in rows beneath, as the same
  *     rings, so a glance says who's out on their own.
  *
+ * Each PROJECT ROOM inside the room (project_rooms.py — a build switched on
+ * as its own room, like a repo of its own) is one collapsible box, shut or
+ * open as she left it: its project helper's dot on top, then its own swarm
+ * stacks and its own sessions working alone, and a link to its page
+ * (/observatory/project/<id>, ProjectPage.tsx, which draws the same box
+ * whole). Those swarms and sessions are in the box, not in the room's own
+ * rows. The room's own swarms and solos stay as they were.
+ *
  * A ring's state follows the roster where the page has it (working glows,
  * an orange ring when it needs her), falling back to what the server said.
  * Tap any ring to open that session. Pointing the mouse at one lights that
@@ -33,7 +41,8 @@
  * When the card is shut, its title line still says how many swarm members
  * need her, so a question can't hide behind the collapse.
  *
- * Touches: swarmApi.ts (useRoomView — routes/swarms.py `room`), SwarmStack.tsx
+ * Touches: swarmApi.ts (useRoomView — routes/swarms.py `room`, with its
+ * `projects`), SwarmStack.tsx
  * (each swarm), SwarmNetwork.tsx (the key, the closed switch, and the rings'
  * look via SwarmNetwork.module.css), roomOrder.ts (the swarms' order),
  * body/CollapsibleCard.tsx (the card), RoomMap.module.css, SessionLane.tsx (which
@@ -46,6 +55,7 @@
  * and then i want the question cards to show below it in the swarm and i want
  * each one to have its little card below the swarm bubble"
  */
+import { Link } from '@tanstack/react-router';
 import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import { CollapsibleCard } from '../body/CollapsibleCard';
 import type { SessionMeta } from './api';
@@ -53,7 +63,7 @@ import styles from './RoomMap.module.css';
 import ring from './SwarmNetwork.module.css';
 import { orderRoom, swarmPlace, type SwarmView } from './roomOrder';
 import { ClosedSwarmsToggle, SwarmNetworkKey } from './SwarmNetwork';
-import type { MemberState, RoomView } from './swarmApi';
+import type { MemberState, ProjectView, RoomMove, RoomView } from './swarmApi';
 import { SwarmStack } from './SwarmStack';
 import { shortTitle } from './swarmNetworkMath';
 
@@ -80,12 +90,170 @@ function Ring({ state, big = false }: { state: MemberState; big?: boolean }) {
   );
 }
 
-const MOVE_WORDS: Record<RoomView['moves'][number]['kind'], string> = {
+const MOVE_WORDS: Record<RoomMove['kind'], string> = {
   form: 'formed a swarm from',
   join: 'moved into a swarm:',
   split: 'split out of a swarm:',
   release: 'released to work alone:',
 };
+
+/** How many members of these swarms need her, for a title line. */
+function needingIn(swarms: SwarmView[]): number {
+  return swarms.reduce((total, swarm) => total + swarm.counts.needs_input, 0);
+}
+
+/** One helper's part of the map: its dot on top with its last move, its swarm
+ * stacks in the room's order, and its sessions working alone in rows. Drawn
+ * for the room, inside each project box, and on a project's own page. */
+export function MapBody({
+  helperConv,
+  helperLabel,
+  moves,
+  solos,
+  swarms,
+  rosterById,
+  onOpen,
+  onChanged,
+  emptySwarms,
+}: {
+  helperConv: string | null;
+  helperLabel: string;
+  moves: RoomMove[];
+  solos: RoomView['solos'];
+  swarms: SwarmView[];
+  rosterById: Map<string, SessionMeta>;
+  onOpen: (conv: string) => void;
+  onChanged?: () => void;
+  emptySwarms: string;
+}) {
+  const lastMove = moves.find((m) => !m.undone_at);
+  const helperMeta = helperConv ? rosterById.get(helperConv) : undefined;
+  // The swarms in the room's order: one with a question first, longest wait
+  // on top, then working, then resting (roomOrder.ts).
+  const orderedSwarms = orderRoom(swarms.map((swarm) => ({ item: swarm, ...swarmPlace(swarm) })));
+  return (
+    <>
+      {/* The helper, above everything it arranges. */}
+      {helperConv ? (
+        <div className={styles.top}>
+          <button
+            type="button"
+            className={[styles.agent, styles.roomHelper, ring[`state_${stateOf(helperMeta, 'silent')}`]].join(' ')}
+            onClick={() => onOpen(helperConv)}
+            {...agentPointerProps(helperConv)}
+            title={`The ${helperLabel.toLowerCase()} — tap to open its chat`}
+          >
+            <Ring state={stateOf(helperMeta, 'silent')} big />
+            <span className={styles.agentName}>{helperLabel}</span>
+          </button>
+          {lastMove ? (
+            <p className={styles.lastMove}>
+              Last move: {MOVE_WORDS[lastMove.kind]} {lastMove.convs.length}{' '}
+              {lastMove.convs.length === 1 ? 'session' : 'sessions'}
+              {lastMove.to_swarm !== null ? ` (swarm ${lastMove.to_swarm})` : ''} — {lastMove.reason}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Each swarm as one stack: summary, circle, questions, members. */}
+      {orderedSwarms.length > 0 ? (
+        <div className={styles.stacks}>
+          {orderedSwarms.map((swarmView) => (
+            <SwarmStack
+              key={swarmView.swarm.id}
+              view={swarmView}
+              rosterById={rosterById}
+              onOpen={onOpen}
+              onChanged={onChanged}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className={styles.note}>{emptySwarms}</p>
+      )}
+
+      {/* Everyone working alone, in rows underneath. */}
+      <h4 className={styles.soloHead}>Working alone</h4>
+      {solos.length > 0 ? (
+        <div className={styles.solos}>
+          {solos.map((solo) => {
+            const state = stateOf(rosterById.get(solo.conv), solo.state);
+            return (
+              <button
+                key={solo.conv}
+                type="button"
+                className={[styles.agent, ring[`state_${state}`]].join(' ')}
+                onClick={() => onOpen(solo.conv)}
+                {...agentPointerProps(solo.conv)}
+                title={solo.summary ? `${solo.title} — ${solo.summary}` : solo.title}
+              >
+                <Ring state={state} />
+                <span className={styles.agentName}>{shortTitle(solo.title)}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <p className={styles.note}>Nobody — every session here is in a swarm.</p>
+      )}
+    </>
+  );
+}
+
+/** The swarms of one project room, picked out of the room's by id. */
+export function projectSwarms(project: ProjectView, swarms: SwarmView[]): SwarmView[] {
+  const ids = new Set(project.swarm_ids);
+  return swarms.filter((view) => ids.has(view.swarm.id));
+}
+
+/** One project room as a box inside the room map: shut or open as she left
+ * it, saying on its title line how many in it need her. */
+function ProjectBox({
+  project,
+  swarms,
+  rosterById,
+  onOpen,
+  onChanged,
+}: {
+  project: ProjectView;
+  swarms: SwarmView[];
+  rosterById: Map<string, SessionMeta>;
+  onOpen: (conv: string) => void;
+  onChanged?: () => void;
+}) {
+  const needing = needingIn(swarms);
+  return (
+    <CollapsibleCard
+      cardKey={`project-room-${project.id}`}
+      title={`${project.name} — project room`}
+      defaultOpen
+      note={needing > 0 ? `${needing} need${needing === 1 ? 's' : ''} you` : undefined}
+      classes={{ note: styles.titleNote }}
+    >
+      <div className={styles.map}>
+        <MapBody
+          helperConv={project.helper_conv}
+          helperLabel="Project helper"
+          moves={project.moves}
+          solos={project.solos}
+          swarms={swarms}
+          rosterById={rosterById}
+          onOpen={onOpen}
+          onChanged={onChanged}
+          emptySwarms={`No swarms in ${project.name} right now.`}
+        />
+        <Link
+          to="/observatory/project/$projectId"
+          params={{ projectId: project.id }}
+          className={styles.projectLink}
+        >
+          Open the {project.name} page
+        </Link>
+      </div>
+    </CollapsibleCard>
+  );
+}
 
 export function RoomMap({
   room,
@@ -109,14 +277,13 @@ export function RoomMap({
   /** After she answers a question here, so the roster refreshes. */
   onChanged?: () => void;
 }) {
-  const lastMove = view.moves.find((m) => !m.undone_at);
-  const helperMeta = view.helper_conv ? rosterById.get(view.helper_conv) : undefined;
-  // The swarms in the room's order: one with a question first, longest wait
-  // on top, then working, then resting (roomOrder.ts).
-  const orderedSwarms = orderRoom(swarms.map((swarm) => ({ item: swarm, ...swarmPlace(swarm) })));
+  const projects = view.projects ?? [];
+  // A project's swarms are drawn in its box, so the room's own are the rest.
+  const inAProject = new Set(projects.flatMap((project) => project.swarm_ids));
+  const ownSwarms = swarms.filter((view) => !inAProject.has(view.swarm.id));
   // Say on the title line how many swarm members need her, so it still shows
-  // with the card shut.
-  const needing = swarms.reduce((total, swarm) => total + swarm.counts.needs_input, 0);
+  // with the card shut — the project boxes' too.
+  const needing = needingIn(swarms);
 
   return (
     <CollapsibleCard
@@ -127,74 +294,33 @@ export function RoomMap({
       classes={{ note: styles.titleNote }}
     >
       <div className={styles.map}>
-        {/* The room helper, above everything it arranges. */}
-        {view.helper_conv ? (
-          <div className={styles.top}>
-            <button
-              type="button"
-              className={[styles.agent, styles.roomHelper, ring[`state_${stateOf(helperMeta, 'silent')}`]].join(' ')}
-              onClick={() => onOpen(view.helper_conv!)}
-              {...agentPointerProps(view.helper_conv)}
-              title="The room helper — tap to open its chat"
-            >
-              <Ring state={stateOf(helperMeta, 'silent')} big />
-              <span className={styles.agentName}>Room helper</span>
-            </button>
-            {lastMove ? (
-              <p className={styles.lastMove}>
-                Last move: {MOVE_WORDS[lastMove.kind]} {lastMove.convs.length}{' '}
-                {lastMove.convs.length === 1 ? 'session' : 'sessions'}
-                {lastMove.to_swarm !== null ? ` (swarm ${lastMove.to_swarm})` : ''} — {lastMove.reason}
-              </p>
-            ) : null}
+        {swarms.length > 0 ? <SwarmNetworkKey /> : null}
+        {projects.length > 0 ? (
+          <div className={styles.projects}>
+            {projects.map((project) => (
+              <ProjectBox
+                key={project.id}
+                project={project}
+                swarms={projectSwarms(project, swarms)}
+                rosterById={rosterById}
+                onOpen={onOpen}
+                onChanged={onChanged}
+              />
+            ))}
           </div>
         ) : null}
-
-        {/* Each swarm as one stack: summary, circle, questions, members. */}
-        {orderedSwarms.length > 0 ? (
-          <>
-            <SwarmNetworkKey />
-            <div className={styles.stacks}>
-              {orderedSwarms.map((swarmView) => (
-                <SwarmStack
-                  key={swarmView.swarm.id}
-                  view={swarmView}
-                  rosterById={rosterById}
-                  onOpen={onOpen}
-                  onChanged={onChanged}
-                />
-              ))}
-            </div>
-          </>
-        ) : (
-          <p className={styles.note}>No swarms in this room right now.</p>
-        )}
+        <MapBody
+          helperConv={view.helper_conv}
+          helperLabel="Room helper"
+          moves={view.moves}
+          solos={view.solos}
+          swarms={ownSwarms}
+          rosterById={rosterById}
+          onOpen={onOpen}
+          onChanged={onChanged}
+          emptySwarms="No swarms in this room right now."
+        />
         <ClosedSwarmsToggle closedCount={closedCount} />
-
-        {/* Everyone working alone, in rows underneath. */}
-        <h4 className={styles.soloHead}>Working alone</h4>
-        {view.solos.length > 0 ? (
-          <div className={styles.solos}>
-            {view.solos.map((solo) => {
-              const state = stateOf(rosterById.get(solo.conv), solo.state);
-              return (
-                <button
-                  key={solo.conv}
-                  type="button"
-                  className={[styles.agent, ring[`state_${state}`]].join(' ')}
-                  onClick={() => onOpen(solo.conv)}
-                  {...agentPointerProps(solo.conv)}
-                  title={solo.summary ? `${solo.title} — ${solo.summary}` : solo.title}
-                >
-                  <Ring state={state} />
-                  <span className={styles.agentName}>{shortTitle(solo.title)}</span>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <p className={styles.note}>Nobody — every session here is in a swarm.</p>
-        )}
       </div>
     </CollapsibleCard>
   );

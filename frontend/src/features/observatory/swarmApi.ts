@@ -106,6 +106,8 @@ export interface SwarmDetail extends Swarm {
   /** Buttons to other places, from her swarm_links.json data file: each opens
    * its http(s) url in a new tab. Absent from an older server. */
   link_buttons?: { label: string; url: string }[];
+  /** The project room this swarm belongs to (project_rooms.py), if any. */
+  project?: { id: string; name: string } | null;
 }
 
 /** Every live swarm — one shared, polled query for the whole page. */
@@ -120,13 +122,30 @@ export function useSwarms(enabled = true) {
   });
 }
 
+/** One helper's recent move (room_helper.py), as the room map writes it. */
+export type RoomMove = RoomView['moves'][number];
+
+/** A project room inside a room (project_rooms.py): its project helper, the
+ * ids of the swarms inside it, its sessions working alone, its helper's
+ * moves. Its sessions and swarms are here, not in the room's own lists. */
+export interface ProjectView {
+  id: string;
+  name: string;
+  room: string;
+  helper_conv: string | null;
+  swarm_ids: number[];
+  solos: RoomView['solos'];
+  moves: RoomView['moves'];
+}
+
 /** The room seen from above (routes/swarms.py `room`): its room helper
  * (room_helper.py), the sessions working alone with the helper's summary of
- * each, and the helper's recent moves. */
+ * each, the helper's recent moves, and each project room inside it. */
 export interface RoomView {
   room: string;
   helper_conv: string | null;
   solos: { conv: string; title: string; state: MemberState; summary: string | null }[];
+  projects?: ProjectView[];
   moves: {
     id: number;
     at: string;
@@ -151,10 +170,22 @@ export function useRoomView(room: string, enabled = true) {
   });
 }
 
+/** One project room from above, for its own page (routes/swarms.py
+ * `project`), polled like the room. */
+export function useProjectView(projectId: string) {
+  return useQuery({
+    queryKey: ['swarm-project', projectId] as const,
+    queryFn: async ({ signal }) =>
+      api.get<ProjectView>(`/api/swarms/project/${encodeURIComponent(projectId)}`, signal),
+    staleTime: 4_000,
+    refetchInterval: 10_000,
+  });
+}
+
 /** The helper one session's chat links to (routes/swarms.py `helper_of`):
- * its swarm's helper, else its room's helper, else null. */
+ * its swarm's helper, else its project room's, else its room's, else null. */
 export interface HelperLink {
-  kind: 'swarm' | 'room';
+  kind: 'swarm' | 'project' | 'room';
   conv: string;
   title: string;
 }

@@ -6,6 +6,8 @@
  * messaged each other (swarms.py), with a helper — a Sonnet that names the
  * swarm, keeps a summary of every member and notices where their work
  * collides (swarm_helper.py). This page shows, top to bottom:
+ *   - a "‹ <project>" button up to its project room's page, when the swarm
+ *     belongs to one (project_rooms.py);
  *   - any buttons her swarm_links.json data file gives this swarm (an app the
  *     swarm is building, say), each opening its address in a new tab;
  *   - a box to ask the helper about the swarm's work, a link to its own
@@ -135,6 +137,18 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
           <button type="button" className={pageStyles.back} onClick={() => void navigate({ to: '/observatory' })}>
             &larr; Observatory
           </button>
+          {/* Up one level to its project room's page, when it's in one. */}
+          {swarm?.project ? (
+            <button
+              type="button"
+              className={pageStyles.back}
+              onClick={() =>
+                void navigate({ to: '/observatory/project/$projectId', params: { projectId: swarm.project!.id } })
+              }
+            >
+              &lsaquo; {swarm.project.name}
+            </button>
+          ) : null}
           <h1 className={pageStyles.title}>{swarm ? swarm.name : 'Swarm'}</h1>
         </div>
 

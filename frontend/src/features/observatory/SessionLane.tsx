@@ -199,6 +199,10 @@ export function SessionLane({
           ...shown.flatMap((s) => s.members.map((m) => m.conv)),
           ...(allSwarms ?? []).flatMap((s) => (s.helper_conv ? [s.helper_conv] : [])),
           ...(hasRoomMap ? [roomView!.helper_conv!] : []),
+          // Each project room's helper stands in its box on the map.
+          ...(hasRoomMap
+            ? (roomView!.projects ?? []).flatMap((p) => (p.helper_conv ? [p.helper_conv] : []))
+            : []),
         ],
   );
   const rows = orchestraRows(
