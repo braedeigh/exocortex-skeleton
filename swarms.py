@@ -9,19 +9,28 @@ But it has to be a conversation: at least LINK_MESSAGES (three) messages
 between the two, with at least one each way — a message, an answer and a
 follow-up. A heads-up about a shared file links nobody, answered with a
 "thanks" or not (her calls: "both ways", then the three-message rule). A
-session and its continuations count as one sender, so a reply from the
-session that took over still answers.
+session and its continuations count as one sender toward the three, so a
+reply from the session that took over still answers.
 
 There is a second way in, without a word said: two sessions that keep
 changing the SAME FILES are linked too — LINK_FILES (two) or more files that
 both changed within the file-alert window (file_alerts.py writes each such
 overlap down). Her call: a swarm also forms "if they are continuously
 working on things in the same files". One shared file is not enough: nearly
-every session touches the same few registry files once. A session
-that continued itself (a fresh session taking over when the old one's context
-filled up) stays in its parent's swarm — but a handoff is not a conversation:
-a session and its own continuation, with no message between them and anyone
-else, are one line of work, not a swarm, and get no swarm of their own.
+every session touches the same few registry files once.
+
+A CONTINUATION (a fresh session taking over when the old one's context filled
+up) connects on its own. The old session keeps its place in its swarm; the
+continuation joins only when it took part itself — sent or received one of
+the messages, or changed the shared files itself. One that says nothing works
+alone. A handoff is not a conversation, and carrying every old link forward
+to each continuation is how one swarm once grew to "everything" in a project.
+
+A HUB is a line of work in back-and-forth with HUB_LINES (four) or more other
+lines — a project-level coordinator that messages everyone. Its messages
+link nobody, or it would glue every session it talks to into one swarm; the
+files it shares still count. Worked out each sync, and overridable either way
+by hand (`swarm_hubs`, set with `scripts/room_moves.py hub`).
 
 A swarm keeps its identity as it grows: the same number, the same name, the
 same helper, even as new members join. When two swarms get linked, the older
@@ -59,7 +68,7 @@ This file only works out who belongs where and stores it. Naming the swarm and
 summarising its members is the helper's job (docs/swarms.md, stage 4).
 
 Touches: sqlstore.py (the `swarms`, `swarm_members`, `swarm_helper_runs`,
-`swarm_closings` and `swarm_pins` tables), the `agent_messages` table (peermail.py), room_helper.py
+`swarm_closings`, `swarm_pins` and `swarm_hubs` tables), the `agent_messages` table (peermail.py), room_helper.py
 (which makes the placements, through `place`), the session index
 (bot_chats/index — lanes and spinoff lineage), tests/test_swarms.py.
 Design and decisions: docs/swarms.md.
@@ -88,6 +97,9 @@ LINK_MESSAGES = 3
 # How many files two sessions must both have changed (file_alerts' same-file
 # overlaps) before that alone links them (links).
 LINK_FILES = 2
+# How many other lines of work one line must be in back-and-forth with before
+# it counts as a hub, whose messages link nobody (hubs).
+HUB_LINES = 4
 
 
 def _now():
@@ -129,31 +141,123 @@ def groups(links):
     return [members for members in found.values() if len(members) >= 2]
 
 
+def _continued_from(index):
+    """Each continuation's parent, as {conv: spawned_from}."""
+    return {c: e.get("spawned_from") for c, e in index.items()
+            if isinstance(e, dict) and e.get("spawned_via") == "continue"}
+
+
+def _line_root(conv, parent):
+    """The first session of this session's line of work, walking its
+    continuations back (parent: _continued_from)."""
+    seen = {conv}
+    while parent.get(conv) and parent[conv] not in seen:
+        conv = parent[conv]
+        seen.add(conv)
+    return conv
+
+
+def _helper_convs(index):
+    return {c for c, e in index.items()
+            if isinstance(e, dict) and e.get("role") in HELPER_ROLES}
+
+
+def hub_overrides(conn):
+    """Every hand-set hub mark, as {conv: True (a hub) or False (never one)}."""
+    return {conv: bool(is_hub) for conv, is_hub in
+            conn.execute("SELECT conv, is_hub FROM swarm_hubs")}
+
+
+def hubs(conn, index):
+    """The hubs: every session in a line of work that is in back-and-forth
+    with HUB_LINES or more other lines, plus the lines marked a hub by hand,
+    minus the lines marked never one. Returns {line root: number of partner
+    lines} — the sessions in each line are found with _line_root.
+
+    Every message counts here, placements or not: being a hub is how a
+    session works, not where it sits. Helpers' messages don't count."""
+    helpers = _helper_convs(index)
+    parent = _continued_from(index)
+    ways = Counter()
+    for a, b, count in conn.execute(
+            "SELECT from_conv, to_conv, COUNT(*) FROM agent_messages"
+            " WHERE kind = 'A' AND status != 'cancelled' AND from_conv IS NOT NULL"
+            " GROUP BY from_conv, to_conv"):
+        if a in helpers or b in helpers:
+            continue
+        ways[_line_root(a, parent), _line_root(b, parent)] += count
+    partners = {}
+    for (a, b), count in ways.items():
+        if a != b and ways[b, a] and count + ways[b, a] >= LINK_MESSAGES:
+            partners.setdefault(a, set()).add(b)
+    found = {line: len(others) for line, others in partners.items()
+             if len(others) >= HUB_LINES}
+    # A mark by hand wins over the count, either way.
+    for conv, is_hub in hub_overrides(conn).items():
+        line = _line_root(conv, parent)
+        if is_hub:
+            found[line] = len(partners.get(line, ()))
+        else:
+            found.pop(line, None)
+    return found
+
+
+def mark_hub(conv, state, by="cli", reason=""):
+    """Mark a session's line of work a hub ('on'), never a hub ('off'), or
+    back to the count ('auto'). Returns what the mark was before: 'on',
+    'off' or 'auto'."""
+    if state not in ("on", "off", "auto"):
+        raise ValueError(f"hub state must be on, off or auto, not {state!r}")
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        row = conn.execute("SELECT is_hub FROM swarm_hubs WHERE conv = ?", (conv,)).fetchone()
+        before = "auto" if row is None else ("on" if row[0] else "off")
+        if state == "auto":
+            conn.execute("DELETE FROM swarm_hubs WHERE conv = ?", (conv,))
+        else:
+            conn.execute("INSERT OR REPLACE INTO swarm_hubs (conv, is_hub, at, by, reason)"
+                         " VALUES (?, ?, ?, ?, ?)",
+                         (conv, 1 if state == "on" else 0, _now(), by, reason))
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+    sync()
+    return before
+
+
 def links(conn, index):
-    """Who is linked to whom, as two lists: every pair that has had a
-    back-and-forth (delivered or not — sending is the interaction), and every
-    session paired with the continuation that took over from it.
+    """Who is linked to whom: every pair that has had a back-and-forth
+    (delivered or not — sending is the interaction), as a list of (a, b).
 
     A pair needs LINK_MESSAGES messages between them, at least one EACH way:
     a message, an answer and a follow-up. A heads-up links nobody, whether
     or not it got a "thanks": that is not working together. A session and
-    its continuations are one sender here (`line`), so an answer from the
-    session that took over counts.
+    its continuations are one sender toward that count (`_line_root`), so an
+    answer from the session that took over counts — but the link is made
+    only between the sessions that sent or received a message themselves. A
+    continuation that said nothing is not linked by its parent's talk.
+
+    A hub's messages (hubs) link nobody.
 
     A pair is also linked, with no message at all, when both changed
     LINK_FILES or more of the same files (the same-file rows file_alerts.py
-    wrote for them).
+    wrote for them), credited to the two sessions that changed them.
 
-    Placements (swarm_pins) bend both lists. A message, or a shared file, is
+    Placements (swarm_pins) bend the list. A message, or a shared file, is
     left out when it came at or before the placement of either end. And the
     sessions placed into the same live swarm are linked to each other, and to
     one of the swarm's other members — that's what holds a swarm the room
     helper made together before its members have said a word."""
     # A helper talks to every session it watches but works with none of
     # them — linking through it would make a swarm out of nothing.
-    helpers = {c for c, e in index.items()
-               if isinstance(e, dict) and e.get("role") in HELPER_ROLES}
+    helpers = _helper_convs(index)
     placed = pins(conn)
+    parent = _continued_from(index)
+    hub_lines = set(hubs(conn, index))
 
     def cut(conv, last):
         pin = placed.get(conv)
@@ -163,35 +267,27 @@ def links(conn, index):
         "SELECT from_conv, to_conv, MAX(at), COUNT(*) FROM agent_messages"
         " WHERE kind = 'A' AND status != 'cancelled' AND from_conv IS NOT NULL"
         " GROUP BY from_conv, to_conv")
-        if a not in helpers and b not in helpers and not cut(a, last) and not cut(b, last)]
+        if a not in helpers and b not in helpers and not cut(a, last) and not cut(b, last)
+        and _line_root(a, parent) not in hub_lines and _line_root(b, parent) not in hub_lines]
     # Keep only the pairs that had a back-and-forth, counting a session and
-    # its continuations as one sender: each session is named by the first
-    # session of its line of work, and a pair stays when both lines wrote and
-    # there were LINK_MESSAGES messages between them.
-    parent = {c: e.get("spawned_from") for c, e in index.items()
-              if isinstance(e, dict) and e.get("spawned_via") == "continue"}
-
-    def line(conv):
-        seen = {conv}
-        while parent.get(conv) and parent[conv] not in seen:
-            conv = parent[conv]
-            seen.add(conv)
-        return conv
-
+    # its continuations as one sender: each pair of lines needs both to have
+    # written and LINK_MESSAGES messages between them. The link itself joins
+    # the two sessions on the row, never their whole lines.
+    line = lambda conv: _line_root(conv, parent)  # noqa: E731
     ways = Counter()
     for a, b, count in sent:
         ways[line(a), line(b)] += count
     talked = [(a, b) for a, b, _ in sent
               if line(a) != line(b) and ways[line(b), line(a)]
               and ways[line(a), line(b)] + ways[line(b), line(a)] >= LINK_MESSAGES]
-    # Link the pairs that keep changing the same files. Each row names the two
-    # lines of work by their first sessions; the handoff links bring the rest.
-    # A file noticed at or before either one's placement doesn't count.
+    # Link the pairs that keep changing the same files: the two sessions that
+    # changed them (conv_a, conv_b), not their whole lines of work. A file
+    # noticed at or before either one's placement doesn't count.
     shared = Counter()
     for a, b, at in conn.execute(
-            "SELECT line_a, line_b, at FROM file_alerts WHERE kind = 'same-file'"):
+            "SELECT conv_a, conv_b, at FROM file_alerts WHERE kind = 'same-file'"):
         if a not in helpers and b not in helpers and not cut(a, at) and not cut(b, at):
-            shared[a, b] += 1
+            shared[tuple(sorted((a, b)))] += 1
     talked += [pair for pair, files in shared.items() if files >= LINK_FILES]
     # Placed sessions: chained to each other and to one member of their swarm.
     by_swarm = {}
@@ -209,19 +305,13 @@ def links(conn, index):
             if conv not in convs and not _superseded(swarm_id, conv, joined, placed)), None)
         chain = sorted(convs) + ([anchor] if anchor else [])
         talked += list(zip(chain, chain[1:]))
-    continued = [(entry["spawned_from"], conv_id) for conv_id, entry in index.items()
-                 if isinstance(entry, dict) and entry.get("spawned_via") == "continue"
-                 and entry.get("spawned_from")
-                 and entry["spawned_from"] not in helpers and conv_id not in helpers]
-    return talked, continued
+    return talked
 
 
-def found_groups(talked, continued):
-    """The swarms that should exist: groups joined by messages, with each
-    continuation chain riding along with its parent. A group held together
-    by handoffs alone is left out — nobody in it talked to anybody."""
-    talkers = {conv for pair in talked for conv in pair}
-    return [members for members in groups(talked + continued) if members & talkers]
+def found_groups(talked):
+    """The swarms that should exist: the groups joined by links. A
+    continuation is in one only through links of its own (see links)."""
+    return groups(talked)
 
 
 def _majority_lane(members, index):
@@ -250,7 +340,7 @@ def sync():
     index = index if isinstance(index, dict) else {}
     conn = sqlstore.open_db()
     try:
-        found = found_groups(*links(conn, index))
+        found = found_groups(links(conn, index))
         placed = pins(conn)
         try:
             live = _reconcile(conn, [set(m) for m in found], placed, index, dry=True)
@@ -696,8 +786,7 @@ def unplace(before):
 def line_of_work(conv_id, index):
     """This session and every continuation before and after it — one line of
     work, which always moves together."""
-    parent = {c: e.get("spawned_from") for c, e in index.items()
-              if isinstance(e, dict) and e.get("spawned_via") == "continue"}
+    parent = _continued_from(index)
     root, seen = conv_id, {conv_id}
     while parent.get(root) in index and parent[root] not in seen:
         root = parent[root]

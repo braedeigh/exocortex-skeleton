@@ -488,11 +488,11 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
         left_alone = sorted(c for c in staying if not swarms.member_retired(index.get(c)))
     # Tell each moved session that's still working, once, at the end of its turn.
     helper = ensure_room_helper(room)
-    note = _move_note(kind, to_swarm, moved, index)
     alone_note = (f"(Room helper: swarm {from_swarm} has closed — everyone else in it has"
                   " finished or moved on, so you're working alone now. `scripts/peers.py"
                   " list` shows who else is working.)")
-    tell = [(c, note, message) for c in moved] + [(c, alone_note, "") for c in left_alone]
+    tell = ([(c, _move_note(kind, to_swarm, moved, index, recipient=c), message)
+             for c in moved] + [(c, alone_note, "") for c in left_alone])
     for conv, facts, words in tell:
         if swarms.member_retired(index.get(conv)):
             continue
@@ -510,16 +510,30 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
     return made
 
 
-def _move_note(kind, to_swarm, moved, index):
-    """The facts line under a move's message: where the session is now."""
+def _move_note(kind, to_swarm, moved, index, recipient=None):
+    """The facts line under a move's message: where the session is now. For a
+    swarm, its number and name, how many others are still working in it, and
+    at most three of them by name — a big swarm's full list was noise, and
+    `scripts/peers.py swarm` has it."""
     if to_swarm is None:
         return ("(Room helper: you're working alone now — out of your old swarm. "
                 "`scripts/peers.py list` shows who else is working.)")
+    conn = sqlstore.open_db()
+    try:
+        row = conn.execute("SELECT name FROM swarms WHERE id = ?", (to_swarm,)).fetchone()
+    finally:
+        conn.close()
+    called = f"swarm {to_swarm}" + (f" ({row[0]})" if row and row[0] else "")
     others = [m for m in swarms.overview_members(to_swarm)
-              if not swarms.member_retired(index.get(m))]
-    names = ", ".join(f"{m} ({(index.get(m) or {}).get('title') or m})" for m in others)
-    return (f"(Room helper: you're now in swarm {to_swarm}, with {names}. "
-            "`scripts/peers.py swarm` shows it.)")
+              if m != recipient and not swarms.member_retired(index.get(m))]
+    if not others:
+        return (f"(Room helper: you're now in {called}. `scripts/peers.py swarm`"
+                " shows it.)")
+    named = ", ".join(f"{m} ({(index.get(m) or {}).get('title') or m})" for m in others[:3])
+    count = f"{len(others)} other session{'s' if len(others) != 1 else ''} still working"
+    more = f", among them {named}" if len(others) > 3 else f": {named}"
+    return (f"(Room helper: you're now in {called}, with {count}{more}. "
+            "`scripts/peers.py swarm` lists them.)")
 
 
 def undo(move_id):

@@ -14,11 +14,19 @@ undoable like the helper's own.
     ./venv/bin/python3 scripts/room_moves.py join <swarm id> <conv>... --reason "…"
     ./venv/bin/python3 scripts/room_moves.py split <swarm id> <conv>... --reason "…"
     ./venv/bin/python3 scripts/room_moves.py release <conv>... --reason "…"
+    ./venv/bin/python3 scripts/room_moves.py hubs
+    ./venv/bin/python3 scripts/room_moves.py hub <conv> on|off|auto --reason "…"
 
 A session's continuations always move with it. `--by-owner` marks a move as
 hers, which lets it redo a move she undid.
 
-Touches: room_helper.py (execute, undo, recent_moves), exo.db (room_moves).
+`hubs` lists the hubs: sessions in back-and-forth with so many others that
+their messages link nobody into a swarm (swarms.hubs). `hub` overrides that
+for one session's line of work: `on` always a hub, `off` never one, `auto`
+back to the count. It isn't a room move, so there's no undo — set it back.
+
+Touches: room_helper.py (execute, undo, recent_moves), swarms.py (hubs,
+mark_hub), exo.db (room_moves, swarm_hubs).
 """
 import argparse
 import os
@@ -33,6 +41,8 @@ if os.environ.get("EXOCORTEX_DATA_DIR"):
     store.DATA_DIR = Path(os.environ["EXOCORTEX_DATA_DIR"])
 
 import room_helper  # noqa: E402
+import sqlstore  # noqa: E402
+import swarms  # noqa: E402
 
 
 def main(argv=None):
@@ -50,7 +60,37 @@ def main(argv=None):
         move.add_argument("--reason", required=True)
         move.add_argument("--message", default="")
         move.add_argument("--by-owner", action="store_true")
+    sub.add_parser("hubs")
+    hub = sub.add_parser("hub")
+    hub.add_argument("conv")
+    hub.add_argument("state", choices=("on", "off", "auto"))
+    hub.add_argument("--reason", required=True)
+    hub.add_argument("--by-owner", action="store_true")
     args = parser.parse_args(argv)
+
+    # List the hubs, counted and hand-marked, and every hand mark.
+    if args.cmd == "hubs":
+        index = store.read("bot_chats/index", {})
+        conn = sqlstore.open_db()
+        try:
+            found = swarms.hubs(conn, index)
+            marks = swarms.hub_overrides(conn)
+        finally:
+            conn.close()
+        for line, partners in sorted(found.items(), key=lambda kv: -kv[1]):
+            title = (index.get(line) or {}).get("title") or line
+            print(f"{line}  {title}  — in back-and-forth with {partners} other lines")
+        for conv, is_hub in sorted(marks.items()):
+            print(f"marked {'on' if is_hub else 'off'}: {conv}")
+        if not found and not marks:
+            print("no hubs")
+        return 0
+    # Set or clear one hand mark.
+    if args.cmd == "hub":
+        before = swarms.mark_hub(args.conv, args.state,
+                                 by="owner" if args.by_owner else "cli", reason=args.reason)
+        print(f"hub {args.conv}: {before} → {args.state}")
+        return 0
 
     if args.cmd == "list":
         for move in room_helper.recent_moves(args.room, limit=50):

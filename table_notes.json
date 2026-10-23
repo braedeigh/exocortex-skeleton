@@ -1527,6 +1527,29 @@
       }
     }
   },
+  "swarm_hubs": {
+    "holds": "Hub marks set by hand. A hub is a session in back-and-forth with many others; its messages link nobody into a swarm. A row overrides the automatic count for that session's line of work: always a hub, or never one.",
+    "source": "Written by swarms.mark_hub through scripts/room_moves.py hub. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "conv": {
+        "holds": "The session the mark is on; it covers its whole line of work."
+      },
+      "is_hub": {
+        "holds": "1: always a hub. 0: never one, whatever the count says."
+      },
+      "at": {
+        "holds": "When the mark was set."
+      },
+      "by": {
+        "holds": "Who set it: owner, cli or room_helper."
+      },
+      "reason": {
+        "holds": "Why, in a line."
+      }
+    }
+  },
   "swarm_pins": {
     "holds": "Where the room helper placed a session: in a swarm, or released to work alone. A placement overrides the messages the session exchanged before it, so a swarm glued together by old messages can come apart.",
     "source": "Written by swarms.place when the room helper (or scripts/room_moves.py) makes a move; put back by an undo. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",

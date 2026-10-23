@@ -567,6 +567,7 @@
         "chat_line_sources",
         "session_summaries",
         "swarm_pins",
+        "swarm_hubs",
         "room_moves",
         "room_helper_runs",
         "helper_watches",

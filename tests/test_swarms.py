@@ -3,8 +3,9 @@
 What these pin: two sessions that had a back-and-forth (three messages, one
 at least each way) are a swarm, and a heads-up links no one, thanked or not;
 a chain
-(a↔b, b↔c) is ONE swarm even though a and c never spoke; a continuation stays
-in its parent's swarm, but a handoff alone makes no swarm; a swarm keeps its
+(a↔b, b↔c) is ONE swarm even though a and c never spoke; a continuation joins
+only by talking or sharing files itself, and a handoff alone makes no swarm; a
+hub's messages link nobody unless she marks it off; a swarm keeps its
 number as it grows; two swarms that get linked become one, the older
 absorbing the younger; a swarm nothing holds together any more is dissolved
 and its helper archived, as is the helper of an absorbed swarm.
@@ -77,14 +78,31 @@ def test_linking_two_swarms_merges_them_into_the_older(data_dir):
     assert swarms.swarm_of("y") == older
 
 
-def test_a_continuation_stays_in_its_parents_swarm(data_dir):
+def test_a_continuation_joins_only_once_it_takes_part_itself(data_dir):
+    """Her call: the old session keeps its place; the continuation joins only
+    if it connects itself. Silent, it works alone; one answer of its own to
+    the peer its parent was talking to brings it in."""
+    _seed("a", "b")
+    peermail.send("b", "hi", from_conv="a")
+    peermail.send("a", "ok", from_conv="b")
+    peermail.send("b", "thanks", from_conv="a")
+    [swarm_id] = swarms.sync()
+    _seed("a2", spawned_from="a", spawned_via="continue")
+    assert swarms.sync() == {swarm_id: {"a", "b"}}
+    peermail.send("b", "picking this up from a — still on the pond page?", from_conv="a2")
+    assert swarms.sync() == {swarm_id: {"a", "b", "a2"}}
+
+
+def test_a_new_continuation_is_not_pulled_into_its_parents_old_talk(data_dir):
+    """Before any swarm is stored: a parent's back-and-forth links the parent
+    and its peer, never the silent continuation that took over."""
     _seed("a", "b")
     _seed("a2", spawned_from="a", spawned_via="continue")
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
     peermail.send("b", "thanks", from_conv="a")
-    live = swarms.sync()
-    assert list(live.values()) == [{"a", "b", "a2"}]
+    assert list(swarms.sync().values()) == [{"a", "b"}]
+    assert swarms.swarm_of("a2") is None
 
 
 def test_a_handoff_alone_makes_no_swarm(data_dir):
@@ -95,15 +113,18 @@ def test_a_handoff_alone_makes_no_swarm(data_dir):
     assert swarms.swarm_of("a2") is None
 
 
-def test_a_chain_of_handoffs_rides_along_with_its_swarm(data_dir):
+def test_a_line_counts_as_one_sender_but_only_the_talkers_join(data_dir):
+    """a wrote twice to b, b answered a3 (a's continuation's continuation):
+    three messages between the two lines, both ways, so it's a link — between
+    the sessions that wrote or were written to (a, b, a3), not a2, which
+    said nothing."""
     _seed("a", "b")
     _seed("a2", spawned_from="a", spawned_via="continue")
     _seed("a3", spawned_from="a2", spawned_via="continue")
-    peermail.send("b", "hi", from_conv="a3")
+    peermail.send("b", "hi", from_conv="a")
+    peermail.send("b", "and this", from_conv="a")
     peermail.send("a3", "ok", from_conv="b")
-    peermail.send("b", "thanks", from_conv="a3")
-    live = swarms.sync()
-    assert list(live.values()) == [{"a", "a2", "a3", "b"}]
+    assert list(swarms.sync().values()) == [{"a", "a3", "b"}]
 
 
 def test_a_stored_handoff_only_swarm_is_dissolved(data_dir):
@@ -187,6 +208,7 @@ def test_overview_names_which_member_continued_which(data_dir):
     peermail.send("b", "hi", from_conv="a")
     peermail.send("a", "ok", from_conv="b")
     peermail.send("b", "thanks", from_conv="a")
+    peermail.send("b", "a2 here, carrying on", from_conv="a2")
     [card] = swarms.overview()
     assert card["continues"] == [{"from": "a", "to": "a2"}]
 
@@ -455,8 +477,9 @@ def test_a_heads_up_and_a_thanks_link_nobody_but_a_back_and_forth_does(data_dir)
 def test_sessions_that_keep_changing_the_same_files_are_a_swarm_without_a_word(data_dir):
     """Her call: a swarm also forms "if they are continuously working on
     things in the same files". Two shared files link two sessions that never
-    messaged; one shared file does not; a continuation rides along; and a
-    session released afterwards is not pulled straight back by the same files."""
+    messaged; one shared file does not; a continuation that changed none of
+    them stays out; and a session released afterwards is not pulled straight
+    back by the same files."""
     import sqlstore
     _seed("a", "b", "c")
     _seed("b2", spawned_from="b", spawned_via="continue")
@@ -473,6 +496,60 @@ def test_sessions_that_keep_changing_the_same_files_are_a_swarm_without_a_word(d
     assert swarms.sync() == {}
     both_changed("/repo/y.py", "a", "b")
     [(swarm_id, members)] = swarms.sync().items()
-    assert members == {"a", "b", "b2"}
+    assert members == {"a", "b"}
     swarms.place(["b", "b2"], None)
     assert swarms.swarm_of("b") is None and swarm_id not in swarms.sync()
+
+
+def _talk(one, other):
+    """A back-and-forth: one writes, the other answers, one follows up."""
+    peermail.send(other, "hi", from_conv=one)
+    peermail.send(one, "ok", from_conv=other)
+    peermail.send(other, "thanks", from_conv=one)
+
+
+def _hub_and_pairs():
+    """A coordinator h in back-and-forth with five sessions, which otherwise
+    pair up a-b and c-d, with e on its own."""
+    _seed("h", "a", "b", "c", "d", "e")
+    for conv in ("a", "b", "c", "d", "e"):
+        _talk("h", conv)
+    _talk("a", "b")
+    _talk("c", "d")
+
+
+def test_a_hub_does_not_glue_everyone_it_talks_to_into_one_swarm(data_dir):
+    """The swarm that grew to "everything" in a project: one session that
+    messages every other one. Its talk links nobody; the real pairs stand."""
+    _hub_and_pairs()
+    found = sorted(sorted(m) for m in swarms.sync().values())
+    assert found == [["a", "b"], ["c", "d"]]
+    assert swarms.swarm_of("h") is None and swarms.swarm_of("e") is None
+
+
+def test_marking_a_hub_off_by_hand_brings_the_old_grouping_back(data_dir):
+    _hub_and_pairs()
+    swarms.sync()
+    assert swarms.mark_hub("h", "off", reason="it really works with all of them") == "auto"
+    assert sorted(map(sorted, swarms.sync().values())) == [["a", "b", "c", "d", "e", "h"]]
+
+
+def test_marking_a_session_a_hub_by_hand_cuts_its_talk(data_dir):
+    """Below the count (one partner) a session links normally; marked on, its
+    messages link nobody, and back on auto they link again. A hub's shared
+    files still count."""
+    import sqlstore
+    _seed("a", "b", "c")
+    _talk("a", "b")
+    swarms.mark_hub("a", "on")
+    assert swarms.sync() == {}
+    for path in ("/repo/x.py", "/repo/y.py"):
+        conn = sqlstore.open_db()
+        conn.execute("INSERT INTO file_alerts (at, kind, path, line_a, line_b, conv_a, conv_b)"
+                     " VALUES ('2026-10-08T10:00:00', 'same-file', ?, 'a', 'c', 'a', 'c')",
+                     (path,))
+        conn.commit()
+        conn.close()
+    assert list(swarms.sync().values()) == [{"a", "c"}]
+    swarms.mark_hub("a", "auto")
+    assert list(swarms.sync().values()) == [{"a", "b", "c"}]

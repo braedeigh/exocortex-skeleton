@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 57
+_SCHEMA_VERSION = 58
 
 
 def _db_path():
@@ -211,7 +211,7 @@ _EXPECTED_TABLES = (
     "food_judgments", "judgment_grounds", "hazard_history", "research_tables",
     # The agents' mailbox, token accounting per model call, and swarms.
     "agent_messages", "model_calls", "swarms", "swarm_members", "swarm_helper_runs",
-    "session_summaries", "swarm_pins", "room_moves", "room_helper_runs",
+    "session_summaries", "swarm_pins", "swarm_hubs", "room_moves", "room_helper_runs",
     # Verifiable exposure scores (rung 36).
     "hazard_facts", "food_pdp_codes", "data_pulls", "exposure_scores", "exposure_terms",
     "source_files", "passage_pages",
@@ -3455,6 +3455,24 @@ def _run_ladder(conn):
                 conn.execute(f"ALTER TABLE build_items ADD COLUMN {column}")
             except sqlite3.OperationalError:
                 pass  # the column is already there
+    if version < 58:
+        # The hub marks made by hand (swarms.mark_hub). A hub is a session in
+        # back-and-forth with many others, whose messages link nobody into a
+        # swarm (swarms.hubs works it out from the messages); a row here
+        # overrides that count for the session's line of work, either way.
+        # No row: the count decides.
+        #
+        # Prompt: "automatic, plus a manual override both ways"
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS swarm_hubs ("
+            "  conv TEXT PRIMARY KEY,"
+            # 1: always a hub. 0: never one, whatever the count says.
+            "  is_hub INTEGER NOT NULL CHECK (is_hub IN (0, 1)),"
+            "  at TEXT NOT NULL,"
+            # Who set it: 'owner', 'cli' or 'room_helper'.
+            "  by TEXT NOT NULL,"
+            "  reason TEXT NOT NULL DEFAULT '')"
+        )
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

@@ -22,9 +22,35 @@ lines say what exists *now*.
   one-off heads-up about a shared file links no one, whether or not it got a
   "thanks". Her calls: "both ways" (2026-10-07), then the three-message rule
   (2026-10-08) — of 143 past pairs, 23 were exactly a heads-up and a reply. A
-  session and its continuations are one sender, so an answer from the session
-  that took over counts (`swarms.links`). Members a swarm already had before
-  this rule stay until they are released: membership only grows.
+  session and its continuations are one sender toward the three, so an answer
+  from the session that took over counts (`swarms.links`) — but only the
+  sessions that sent or received a message themselves are linked. Members a
+  swarm already had before this rule stay until they are released:
+  membership only grows.
+- **Continuations connect on their own** (2026-10-23, her reading confirmed).
+  After a handoff the old session keeps its place in its swarm. The
+  continuation joins only if it takes part itself: one of the messages sent or
+  received by it, or two shared files changed by it (`file_alerts` rows are
+  credited to `conv_a`/`conv_b`, the sessions that changed the files, not the
+  whole line). A silent continuation works alone. Before this, every handoff
+  carried its parent's links forward, which is half of how swarm 16 grew to
+  68 member rows. One gap: a file pair is written down once per pair of lines,
+  so a continuation that shares only files its parent was already alerted on
+  doesn't connect by files. `room_helper.clusters` still unions continuations
+  (it's only a view), moves still take a whole line of work, and closing still
+  counts lines.
+- **Hubs don't glue** (2026-10-23). A line of work in back-and-forth with
+  `swarms.HUB_LINES` (four) or more other lines is a hub (`swarms.hubs`):
+  its messages link nobody, its shared files still do. That's a project-level
+  coordinator — the Linear keeper that messaged every Based Foods session, a
+  planner handing out briefs — and through it every session it talks to
+  became one swarm. Her call: automatic, plus a manual override both ways,
+  `scripts/room_moves.py hub <conv> on|off|auto --reason "…"` (the
+  `swarm_hubs` table; `hubs` lists them). Every message counts toward being a
+  hub, placements or not.
+- **Nobody leaves for being idle.** Her words (2026-10-14): "I don't want
+  things idle over 24 hours removed. If something had the number of messages
+  already making a swarm, keep it in the swarm." No dormancy rule.
 - **Or keeping to the same files.** Two sessions that never wrote to each
   other are linked too when both have changed two or more of the same files
   (`swarms.LINK_FILES`), each within the file-alert window — the `same-file`
@@ -237,7 +263,9 @@ or move solo sessions out of a swarm into the layer above."
   with its reason and undo line, stored in `room_moves` with what it
   replaced; `scripts/room_moves.py undo <id>` (and `list`, and the four moves
   by hand). Each moved session gets one message, queued for the end of its
-  turn — never an interrupt.
+  turn — never an interrupt. A join note names the swarm, how many others
+  are still working in it and at most three of them; `scripts/peers.py swarm`
+  lists the rest (it once listed all seventeen of a big swarm's ids).
 - **When it runs.** At the minute tick, at most every
   `config.ROOM_HELPER_MIN_SEC`, only when something in the room happened since.
   One tool-less Sonnet call; every run in `room_helper_runs`.

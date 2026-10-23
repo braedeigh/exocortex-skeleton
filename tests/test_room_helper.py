@@ -322,3 +322,20 @@ def test_a_swarm_whose_members_were_all_released_is_gone_from_the_room(room):
     assert swarms.overview() == []
     assert sorted(room_helper.solo_sessions("coding", store.read("bot_chats/index", {}), [])) \
         == ["a", "b"]
+
+
+def test_a_join_note_into_a_big_swarm_names_at_most_three(room):
+    """The join note once listed every member — seventeen ids for a big
+    swarm. Now: the swarm, how many others are working, three names at most."""
+    members = [f"m{i:02d}" for i in range(17)]
+    _seed(*members, "new")
+    for one, other in zip(members, members[1:]):
+        peermail.send(other, "hi", from_conv=one)
+        peermail.send(one, "ok", from_conv=other)
+        peermail.send(other, "thanks", from_conv=one)
+    [swarm_id] = swarms.sync()
+    room.clear()
+    room_helper.execute("coding", "join", ["new"], swarm_id, "same page", by="cli")
+    [(_, to, text, _)] = [sent for sent in room if sent[1] == "new"]
+    assert f"swarm {swarm_id}" in text and "17 other sessions still working" in text
+    assert sum(m in text for m in members) == 3
