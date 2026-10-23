@@ -817,6 +817,49 @@ def dismiss_offer(conv_id):
     return {"ok": True}, 200
 
 
+# --- Go on her word: a helper presses the button she told it to --------------
+# She can tell a helper (the room helper, a swarm's helper) "make that one go"
+# instead of opening the session and tapping. The helper runs
+# scripts/plan_go.py with the session's id and her words quoted, and this
+# presses that session's Go exactly as her tap would (go_offer): a planner's
+# build card starts the builder and closes the planner, an ordinary card
+# starts planning sessions. Only a helper may, only with her words, and the
+# words are written into the target's chat first, so a Go she didn't tap
+# herself is always on the record there.
+#
+# Prompt: "change it such thtaa i can tell you to make one go"
+
+_GO_WORDS_MAX = 500   # her words, quoted: a line or two
+
+
+def go_by_word(target_conv, caller_conv, words):
+    """A helper presses `target_conv`'s Go card because she said to. Returns
+    (payload, status): go_offer's own on success; 400 on a bad id or no
+    words, 403 when the caller isn't a helper, 404 on an unknown target,
+    409 when the target has no Go card up."""
+    if not (target_conv and _CONV_ID_RE.match(str(target_conv))):
+        return {"error": "invalid conversation id"}, 400
+    words = str(words or "").strip()[:_GO_WORDS_MAX]
+    if not words:
+        return {"error": "quote her words: --owner-said \"<what she said>\""}, 400
+    index = store.read("bot_chats/index", {})
+    caller = index.get(caller_conv) if caller_conv else None
+    if not (isinstance(caller, dict) and caller.get("role") in _HELPER_ROLES):
+        return {"error": "only a helper presses Go on her word"}, 403
+    target = index.get(target_conv)
+    if not isinstance(target, dict):
+        return {"error": "not found"}, 404
+    if not (isinstance(target.get("spinoff_offer"), dict)
+            and target["spinoff_offer"].get("slugs")):
+        return {"error": "that session has no Go button up"}, 409
+    # Her words go on the record in the target's chat before anything starts.
+    import peermail
+    peermail.append_line(_chats_dir() / f"{target_conv}.jsonl",
+                         {"type": "go-by-word", "words": words, "by": caller_conv,
+                          "ts": _now()})
+    return go_offer(target_conv)
+
+
 # --- The family tree: who was spun off from whom ------------------------------
 # Every spinoff carries `spawned_from` (its parent's conversation id) and
 # `spawned_via` (how it was born), written at mint by open_spinoff and

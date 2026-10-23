@@ -28,7 +28,9 @@ makes, and lets through only:
     takes the brief on standard input, as a quoted here-document (see
     "Bash: the brief" below). No other redirection passes. And linear_feed.py, which reads the Linear news
     the app has written down and one Linear issue live; it never writes to
-    Linear.
+    Linear. And plan_go.py, which presses a session's Go button when the
+    owner tells the helper to, with her words quoted (routes/spinoff.py
+    go_by_word) — the same thing her own tap does.
 
 Everything else — Write, Edit, a sub-agent, a skill, any other outside service
 (mail, calendar, Linear), any other command — is denied, with a reason telling
@@ -103,10 +105,12 @@ _GIT_BRANCH = re.compile(
 # helper_rule.py writes, but only one of her standing rules (helper_chat.py).
 # linear_feed.py reads Linear and the news written down from it (linear_feed.py).
 # spinoff_brief.py writes, but only a new session's brief (briefstore.py).
+# plan_go.py presses a session's Go button, and only on her quoted words
+# (routes/spinoff.py go_by_word).
 _SCRIPTS = re.compile(
     r"^\S*python3? (?:\S*/)?scripts/"
     r"(peers|exo_query|request_input|spinoff_brief|spinoff_open|room_moves|helper_watch"
-    r"|helper_rule|linear_feed)\.py\b")
+    r"|helper_rule|linear_feed|plan_go)\.py\b")
 _BRIEF_SCRIPT = re.compile(r"^\S*python3? (?:\S*/)?scripts/spinoff_brief\.py\b")
 
 # Pointing a script at a data dir is fine: `EXOCORTEX_DATA_DIR=/x ./venv/...`.
