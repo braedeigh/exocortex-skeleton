@@ -2,6 +2,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { type SessionMeta } from './api';
 import { orchestraRows, type OrchestraRow } from './orchestra';
 import { ApprovalCard, AwaitingCard, SessionCard } from './SessionCard';
+import { planSummary } from './sessionFilters';
 import { LaneHead, useLaneOpen } from './LaneHead';
 import { SwarmCard } from './SwarmCard';
 import { RoomMap } from './RoomMap';
@@ -312,7 +313,15 @@ export function SessionLane({
       return <ApprovalCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />;
     }
     if (row.awaiting) {
-      return <AwaitingCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />;
+      return (
+        <AwaitingCard
+          key={row.id}
+          row={row}
+          planLine={planSummary(byId.get(row.id))}
+          onOpen={onOpen}
+          onChanged={onChanged}
+        />
+      );
     }
     const meta = byId.get(row.id);
     if (!meta) return null;

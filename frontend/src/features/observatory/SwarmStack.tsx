@@ -53,6 +53,7 @@ import type { SessionMeta } from './api';
 import { useLaneOpen } from './LaneHead';
 import { orchestraRows } from './orchestra';
 import { orderMembers, type SwarmView } from './roomOrder';
+import { planSummary } from './sessionFilters';
 import { ApprovalCard, AwaitingCard } from './SessionCard';
 import laneStyles from './SessionLane.module.css';
 import { SwarmNetwork } from './SwarmNetwork';
@@ -165,7 +166,13 @@ export function SwarmStack({
               row.pendingApproval ? (
                 <ApprovalCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />
               ) : (
-                <AwaitingCard key={row.id} row={row} onOpen={onOpen} onChanged={onChanged} />
+                <AwaitingCard
+                  key={row.id}
+                  row={row}
+                  planLine={planSummary(rosterById.get(row.id))}
+                  onOpen={onOpen}
+                  onChanged={onChanged}
+                />
               ),
             )}
           </div>

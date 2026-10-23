@@ -33,7 +33,7 @@ import { resumeAfterDecision } from './resumeAfterDecision';
 import { CommandDecision } from './CommandDecision';
 import type { OrchestraRow } from './orchestra';
 import { cardMetaLine } from './sessionStatus';
-import { cardState, sessionIs, type CardState } from './sessionFilters';
+import { cardState, planSummary, sessionIs, type CardState } from './sessionFilters';
 import { SessionMemoryChip } from '../runqueue/SessionMemoryChip';
 import { ProposalBadge, ProposalsOnRow } from '../approvals/ProposalsOnRow';
 import styles from './SessionLane.module.css';
@@ -47,11 +47,13 @@ import styles from './SessionLane.module.css';
    has none either: an unread reply is a plain grey card whose DOT stays orange
    — only a session that needs her answer wears the orange card. (An asking
    session normally draws as AwaitingCard/ApprovalCard; the row is here so the
-   table stays total.) */
+   table stays total.) 'plan' is a planning session whose plan waits on her
+   go: steady purple, as strong as the orange card, with a "plan:" line. */
 const CARD_CLASS: Record<CardState, string> = {
   error: 'cardError',
   running: 'cardLive',
   asking: 'cardUnread',
+  plan: 'cardPlan',
   unread: '',
   recent: 'cardRecent',
   rest: '',
@@ -61,6 +63,7 @@ const DOT_CLASS: Record<CardState, string> = {
   error: 'errorDot',
   running: 'liveDot',
   asking: 'readyDot',
+  plan: 'planDot',
   unread: 'readyDot',
   recent: 'recentDot',
   rest: 'restDot',
@@ -132,6 +135,19 @@ function LastPrompt({ text }: { text: string }) {
         </button>
       ) : null}
     </>
+  );
+}
+
+/** "plan: <summary>" — what a planning session's plan is, while it waits on
+ * her go (sessionFilters.planSummary). Normal card text, not a caption: it's
+ * the thing she's being asked to approve.
+ * [prompt: "with a little blurb that says plan: {summary of plan}"] */
+function PlanLine({ summary }: { summary: string | null }) {
+  if (!summary) return null;
+  return (
+    <div className={styles.planLine}>
+      <span className={styles.planLabel}>plan:</span> {summary}
+    </div>
   );
 }
 
@@ -284,10 +300,14 @@ function DoneNote({
  * into to send into the session"] */
 export function AwaitingCard({
   row,
+  planLine = null,
   onOpen,
   onChanged,
 }: {
   row: OrchestraRow;
+  /** The session's ready plan, when it has one beside its questions
+   * (sessionFilters.planSummary). Orange still wins: questions come first. */
+  planLine?: string | null;
   onOpen: (convId: string) => void;
   onChanged?: () => void;
 }) {
@@ -325,6 +345,7 @@ export function AwaitingCard({
           open →
         </button>
       </div>
+      <PlanLine summary={planLine} />
       {/* The questions and the answer box share one wrapper, because the box
           is a sticky footer (SessionLane.module.css .answerForm): it holds at
           the bottom of the screen while the questions scroll, and the wrapper
@@ -658,6 +679,7 @@ export function SessionCard({
           </button>
         ) : null}
       </div>
+      <PlanLine summary={planSummary(meta)} />
       {/* Proposals this session's agent staged (a to-do, a note, a field
           change): who, what, where-from, and Open — decided in the room,
           never here. features/approvals/ProposalsOnRow. */}

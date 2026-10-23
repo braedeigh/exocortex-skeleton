@@ -241,6 +241,19 @@ export interface SessionMeta {
   /** On a build session: the planning session its plan was agreed in. The
    * chat links back to it (SpinoffOffer.tsx PlanSessionLink). */
   planned_in?: string;
+  /** On a planning session: its posted plan is waiting on her go, with the
+   * plan in a line or two (routes/observatory.py mark_plan_ready). Her next
+   * message takes it off; the planner marks it again once the plan is ready.
+   * The card turns purple (sessionFilters.planReady). */
+  plan_ready?: { summary: string; at: string };
+  /** The last plan summary a planning session marked, kept after her message
+   * takes `plan_ready` off — the card's "plan:" line reads it, including
+   * under a build Go card. */
+  plan_summary?: string;
+  /** A Go card staged on this session (routes/spinoff.py offer_spinoff).
+   * `kind: 'build'` is a planning session's plan, approved in words and
+   * waiting for her tap — which also counts as plan-ready. */
+  spinoff_offer?: { slugs?: string[]; offered?: string; lane?: string; kind?: 'build' };
   /** It handed its work on to a continuation that took over from it —
    * marked server-side off the whole index (routes/observatory.py). Rooms and
    * swarm pages sink it to the bottom, out of the way (roomOrder.ts). */

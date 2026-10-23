@@ -116,7 +116,7 @@ const FILTERS: {
     key: 'active',
     hue: 'filterHueActive',
     label: 'Active',
-    title: 'Running now, or used in the last hour',
+    title: 'Running now, used in the last hour, or a plan waiting for your go',
     emptyNote: 'Nothing running or touched in the last hour.',
   },
   {

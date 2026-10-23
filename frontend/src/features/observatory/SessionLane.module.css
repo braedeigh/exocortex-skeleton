@@ -660,7 +660,7 @@
    left rule, and each has to be listed here: this selector carries two classes
    worth of specificity, so a bare `.cardError` would lose to it and the stripe
    would stay grey while the glow around it went red. */
-.card:not(.cardLive):not(.cardUnread):not(.cardError):not(.cardRecent) {
+.card:not(.cardLive):not(.cardUnread):not(.cardError):not(.cardRecent):not(.cardPlan) {
   border-left-color: var(--border);
 }
 
@@ -695,6 +695,47 @@
   /* A whisper of wash — .awaiting sits at 9%, and stays the loudest. */
   background: color-mix(in srgb, var(--orange) 4%, var(--card-bg));
   box-shadow: var(--shadow-card), 0 0 16px color-mix(in srgb, var(--glow-orange) 40%, transparent);
+}
+
+/* A planning session's plan is waiting on her go (sessionFilters.cardState
+   'plan'). Purple, because a ready plan is work about to move rather than a
+   question — but as strong as .cardUnread (5px rule, wash, halo) so it can't
+   be mistaken for .cardRecent's faint edge, and STEADY so it can't be
+   mistaken for .cardLive's breath. The halo is the accent lightened toward
+   white, for the same reason as --glow-orange below: on the dark indigo
+   theme the plain accent glows muddy.
+   [prompt: "i want them to be purple if they have a plan ready"] */
+.cardPlan {
+  --glow-plan: color-mix(in srgb, var(--accent) 70%, white);
+  border-left-color: var(--accent);
+  border-left-width: 5px;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 5%, var(--card-bg));
+  box-shadow: var(--shadow-card), 0 0 16px color-mix(in srgb, var(--glow-plan) 40%, transparent);
+}
+
+.planDot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* "plan: <summary>" under the title. Ordinary card text in the ordinary ink:
+   it's what she's being asked to approve, so it reads as content, not as a
+   caption. The label alone takes the accent. */
+.planLine {
+  margin-top: var(--space-1);
+  color: var(--text);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.planLabel {
+  color: var(--accent);
+  font-weight: 700;
 }
 
 /* --orange (#d4700a) is a burnt orange: fine as a border on the light lavender

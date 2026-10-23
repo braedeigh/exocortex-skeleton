@@ -12,6 +12,7 @@ import {
   cardState,
   filterCounts,
   matchesFilter,
+  planSummary,
   roomRoster,
   rosterView,
   sessionIs,
@@ -261,8 +262,9 @@ describe('a button returns only cards wearing its colour', () => {
       session('unopened', { last_at: ago(2 * MIN) }),
       session('warm', { last_at: ago(20 * MIN) }),
       session('cold', { last_at: ago(600 * MIN) }),
+      session('planned', { plan_ready: { summary: 'two files', at: ago(9 * MIN) }, last_at: ago(600 * MIN) }),
     ];
-    const opened = { live: ago(0), warm: ago(0), cold: ago(0) };
+    const opened = { live: ago(0), warm: ago(0), cold: ago(0), planned: ago(0) };
 
     for (const f of ALL_FILTERS) {
       const got = applyFilter(roster, opened, [f], NOW);
@@ -271,7 +273,7 @@ describe('a button returns only cards wearing its colour', () => {
       // ...and every card in it wears a colour that button means.
       for (const s of got) {
         const paint = cardState(s, opened[s.id as keyof typeof opened], NOW);
-        expect(f === 'active' ? ['running', 'recent'] : [f]).toContain(paint);
+        expect(f === 'active' ? ['running', 'recent', 'plan'] : [f]).toContain(paint);
       }
     }
   });
@@ -284,6 +286,41 @@ describe('a button returns only cards wearing its colour', () => {
     const warm = session('b', { last_at: ago(20 * MIN) });
     expect(matchesFilter(warm, ago(0), 'running', NOW)).toBe(false);
     expect(matchesFilter(warm, ago(0), 'active', NOW)).toBe(true);
+  });
+});
+
+describe('a plan waiting on her go', () => {
+  const plan = { summary: 'Move the drawer; two files', at: ago(30 * MIN) };
+
+  it('wears purple over unread and recent, and under a question', () => {
+    // Long idle and never opened: would be unread, but the plan is the news.
+    const ready = session('a', { plan_ready: plan, last_at: ago(300 * MIN) });
+    expect(cardState(ready, undefined, NOW)).toBe('plan');
+    expect(cardState({ ...ready, last_at: ago(2 * MIN) }, ago(0), NOW)).toBe('plan');
+    // Questions and a ready plan together: she answers first.
+    expect(cardState({ ...ready, awaiting_input: 'which?' }, ago(0), NOW)).toBe('asking');
+    // Running and broken still outrank it.
+    expect(cardState({ ...ready, running: true }, ago(0), NOW)).toBe('running');
+    expect(cardState({ ...ready, last_error: 'boom' }, ago(0), NOW)).toBe('error');
+  });
+
+  it('stays purple under the build Go card, keeping its summary', () => {
+    // Her "go" took plan_ready off; the summary and the build card remain.
+    const approved = session('a', {
+      plan_summary: 'Move the drawer; two files',
+      spinoff_offer: { kind: 'build', slugs: ['drawer'] },
+    });
+    expect(cardState(approved, ago(0), NOW)).toBe('plan');
+    expect(planSummary(approved)).toBe('Move the drawer; two files');
+    // An ordinary Go card is not a plan, and a stale summary alone says nothing.
+    expect(cardState(session('b', { spinoff_offer: { slugs: ['x'] } }), ago(0), NOW)).not.toBe('plan');
+    expect(planSummary(session('c', { plan_summary: 'old plan' }))).toBeNull();
+  });
+
+  it('is counted and returned by the purple button, not the orange one', () => {
+    const roster = [session('a', { plan_ready: plan, last_at: ago(300 * MIN) })];
+    expect(filterCounts(roster, {}, NOW)).toMatchObject({ active: 1, unread: 0, running: 0 });
+    expect(applyFilter(roster, {}, ['active'], NOW)).toHaveLength(1);
   });
 });
 

@@ -6,7 +6,8 @@
  * The three colours are the ones the cards already wear (SessionLane.module.css):
  *
  *   purple  RUNNING — a turn is in flight this second (the breathing one)
- *   purple  ACTIVE  — running, or it did anything in the last hour (steady)
+ *   purple  ACTIVE  — running, or it did anything in the last hour (steady),
+ *                     or a planning session's plan waits on her go (steady)
  *   orange  UNREAD  — a session stopped to ask her (an orange card), or output
  *                     she hasn't opened (a grey card with an orange dot) — for
  *                     a done or retired session, only its final output counts
@@ -127,6 +128,9 @@ export function finalOutputAt(meta: SessionMeta): string | undefined {
  *   running  purple  a turn is going right now; the card breathes
  *   asking   orange  it stopped to ask her something, or a command waits for
  *                    her Approve/Deny — the only state that's truly orange
+ *   plan     purple  a planning session's plan waits on her go (planReady):
+ *                    steady and strong, with a "plan:" line on the card.
+ *                    Below asking: questions come first
  *   unread   grey    a reply she hasn't opened: a grey card with an orange dot
  *   recent   purple  used inside the hour but idle and read — warm, still
  *   rest     grey    cold
@@ -151,13 +155,30 @@ export function finalOutputAt(meta: SessionMeta): string | undefined {
  * activated by the filter, like active within the last hour, glow purple also
  * on the cards and tied together procedurally".
  */
-export type CardState = 'error' | 'running' | 'asking' | 'unread' | 'recent' | 'rest';
+export type CardState = 'error' | 'running' | 'asking' | 'plan' | 'unread' | 'recent' | 'rest';
 
 /** Is this session stopped on her — a question it filed, or a gated command
  * waiting for her tap. What makes a card orange, and what floats it to the top
  * of its room (roomOrder.ts). */
 export function isAsking(meta: Pick<SessionMeta, 'awaiting_input' | 'awaiting_approval'>): boolean {
   return Boolean(meta.awaiting_input || meta.awaiting_approval);
+}
+
+/** Is a planning session's plan waiting on her go: marked ready by the
+ * planner (scripts/plan_ready.py), or approved in words with its build Go card
+ * up and not yet tapped. Either way the next move is hers.
+ * [prompt: "i want them to be purple if they have a plan ready. with a little
+ * blurb that says plan: {summary of plan}"] */
+export function planReady(meta: Pick<SessionMeta, 'plan_ready' | 'spinoff_offer'>): boolean {
+  return Boolean(meta.plan_ready) || meta.spinoff_offer?.kind === 'build';
+}
+
+/** The "plan:" line for a card, or null when no plan is waiting on her. */
+export function planSummary(
+  meta: Pick<SessionMeta, 'plan_ready' | 'plan_summary' | 'spinoff_offer'> | undefined,
+): string | null {
+  if (!meta || !planReady(meta)) return null;
+  return (meta.plan_ready?.summary ?? meta.plan_summary ?? '').trim() || null;
 }
 
 export function cardState(
@@ -168,6 +189,7 @@ export function cardState(
   if (sessionIs(meta, openedAt, 'error', nowMs)) return 'error';
   if (sessionIs(meta, openedAt, 'running', nowMs)) return 'running';
   if (isAsking(meta)) return 'asking';
+  if (planReady(meta)) return 'plan';
   if (sessionIs(meta, openedAt, 'unread', nowMs)) return 'unread';
   // Everything the purple button counts EXCEPT the running half, which already
   // has its own louder state above.
@@ -199,13 +221,16 @@ export function cardState(
    "active in the past hour" — and it costs nothing here precisely because
    neither returns a card in a colour she didn't press.
 
+   A READY PLAN IS PURPLE TOO, so Active returns it: pressing purple hands
+   back every purple card, the steady plan cards among them.
+
    WHAT IT GIVES UP: a session that's both recent and unread now answers to
    ORANGE only, not purple, because orange is what it wears. Nothing becomes
    unreachable — the buttons still UNION, so purple and orange together is every
    card that's alive or unwatched. */
 const FILTER_PAINT: Record<StateFilter, CardState[]> = {
   running: ['running'],
-  active: ['running', 'recent'],
+  active: ['running', 'recent', 'plan'],
   // Both carry orange: the asking card is orange, the unread card's dot is.
   unread: ['asking', 'unread'],
   error: ['error'],

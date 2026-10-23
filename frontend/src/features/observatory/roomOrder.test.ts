@@ -80,6 +80,22 @@ describe('orderRoom', () => {
     expect(roomIds(sessions, opened)).toEqual(['oldApproval', 'unread', 'newAsk', 'openedOld', 'openedNew']);
   });
 
+  it('floats a ready plan up with the ones waiting on her, oldest first', () => {
+    const plan = { summary: 'two files', at: ago(60 * MIN) };
+    const sessions = [
+      session('openedIdle', { last_at: ago(300 * MIN) }),
+      session('newAsk', { awaiting_input: 'q', last_at: ago(2 * MIN) }),
+      session('planned', { plan_ready: plan, last_at: ago(60 * MIN) }),
+      session('running', { running: true }),
+    ];
+    expect(roomIds(sessions, { openedIdle: ago(0), planned: ago(0) })).toEqual([
+      'planned',
+      'newAsk',
+      'openedIdle',
+      'running',
+    ]);
+  });
+
   it('keeps running sessions in the order the page handed them', () => {
     const sessions = [
       session('first', { running: true, last_at: ago(1 * MIN) }),

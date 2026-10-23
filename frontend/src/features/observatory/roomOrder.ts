@@ -6,10 +6,10 @@
  * stacks its cards in three bands, top to bottom:
  *
  *   waiting  idle and not done, so waiting for her next word. The ones
- *            wearing orange come first (a question, a command to approve, a
- *            failed turn, a reply she hasn't read); then the ones she has
- *            already opened. Each part oldest first, so whatever has waited
- *            longest is on top.
+ *            waiting on her come first (a question, a command to approve, a
+ *            plan waiting on her go, a failed turn, a reply she hasn't read);
+ *            then the ones she has already opened. Each part oldest first,
+ *            so whatever has waited longest is on top.
  *   running  a turn is going right now (purple), in the page's own order.
  *   done     marked done (scripts/session_done.py), or handed on to a
  *            continuation. Ordered by when it finished, so the most recently
@@ -51,7 +51,8 @@ import { cardState, finalOutputAt, isAsking, sessionIs } from './sessionFilters'
 import { swarmState, type MemberState, type Swarm, type SwarmMember } from './swarmApi';
 
 /** The four places a card can stand, top to bottom. `waiting` is split in two
- * so the orange ones lead it. */
+ * so the ones waiting on her lead it: the orange ones and the purple ready
+ * plans (the `orange` tier keeps its name). */
 export type RoomTier = 'orange' | 'waiting' | 'running' | 'done';
 
 const TIER_RANK: Record<RoomTier, number> = { orange: 0, waiting: 1, running: 2, done: 3 };
@@ -103,7 +104,8 @@ export function sessionPlace(
   if (isDone(meta)) return { tier: 'done', at: finalOutputAt(meta) ?? meta.done_at };
   if (meta.running) return { tier: 'running' };
   const state = cardState(meta, openedAt, nowMs);
-  const orange = state === 'asking' || state === 'error' || state === 'unread';
+  // A ready plan (purple) waits on her as much as a question does.
+  const orange = state === 'asking' || state === 'plan' || state === 'error' || state === 'unread';
   return { tier: orange ? 'orange' : 'waiting', at: meta.last_at };
 }
 
