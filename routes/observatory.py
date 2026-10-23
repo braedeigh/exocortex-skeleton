@@ -1797,7 +1797,7 @@ def _run_turn(proc, stderr_f, conv_id, log_path, resume_sid, live_q=None,
                 entry["running"] = False
                 entry.pop("stop_requested", None)
                 entry.pop("turn_proc", None)
-                _end_turn_done(conv_id, entry)
+                _end_turn_done(conv_id, entry, index)
                 # How the turn ended, so the roster can show it. A clean turn
                 # clears any error the PREVIOUS one left — the flag means "the
                 # last thing this session did was fail", not "it failed once".
@@ -2293,6 +2293,12 @@ def _her_message_arrived(conv_id, entry, expected=None):
 # If that turn leaves the session unable to close (it asked her, launched a
 # job), the stamp comes off when the turn ends (_end_turn_done).
 #
+# A Go card (`spinoff_offer`) holds a session open only while it is fresh: once
+# every slug it offers has a session started since it went up, or once it is
+# more than IDLE_CHECK_HOURS old, it stops blocking (_offer_is_stale). The card
+# itself stays — visible, Go still works — until the session closes; the
+# briefs it named stay saved in exo.db.
+#
 # `final_at` is when its final output finished: the end of the turn that
 # stamped it done. The roster's unread dot on a done session keys on that, not
 # on last_at, so later housekeeping turns don't light the dot again. Closing is the same close her
@@ -2325,8 +2331,45 @@ def _unfinished_jobs(conv_id):
     return jobs
 
 
-def _why_not_done(conv_id, entry):
-    """The reason a session can't be marked done or closed yet, or None."""
+def _offer_started_since(offer, index):
+    """True when every slug on a Go card has a session that started at or
+    after the card went up — the work it offered is under way anyway."""
+    offered = str(offer.get("offered") or "")
+    slugs = offer.get("slugs") or []
+    started = {other.get("spinoff_slug") for other in index.values()
+               if isinstance(other, dict) and offered
+               and str(other.get("started") or "") >= offered}
+    return bool(slugs) and all(slug in started for slug in slugs)
+
+
+def _offer_is_stale(entry, index, now=None):
+    """True when a session's Go card no longer holds it open.
+
+    A card holds the session open while it is fresh. It goes stale once every
+    offered slug has a session started since the card went up (a), or once
+    the card is more than IDLE_CHECK_HOURS old (b). A card with no readable
+    `offered` time stays fresh unless (a) holds. A stale card stays on the
+    entry — still visible, Go still works — it just stops blocking a close;
+    closing the session takes it down, and its briefs stay saved in exo.db.
+
+    Prompt: "a Go card nobody tapped holds its session open forever." """
+    offer = entry.get("spinoff_offer")
+    if not isinstance(offer, dict):
+        return True
+    if _offer_started_since(offer, index):
+        return True
+    try:
+        offered = datetime.fromisoformat(str(offer.get("offered")))
+    except ValueError:
+        return False
+    return offered < (now or datetime.now()) - timedelta(hours=IDLE_CHECK_HOURS)
+
+
+def _why_not_done(conv_id, entry, index=None, now=None):
+    """The reason a session can't be marked done or closed yet, or None.
+    `index` is the bot_chats index when the caller already holds it; left
+    None it's read only if a Go card needs judging. `now` is the clock the
+    card's age is judged by (the minute tick's own, in its callers)."""
     if entry.get("pinned"):
         return "the pinned Keeper session stays open"
     if entry.get("saved_at"):
@@ -2334,7 +2377,10 @@ def _why_not_done(conv_id, entry):
     if entry.get("awaiting_input"):
         return "it is still waiting on an answer from the owner"
     if entry.get("spinoff_offer"):
-        return "it has a Go button waiting for the owner"
+        if index is None:
+            index = store.read("bot_chats/index", {})
+        if not _offer_is_stale(entry, index, now):
+            return "it has a Go button waiting for the owner"
     if _read_approvals(conv_id).get("pending"):
         return "it has a command waiting for the owner's approval"
     jobs = _unfinished_jobs(conv_id)
@@ -2353,7 +2399,7 @@ def mark_done(conv_id, note=""):
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
             return {"error": "not found"}, 404
-        reason = _why_not_done(conv_id, entry)
+        reason = _why_not_done(conv_id, entry, index)
         if reason:
             return {"error": f"not done: {reason}"}, 400
         entry["done_at"] = _now()
@@ -2384,7 +2430,7 @@ def _clear_done(entry):
         entry.pop(field, None)
 
 
-def _end_turn_done(conv_id, entry):
+def _end_turn_done(conv_id, entry, index=None):
     """At a turn's end, settle a done stamp: the turn that stamped it records
     when its final output finished; a later turn that left the session unable
     to close (asking her, a job running) takes the stamp off."""
@@ -2392,7 +2438,7 @@ def _end_turn_done(conv_id, entry):
         return
     if entry.pop("final_pending", None):
         entry["final_at"] = _now()
-    elif _why_not_done(conv_id, entry):
+    elif _why_not_done(conv_id, entry, index):
         _clear_done(entry)
 
 
@@ -2529,7 +2575,8 @@ def close_done_sessions(now=None):
     anyway, but a job or an approval can appear without one)."""
     now = now or datetime.now()
     due = []
-    for conv_id, entry in store.read("bot_chats/index", {}).items():
+    index = store.read("bot_chats/index", {})
+    for conv_id, entry in index.items():
         if not isinstance(entry, dict) or entry.get("archived"):
             continue
         try:
@@ -2537,7 +2584,7 @@ def close_done_sessions(now=None):
         except ValueError:
             continue
         if closes_at <= now and not _effective_running(conv_id, entry) \
-                and not _why_not_done(conv_id, entry):
+                and not _why_not_done(conv_id, entry, index, now):
             due.append(conv_id)
     closed = []
     for conv_id in due:
@@ -2556,8 +2603,12 @@ def close_done_sessions(now=None):
 # the ask, so each quiet spell is asked about once; the woken turn moves
 # `last_at`, so a session that stays gets asked again a day later. Sessions
 # that can't be done anyway (_why_not_done) — saved-for-later ones among
-# them — and ones already counting down are skipped. At most IDLE_CHECKS_PER_TICK wake per minute, oldest first, so
-# a backlog of old sessions trickles in instead of starting all at once.
+# them — and ones already counting down are skipped; a session with a stale Go
+# card is not among those, so it is asked. The message states what the app
+# knows (_idle_check_facts): whether a Go card is waiting, and the sessions
+# started from this one, open or closed. At most IDLE_CHECKS_PER_TICK wake per
+# minute, oldest first, so a backlog of old sessions trickles in instead of
+# starting all at once.
 #
 # Prompt: "1 day i think it will check itself and see if it should still be
 # running and if not close itself"
@@ -2567,16 +2618,69 @@ IDLE_CHECKS_PER_TICK = 2
 IDLE_CHECK_SOURCE = "idle-check"
 
 
-def idle_check_message(idle_hours):
+_IDLE_FACTS_MAX_SESSIONS = 8
+
+
+def _idle_check_facts(conv_id, entry, index, now=None):
+    """The lines of fact an idle check hands a session about itself: whether a
+    Go card is waiting, and the sessions started from it with each one open or
+    closed. Read off the index, because a session woken after days can
+    misremember — one believed its Go card was untapped long after it was
+    tapped."""
+    index = index if index is not None else store.read("bot_chats/index", {})
+    now = now or datetime.now()
+    lines = ["What the app knows about this session right now:"]
+    # The Go card: what it offers, how old it is, and whether it still holds.
+    offer = entry.get("spinoff_offer")
+    if isinstance(offer, dict) and offer.get("slugs"):
+        try:
+            offered = datetime.fromisoformat(str(offer.get("offered")))
+            age = f"{int((now - offered).total_seconds() // 3600)} hours ago"
+        except ValueError:
+            age = "at an unknown time"
+        slugs = ", ".join(offer["slugs"])
+        if _offer_is_stale(entry, index, now):
+            lines.append(f"- A Go card for {slugs} went up {age} and was never tapped. "
+                         "It no longer holds this session open: closing takes it "
+                         "down, and its briefs stay saved.")
+        else:
+            lines.append(f"- A Go card for {slugs} went up {age} and is still "
+                         "waiting on the owner.")
+    else:
+        lines.append("- No Go card is waiting on the owner here.")
+    # The sessions started from here, a planner's builder named as such.
+    children = sorted(
+        ((other.get("started") or "", cid, other) for cid, other in index.items()
+         if isinstance(other, dict) and cid != conv_id
+         and conv_id and conv_id in (other.get("spawned_from"), other.get("planned_in"))),
+        key=lambda child: child[0])
+    if children:
+        lines.append("- Sessions started from here:")
+        for _, cid, other in children[:_IDLE_FACTS_MAX_SESSIONS]:
+            role = "its builder: " if other.get("planned_in") == conv_id else ""
+            state = "closed" if other.get("archived") else "open"
+            lines.append(f"  - {role}{other.get('title') or cid} ({cid}, {state})")
+        if len(children) > _IDLE_FACTS_MAX_SESSIONS:
+            lines.append(f"  - and {len(children) - _IDLE_FACTS_MAX_SESSIONS} more")
+    else:
+        lines.append("- No sessions were started from here.")
+    return lines
+
+
+def idle_check_message(idle_hours, conv_id=None, entry=None, index=None, now=None):
     """What the woken session is told, and how the chat and journal show it.
     Returns (text, system) — the follow-up queue's pair, as in
-    scripts/run_detached.py wake_message."""
+    scripts/run_detached.py wake_message. Given the session's id, entry and
+    the index, the text also states what the app knows about it
+    (_idle_check_facts), so the session doesn't have to remember."""
     done_script = Path(__file__).resolve().parents[1] / "scripts" / "session_done.py"
     python = Path(__file__).resolve().parents[1] / "venv" / "bin" / "python3"
     summary = f"Idle check — no activity for {idle_hours} hours; is this session done?"
+    facts = _idle_check_facts(conv_id, entry, index, now) if entry is not None else []
     text = (
         f"[Idle check — this session has had no activity for {idle_hours} hours]\n"
-        "Look at what this session was started for and where it stands. "
+        + "".join(f"{line}\n" for line in facts)
+        + "Look at what this session was started for and where it stands. "
         "Don't start new work.\n"
         "- If the job is completely finished (work committed, result reported, "
         "nothing waiting on the owner), close it: "
@@ -2597,7 +2701,8 @@ def idle_check_sessions(now=None):
     cutoff = now - timedelta(hours=IDLE_CHECK_HOURS)
     # Pick the sessions that are idle, unasked since, and could be done.
     candidates = []
-    for conv_id, entry in store.read("bot_chats/index", {}).items():
+    index = store.read("bot_chats/index", {})
+    for conv_id, entry in index.items():
         if not isinstance(entry, dict) or entry.get("archived") or entry.get("done_at"):
             continue
         last_seen = str(entry.get("last_at") or entry.get("started") or "")
@@ -2607,7 +2712,7 @@ def idle_check_sessions(now=None):
             continue
         if last > cutoff or str(entry.get("idle_check_at") or "") >= last_seen:
             continue
-        if _effective_running(conv_id, entry) or _why_not_done(conv_id, entry):
+        if _effective_running(conv_id, entry) or _why_not_done(conv_id, entry, index, now):
             continue
         candidates.append((last, conv_id))
     # Stamp the ask BEFORE queueing, so a crash between the two costs one
@@ -2619,8 +2724,9 @@ def idle_check_sessions(now=None):
             if not isinstance(entry, dict):
                 continue
             entry["idle_check_at"] = _now()
+            entry = dict(entry)
         idle_hours = int((now - last).total_seconds() // 3600)
-        text, system = idle_check_message(idle_hours)
+        text, system = idle_check_message(idle_hours, conv_id, entry, index, now)
         queue_followup(conv_id, text, system=system)
         woken.append(conv_id)
     return woken

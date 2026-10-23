@@ -72,5 +72,7 @@ Your first message in the chat was the brief. In order:
    The owner's tap starts the builder, takes them to it and closes this
    session; the builder's chat keeps a button back to this one. If they keep
    talking instead, change the plan, save the brief again under the same slug
-   and offer again. Never run `session_done.py` here, and never start the
-   builder yourself.
+   and offer again. Never start the builder yourself, and don't close on the
+   turn you put the Go button up. If you're woken again after your builder
+   exists (a peer's message, the idle check) and nothing is left for you to
+   do, close with `./venv/bin/python3 scripts/session_done.py "<one line>"`.

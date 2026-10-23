@@ -16,8 +16,9 @@ only:
     reading verbs a helper is allowed (tools/helper_gate.py owns that list and
     the command reader — this file borrows both), plus a planning session's
     own doors: peers.py, exo_query.py, request_input.py (ask the owner),
-    spinoff_brief.py (save the plan as the builder's brief) and
-    spinoff_offer.py (put up the Go button);
+    spinoff_brief.py (save the plan as the builder's brief),
+    spinoff_offer.py (put up the Go button) and session_done.py (close
+    itself once its builder exists and nothing is left for it to do);
   - Bash, to run the tests: pytest, and the frontend's `npm test` / `npx
     vitest run`. A test run checks the planner's reading of the code. It
     changes no source file (it does write its own caches), and the planner
@@ -53,12 +54,13 @@ _ALLOWED_TOOLS = helper_gate._LOOK_TOOLS + helper_gate._WEB_TOOLS + ("Skill",)
 
 # The app's own doors for a planning session, run with the checkout's python.
 # Not spinoff_open.py: the builder is started by the owner's Go, never by the
-# planner.
+# planner. session_done.py is there so a planner woken after its builder
+# exists (a peer's message, the idle check) can close itself again.
 # Beside them, the test runners: pytest (bare, or through a python), and the
 # frontend's two. Nothing else `npm` or `npx` can do passes.
 _SCRIPTS = re.compile(
     r"^(?:\S*python3? (?:\S*/)?scripts/"
-    r"(peers|exo_query|request_input|spinoff_brief|spinoff_offer)\.py\b"
+    r"(peers|exo_query|request_input|spinoff_brief|spinoff_offer|session_done)\.py\b"
     r"|(?:\S*python3? -m )?pytest\b"
     r"|npm (?:run )?test\b"
     r"|npx vitest run\b)")

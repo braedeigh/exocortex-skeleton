@@ -245,3 +245,60 @@ def test_her_message_picks_a_saved_session_back_up(bot_client, conv, queued):
     observatory.save_for_later(conv)
     bot_client.post(f"/api/observatory/conversation/{CONV}/send", json={"text": "back to it"})
     assert "saved_at" not in _entry()
+
+
+# --- A Go card holds a session open only while it is fresh -------------------
+# Stale once every offered slug has a session started since it went up, or
+# once it is more than IDLE_CHECK_HOURS old. The card stays on the entry.
+
+def _offer(hours_ago, slugs=("pond-colour",)):
+    offered = (datetime.now() - timedelta(hours=hours_ago)).isoformat(timespec="seconds")
+    with store.mutate("bot_chats/index", {}) as index:
+        index[CONV]["spinoff_offer"] = {"slugs": list(slugs), "offered": offered}
+    return offered
+
+
+def test_a_go_card_left_untapped_for_over_a_day_stops_holding_the_session(conv):
+    _offer(observatory.IDLE_CHECK_HOURS + 1)
+    assert observatory.mark_done(conv)[1] == 200
+    assert _entry()["spinoff_offer"]["slugs"] == ["pond-colour"]
+
+
+def test_a_fresh_go_card_still_holds_until_its_sessions_exist(conv):
+    offered = _offer(1, slugs=("one", "two"))
+    with store.mutate("bot_chats/index", {}) as index:
+        index["2026-09-27.130000"] = {"bot": "keeper", "spinoff_slug": "one",
+                                      "started": offered}
+    assert observatory.mark_done(conv)[1] == 400
+    with store.mutate("bot_chats/index", {}) as index:
+        index["2026-09-27.140000"] = {"bot": "keeper", "spinoff_slug": "two",
+                                      "started": offered}
+    assert observatory.mark_done(conv)[1] == 200
+
+
+def test_the_idle_check_reaches_a_session_with_a_stale_go_card(conv, queued):
+    _offer(observatory.IDLE_CHECK_HOURS + 1)
+    with store.mutate("bot_chats/index", {}) as index:
+        index[CONV]["last_at"] = (datetime.now() - timedelta(hours=30)).isoformat(
+            timespec="seconds")
+    assert observatory.idle_check_sessions() == [conv]
+    text = queued[0][1]
+    assert "pond-colour" in text and "no longer holds this session open" in text
+
+
+def test_the_idle_check_tells_a_tapped_session_its_card_is_gone_and_lists_its_sessions(
+        conv, queued):
+    with store.mutate("bot_chats/index", {}) as index:
+        index["2026-09-27.130000"] = {"bot": "keeper", "title": "plan: one",
+                                      "spawned_from": CONV, "spawned_via": "go",
+                                      "started": observatory._now(),
+                                      "archived": observatory._now()}
+        index["2026-09-27.140000"] = {"bot": "keeper", "title": "spin: one",
+                                      "spawned_from": "2026-09-27.130000",
+                                      "planned_in": "2026-09-27.130000",
+                                      "started": observatory._now()}
+    observatory.idle_check_sessions(_a_day_later())
+    text = dict((c, t) for c, t, _ in queued)[CONV]
+    assert "No Go card is waiting on the owner here." in text
+    assert "plan: one (2026-09-27.130000, closed)" in text
+    assert "spin: one" not in text   # a grandchild belongs to its own parent

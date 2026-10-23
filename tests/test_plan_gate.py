@@ -34,6 +34,8 @@ PLANNING = [
     ("Bash", {"command": "./venv/bin/python3 scripts/exo_query.py schema spinoff_briefs"}),
     ("Bash", {"command": "EXOCORTEX_DATA_DIR=/x/data ./venv/bin/python3 "
                          "scripts/spinoff_offer.py pond-colour"}),
+    # Closing itself, once its builder exists and nothing is left to do.
+    ("Bash", {"command": "./venv/bin/python3 scripts/session_done.py 'builder is running'"}),
     ("Bash", {"command": "EXOCORTEX_DATA_DIR=/x/data ./venv/bin/python3 "
                          "scripts/spinoff_brief.py pond-colour <<'BRIEF'\n"
                          "# Spinoff: paint the pond\n\nRun `npm run build` after; "
@@ -60,7 +62,6 @@ BUILDING = [
     ("Bash", {"command": "./venv/bin/python3 -c \"open('x','w').write('y')\""}),
     # Starting the builder is the owner's Go, never the planner's.
     ("Bash", {"command": "./venv/bin/python3 scripts/spinoff_open.py pond-colour"}),
-    ("Bash", {"command": "./venv/bin/python3 scripts/session_done.py 'planned'"}),
     # A brief whose text closes early would run what follows as commands.
     ("Bash", {"command": "./venv/bin/python3 scripts/spinoff_brief.py x <<'BRIEF'\n"
                          "hi\nBRIEF\ngit commit -am sneaky"}),
