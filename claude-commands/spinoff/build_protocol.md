@@ -20,17 +20,23 @@ job is to carry the plan out, not to redesign it. In order:
    can't be done as written, a phase needs something the plan ruled out — do
    not adapt quietly. Say what the plan expected, what you found and why it
    matters, with the ways forward you can see and the one you'd pick; file it
-   with `./venv/bin/python3 scripts/request_input.py "<the question>"` from
-   the app checkout and end your turn. A small detail the plan simply left
-   open is yours to settle: settle it, and keep a list of those picks.
+   from the app checkout — `./venv/bin/python3 scripts/request_input.py
+   --about "<what you're building, where it stands>" --question "<the
+   question>" --option "<the way you'd pick — why>" --option "<another —
+   what it costs>"` — and end your turn. A small detail the plan simply left
+   open is yours to settle: settle it so the work goes on, and keep a list of
+   those picks — each is a question you owe the owner at the end.
 4. **Say it in the room.** As your LAST act, tell the owner what you did — in
    the conversation, not in a file. Short: what changed, phase by phase; what
    it could break; anywhere you departed from the plan; what you're not sure
    about. Don't claim your work passes; say what you actually ran.
 5. **Unsure about anything? Ask; don't close.** Anything you listed as "not
    sure", and every pick you made on the owner's behalf, is a question for
-   them. File them all with `scripts/request_input.py`, each standing on its
-   own with what you picked and your recommendation, and end your turn. Only
+   them. File them all in one `scripts/request_input.py` call: one `--about`
+   saying what you built, then a `--question` per pick with what you picked
+   as its first `--option` and the alternatives after it, each saying what it
+   costs or gains. No unexplained PR numbers, setting names or private
+   terms — the owner wants to learn why. Then end your turn. Only
    when the plan is built, you are unsure of nothing and nothing waits on the
    owner, end by running `scripts/session_done.py "<what was finished>"` so
    the session closes itself (see CLAUDE.md).

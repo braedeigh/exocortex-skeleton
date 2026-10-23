@@ -2104,7 +2104,17 @@ def rollover_running():
 # and the set REPLACES whatever it filed before — the list is "what's open
 # now", not a log. They're kept as a list (`awaiting_questions`, what the
 # roster card and the in-chat card number) and joined into `awaiting_input`,
-# which everything older reads as a yes/no plus one line of text.
+# which everything older reads as a yes/no plus one line of text. One more
+# question is ADDED to the open set (`add`), and filing the very set that's
+# open again is a no-op, so a session never churns her card to grow it.
+#
+# EVERY SET CARRIES ITS CONTEXT AND ITS CHOICES. She reads the card away from
+# the chat, so a set comes with `awaiting_about` (a line or two on what the
+# session is building and where it stands) and, per question, the options it
+# offers (`awaiting_options`: {label, detail, recommended}, the recommended one
+# first). The card draws them as buttons she taps, beside a box to type her
+# own answer. Prompt: "similar to Claude planning mode where I can click
+# options it presents or else type in my response".
 #
 # THE CHAT KEEPS EVERY SET. Each filing also writes a `questions` line into the
 # transcript, so the chat draws the block where it was asked and it stays there,
@@ -2130,24 +2140,45 @@ def rollover_running():
 # What every Observatory turn is told about stopping (see _build_cmd). The rule
 # is that there is no approval without a question: a session doesn't end its
 # turn on "say go and I'll…"; it either keeps working or files real questions.
-# The last paragraph covers the end of a job: a session that is unsure about
-# anything asks instead of closing itself.
-# Prompt: "If there are things that you're unsure about, i don't want you to
-# close yourself, i want you to ask me questions about it."
+# The middle part makes every filing teach: shared context once in --about,
+# tappable options with the recommended one first, no unexplained jargon, one
+# more question added rather than the set re-filed, and no copy of a question
+# a swarm-mate already has open. The last paragraph covers the end of a job: a
+# session that is unsure about anything asks instead of closing itself.
+# Prompts: "If there are things that you're unsure about, i don't want you to
+# close yourself, i want you to ask me questions about it." · "I think most
+# choices should be questions. I want to learn why things are the way they
+# are." · "similar to Claude planning mode where I can click options it
+# presents or else type in my response"
 _QUESTIONS_PROMPT = (
     "## When to stop for the owner\n"
     "Don't stop to ask for approval. If nothing is genuinely undecided, keep"
     " going: don't end a turn with \"say go and I'll…\", \"shall I?\" or"
     " \"want me to…?\" — do the thing. Stop only for a real question that she"
     " alone can answer and that changes what you'd build. Then file ALL your"
-    " open questions in one call, one argument each, and end your turn:\n"
-    "`./venv/bin/python3 scripts/request_input.py \"question 1\" \"question 2\"`"
-    " (from the app checkout). That turns your card orange and prints the"
-    " questions on the roster and at the bottom of your chat, with a box she"
-    " answers in; her answer arrives as your next message. Each question must"
-    " stand on its own — she reads them on a card, away from the chat — so"
-    " name the choice and your recommendation in it. Filing again replaces the"
-    " earlier set.\n"
+    " open questions in one call and end your turn:\n"
+    "`./venv/bin/python3 scripts/request_input.py --about \"<what you're"
+    " building and where it stands>\" --question \"<question>\" --option"
+    " \"<label — what it means, what it costs or gains>\" --option \"…\""
+    " --question \"…\"` (from the app checkout). That turns your card orange"
+    " and prints the questions on the roster and at the bottom of your chat;"
+    " she taps an option or types her own answer, and it arrives as your next"
+    " message.\n"
+    "She reads the card away from your chat, and she wants to learn WHY things"
+    " are the way they are, so every filing teaches:\n"
+    "- `--about` is required: one or two plain lines on what you're building"
+    " and where it stands. Shared context goes there, once, so each question"
+    " stays short.\n"
+    "- A question with real alternatives gets 2–4 `--option`s, each saying"
+    " what it means and what it costs or gains. Put the one you recommend"
+    " FIRST. A question with no sensible options gets none, and she types.\n"
+    "- No unexplained PR or ticket numbers, setting names or private terms —"
+    " say what the thing is.\n"
+    "- One more question for a set that's already open: `--add --question"
+    " \"…\" [--option …]`. Don't re-file the whole set to add one.\n"
+    "- The output lists questions already open elsewhere in your swarm. If"
+    " one is the same as yours, don't file it: say which session is asking"
+    " (`scripts/peers.py`) and wait on that one.\n"
     "If her answer reaches you some other way (she answered in another"
     " session's chat and a peer passed her words on), take your questions down"
     " yourself: `./venv/bin/python3 scripts/request_input.py --answered"
@@ -2157,47 +2188,181 @@ _QUESTIONS_PROMPT = (
     "Finished the job but unsure about something — a choice you made for her"
     " so the work could go on, a thing you couldn't check, a risk you'd flag?"
     " Don't close yourself. File each doubt as a question the same way, with"
-    " what you picked and what you'd recommend, and end your turn."
-    " `session_done.py` is only for a job that is finished AND leaves you"
-    " unsure of nothing.\n"
+    " what you picked as the first option and the alternatives after it, and"
+    " end your turn. `session_done.py` is only for a job that is finished AND"
+    " leaves you unsure of nothing.\n"
 )
 
 _REQUEST_INPUT_MAX = 1000   # a question, not an essay
 _REQUEST_INPUT_MAX_COUNT = 12   # a handful she can answer in one reply, not a survey
 _WITHDRAW_SOURCE_MAX = 300   # where her answer came from: a line, not the answer's story
+_ABOUT_MAX = 600   # what it's building and where it stands: a line or two
+_OPTION_LABEL_MAX = 160   # an option's name, short enough to be a button
+_OPTION_DETAIL_MAX = 500   # what the option means and what it costs or gains
+_OPTION_MAX_COUNT = 4   # a choice she can take in at a glance
+
+# An option given as one line, "<label> — <why>": the label ends at the first
+# dash set off by spaces (an em dash, an en dash, or one or two hyphens).
+_OPTION_SPLIT_RE = re.compile(r"\s+(?:—|–|--?)\s+")
 
 
-def request_input(conv_id, questions):
+def _clean_option(raw):
+    """One option, tidied into {label, detail, recommended}: a dict with a
+    label (and maybe a detail), or one line split at its first spaced dash.
+    None when there's no label. `recommended` is set by the caller."""
+    if isinstance(raw, dict):
+        label, detail = raw.get("label"), raw.get("detail")
+    else:
+        parts = _OPTION_SPLIT_RE.split(str(raw or "").strip(), maxsplit=1)
+        label, detail = parts[0], parts[1] if len(parts) > 1 else ""
+    label = " ".join(str(label or "").split())[:_OPTION_LABEL_MAX]
+    detail = " ".join(str(detail or "").split())[:_OPTION_DETAIL_MAX]
+    return {"label": label, "detail": detail, "recommended": False} if label else None
+
+
+def _clean_options(raw_lists, count):
+    """Each question's options, tidied: one list per question (empty when it
+    has none), at most _OPTION_MAX_COUNT each, the first one marked
+    recommended. Padded or cut to `count` so it lines up with the questions."""
+    raw_lists = list(raw_lists or [])
+    cleaned = []
+    for n in range(count):
+        raw = raw_lists[n] if n < len(raw_lists) else []
+        listed = [o for o in (_clean_option(r) for r in (raw or [])) if o][:_OPTION_MAX_COUNT]
+        if listed:
+            listed[0]["recommended"] = True
+        cleaned.append(listed)
+    return cleaned
+
+
+def _open_options(entry):
+    """The options of a session's open set, one list per open question."""
+    questions = _open_questions(entry)
+    stored = entry.get("awaiting_options") if isinstance(entry, dict) else None
+    stored = stored if isinstance(stored, list) else []
+    return [stored[n] if n < len(stored) and isinstance(stored[n], list) else []
+            for n in range(len(questions))]
+
+
+def _clear_questions(entry):
+    """Take an open set off a session entry: the questions, the one-line
+    copy older readers use, and the set's about line and options. Every place
+    that takes a set down comes through here, so no piece of one is left
+    behind on the card."""
+    for field in ("awaiting_questions", "awaiting_input", "awaiting_about", "awaiting_options"):
+        entry.pop(field, None)
+
+
+def open_questions_nearby(conv_id, index=None):
+    """The questions open right now in the OTHER sessions working beside this
+    one, so a session about to ask can see whether someone already is. "Beside"
+    is its swarm today (swarms.swarm_of); this is the one place that decides
+    it, so widening it (to a project, say) changes only this function. Each
+    item: {conv, title, questions}. Empty when it's in no swarm, and never
+    raises — a lookup that fails must not stop a question being filed."""
+    try:
+        import swarms
+        swarm_id = swarms.swarm_of(conv_id)
+        if swarm_id is None:
+            return []
+        members = swarms.overview_members(swarm_id)
+        index = index if index is not None else store.read("bot_chats/index", {})
+    except Exception:
+        return []
+    nearby = []
+    for member in members:
+        entry = index.get(member)
+        if member == conv_id or not isinstance(entry, dict) or entry.get("archived"):
+            continue
+        asked = _open_questions(entry)
+        if asked:
+            nearby.append({"conv": member, "title": entry.get("title") or member,
+                           "questions": asked})
+    return nearby
+
+
+def request_input(conv_id, questions, about=None, options=None, add=False):
     """Set the open questions on a conversation — the one validated entry point
     the agent CLI (and any future HTTP door) share, so agents never write
-    session state directly. `questions` is one string or a list of them.
+    session state directly. `questions` is one string or a list of them;
+    `about` is the line of context the whole set shares; `options` is one list
+    per question, each item a dict {label, detail} or one line "<label> —
+    <why>", the recommended one first. `add` appends these questions to the
+    set already open (keeping its about) instead of replacing it.
+
+    Filing exactly the set that's already open changes nothing and writes no
+    transcript line, so nothing is woken for it (`unchanged` in the payload).
+    The payload's `open_nearby` lists what the sessions beside this one are
+    already asking (open_questions_nearby).
+
     Returns (payload, status): 200 on success, 400 on a bad id / no question,
     404 on an unknown conversation. Loud, precise failures — same narrow-door
     doctrine as open_spinoff()."""
     if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
         return {"error": "invalid conversation id"}, 400
-    # Tidy the questions: trim each, cap each, drop blanks, cap the count.
+    # Tidy the questions: trim each, cap each, drop blanks (with their
+    # options), cap the count.
     if isinstance(questions, str) or questions is None:
         questions = [questions]
-    cleaned = [str(q or "").strip()[:_REQUEST_INPUT_MAX] for q in questions]
-    cleaned = [q for q in cleaned if q][:_REQUEST_INPUT_MAX_COUNT]
-    if not cleaned:
+    raw_options = list(options or [])
+    kept, kept_options = [], []
+    for n, q in enumerate(questions):
+        q = str(q or "").strip()[:_REQUEST_INPUT_MAX]
+        if q:
+            kept.append(q)
+            kept_options.append(raw_options[n] if n < len(raw_options) else [])
+    if not kept:
         return {"error": "empty question"}, 400
+    about = " ".join(str(about or "").split())[:_ABOUT_MAX]
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
             return {"error": "not found"}, 404
-        entry["awaiting_questions"] = cleaned
-        entry["awaiting_input"] = "\n".join(cleaned)
+        # The set to file: these questions alone, or (adding) the open set
+        # with these after it. Adding keeps the open set's about unless a new
+        # one is given.
+        new_options = _clean_options(kept_options, len(kept))
+        if add and not _open_questions(entry) and not about:
+            return {"error": "nothing open to add to — file a new set, with --about"}, 400
+        if add and _open_questions(entry):
+            cleaned = (_open_questions(entry) + kept)[:_REQUEST_INPUT_MAX_COUNT]
+            cleaned_options = (_open_options(entry) + new_options)[:len(cleaned)]
+            about = about or str(entry.get("awaiting_about") or "")
+        else:
+            cleaned = kept[:_REQUEST_INPUT_MAX_COUNT]
+            cleaned_options = new_options[:len(cleaned)]
+        has_options = any(cleaned_options)
+        # The same set again is a no-op: no new line, so no wake, no churn.
+        unchanged = (cleaned == _open_questions(entry)
+                     and about == str(entry.get("awaiting_about") or "")
+                     and cleaned_options == _open_options(entry))
+        if not unchanged:
+            entry["awaiting_questions"] = cleaned
+            entry["awaiting_input"] = "\n".join(cleaned)
+            for field, value in (("awaiting_about", about),
+                                 ("awaiting_options", cleaned_options if has_options else None)):
+                if value:
+                    entry[field] = value
+                else:
+                    entry.pop(field, None)
+        nearby = open_questions_nearby(conv_id, index)
+    payload = {"ok": True, "awaiting_input": "\n".join(cleaned),
+               "awaiting_questions": cleaned, "awaiting_about": about,
+               "awaiting_options": cleaned_options, "open_nearby": nearby}
+    if unchanged:
+        return {**payload, "unchanged": True}, 200
     # Keep the set in the transcript too, where it was asked. The index field
     # above is "what's open now" and comes off when she replies; this line is
     # the record, so the chat can draw the block in its place above her answer
     # for good (events.ts, case 'questions'). One O_APPEND write, the same as a
     # peer card, because the turn that filed it is writing this log right now.
-    peermail.append_line(_chats_dir() / f"{conv_id}.jsonl",
-                         {"type": "questions", "questions": cleaned, "ts": _now()})
-    return {"ok": True, "awaiting_input": entry["awaiting_input"],
-            "awaiting_questions": cleaned}, 200
+    line = {"type": "questions", "questions": cleaned, "ts": _now()}
+    if about:
+        line["about"] = about
+    if has_options:
+        line["options"] = cleaned_options
+    peermail.append_line(_chats_dir() / f"{conv_id}.jsonl", line)
+    return payload, 200
 
 
 def withdraw_questions(conv_id, source):
@@ -2224,8 +2389,7 @@ def withdraw_questions(conv_id, source):
         withdrawn = _open_questions(entry)
         if not withdrawn:
             return {"error": "no open questions to withdraw"}, 409
-        entry.pop("awaiting_questions", None)
-        entry.pop("awaiting_input", None)
+        _clear_questions(entry)
     # Keep the withdrawal in the transcript too, where it happened. The chat
     # marks the block above it "answered elsewhere" and prints the source
     # (events.ts, case 'questions-withdrawn'). One O_APPEND write, the same as
@@ -2374,8 +2538,7 @@ def _her_message_arrived(conv_id, entry, expected=None):
     """
     cleared = _open_questions(entry)
     if expected is None or cleared == expected:
-        entry.pop("awaiting_questions", None)
-        entry.pop("awaiting_input", None)
+        _clear_questions(entry)
     else:
         cleared = []
     _dismiss_pending(conv_id)

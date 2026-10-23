@@ -387,7 +387,8 @@ def test_a_relayed_answer_lets_the_session_take_its_question_down(bot_client, mo
     with store.mutate("bot_chats/index", {}) as index:
         index["c2"] = {"title": "the session she answered in"}
     monkeypatch.setenv("EXOCORTEX_CONV_ID", "c1")
-    assert request_input_script.main(["Who gets told: (a), (b) or (c)?"]) == 0
+    assert request_input_script.main(["--about", "Wiring the alert.",
+                                      "--question", "Who gets told: (a), (b) or (c)?"]) == 0
 
     # A peer relays her answer. An agent's message clears nothing: still orange.
     peermail.send("c1", 'She answered in my chat: "A)"', from_conv="c2")
@@ -405,7 +406,7 @@ def test_a_relayed_answer_lets_the_session_take_its_question_down(bot_client, mo
     assert lines[2]["source"] == 'relayed by c2: she said "A)"'
 
     # A question filed afterwards is a new one, and stays up.
-    assert request_input_script.main(["And the next thing?"]) == 0
+    assert request_input_script.main(["--about", "Next step.", "And the next thing?"]) == 0
     assert _roster_entry(bot_client, "c1")["awaiting_questions"] == ["And the next thing?"]
     capsys.readouterr()
 
@@ -444,3 +445,134 @@ def test_withdrawing_with_nothing_open_is_refused_and_leaves_no_record(data_dir)
     log = store.DATA_DIR / "bot_chats" / "c1.jsonl"
     assert not log.exists() or "questions-withdrawn" not in log.read_text()
     assert rr.withdraw_questions("ghost", "she said so")[1] == 404
+
+
+# --- every set carries its context and its choices ---------------------------
+# She reads the card away from the chat, so a filing says what the session is
+# building (--about) and offers options she can tap, the recommended one first.
+# The CLI refuses anything it doesn't understand rather than filing it.
+
+def _file(*arguments):
+    """Run the CLI as the session c1 would; return (exit code, printed JSON)."""
+    import contextlib
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = request_input_script.main(list(arguments))
+    return code, json.loads(out.getvalue())
+
+
+def test_a_set_with_about_and_options_reaches_the_roster_and_the_chat(bot_client, monkeypatch):
+    _seed_asker()
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "c1")
+    code, _ = _file("--about", "Moving the lint step. It runs out of memory on big diffs.",
+                    "--question", "Where should lint run?",
+                    "--option", "In CI only — local commits stay fast, errors show later",
+                    "--option", "Pre-commit, capped — catches it early, costs a few seconds",
+                    "--question", "Anything else before I ship?")
+    assert code == 0
+    waiting = _roster_entry(bot_client, "c1")
+    assert waiting["awaiting_about"] == "Moving the lint step. It runs out of memory on big diffs."
+    assert waiting["awaiting_options"] == [
+        [{"label": "In CI only", "detail": "local commits stay fast, errors show later",
+          "recommended": True},
+         {"label": "Pre-commit, capped", "detail": "catches it early, costs a few seconds",
+          "recommended": False}],
+        [],
+    ]
+    # older readers still see the plain list
+    assert waiting["awaiting_questions"] == ["Where should lint run?", "Anything else before I ship?"]
+    line = _chat_lines(bot_client, "c1")[-1]
+    assert line["about"] == waiting["awaiting_about"]
+    assert line["options"] == waiting["awaiting_options"]
+
+
+@pytest.mark.parametrize("arguments, says", [
+    (["--question", "Public repo?"], "--about is required"),          # no context
+    (["Public repo?"], "--about is required"),                         # the old bare form
+    (["--about", "x", "--question", "Q?", "--opton", "typo"], "unknown flag"),
+    (["--about", "x", "--option", "A — a", "--question", "Q?"], "comes after the --question"),
+    (["--about", "x", "--question", "Q?", "--option", "only one"], "one option isn't a choice"),
+    (["--about", "x", "--question"], "needs a value"),
+])
+def test_a_malformed_filing_is_refused_with_the_right_form_and_files_nothing(
+        data_dir, monkeypatch, arguments, says):
+    _seed_asker()
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "c1")
+    code, printed = _file(*arguments)
+    assert code != 0
+    assert says in printed["error"] and "--about" in printed["error"] and "--option" in printed["error"]
+    assert "awaiting_questions" not in store.read("bot_chats/index", {})["c1"]
+    log = store.DATA_DIR / "bot_chats" / "c1.jsonl"
+    assert not log.exists() or "questions" not in log.read_text()
+
+
+def test_her_send_clears_the_about_and_options_with_the_questions(bot_client):
+    _seed_asker()
+    rr.request_input("c1", ["Where should lint run?"], about="Moving lint.",
+                     options=[["CI — fast", "Pre-commit — early"]])
+    _drain(bot_client.post("/api/observatory/conversation/c1/send", json={"text": "1. CI"}))
+    entry = store.read("bot_chats/index", {})["c1"]
+    assert not {"awaiting_questions", "awaiting_input", "awaiting_about",
+                "awaiting_options"} & set(entry)
+
+
+def test_withdrawing_takes_the_about_and_options_down_too(data_dir):
+    _seed_asker()
+    rr.request_input("c1", ["Q?"], about="ctx", options=[["A — a", "B — b"]])
+    rr.withdraw_questions("c1", "relayed by c2: she said A")
+    entry = store.read("bot_chats/index", {})["c1"]
+    assert "awaiting_about" not in entry and "awaiting_options" not in entry
+
+
+# --- less churn: the same set is a no-op, one more question is added ---------
+
+def _question_lines():
+    log = store.DATA_DIR / "bot_chats" / "c1.jsonl"
+    return [json.loads(l) for l in log.read_text().splitlines()
+            if json.loads(l).get("type") == "questions"]
+
+
+def test_filing_the_open_set_again_writes_nothing_new(data_dir):
+    _seed_asker()
+    first = rr.request_input("c1", ["Q?"], about="ctx", options=[["A — a", "B — b"]])
+    again, status = rr.request_input("c1", ["Q?"], about="ctx", options=[["A — a", "B — b"]])
+    assert status == 200 and again.get("unchanged") is True and "unchanged" not in first[0]
+    assert len(_question_lines()) == 1
+    # a real change is filed as usual
+    rr.request_input("c1", ["Q?"], about="ctx, now with more", options=[["A — a", "B — b"]])
+    assert len(_question_lines()) == 2
+
+
+def test_add_grows_the_open_set_and_keeps_its_about(data_dir, monkeypatch):
+    _seed_asker()
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "c1")
+    _file("--about", "Moving lint.", "--question", "Where?", "--option", "CI — a", "--option", "Hook — b")
+    code, printed = _file("--add", "--question", "And the old config?")
+    entry = store.read("bot_chats/index", {})["c1"]
+    assert code == 0
+    assert entry["awaiting_questions"] == ["Where?", "And the old config?"]
+    assert entry["awaiting_about"] == "Moving lint."
+    assert [len(o) for o in entry["awaiting_options"]] == [2, 0]
+    # one line for the grown set, after the first
+    assert [l["questions"] for l in _question_lines()] == [["Where?"], ["Where?", "And the old config?"]]
+
+
+def test_add_with_nothing_open_is_refused_without_context(data_dir):
+    _seed_asker()
+    payload, status = rr.request_input("c1", ["Q?"], add=True)
+    assert status == 400 and "--about" in payload["error"]
+
+
+def test_filing_lists_what_the_rest_of_the_swarm_is_already_asking(data_dir, monkeypatch):
+    _seed_asker()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c2"] = {"title": "lint fixer", "awaiting_questions": ["Raise the lint memory cap?"],
+                       "awaiting_input": "Raise the lint memory cap?"}
+        index["c3"] = {"title": "elsewhere", "awaiting_questions": ["Unrelated?"],
+                       "awaiting_input": "Unrelated?"}
+    import swarms
+    monkeypatch.setattr(swarms, "swarm_of", lambda conv: 7 if conv in ("c1", "c2") else None)
+    monkeypatch.setattr(swarms, "overview_members", lambda swarm_id: ["c1", "c2"])
+    payload, _ = rr.request_input("c1", ["Raise the lint memory cap?"], about="Lint OOM.")
+    assert payload["open_nearby"] == [{"conv": "c2", "title": "lint fixer",
+                                       "questions": ["Raise the lint memory cap?"]}]

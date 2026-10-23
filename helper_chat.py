@@ -142,7 +142,17 @@ part 3 is already up to date when you read it. You don't have to do anything on 
 turn. Look for what your job is about: two sessions in the same files that aren't working \
 together, one redoing what another did, something one should hear from another. If you find it, \
 act as you would on any turn and tell her in a line or two. If you have nothing to tell her, \
-reply with exactly `{silent}` and nothing else — that turn then stays out of her chat."""
+reply with exactly `{silent}` and nothing else — that turn then stays out of her chat.
+
+When one of {members} asks her something, her roster already shows the question, with its \
+context and its options, and she answers it there. So never repeat a member's question to her, \
+and never retell it. The one time a question is yours to act on: two of {members} ask her the \
+same thing. Then message the one that asked later (`scripts/peers.py send <id> "…"`) to take \
+its question down (`scripts/request_input.py --answered` is only for HER answer, so it should \
+re-file without that question) and to wait on the first session's answer, naming that session."""
+
+# Who a helper's "members" are, in the wake text above.
+_WAKE_MEMBERS = {"room_helper": "the sessions in your room"}
 
 LINEAR_WAKE = """The app also wakes you by itself when someone other than her does something in Linear — a System \
 message headed "Linear news", listing each thing with who did it. Always tell her what it says, \
@@ -782,7 +792,8 @@ def seed_parts(conv_id, entry, watched=None):
     else:
         lead = SWARM_LEAD
     wake = (LINEAR_WAKE if entry.get("role") == "linear_helper"
-            else ROOM_WAKE.format(silent=SILENT))
+            else ROOM_WAKE.format(silent=SILENT,
+                                  members=_WAKE_MEMBERS.get(entry.get("role"), "your swarm's members")))
     world_line = (f"one entry per active session in {place} — its summary, every file it has"
                   " edited and every file it has read")
     # Say how the view is shaped: a growing helper is told it resumes and

@@ -26,10 +26,16 @@ told "go".** Your first message in the chat was the brief. In order:
    - **None?** Don't stop. Say in a line that nothing needs their call, recap
      what the change will touch and your plan in a few sentences, and go
      straight on to Build.
-   - **Some?** File them all at once — `./venv/bin/python3
-     scripts/request_input.py "question 1" "question 2"` from the app
-     checkout, each one standing on its own with your recommendation in it —
-     then recap what you found and end your turn. The session turns orange
+   - **Some?** File them all at once from the app checkout —
+     `./venv/bin/python3 scripts/request_input.py --about "<what you're
+     building and where it stands>" --question "<question>" --option
+     "<label — what it means, what it costs or gains>" --option "…"` — then
+     recap what you found and end your turn. `--about` carries the shared
+     context in a line or two, so each question stays short. A question with
+     real alternatives gets 2–4 options, the one you recommend FIRST; the
+     owner taps one or types her own. No unexplained PR or ticket numbers,
+     setting names or private terms: she reads these away from the chat and
+     wants to learn why things are the way they are. The session turns orange
      and the questions show on the roster and at the bottom of the chat; their
      answer arrives as your next message, and you carry on from there.
 4. **Build.** Execute the plan, following this repo's CLAUDE.md conventions
@@ -47,8 +53,11 @@ told "go".** Your first message in the chat was the brief. In order:
    sure", and every answer you picked on the owner's behalf, is a question for
    them — not a note in a file and not a line in the report. File them all
    with `scripts/request_input.py`, each standing on its own with what you
-   picked and your recommendation, and end your turn. Do NOT run
+   picked as the first option and the alternatives after it (one
+   `--about`, one `--question` each), and end your turn. Do NOT run
    `session_done.py`: a session with doubts stays open until they answer.
+   One more question once a set is open: `--add --question "…"`, never the
+   whole set again.
    If what you delivered is something for the owner to react to — research,
    a comparison, a plan, a review, anything that ends in options — do NOT
    run it either: that reply is where the conversation starts. End your turn

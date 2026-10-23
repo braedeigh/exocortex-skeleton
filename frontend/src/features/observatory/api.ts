@@ -296,6 +296,17 @@ export interface SessionMeta {
    * request_input call (it replaces, never appends). Absent on a flag raised
    * before questions came as a list; read both through openQuestions(). */
   awaiting_questions?: string[];
+  /** One or two plain lines the session filed WITH its questions: what it is
+   * building and where it stands (request_input.py --about). The orange card
+   * prints it under the title, so she can answer away from the chat. Absent
+   * on a set filed before sets carried context — the card falls back to
+   * `summary`. Comes off with the questions. */
+  awaiting_about?: string;
+  /** The choices each open question offers, one list per question in the
+   * same order as awaiting_questions (empty for a question she types an
+   * answer to). The recommended option is first and says so. Absent when no
+   * question has options. Read through openOptions(). */
+  awaiting_options?: QuestionOption[][];
   /** The session said its work is finished (scripts/session_done.py) at this
    * time. Her next message, or her Keep open, clears it along with
    * closes_at and done_note; a peer's or a job's turn leaves it standing
@@ -350,6 +361,25 @@ export interface SessionMeta {
    * case every session is in until she picks one. Resolved per turn, so
    * changing it takes effect on the next turn with the history intact. */
   model?: string;
+}
+
+/** One choice a question offers her (request_input.py --option): a short
+ * label for the button, what it means and what it costs or gains, and
+ * whether the session recommends it (only ever the first). */
+export interface QuestionOption {
+  label: string;
+  detail: string;
+  recommended: boolean;
+}
+
+/** Each open question's options, lined up with openQuestions(meta) — an empty
+ * list for a question with none, and all empty for a set filed before
+ * questions carried options. */
+export function openOptions(
+  meta: Pick<SessionMeta, 'awaiting_input' | 'awaiting_questions' | 'awaiting_options'> | undefined,
+): QuestionOption[][] {
+  const stored = meta?.awaiting_options ?? [];
+  return openQuestions(meta).map((_, i) => (Array.isArray(stored[i]) ? stored[i] : []));
 }
 
 /** The questions a session is waiting on her for, as a list — empty when it

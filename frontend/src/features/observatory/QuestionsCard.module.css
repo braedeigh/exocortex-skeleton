@@ -196,3 +196,60 @@
   font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
+
+/* The about line: what the agent is building and where it stands, read
+   before the questions. */
+.about {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* The open set's answering part: taps here answer, so it doesn't look like
+   the rest of the tappable card. */
+.answering {
+  cursor: auto;
+}
+
+/* One question needs no number. */
+.listSingle {
+  padding-left: 0;
+  list-style: none;
+}
+
+/* Send, and "Go with your recommendations" beside it. */
+.sendRow {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.send,
+.goRecommended {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--orange) 18%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.goRecommended {
+  flex: 1;
+  border-style: dashed;
+  background: transparent;
+  font-weight: 600;
+}
+
+.send:disabled,
+.goRecommended:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

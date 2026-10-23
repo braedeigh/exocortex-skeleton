@@ -32,11 +32,14 @@
  *    from_title, to_conv, to_title, text,       'out' in the sender's chat, 'in'
  *    mode, status, held_reason}                 in the recipient's; drawn as a
  *                                              colored card
- * - {type:'questions', questions, ts}         a set of questions the agent
- *                                              filed for her
+ * - {type:'questions', questions, about?,     a set of questions the agent
+ *    options?, ts}                              filed for her
  *                                              (request_input.py) — drawn as
  *                                              an orange block where it was
- *                                              asked, kept after she answers
+ *                                              asked, kept after she answers;
+ *                                              about = what it's building,
+ *                                              options = per question, the
+ *                                              choices she can tap
  * - {type:'questions-withdrawn', questions,    the agent took its open set
  *    source, ts}                                down because her answer reached
  *                                              it by another route
@@ -74,6 +77,7 @@
  *                                              by its place among her messages
  */
 
+import type { QuestionOption } from './api';
 import type { Arrival } from './queuedMessages';
 
 export interface Turn {
@@ -110,6 +114,12 @@ export interface Turn {
   decision?: 'approve' | 'deny';
   /** questions only: the set the agent filed, in its order. */
   questions?: string[];
+  /** questions only: what the agent said it is building and where it
+   * stands, filed with the set (request_input.py --about). */
+  about?: string;
+  /** questions only: each question's options, lined up with `questions`
+   * (an empty list for one she types an answer to). */
+  options?: QuestionOption[][];
   /** questions only: the agent withdrew this set because her answer reached it
    * by another route — this is where it said her answer came from. */
   answeredElsewhere?: string;
@@ -168,6 +178,21 @@ function arrivalOf(raw: unknown): Arrival | undefined {
   if (!a || typeof a !== 'object') return undefined;
   if (a.how !== 'injected' && a.how !== 'interrupt' && a.how !== 'next-turn') return undefined;
   return typeof a.after_step === 'number' ? { how: a.how, after_step: a.after_step } : { how: a.how };
+}
+
+/** One question's options off a transcript line, keeping only well-formed
+ * ones (a label at least); anything else reads as no options. */
+function optionsOf(raw: unknown): QuestionOption[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((o): o is { label: string; detail?: unknown; recommended?: unknown } =>
+      typeof o === 'object' && o !== null && typeof (o as { label?: unknown }).label === 'string' &&
+      (o as { label: string }).label.trim() !== '')
+    .map((o) => ({
+      label: o.label,
+      detail: typeof o.detail === 'string' ? o.detail : '',
+      recommended: o.recommended === true,
+    }));
 }
 
 export function userTurn(text: string, offRecord: boolean): Turn {
@@ -326,9 +351,17 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       // filing open a fresh reply below the block, and the reply above doesn't
       // sit there showing "running a command…" forever (only the LAST turn is
       // closed when the turn ends).
-      const list = Array.isArray(e.questions)
-        ? e.questions.filter((q): q is string => typeof q === 'string' && q.trim() !== '')
-        : [];
+      // Each question keeps its own options, so the two are read together:
+      // a blank question is dropped along with its options.
+      const rawQuestions: unknown[] = Array.isArray(e.questions) ? e.questions : [];
+      const rawOptions: unknown[] = Array.isArray(e.options) ? e.options : [];
+      const list: string[] = [];
+      const options: QuestionOption[][] = [];
+      rawQuestions.forEach((q, i) => {
+        if (typeof q !== 'string' || q.trim() === '') return;
+        list.push(q);
+        options.push(optionsOf(rawOptions[i]));
+      });
       if (list.length === 0) return turns;
       const last = turns[turns.length - 1];
       if (last && last.role === 'assistant') {
@@ -337,6 +370,8 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       }
       const t = turn('questions');
       t.questions = list;
+      if (typeof e.about === 'string' && e.about.trim()) t.about = e.about.trim();
+      if (options.some((o) => o.length > 0)) t.options = options;
       turns.push(t);
       return turns;
     }
@@ -558,6 +593,10 @@ export function questionsState(turns: Turn[], index: number): QuestionsState {
  * stops applying the moment the set is answered or replaced. */
 export interface OpenQuestionSet {
   questions: string[];
+  /** What the agent is building and where it stands, when it said. */
+  about?: string;
+  /** Each question's options, lined up with `questions`. */
+  options: QuestionOption[][];
   turnIndex: number | null;
   key: string;
 }
@@ -568,19 +607,36 @@ export interface OpenQuestionSet {
  * when the transcript holds no copy of it. A copy that is already settled
  * means she just answered and the roster poll hasn't caught up, so nothing is
  * open. */
-export function openQuestionSet(turns: Turn[], rosterQuestions: string[]): OpenQuestionSet | null {
+export function openQuestionSet(
+  turns: Turn[],
+  rosterQuestions: string[],
+  roster?: { about?: string; options?: QuestionOption[][] },
+): OpenQuestionSet | null {
   for (let i = turns.length - 1; i >= 0; i--) {
-    const questions = turns[i].questions;
-    if (turns[i].role !== 'questions' || !questions) continue;
+    const t = turns[i];
+    const questions = t.questions;
+    if (t.role !== 'questions' || !questions) continue;
     if (questionsState(turns, i) === 'open') {
-      return { questions, turnIndex: i, key: `${i}:${questions.join('\n')}` };
+      return {
+        questions,
+        about: t.about,
+        options: questions.map((_, n) => t.options?.[n] ?? []),
+        turnIndex: i,
+        key: `${i}:${questions.join('\n')}`,
+      };
     }
     break;
   }
   if (rosterQuestions.length === 0) return null;
   const joined = rosterQuestions.join('\n');
   if (turns.some((t) => t.role === 'questions' && (t.questions ?? []).join('\n') === joined)) return null;
-  return { questions: rosterQuestions, turnIndex: null, key: `end:${joined}` };
+  return {
+    questions: rosterQuestions,
+    about: roster?.about,
+    options: rosterQuestions.map((_, n) => roster?.options?.[n] ?? []),
+    turnIndex: null,
+    key: `end:${joined}`,
+  };
 }
 
 /** Reduce a full history into turns (conversation GET). */

@@ -12,12 +12,13 @@ import { ChatApprovalCard } from './ChatApprovalCard';
 import { QuestionsBlock, QuestionsCard, QuestionsChip, QuestionsFloating, type QuestionsFloat } from './QuestionsCard';
 import { CloseSourcePrompt, PlanSessionLink, SpinoffOffer } from './SpinoffOffer';
 import { setTerrainBackdropOn, useTerrainBackdropOn } from '../terrain/backdropPref';
-import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, noteSessionOpened, journalRestore, openQuestions, stopConversation, streamSend, useSessionRoster } from './api';
+import { createSession, getConversation, getSessions, isOutOfMemory, journalOutput, noteSessionOpened, journalRestore, openOptions, openQuestions, stopConversation, streamSend, useSessionRoster } from './api';
 import { MemoryPrompt } from '../runqueue/MemoryPrompt';
 import { enqueueConversation, fetchHeadroom } from '../runqueue/api';
 import { shouldPrompt } from '../runqueue/memoryPrompt';
 import type { Headroom } from '../runqueue/memoryPrompt';
 import { applyEvent, assistantText, lastUserTurnIndex, openQuestionSet, questionsState, turnsFromHistory, userOrdinal, userTurn, type Turn } from './events';
+import { recommendedAnswers, type QuestionAnswer } from './questionAnswers';
 import { HighlightPill, HighlightSheet } from './JournalHighlight';
 import { useJournalHighlight } from './useJournalHighlight';
 import { useComposerBox } from './useComposerBox';
@@ -316,19 +317,40 @@ export function ObservatoryPage({
   // back to where it sits in the chat. Don't want it constantly scrolling with
   // the chat."
   const { data: roster, dataUpdatedAt: rosterReadAt } = useSessionRoster(true, Boolean(convId));
-  const rosterQuestions = openQuestions((roster?.sessions ?? []).find((s) => s.id === convId));
-  const openSet = convId ? openQuestionSet(turns, rosterQuestions) : null;
+  const rosterMeta = (roster?.sessions ?? []).find((s) => s.id === convId);
+  const rosterQuestions = openQuestions(rosterMeta);
+  const openSet = convId
+    ? openQuestionSet(turns, rosterQuestions, { about: rosterMeta?.awaiting_about, options: openOptions(rosterMeta) })
+    : null;
   const [floatedKey, setFloatedKey] = useState<string | null>(null);
   const questionsFloated = openSet !== null && floatedKey === openSet.key;
   const [questionsPlaceRef, questionsPlaceInView] = usePlaceInView(scrollContract.scrollRef);
   // Keeps the floated card inside the visible space above the message box,
   // keyboard open or not (useFloatRoom.ts).
   const floatDockRef = useFloatRoom();
+  // Her answers to the open set, tapped or typed on the card
+  // (QuestionChoices.tsx), held here so they survive floating it and putting
+  // it back. Kept against the set's key, so a set that's answered or replaced
+  // starts with none. Sent the same way as the message box (sendText, below).
+  const [questionAnswers, setQuestionAnswers] = useState<{ key: string; answers: (QuestionAnswer | undefined)[] }>({
+    key: '',
+    answers: [],
+  });
+  const openAnswers = openSet && questionAnswers.key === openSet.key ? questionAnswers.answers : [];
   const questionsFloat: QuestionsFloat | undefined = openSet
     ? {
         floated: questionsFloated,
         onToggle: () => setFloatedKey(questionsFloated ? null : openSet.key),
         placeRef: questionsPlaceRef,
+        answers: openAnswers,
+        onAnswer: (index, answer) => {
+          const next = [...openAnswers];
+          next[index] = answer;
+          setQuestionAnswers({ key: openSet.key, answers: next });
+        },
+        onSend: (text) => answerQuestions(text, offRecord),
+        // A tap, not her words: off the record.
+        onGoRecommended: () => answerQuestions(recommendedAnswers(openSet.questions, openSet.options), true),
       }
     : undefined;
 
@@ -744,6 +766,33 @@ export function ObservatoryPage({
     void sendMessage(kickoff, false, true);
   }, [pendingAutostart, canFire, sendMessage]);
 
+  // Send one message the way the message box does: into the session's
+  // mailbox while a turn is going (or a send is just starting one), as a new
+  // turn otherwise. The box below and the question card's own Send both come
+  // through here.
+  const sendText = (text: string, sendOffRecord: boolean) => {
+    if (writing || busyRef.current) {
+      // A turn is still going (or a send is just starting one) — send it to
+      // the session's mailbox, which hands it to the agent at its next step
+      // (useMessageQueue.ts). Each message keeps the record state it was
+      // written under.
+      messageQueue.enqueue(text, sendOffRecord);
+      return;
+    }
+    void sendMessage(text, sendOffRecord);
+  };
+
+  // Her answers from the open question card: sent like anything she types
+  // (a refusal shows above the message box, as for the box's own sends), the
+  // card's picks cleared, and the card put back in its place, where it
+  // settles once her message lands in the chat.
+  function answerQuestions(text: string, sendOffRecord: boolean) {
+    if (!text) return;
+    setQuestionAnswers({ key: '', answers: [] });
+    setFloatedKey(null);
+    sendText(text, sendOffRecord);
+  }
+
   const send = () => {
     const typed = inputRef.current?.value.trim() ?? '';
     // Photos may go alone (refs are a message), but empty-empty is nothing.
@@ -753,15 +802,7 @@ export function ObservatoryPage({
     const text = paths.length
       ? uploadedPathsMessage(paths) + (typed ? `\n${typed}` : '')
       : typed;
-    if (writing || busyRef.current) {
-      // A turn is still going (or a send is just starting one) — send it to
-      // the session's mailbox, which hands it to the agent at its next step
-      // (useMessageQueue.ts). Each message keeps the record state it was
-      // written under.
-      messageQueue.enqueue(text, offRecord);
-      return;
-    }
-    void sendMessage(text, offRecord);
+    sendText(text, offRecord);
   };
 
   // Enter sends, Shift+Enter (or Ctrl/Cmd+Enter) makes a newline — but only
@@ -1026,6 +1067,8 @@ export function ObservatoryPage({
                   <QuestionsBlock
                     key={i}
                     questions={t.questions}
+                    about={t.about}
+                    options={t.options}
                     state={questionsState(turns, i)}
                     answeredElsewhere={t.answeredElsewhere}
                     float={openSet?.turnIndex === i ? questionsFloat : undefined}
@@ -1209,7 +1252,7 @@ export function ObservatoryPage({
                 </div>
               ) : null}
               {questionsFloated && openSet ? (
-                <QuestionsFloating questions={openSet.questions} onPutBack={() => setFloatedKey(null)} />
+                <QuestionsFloating set={openSet} float={questionsFloat!} onPutBack={() => setFloatedKey(null)} />
               ) : null}
             </div>
           </div>

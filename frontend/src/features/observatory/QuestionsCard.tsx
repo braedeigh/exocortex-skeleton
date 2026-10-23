@@ -28,6 +28,15 @@
  * the open one (events.ts openQuestionSet) and hands each piece here a
  * QuestionsFloat. It is not remembered across a reload.
  *
+ * EVERY SET CARRIES ITS CONTEXT. A set filed with an about line (what the
+ * agent is building and where it stands) shows it above the questions, and a
+ * question filed with options shows them. On the open set they are buttons
+ * (QuestionChoices.tsx) with a box to type her own answer, and the card has
+ * its own Send and a "Go with your recommendations" button, so she can answer
+ * right here. The page holds the answers (QuestionsFloat), so they survive the
+ * card being floated and put back, and sends them the way the chat's own box
+ * does. A settled set shows its about line and options as plain text.
+ *
  * QuestionsCard is the fallback for a set with no transcript line — one filed
  * before sets were logged. The page reads that set off the shared roster query
  * (useSessionRoster, the same fetch ChatApprovalCard uses, so no extra poll)
@@ -45,9 +54,13 @@
  * to be able to tap to bring up the card floating around and tap again to send
  * it back to where it sits in the chat. Don't want it constantly scrolling with
  * the chat.", then "i want it to size to the screen if it's that big, with the
- * extra going down at the bottom."
+ * extra going down at the bottom.", then "similar to Claude planning mode
+ * where I can click options it presents or else type in my response".
  */
+import type { QuestionOption } from './api';
 import type { OpenQuestionSet, QuestionsState } from './events';
+import { OptionsText, QuestionChoices } from './QuestionChoices';
+import { composeAnswers, hasRecommendations, type QuestionAnswer } from './questionAnswers';
 import styles from './QuestionsCard.module.css';
 
 const HEADINGS: Record<QuestionsState, (count: number) => string> = {
@@ -66,6 +79,13 @@ export interface QuestionsFloat {
   /** Handed whatever element marks the set's place in the chat, so the page
    * can tell when that place is out of view (usePlaceInView.ts). */
   placeRef: (element: HTMLElement | null) => void;
+  /** Her answers so far, one per question — held by the page. */
+  answers: (QuestionAnswer | undefined)[];
+  onAnswer: (index: number, answer: QuestionAnswer | undefined) => void;
+  /** Send her composed answers into the session. */
+  onSend: (text: string) => void;
+  /** Take every recommended option and send now, off the record. */
+  onGoRecommended: () => void;
 }
 
 /** Run a tap on the card, unless the tap was the end of selecting text. The
@@ -79,15 +99,77 @@ function tapUnlessSelecting(onTap: () => void): () => void {
   };
 }
 
-/** The questions themselves: a numbered list, or one paragraph for a single. */
-function QuestionList({ questions }: { questions: string[] }) {
-  if (questions.length === 1) return <p className={styles.single}>{questions[0]}</p>;
+/** The about line: what the agent is building and where it stands. */
+function About({ about }: { about?: string }) {
+  return about ? <p className={styles.about}>{about}</p> : null;
+}
+
+/** A settled set's questions: a numbered list, or one paragraph for a single,
+ * each with the options it offered as plain text. */
+function QuestionList({ questions, options }: { questions: string[]; options?: QuestionOption[][] }) {
+  if (questions.length === 1) {
+    return (
+      <div className={styles.single}>
+        {questions[0]}
+        <OptionsText options={options?.[0] ?? []} />
+      </div>
+    );
+  }
   return (
     <ol className={styles.list}>
       {questions.map((q, i) => (
-        <li key={i}>{q}</li>
+        <li key={i}>
+          {q}
+          <OptionsText options={options?.[i] ?? []} />
+        </li>
       ))}
     </ol>
+  );
+}
+
+/** The open set's questions, each with its options to tap and a box to type
+ * in, then Send and "Go with your recommendations". Taps in here answer;
+ * they never reach the card's own float/put-back tap. */
+function AnswerList({
+  questions,
+  options,
+  float,
+}: {
+  questions: string[];
+  options: QuestionOption[][];
+  float: QuestionsFloat;
+}) {
+  const composed = composeAnswers(questions, options, float.answers);
+  const send = () => {
+    if (composed) float.onSend(composed);
+  };
+  return (
+    <div className={styles.answering} onClick={(e) => e.stopPropagation()}>
+      <ol className={[styles.list, questions.length === 1 ? styles.listSingle : ''].filter(Boolean).join(' ')}>
+        {questions.map((q, i) => (
+          <li key={i}>
+            {q}
+            <QuestionChoices
+              options={options[i] ?? []}
+              answer={float.answers[i]}
+              onChange={(answer) => float.onAnswer(i, answer)}
+              onSubmit={send}
+              label={questions.length > 1 ? `Answer to question ${i + 1}` : 'Your answer'}
+            />
+          </li>
+        ))}
+      </ol>
+      <div className={styles.sendRow}>
+        {hasRecommendations(options) ? (
+          <button type="button" className={styles.goRecommended} onClick={float.onGoRecommended}>
+            Go with your recommendations
+          </button>
+        ) : null}
+        <button type="button" className={styles.send} disabled={!composed} onClick={send}>
+          Send
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -107,11 +189,17 @@ function OpenHead({ count, action, label }: { count: number; action: string; lab
 
 export function QuestionsBlock({
   questions,
+  about,
+  options,
   state,
   answeredElsewhere,
   float,
 }: {
   questions: string[];
+  /** What the agent said it is building and where it stands. */
+  about?: string;
+  /** Each question's options, lined up with `questions`. */
+  options?: QuestionOption[][];
   state: QuestionsState;
   /** Where the agent said her answer came from, for a set it withdrew. */
   answeredElsewhere?: string;
@@ -130,7 +218,8 @@ export function QuestionsBlock({
           <span className={styles.dot} aria-hidden="true" />
           <span className={styles.eyebrow}>{HEADINGS[state](questions.length)}</span>
         </div>
-        <QuestionList questions={questions} />
+        <About about={about} />
+        <QuestionList questions={questions} options={options} />
         {state === 'elsewhere' && answeredElsewhere ? (
           <div className={styles.hint}>Taken down by the agent — her answer came from: {answeredElsewhere}</div>
         ) : null}
@@ -162,9 +251,11 @@ export function QuestionsBlock({
       onClick={tapUnlessSelecting(float.onToggle)}
     >
       <OpenHead count={questions.length} action="Float" label="Float the questions over the chat" />
-      <QuestionList questions={questions} />
+      <About about={about} />
+      <AnswerList questions={questions} options={questions.map((_, i) => options?.[i] ?? [])} float={float} />
       <div className={styles.hint}>
-        Answer in the box below — it picks up from there. Tap this card to keep it in view while you scroll.
+        Tap an option or type your own, here or in the box below. Tap the card&rsquo;s heading to keep it in view
+        while you scroll.
       </div>
     </div>
   );
@@ -173,7 +264,7 @@ export function QuestionsBlock({
 /** The open set with no transcript line, drawn at the end of the chat. Same
  * block, same switch — its place just isn't a turn. */
 export function QuestionsCard({ set, float }: { set: OpenQuestionSet; float: QuestionsFloat }) {
-  return <QuestionsBlock questions={set.questions} state="open" float={float} />;
+  return <QuestionsBlock questions={set.questions} about={set.about} options={set.options} state="open" float={float} />;
 }
 
 /** The small "questions" chip above the message box. Floats the card when the
@@ -191,7 +282,16 @@ export function QuestionsChip({ count, onFloat }: { count: number; onFloat: () =
  * as the visible space allows. The heading stays put and a longer list scrolls
  * underneath it, so the way back is always on screen. A tap anywhere sends it
  * back to its place. */
-export function QuestionsFloating({ questions, onPutBack }: { questions: string[]; onPutBack: () => void }) {
+export function QuestionsFloating({
+  set,
+  float,
+  onPutBack,
+}: {
+  set: OpenQuestionSet;
+  float: QuestionsFloat;
+  onPutBack: () => void;
+}) {
+  const { questions } = set;
   return (
     <div
       className={[styles.card, styles.open, styles.tappable, styles.floated].join(' ')}
@@ -205,8 +305,9 @@ export function QuestionsFloating({ questions, onPutBack }: { questions: string[
         label="Send the questions back to their place in the chat"
       />
       <div className={styles.floatedBody}>
-        <QuestionList questions={questions} />
-        <div className={styles.hint}>Tap this card to send it back to its place in the chat.</div>
+        <About about={set.about} />
+        <AnswerList questions={questions} options={set.options} float={float} />
+        <div className={styles.hint}>Tap the card&rsquo;s heading to send it back to its place in the chat.</div>
       </div>
     </div>
   );

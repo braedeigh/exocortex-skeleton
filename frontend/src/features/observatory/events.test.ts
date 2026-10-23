@@ -401,6 +401,21 @@ describe('questions', () => {
       turnIndex: null,
     });
   });
+
+  it('carries the about line and each question\'s options into the open set, lined up after a blank is dropped', () => {
+    const lint = { label: 'In CI only', detail: 'fast commits', recommended: true };
+    const hook = { label: 'Pre-commit', detail: 'catches it early', recommended: false };
+    const turns = turnsFromHistory([
+      { type: 'questions', questions: ['  ', 'Where should lint run?', 'Anything else?'],
+        about: ' Moving lint. ', options: [[{ label: 'ghost' }], [lint, hook, { detail: 'no label' }], []] },
+    ]);
+    expect(turns[0]).toMatchObject({ about: 'Moving lint.', options: [[lint, hook], []] });
+    expect(openQuestionSet(turns, [])).toMatchObject({
+      about: 'Moving lint.',
+      options: [[lint, hook], []],
+      turnIndex: 0,
+    });
+  });
 });
 
 // A room helper's chat gets one line per swarm that closes. The page opens

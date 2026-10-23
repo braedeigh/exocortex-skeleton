@@ -2,7 +2,8 @@
  * SessionCard.tsx — the three kinds of card a room can hold, each its own
  * component with its OWN state: ApprovalCard (a gated command needing her
  * Approve/Deny), AwaitingCard (a session waiting on her answer), and
- * SessionCard (everything else — idle, breathing, broken). Until 08-03 all
+ * SessionCard (everything else — idle, breathing, broken). AwaitingCard's
+ * answers are tapped or typed per question in QuestionChoices.tsx. Until 08-03 all
  * three lived inline in SessionLane behind seven parallel per-row Record
  * maps (stopArmed/closeArmed/expanded/fork/sticky/deciding/…); keying the
  * state to the component instead lets each card carry plain booleans. Cards
@@ -31,6 +32,13 @@ import {
 } from './api';
 import { resumeAfterDecision } from './resumeAfterDecision';
 import { CommandDecision } from './CommandDecision';
+import { QuestionChoices } from './QuestionChoices';
+import {
+  composeAnswers,
+  hasRecommendations,
+  recommendedAnswers,
+  type QuestionAnswer,
+} from './questionAnswers';
 import type { OrchestraRow } from './orchestra';
 import { cardMetaLine } from './sessionStatus';
 import { cardState, planSummary, sessionIs, type CardState } from './sessionFilters';
@@ -283,10 +291,19 @@ function DoneNote({
   );
 }
 
-/** Waiting on her — orange, every open question numbered, and a box right
- * under them that answers into the session without opening it. On a long list
- * the box stays at the bottom of the screen until she reaches the end of the
- * card, so she can type while the first question is still in view.
+/** Waiting on her — orange: what the session is building, every open
+ * question with its options to tap or a box to type in, and one Send that
+ * answers into the session without opening it. On a long list the Send row
+ * stays at the bottom of the screen until she reaches the end of the card, so
+ * she can send with the first question still in view.
+ *
+ * The about line sits right under the title (the session's own words on what
+ * it's building and where it stands, or its summary for a set filed before
+ * sets carried one), so she can answer without opening the chat. Each
+ * question is a QuestionChoices; the card holds the answers and composes the
+ * one numbered message Send sends (questionAnswers.ts). "Go with your
+ * recommendations" takes the recommended option on every question that has
+ * one and sends at once, off the record — it's a tap, not her words.
  *
  * The answer goes through the session's mailbox (sendToInbox), the same door
  * as typing into its chat while a turn runs: an idle session starts a turn
@@ -297,7 +314,8 @@ function DoneNote({
  *
  * [prompt: "on the front page, i want the orange sessions to have these
  * questions printed out with an input box beneath it that i can type directly
- * into to send into the session"] */
+ * into to send into the session"] · [prompt: "similar to Claude planning mode
+ * where I can click options it presents or else type in my response"] */
 export function AwaitingCard({
   row,
   planLine = null,
@@ -311,25 +329,31 @@ export function AwaitingCard({
   onOpen: (convId: string) => void;
   onChanged?: () => void;
 }) {
-  const [answer, setAnswer] = useState('');
+  const questions = row.questions.length > 0 ? row.questions : [row.awaiting ?? ''];
+  const options = questions.map((_, i) => row.options[i] ?? []);
+  // Her answers, one per question. A re-filed set is a new set: start over.
+  const setKey = questions.join('\n');
+  const [answers, setAnswers] = useState<(QuestionAnswer | undefined)[]>([]);
+  useEffect(() => setAnswers([]), [setKey]);
   // 'sending' while it goes out, 'sent' once the mailbox has it, or the
   // failure text.
   const [sendState, setSendState] = useState<'sending' | 'sent' | string | null>(null);
-  const questions = row.questions.length > 0 ? row.questions : [row.awaiting ?? ''];
+  const composed = composeAnswers(questions, options, answers);
+  const about = row.about ?? row.summary;
 
-  // Send her answer into the session, keeping the text if it fails.
-  const send = () => {
-    const text = answer.trim();
+  // Send into the session through its mailbox, keeping her answers if it fails.
+  const deliver = (text: string, record: boolean) => {
     if (!text || sendState === 'sending') return;
     setSendState('sending');
-    sendToInbox(row.id, text, true)
+    sendToInbox(row.id, text, record)
       .then(() => {
-        setAnswer('');
+        setAnswers([]);
         setSendState('sent');
         onChanged?.();
       })
       .catch((err) => setSendState(err instanceof Error ? err.message : 'could not send'));
   };
+  const send = () => deliver(composed, true);
 
   return (
     <div className={styles.awaiting} {...agentPointerProps(row.id)}>
@@ -346,23 +370,36 @@ export function AwaitingCard({
         </button>
       </div>
       <PlanLine summary={planLine} />
-      {/* The questions and the answer box share one wrapper, because the box
-          is a sticky footer (SessionLane.module.css .answerForm): it holds at
-          the bottom of the screen while the questions scroll, and the wrapper
-          is what it can't leave. The title row sits outside it, so the box
-          never rides up over the session's name. */}
+      {/* What it's building and where it stands — read before the questions. */}
+      {about ? <div className={styles.aboutLine}>{about}</div> : null}
+      {/* The questions and the Send row share one wrapper, because the row is
+          a sticky footer (SessionLane.module.css .answerForm): it holds at the
+          bottom of the screen while the questions scroll, and the wrapper is
+          what it can't leave. The title row sits outside it, so the row never
+          rides up over the session's name. */}
       <div>
-        {questions.length === 1 ? (
-          <div className={styles.question}>{questions[0]}</div>
-        ) : (
-          <ol className={styles.questionList}>
-            {questions.map((q, i) => (
-              <li key={i} className={styles.question}>
-                {q}
-              </li>
-            ))}
-          </ol>
-        )}
+        <ol className={[styles.questionList, questions.length === 1 ? styles.questionSingle : '']
+          .filter(Boolean).join(' ')}>
+          {questions.map((q, i) => (
+            <li key={i} className={styles.question}>
+              {q}
+              <QuestionChoices
+                options={options[i]}
+                answer={answers[i]}
+                onChange={(answer) =>
+                  setAnswers((was) => {
+                    const next = [...was];
+                    next[i] = answer;
+                    return next;
+                  })
+                }
+                onSubmit={send}
+                disabled={sendState === 'sending'}
+                label={questions.length > 1 ? `Answer ${i + 1} for ${row.title}` : `Answer ${row.title}`}
+              />
+            </li>
+          ))}
+        </ol>
         <form
           className={styles.answerForm}
           onSubmit={(e) => {
@@ -370,27 +407,21 @@ export function AwaitingCard({
             send();
           }}
         >
-          {/* Enter makes a new line, since an answer to several questions is
-              often several lines; Ctrl/Cmd+Enter sends, like the chat. */}
-          <textarea
-            className={styles.answerInput}
-            value={answer}
-            rows={2}
-            placeholder={questions.length > 1 ? 'Answer them here…' : 'Answer here…'}
-            aria-label={`Answer ${row.title}`}
-            disabled={sendState === 'sending'}
-            onChange={(e) => setAnswer(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                send();
-              }
-            }}
-          />
+          {hasRecommendations(options) ? (
+            <button
+              type="button"
+              className={styles.goRecommended}
+              disabled={sendState === 'sending'}
+              onClick={() => deliver(recommendedAnswers(questions, options), false)}
+              title="Pick the recommended option on every question and send now"
+            >
+              Go with your recommendations
+            </button>
+          ) : null}
           <button
             type="submit"
             className={styles.answerSend}
-            disabled={!answer.trim() || sendState === 'sending'}
+            disabled={!composed || sendState === 'sending'}
           >
             {sendState === 'sending' ? 'Sending…' : 'Send'}
           </button>
