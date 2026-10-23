@@ -131,6 +131,26 @@ def test_stalled_means_silent_with_nothing_waiting_on_her(turns):
     assert watches.get(watch["id"])["status"] == "fired"
 
 
+def test_a_ready_plan_is_news_for_an_asked_watch_and_never_a_stall(turns):
+    long_ago = (datetime.now() - timedelta(hours=3)).isoformat(timespec="seconds")
+    with store.mutate("bot_chats/index", {}) as index:
+        index[WORKER].update(last_at=long_ago, spinoff_stage="plan")
+    _log(WORKER, {"type": "user", "text": "plan it"})
+    watch = watches.add(HELPER, WORKER, ["asked", "stalled"], "tell her when its plan is up",
+                        now=long_ago)
+    observatory.mark_plan_ready(WORKER, "Purple cards for ready plans; four phases")
+    assert watches.tick() == 1
+    assert "has a plan ready for her: Purple cards for ready plans" in turns[0][1]
+    assert "written nothing" not in turns[0][1]
+    assert watches.get(watch["id"])["status"] == "fired"
+    # Hours of quiet with the plan up: still waiting on her, not stuck.
+    old = time.time() - 3 * 3600
+    os.utime(store.DATA_DIR / "bot_chats" / f"{WORKER}.jsonl", (old, old))
+    entry = store.read("bot_chats/index", {})[WORKER]
+    stalled = {"kinds": ("stalled",), "created_at": long_ago}
+    assert watches._state_events(stalled, WORKER, entry, datetime.now()) == []
+
+
 def test_the_door_refuses_what_cant_be_watched(turns):
     with pytest.raises(watches.WatchError):
         watches.add(HELPER, WORKER, ["shipped"], "a kind that doesn't exist")

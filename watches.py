@@ -21,12 +21,13 @@ What a watch can wait for (`--on`, any of them):
 
   - done       — the session marks itself done (session_done.py), or is closed;
   - asked      — it files questions for her (request_input.py), a sudo card
-                 (sudo_request.py) or a file for her to edit (open_file.py);
+                 (sudo_request.py), a file for her to edit (open_file.py), or
+                 marks a plan ready for her go (plan_ready.py);
   - committed  — a `git commit` it runs succeeds;
   - error      — a turn of it fails or its turn process dies;
   - stalled    — it writes nothing for config.HELPER_WATCH_STALLED_MINUTES,
-                 while nothing is waiting on her and no detached job of its
-                 is running.
+                 while nothing is waiting on her (no questions, no ready
+                 plan) and no detached job of its is running.
 
 Only what happens AFTER the watch is set counts: transcript lines are read
 from where the transcript ended at that moment (`since_offset`), and stamps
@@ -292,6 +293,9 @@ def _transcript_events(conv, offset, kinds):
         if kind == "questions" and "asked" in kinds:
             asked = "; ".join(_trim(q, 150) for q in line.get("questions") or [])
             events.append(f"asked her: {asked}")
+        elif kind == "plan-ready" and "asked" in kinds:
+            # A planner's plan waiting on her go is a question too: "go?".
+            events.append(f"has a plan ready for her: {_trim(line.get('summary'), 240)}")
         elif kind == "error" and "error" in kinds:
             events.append(f"hit an error: {_trim(line.get('error'))}")
         elif kind in ("assistant", "user") and "committed" in kinds \
@@ -353,7 +357,8 @@ def _state_events(watch, conv, entry, now):
         if entry.get("archived") and not entry.get("continued_by"):
             return ["was closed"]
     if "stalled" in kinds and not entry.get("archived") and not entry.get("done_at") \
-            and not entry.get("awaiting_input") and not entry.get("saved_at"):
+            and not entry.get("awaiting_input") and not entry.get("saved_at") \
+            and not entry.get("plan_ready"):
         # Silent: nothing written since the later of the watch and its last line.
         stamps = [datetime.fromisoformat(since)]
         try:

@@ -603,7 +603,9 @@ def _summaries(convs, index):
 def _flags(conv, live, now=None):
     """Name the states of a session that a helper is woken for
     (config.HELPER_WAKE_STATES): "asked" when it is waiting on the owner,
-    "error" when its last turn failed, "stalled" when a turn is running but
+    "plan" when it is a planning session whose plan waits on her go
+    (routes/observatory.py mark_plan_ready), "error" when its last turn
+    failed, "stalled" when a turn is running but
     has written nothing for a long while. The silence is measured the way a
     watch measures it (watches._state_events); a session that is merely idle
     between turns is not stalled."""
@@ -611,6 +613,8 @@ def _flags(conv, live, now=None):
     flags = []
     if live.get("awaiting_input"):
         flags.append("asked")
+    if live.get("plan_ready"):
+        flags.append("plan")
     if live.get("last_error"):
         flags.append("error")
     try:
@@ -1099,6 +1103,7 @@ def changes(found, seen, mode, repo=None):
 
 
 _STATE_WORDS = {"asked": "asked her something and is waiting on her",
+                "plan": "has a plan ready and is waiting for her go",
                 "error": "hit an error on its last turn",
                 "stalled": "is mid-turn but has written nothing for a long while — it may be stuck"}
 
@@ -1134,8 +1139,10 @@ def state_changes(helper_conv, found, seen, index):
             continue
         name = f"`{session['conv']}` ({session['title']})"
         for flag in session["flags"]:
+            # A ready plan is what an "asked" watch reports (watches.py).
+            kind = "asked" if flag == "plan" else flag
             if flag in wanted and flag not in was["flags"] and not any(
-                    (conv, flag) in watched for conv in session["line"]):
+                    (conv, kind) in watched for conv in session["line"]):
                 lines.append(f"{name} {_STATE_WORDS[flag]}.")
     # Finished: shown to the helper last time, gone from its view now, and
     # marked done or closed. A session that handed its work on is not

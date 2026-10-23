@@ -78,8 +78,9 @@ def _index():
 
 
 def _status(entry):
-    """Same three states the Orchestra cards show."""
-    if entry.get("awaiting_input"):
+    """Same three states the Orchestra cards show. A planning session whose
+    plan waits on her go (scripts/plan_ready.py) is waiting on her too."""
+    if entry.get("awaiting_input") or entry.get("plan_ready"):
         return "needs input"
     if entry.get("running"):
         return "working"
@@ -124,6 +125,8 @@ def cmd_list(args, me):
             print(f"    asked: {_trim(e['last_prompt'], 160)}")
         if e.get("awaiting_input"):
             print(f"    waiting on the owner: {_trim(e['awaiting_input'], 160)}")
+        if isinstance(e.get("plan_ready"), dict):
+            print(f"    plan ready: {_trim(e['plan_ready'].get('summary') or '', 160)}")
         for at, name, target, is_error in calls.get(cid, []):
             err = "  ✗" if is_error else ""
             print(f"    {at[11:19]} {name} {_trim(target or '', 100)}{err}")

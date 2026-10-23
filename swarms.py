@@ -451,8 +451,9 @@ def _archive_helpers(live_ids):
 
 def _status(entry):
     """The three states the Orchestra cards use, plus silent: working (a turn
-    is running), needs input (it asked her something), silent (neither)."""
-    if entry.get("awaiting_input"):
+    is running), needs input (it asked her something, or its plan waits on
+    her go), silent (neither)."""
+    if entry.get("awaiting_input") or entry.get("plan_ready"):
         return "needs_input"
     if entry.get("running"):
         return "working"
