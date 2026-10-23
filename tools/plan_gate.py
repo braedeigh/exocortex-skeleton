@@ -17,8 +17,10 @@ only:
     the command reader — this file borrows both), plus a planning session's
     own doors: peers.py, exo_query.py, request_input.py (ask the owner),
     spinoff_brief.py (save the plan as the builder's brief),
-    spinoff_offer.py (put up the Go button) and session_done.py (close
-    itself once its builder exists and nothing is left for it to do);
+    spinoff_offer.py (put up the Go button), plan_ready.py (turn its card
+    purple with the plan's summary, once the plan is posted) and
+    session_done.py (close itself once its builder exists and nothing is
+    left for it to do);
   - Bash, to run the tests: pytest, and the frontend's `npm test` / `npx
     vitest run`. A test run checks the planner's reading of the code. It
     changes no source file (it does write its own caches), and the planner
@@ -60,7 +62,7 @@ _ALLOWED_TOOLS = helper_gate._LOOK_TOOLS + helper_gate._WEB_TOOLS + ("Skill",)
 # frontend's two. Nothing else `npm` or `npx` can do passes.
 _SCRIPTS = re.compile(
     r"^(?:\S*python3? (?:\S*/)?scripts/"
-    r"(peers|exo_query|request_input|spinoff_brief|spinoff_offer|session_done)\.py\b"
+    r"(peers|exo_query|request_input|spinoff_brief|spinoff_offer|session_done|plan_ready)\.py\b"
     r"|(?:\S*python3? -m )?pytest\b"
     r"|npm (?:run )?test\b"
     r"|npx vitest run\b)")

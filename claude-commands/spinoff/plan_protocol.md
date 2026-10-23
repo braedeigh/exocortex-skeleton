@@ -31,8 +31,13 @@ Your first message in the chat was the brief. In order:
    answer from the notes or the code. File those with
    `./venv/bin/python3 scripts/request_input.py "question 1" "question 2"`
    from the app checkout, each standing on its own with your recommendation
-   in it. End your turn. The owner now corrects the plan; that is the point of
+   in it. Then mark the plan ready, with the plan in a line or two, so your
+   card turns purple and shows it:
+   `./venv/bin/python3 scripts/plan_ready.py "<the plan in a line or two>"`.
+   End your turn. The owner now corrects the plan; that is the point of
    this session, so expect several rounds and change the plan each time.
+   Their message takes the mark off; run `plan_ready.py` again after every
+   revision you post.
 4. **Hand it over — only when the owner says the plan is right.** Their
    answers to your questions are not that; wait for words like "that's the
    plan" or "go". Then write the builder's brief and save it under YOUR OWN

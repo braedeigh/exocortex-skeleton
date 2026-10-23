@@ -761,6 +761,10 @@ def go_offer(conv_id, skip_plan=False):
     if approving and spawned:
         closed = close_conversation(conv_id)[1] == 200
     return {"ok": bool(spawned), "spawned": spawned, "errors": errors,
+        # Her approval of a plan takes its plan-ready mark off: nothing is
+        # waiting on her any more (routes/observatory.py mark_plan_ready).
+        if isinstance(offer, dict) and offer.get("kind") == "build":
+            entry.pop("plan_ready", None)
             "closed_source": closed}, 200
 
 

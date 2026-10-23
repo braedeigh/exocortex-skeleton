@@ -1439,9 +1439,10 @@ def _deliver_midturn(proc, conv_id, log_path, turn_input):
         # (with its own note) — and it clears only the set it listed, so a
         # set the agent re-filed in the meantime stays.
         hers = any(r["kind"] == "B" for r in won)
-        open_now = (_open_questions(store.read("bot_chats/index", {}).get(conv_id))
-                    if hers else [])
-        text = peermail.compose(won) + _reopen_note(open_now)
+        now_entry = store.read("bot_chats/index", {}).get(conv_id) if hers else None
+        open_now = _open_questions(now_entry) if hers else []
+        plan_open = isinstance(now_entry, dict) and bool(now_entry.get("plan_ready"))
+        text = peermail.compose(won) + _reopen_note(open_now, plan_open)
         if not turn_input.hand_in(text, won):
             # The input shut between the check and the write. Put them back so
             # the end-of-turn drain delivers them rather than losing them.
@@ -2216,20 +2217,101 @@ def withdraw_questions(conv_id, source):
     return {"ok": True, "withdrawn": withdrawn, "source": source}, 200
 
 
-def _reopen_note(questions):
-    """The questions her send just took off the card, handed back to the
-    agent. Her next message clears them whether or not it answers them —
-    she may be asking about something else entirely — so the agent is told
-    what was open and re-files whatever is still unanswered. Empty when
-    nothing was open."""
+# --- Plan ready: a planning session's plan is waiting on her go -------------
+# A /spinoff planning session (spinoff_stage "plan", routes/spinoff.py) posts
+# its plan in the chat and then says so through scripts/plan_ready.py. That
+# puts `plan_ready` ({summary, at}) on its entry, and the roster card turns a
+# steady purple with a "plan: <summary>" line (sessionFilters.ts cardState
+# 'plan'). Same narrow door as request_input: the agent never writes the
+# index itself.
+#
+# Two fields, because they come off at different moments. `plan_ready` is
+# the flag: her next message takes it off (_her_message_arrived), since the
+# plan may be about to change, and the planner marks it again once the plan
+# is ready again. `plan_summary` is the blurb, and stays: after her "go" the
+# planner puts up its build Go card (`spinoff_offer.kind == "build"`), which
+# the card also draws as plan-ready, and that card still wants the summary.
+# Her Go (routes/spinoff.py go_offer) and closing the session take the flag
+# off for good.
+#
+# A ready plan holds the session open (_why_not_done) for IDLE_CHECK_HOURS,
+# while no builder has started from it. After that the card stays purple but
+# the idle check may close it.
+#
+# Prompt: "i want them to be purple if they have a plan ready. with a little
+# blurb that says plan: {summary of plan}"
+
+_PLAN_SUMMARY_MAX = 240   # a line or two on a card, not the plan itself
+
+
+def mark_plan_ready(conv_id, summary):
+    """Mark a planning session's plan as ready for her go — the one validated
+    entry point scripts/plan_ready.py uses. Marking again replaces the
+    summary. Returns (payload, status): 200 on success, 400 on a bad id, an
+    empty summary or a session that isn't a planning session, 404 on an
+    unknown conversation."""
+    if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
+        return {"error": "invalid conversation id"}, 400
+    summary = " ".join(str(summary or "").split())[:_PLAN_SUMMARY_MAX]
+    if not summary:
+        return {"error": "say what the plan is, in a line or two"}, 400
+    with store.mutate("bot_chats/index", {}) as index:
+        entry = index.get(conv_id)
+        if not isinstance(entry, dict):
+            return {"error": "not found"}, 404
+        if entry.get("spinoff_stage") != "plan":
+            return {"error": "only a /spinoff planning session marks a plan ready"}, 400
+        mark = {"summary": summary, "at": _now()}
+        entry["plan_ready"] = mark
+        entry["plan_summary"] = summary
+    # Keep the mark in the transcript too, where the plan was posted. The
+    # helpers' watches read it from there (watches._transcript_events).
+    peermail.append_line(_chats_dir() / f"{conv_id}.jsonl",
+                         {"type": "plan-ready", "summary": summary, "ts": mark["at"]})
+    return {"ok": True, "plan_ready": mark}, 200
+
+
+def _plan_holds_open(conv_id, entry, index=None, now=None):
+    """True while a ready plan keeps its planning session from closing: the
+    mark is under IDLE_CHECK_HOURS old and no build session has started from
+    it (`planned_in` naming this one). A mark with no readable time counts as
+    fresh. `index` is read when the caller doesn't hand it over."""
+    mark = entry.get("plan_ready")
+    if not isinstance(mark, dict):
+        return False
+    if index is None:
+        index = store.read("bot_chats/index", {})
+    if any(isinstance(other, dict) and other.get("planned_in") == conv_id
+           for other in index.values()):
+        return False
+    try:
+        marked = datetime.fromisoformat(str(mark.get("at")))
+    except ValueError:
+        return True
+    return marked >= (now or datetime.now()) - timedelta(hours=IDLE_CHECK_HOURS)
+
+
+def _reopen_note(questions, plan_cleared=False):
+    """What her send just took off the card, handed back to the agent: the
+    open questions, and the plan-ready mark. Her next message clears them
+    whether or not it answers them — she may be asking about something else
+    entirely — so the agent is told what was open and re-files whatever is
+    still unanswered. Empty when nothing was open."""
     questions = [q for q in questions if q and q.strip()]
-    if not questions:
-        return ""
-    listed = "\n".join(f"{n}. {q}" for n, q in enumerate(questions, 1))
-    return ("\n\n[System: this message cleared the open questions you had filed"
-            " for the owner:\n" + listed + "\nIf it doesn't answer one of them,"
-            " re-file every one still open with scripts/request_input.py before"
-            " you end your turn, or it is gone from her card.]")
+    note = ""
+    if questions:
+        listed = "\n".join(f"{n}. {q}" for n, q in enumerate(questions, 1))
+        note += ("\n\n[System: this message cleared the open questions you had filed"
+                 " for the owner:\n" + listed + "\nIf it doesn't answer one of them,"
+                 " re-file every one still open with scripts/request_input.py"
+                 " (--about, then --question and its --options) before you end"
+                 " your turn, or it is gone from her card.]")
+    if plan_cleared:
+        note += ("\n\n[System: this message took the plan-ready mark off your card."
+                 " Once the plan is ready for her go again, run"
+                 " scripts/plan_ready.py \"<the plan in a line or two>\" before you"
+                 " end your turn.]")
+    return note
 
 
 def _open_questions(entry):
@@ -2447,6 +2529,9 @@ def keep_open(conv_id):
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
+      - A plan-ready mark comes off (the Plan ready section): the plan may
+        be about to change. `plan_summary` stays. The caller tells the agent
+        (_reopen_note's plan_cleared), reading `plan_ready` before this runs.
             return {"error": "not found"}, 404
         _clear_done(entry)
     return {"ok": True}, 200
@@ -2459,6 +2544,7 @@ def keep_open(conv_id):
 # it, it can't be marked done or auto-closed (_why_not_done names it), the room
 # helper won't move it (room_helper.py), and the roster lifts it out of the
 # rooms into a shut "Saved for later" section (frontend SavedLane.tsx). Her own
+    entry.pop("plan_ready", None)
 # message into it picks it back up (_clear_waiting_on_her), as does the Pick
 # back up button.
 #
@@ -2563,6 +2649,8 @@ def close_conversation(conv_id):
     if filed:
         from routes.spinoff import archive_spinoff
         archive_spinoff(filed)
+    if entry.get("plan_ready") and _plan_holds_open(conv_id, entry):
+        return "it has a plan waiting for the owner's go"
     return {"ok": True}, 200
 
 
@@ -2716,6 +2804,8 @@ def idle_check_sessions(now=None):
             continue
         candidates.append((last, conv_id))
     # Stamp the ask BEFORE queueing, so a crash between the two costs one
+        # A closed planner's plan isn't waiting on her any more.
+        entry.pop("plan_ready", None)
     # check rather than a check every minute.
     woken = []
     for last, conv_id in sorted(candidates)[:IDLE_CHECKS_PER_TICK]:
@@ -4821,6 +4911,7 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         # transcript, and the two fallback capture doors (the vault's
         # UserPromptSubmit hook, the cron'd reconciler) read that transcript
         # in a journaling session and mint anything the pool is missing.
+    plan_cleared = False
         # They can't tell "the server chose not to journal this" from "the
         # server tried and failed", so they were faithfully restoring every
         # off-the-record turn a minute later. This breadcrumb is what tells
@@ -4862,6 +4953,7 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
                                   "journaled": journaled,
                                   "ts": _now()}) + "\n")
         elif not record and isinstance(decision, dict) \
+            plan_cleared = bool(entry.get("plan_ready"))
                 and decision.get("kind") in ("approve", "deny"):
             # She tapped Approve/Deny on a gated command. The resume send
             # stays off the record (never journaled), but instead of a blank
@@ -4904,9 +4996,10 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
     # worker (see the _spawn_host block up top for the measurements that
     # forced this). The caller's only remaining job is to watch it like
     # anybody else.
-    # Tell the agent which open questions her message just cleared. What it
-    # reads gets the note; the transcript and journal keep her words alone.
-    agent_text = helper_update + text + _reopen_note(cleared_questions)
+    # Tell the agent which open questions (and plan-ready mark) her message
+    # just cleared. What it reads gets the note; the transcript and journal
+    # keep her words alone.
+    agent_text = helper_update + text + _reopen_note(cleared_questions, plan_cleared)
     if not _spawn_host(config, agent_text, resume_sid, conv_id, log_path):
         if not fallback:
             return _refuse(502, {"error": "could not start the turn process"})
