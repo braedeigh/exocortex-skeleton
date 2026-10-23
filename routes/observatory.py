@@ -487,12 +487,8 @@ def _session_settings(config, tools):
     # runs on each message she sends, and what it prints lands in the agent's
     # context. For a journaling session and for sessions in the rooms named in
     # config.MENTION_CONTEXT_ROOMS; never a helper, whose chat starts fresh
-    # every turn and would lose the pack, and never a session started from a
-    # brief (a spinoff), on any turn: it inherits the Keeper's room, and its
-    # name-filled brief would pull journal packs into work that should start
-    # clean.
+    # every turn and would lose the pack.
     if (app_config.MENTION_CONTEXT and config.get("conv_id") and not config.get("helper_gate")
-            and not config.get("from_brief")
             and (config.get("journal")
                  or config.get("lane") in app_config.MENTION_CONTEXT_ROOMS)):
         mention = Path(store.BUILD_DIR) / "tools" / "mention_context.py"
@@ -590,10 +586,6 @@ def _conv_config(entry):
         # to the stage it was born in (routes/spinoff.py), with no opt-out.
         # See _session_settings() / tools/plan_gate.py.
         "plan_gate": entry.get("spinoff_stage") == "plan",
-        # A session started from a brief (routes/spinoff.py open_spinoff puts
-        # `spinoff_brief` on every one). Keeps the journal's context-on-mention
-        # hook off it for its whole life. See _session_settings().
-        "from_brief": bool(entry.get("spinoff_brief")),
     }
 
 
@@ -731,12 +723,6 @@ def _build_cmd(config, resume_sid):
     return cmd
 
 
-# Switches every agent turn is started with, walled or not: Claude Code's
-# auto-memory off ("1" is what the CLI reads as off).
-# Prompt: "remove memory and turn it off"
-_AGENT_ENV = {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
-
-
 def _spawn(config, text, resume_sid, cwd_override=None):
     # Claude Code stores conversations PER DIRECTORY — resuming a session id
     # from a different cwd fails with "No conversation found". Every
@@ -749,14 +735,10 @@ def _spawn(config, text, resume_sid, cwd_override=None):
     # can call scripts/request_input.py to raise its "I need you" flag without
     # being told which conversation it is. Threaded through `config` (not a new
     # _spawn arg) so the existing test spies on _spawn keep their signatures.
-    # Claude Code's own auto-memory (~/.claude/projects/<folder>/memory/) is
-    # switched off for every turn, so no hidden MEMORY.md loads into a session.
-    # Rides in the environment because it must hold whatever settings file the
-    # machine has.
-    env = {**os.environ, **_AGENT_ENV}
+    env = None
     conv_id = config.get("conv_id")
     if conv_id:
-        env["EXOCORTEX_CONV_ID"] = str(conv_id)
+        env = {**os.environ, "EXOCORTEX_CONV_ID": str(conv_id)}
     # stderr goes to a spooled temp file, NOT a pipe: nobody reads stderr
     # until the process ends, and an unread pipe blocks claude cold once it
     # writes ~64KB of warnings (verbose mode makes that a real number).
@@ -767,7 +749,6 @@ def _spawn(config, text, resume_sid, cwd_override=None):
     # wall or no login this raises, and the turn is refused, not run open.
     if config.get("wall"):
         command, env = fairywall.spawn_parts(command, config["cwd"], CLAUDE_BIN)
-        env = {**env, **_AGENT_ENV}
         cwd = config["cwd"]
     stderr_f = tempfile.TemporaryFile()
     proc = subprocess.Popen(
@@ -2365,6 +2346,9 @@ def _her_message_arrived(conv_id, entry, expected=None):
         it marks itself done again when it really is (the Done section).
       - A session she saved for later is picked back up: talking to it is
         coming back to it (the Save for later section).
+      - A plan-ready mark comes off (the Plan ready section): the plan may
+        be about to change. `plan_summary` stays. The caller tells the agent
+        (_reopen_note's plan_cleared), reading `plan_ready` before this runs.
 
     Prompt: "Answered the question but the popup stuck. Please make it such
     that if I answer from the front page it marks it answered and continues."
@@ -2378,6 +2362,7 @@ def _her_message_arrived(conv_id, entry, expected=None):
     _dismiss_pending(conv_id)
     _clear_done(entry)
     entry.pop("saved_at", None)
+    entry.pop("plan_ready", None)
     return cleared
 
 
@@ -2482,6 +2467,8 @@ def _why_not_done(conv_id, entry, index=None, now=None):
             index = store.read("bot_chats/index", {})
         if not _offer_is_stale(entry, index, now):
             return "it has a Go button waiting for the owner"
+    if entry.get("plan_ready") and _plan_holds_open(conv_id, entry):
+        return "it has a plan waiting for the owner's go"
     if _read_approvals(conv_id).get("pending"):
         return "it has a command waiting for the owner's approval"
     jobs = _unfinished_jobs(conv_id)
@@ -2548,9 +2535,6 @@ def keep_open(conv_id):
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
-      - A plan-ready mark comes off (the Plan ready section): the plan may
-        be about to change. `plan_summary` stays. The caller tells the agent
-        (_reopen_note's plan_cleared), reading `plan_ready` before this runs.
             return {"error": "not found"}, 404
         _clear_done(entry)
     return {"ok": True}, 200
@@ -2563,7 +2547,6 @@ def keep_open(conv_id):
 # it, it can't be marked done or auto-closed (_why_not_done names it), the room
 # helper won't move it (room_helper.py), and the roster lifts it out of the
 # rooms into a shut "Saved for later" section (frontend SavedLane.tsx). Her own
-    entry.pop("plan_ready", None)
 # message into it picks it back up (_clear_waiting_on_her), as does the Pick
 # back up button.
 #
@@ -2639,6 +2622,8 @@ def close_conversation(conv_id):
         record = dict(entry.get("turn_proc") or {})
         entry["archived"] = _now()
         _clear_done(entry)
+        # A closed planner's plan isn't waiting on her any more.
+        entry.pop("plan_ready", None)
         reap = entry.get("worktree")
         filed = entry.get("spinoff_slug")
     # Kill the agent directly rather than wait for its host's stop poll —
@@ -2668,8 +2653,6 @@ def close_conversation(conv_id):
     if filed:
         from routes.spinoff import archive_spinoff
         archive_spinoff(filed)
-    if entry.get("plan_ready") and _plan_holds_open(conv_id, entry):
-        return "it has a plan waiting for the owner's go"
     return {"ok": True}, 200
 
 
@@ -2823,8 +2806,6 @@ def idle_check_sessions(now=None):
             continue
         candidates.append((last, conv_id))
     # Stamp the ask BEFORE queueing, so a crash between the two costs one
-        # A closed planner's plan isn't waiting on her any more.
-        entry.pop("plan_ready", None)
     # check rather than a check every minute.
     woken = []
     for last, conv_id in sorted(candidates)[:IDLE_CHECKS_PER_TICK]:
@@ -4748,6 +4729,7 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         ask = text
 
     cleared_questions = []
+    plan_cleared = False
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
@@ -4789,6 +4771,7 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
             # Her words reached the session: take down what was waiting on
             # her (_her_message_arrived). A system reminder or another
             # agent's message alone isn't her answer, so it leaves them up.
+            plan_cleared = bool(entry.get("plan_ready"))
             cleared_questions = _her_message_arrived(conv_id, entry)
         # A fresh attempt clears the red: whatever went wrong last time is
         # no longer the last thing this session did. If THIS turn fails too,
@@ -4930,7 +4913,6 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
         # transcript, and the two fallback capture doors (the vault's
         # UserPromptSubmit hook, the cron'd reconciler) read that transcript
         # in a journaling session and mint anything the pool is missing.
-    plan_cleared = False
         # They can't tell "the server chose not to journal this" from "the
         # server tried and failed", so they were faithfully restoring every
         # off-the-record turn a minute later. This breadcrumb is what tells
@@ -4972,7 +4954,6 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
                                   "journaled": journaled,
                                   "ts": _now()}) + "\n")
         elif not record and isinstance(decision, dict) \
-            plan_cleared = bool(entry.get("plan_ready"))
                 and decision.get("kind") in ("approve", "deny"):
             # She tapped Approve/Deny on a gated command. The resume send
             # stays off the record (never journaled), but instead of a blank
