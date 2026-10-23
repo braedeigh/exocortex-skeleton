@@ -761,6 +761,10 @@ def go_offer(conv_id, skip_plan=False):
             return {"error": "not found"}, 404
         offer = entry.pop("spinoff_offer", None)
         room = _conv_lane(entry)
+        # Her approval of a plan takes its plan-ready mark off: nothing is
+        # waiting on her any more (routes/observatory.py mark_plan_ready).
+        if isinstance(offer, dict) and offer.get("kind") == "build":
+            entry.pop("plan_ready", None)
     if not isinstance(offer, dict) or not offer.get("slugs"):
         return {"error": "nothing offered here (already started?)"}, 409
     lane = offer.get("lane") or room
