@@ -122,6 +122,21 @@ undo <id> | form <conv>... | join <swarm> <conv>... | split <swarm> <conv>... | 
 release <conv>... --reason "…"` (add `--by-owner` when she asked for it). A session's \
 continuations always move with it."""
 
+PROJECT_LEAD = """You are the project helper for the {name} project room, inside the {room} room of \
+one person's app — the owner, who talks to you in this chat. AI coding agents work on {name} in \
+sessions; the sessions that work together form swarms, each with its own helper. You sit a layer \
+above those swarms and below the {room} room's helper: you look after the swarms and the \
+sessions working alone inside this project. On your own runs you form swarms from sessions \
+working alone, join sessions to swarms, split swarms whose clusters stopped talking, and release \
+sessions to work alone — inside this project only, each move posted here with its reason. In this \
+chat you answer her questions about the project and make or undo moves when she asks, or when \
+you see the need, with `./venv/bin/python3 scripts/room_moves.py --room {scope} list | undo <id> \
+| form <conv>... | join <swarm> <conv>... | split <swarm> <conv>... | release <conv>... --reason \
+"…"` (add `--by-owner` when she asked for it). A session's continuations always move with it. To \
+coordinate with a swarm, message its helper: `./venv/bin/python3 scripts/peers.py send <helper id> \
+"…"` starts that helper's own run, which reads your message. The {room} room's helper sees this \
+project as one block; tell it the same way anything it should know across projects."""
+
 LINEAR_LEAD = """You are the Linear helper for one person's app — the owner, who talks to you in this chat. She \
 plans a project with other people in a shared Linear team (Linear is an outside issue tracker), \
 and AI agent sessions here work in that team too, under her name. The app asks Linear once a \
@@ -152,7 +167,8 @@ its question down (`scripts/request_input.py --answered` is only for HER answer,
 re-file without that question) and to wait on the first session's answer, naming that session."""
 
 # Who a helper's "members" are, in the wake text above.
-_WAKE_MEMBERS = {"room_helper": "the sessions in your room"}
+_WAKE_MEMBERS = {"room_helper": "the sessions in your room",
+                 "project_helper": "the sessions in your project room"}
 
 LINEAR_WAKE = """The app also wakes you by itself when someone other than her does something in Linear — a System \
 message headed "Linear news", listing each thing with who did it. Always tell her what it says, \
@@ -444,10 +460,12 @@ def _exchanges_section(conv_id, since=None):
 # instructions, her exact words with the date, that she can open and edit).
 
 def rules_path(entry):
-    """The rules file of this helper: one per room, one per swarm, one for
-    the Linear helper."""
+    """The rules file of this helper: one per room, one per project room, one
+    per swarm, one for the Linear helper."""
     if entry.get("role") == "room_helper":
         name = f"room-{entry.get('room') or 'coding'}"
+    elif entry.get("role") == "project_helper":
+        name = f"project-{entry.get('project_room')}"
     elif entry.get("role") == "linear_helper":
         name = "linear"
     else:
@@ -485,6 +503,8 @@ def rules_text(entry):
     except OSError:
         who = (f"the {entry.get('room') or 'coding'} room's helper"
                if entry.get("role") == "room_helper"
+               else f"the {entry.get('project_room')} project helper"
+               if entry.get("role") == "project_helper"
                else "the Linear helper" if entry.get("role") == "linear_helper"
                else f"swarm {entry.get('swarm_id')}'s helper")
         return (f"# Standing rules — {who}\n\nYour lasting instructions to this helper, in your"
@@ -562,12 +582,21 @@ def _watched_lines(entry, index):
     """The open lines of work this helper watches: ({the session carrying the
     line now: every session in it}, [finished sessions to name in one line],
     what to call the place). The room helper watches every open session in
-    its room; a swarm helper watches its swarm's members; the Linear helper
+    its room; a project helper every open session in its project room; a
+    swarm helper watches its swarm's members; the Linear helper
     watches the open sessions that work in Linear, whatever room they are in
     (linear_feed.watched_lines). Helpers are never in it."""
     if entry.get("role") == "room_helper":
         room = entry.get("room") or "coding"
         return edited_files.open_lines(room, index), [], f"the {room} room"
+    # A project helper watches the open sessions in its project room.
+    if entry.get("role") == "project_helper":
+        import project_rooms
+        project = entry.get("project_room")
+        members = project_rooms.sync(index)
+        inside = {c: e for c, e in index.items() if members.get(c) == project}
+        room = entry.get("room") or project_rooms.ROOM
+        return edited_files.open_lines(room, inside), [], f"the {project} project room"
     if entry.get("role") == "linear_helper":
         import linear_feed
         return linear_feed.watched_lines(index), [], "Linear work (any room)"
@@ -787,6 +816,13 @@ def seed_parts(conv_id, entry, watched=None):
     found, finished, place = watched or sessions(entry)
     if entry.get("role") == "room_helper":
         lead = ROOM_LEAD.format(room=entry.get("room") or "coding")
+    elif entry.get("role") == "project_helper":
+        import project_rooms
+        project = entry.get("project_room")
+        room = entry.get("room") or project_rooms.ROOM
+        found = project_rooms.find(project)
+        lead = PROJECT_LEAD.format(name=found["name"] if found else project, room=room,
+                                   scope=f"{room}:{project}")
     elif entry.get("role") == "linear_helper":
         lead = LINEAR_LEAD
     else:
@@ -1175,6 +1211,31 @@ def state_changes(helper_conv, found, seen, index):
     return lines, filled
 
 
+def own_sessions(entry, found, index, scope=None):
+    """The sessions in `found` that are this helper's to be WOKEN for: the
+    closest helper above each session, and only that one. A member of an
+    open swarm is its swarm helper's; a session working alone inside a
+    project room is the project helper's; any other is the room helper's.
+    The higher helpers still SEE the rest in part 3 of their seed — they just
+    aren't woken for them. A swarm helper and the Linear helper keep all of
+    theirs. `scope` caches the swarm and project lookups across helpers in
+    one tick."""
+    role = entry.get("role")
+    if role not in ("room_helper", "project_helper"):
+        return found
+    import project_rooms
+    if scope is None:
+        scope = {}
+    if "swarmed" not in scope:
+        scope["swarmed"] = {m["conv"] for card in swarms.overview() if not card.get("closed")
+                            for m in card["members"]}
+        scope["projects"] = project_rooms.sync(index)
+    project = entry.get("project_room") if role == "project_helper" else None
+    return [s for s in found
+            if not any(c in scope["swarmed"] for c in s["line"])
+            and scope["projects"].get(s["conv"]) == project]
+
+
 def wake_message(lines):
     """What the helper is told on a wake-up, and how its chat shows it.
     Returns (text, system) — begin_turn's pair, as in watches.wake_message."""
@@ -1201,6 +1262,7 @@ def wake_tick(now=None):
     gap = timedelta(seconds=config.HELPER_WAKE_MIN_SEC)
     index = _index()
     woken = 0
+    scope = {}
     for conv, entry in index.items():
         # Only a helper that is open and idle: a closed one has nobody to
         # tell, and a running one reads the room fresh on its next turn anyway.
@@ -1217,7 +1279,7 @@ def wake_tick(now=None):
         try:
             # A first look without the file lists — reading them is the slow
             # part, and unless a summary is new there's nothing to wake for.
-            quick, _, _ = sessions(entry, index, files=False)
+            quick = own_sessions(entry, sessions(entry, index, files=False)[0], index, scope)
             state_lines, filled = ([], False) if seen is None else state_changes(
                 conv, quick, seen, index)
             if seen is not None and mode != "edit" and not state_lines and not any(
@@ -1225,7 +1287,7 @@ def wake_tick(now=None):
                 if filled:
                     _write_seen(conv, seen)
                 continue
-            found, _, _ = sessions(entry, index)
+            found = own_sessions(entry, sessions(entry, index)[0], index, scope)
         except Exception as e:
             print(f"helper wake check failed for {conv}: {e}", flush=True)
             continue

@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 58
+_SCHEMA_VERSION = 59
 
 
 def _db_path():
@@ -211,7 +211,7 @@ _EXPECTED_TABLES = (
     "food_judgments", "judgment_grounds", "hazard_history", "research_tables",
     # The agents' mailbox, token accounting per model call, and swarms.
     "agent_messages", "model_calls", "swarms", "swarm_members", "swarm_helper_runs",
-    "session_summaries", "swarm_pins", "swarm_hubs", "room_moves", "room_helper_runs",
+    "session_summaries", "swarm_pins", "swarm_hubs", "project_room_members", "room_moves", "room_helper_runs",
     # Verifiable exposure scores (rung 36).
     "hazard_facts", "food_pdp_codes", "data_pulls", "exposure_scores", "exposure_terms",
     "source_files", "passage_pages",
@@ -3473,6 +3473,27 @@ def _run_ladder(conn):
             "  by TEXT NOT NULL,"
             "  reason TEXT NOT NULL DEFAULT '')"
         )
+    if version < 59:
+        # Who is in which project room (project_rooms.py): one row per
+        # session, so a session is in at most one. Rows are added by the
+        # rules (where it works, who started it) and only grow; a placement
+        # by hand replaces a row, and can put a session in no room at all.
+        #
+        # Prompt: "maybe we make rooms where swarms can form like based foods."
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS project_room_members ("
+            "  conv TEXT PRIMARY KEY,"
+            # The build id of the room; empty only for a hand placement out
+            # of every room.
+            "  room_id TEXT,"
+            "  joined_at TEXT NOT NULL,"
+            # 'files' (it works in the build's repo), 'spawn' or 'continue'
+            # (started from a session in the room), 'hand' (placed).
+            "  how TEXT NOT NULL CHECK (how IN ('files', 'spawn', 'continue', 'hand')),"
+            "  CHECK (room_id IS NOT NULL OR how = 'hand'))"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS project_room_members_by_room"
+                     " ON project_room_members (room_id)")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

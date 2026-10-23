@@ -851,3 +851,41 @@ def test_the_helper_is_woken_once_when_a_session_it_was_shown_changes_state(room
     set_state(A, awaiting_input="another question")
     _gap_passes(helper)
     assert helper_chat.wake_tick() == 0
+
+
+def test_only_the_closest_helper_is_woken(room, tmp_path):
+    """A swarm member asking her something wakes its swarm helper, not the
+    project helper or the room helper above it; a session working alone in a
+    project room wakes the project helper, not the room helper. Both higher
+    helpers still see them in their seed."""
+    import subprocess
+    helper, started, _ = room
+    build = tmp_path / "shop"
+    subprocess.run(["git", "init", "-q", str(build)], check=True)
+    store.write("terrain_builds", {"builds": [
+        {"id": "shop", "name": "Shop", "root": str(build), "project_room": True}]})
+    _seed(A, B, C, last_at="2026-09-27T12:00:00")
+    for conv in (A, B, C):
+        _did(conv, _edit(build / f"{conv}.txt"))
+    peermail.send(B, "I'm on the cart", from_conv=A)
+    peermail.send(A, "ok", from_conv=B)
+    peermail.send(B, "thanks", from_conv=A)
+    [swarm_id] = swarms.sync()
+    swarm = swarm_helper.ensure_helper(swarm_id)
+    lead = room_helper.ensure_room_helper("coding:shop")
+    assert helper_chat.wake_tick() == 0                        # every helper's first look
+
+    def ask(conv):
+        with store.mutate("bot_chats/index", {}) as index:
+            index[conv]["awaiting_input"] = "which colour?"
+
+    ask(A)
+    assert helper_chat.wake_tick() == 1
+    assert [conv for conv, _ in started] == [swarm]
+    _turn_ends(swarm, helper_chat.SILENT)
+    ask(C)
+    assert helper_chat.wake_tick() == 1
+    assert [conv for conv, _ in started] == [swarm, lead]
+    assert helper not in [conv for conv, _ in started]
+    seed = helper_chat.seed_text(helper, store.read("bot_chats/index", {})[helper])
+    assert f"## `{A}`" in seed and f"## `{C}`" in seed

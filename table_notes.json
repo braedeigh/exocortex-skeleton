@@ -1550,6 +1550,26 @@
       }
     }
   },
+  "project_room_members": {
+    "holds": "Which project room each Coding session is in: a build switched on as a room inside the Coding room, with its own helper. At most one room per session.",
+    "source": "Written by project_rooms.sync from where each session works (its tool calls) and who started it, and by project_rooms.place for a placement by hand. Rows only grow. Not rebuildable by hand placements; the hourly backup dumps this table as text.",
+    "kind": "record",
+    "time_column": "joined_at",
+    "columns": {
+      "conv": {
+        "holds": "The session."
+      },
+      "room_id": {
+        "holds": "The build id of its project room; empty only when it was placed out of every room by hand."
+      },
+      "joined_at": {
+        "holds": "When it landed there."
+      },
+      "how": {
+        "holds": "files: it works in the build's repo; spawn or continue: started from a session in the room; hand: placed."
+      }
+    }
+  },
   "swarm_pins": {
     "holds": "Where the room helper placed a session: in a swarm, or released to work alone. A placement overrides the messages the session exchanged before it, so a swarm glued together by old messages can come apart.",
     "source": "Written by swarms.place when the room helper (or scripts/room_moves.py) makes a move; put back by an undo. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",

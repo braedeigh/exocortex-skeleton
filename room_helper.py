@@ -55,6 +55,15 @@ config.HELPER_GROW_ROLES; otherwise every turn starts fresh).
 The room overview (room_overview) is what a RUN reads; the chat looks swarms,
 clusters and moves up when it needs them.
 
+A PROJECT HELPER is this same helper scoped to one project room
+(project_rooms.py): the scope `coding:<build id>` instead of `coding`. It
+reads and moves only the swarms and sessions inside its project; the Coding
+room helper reads each project room as ONE block (its name, its helper's
+latest overview, how many swarms and sessions) and moves only the sessions in
+no project room — though it may place a session into or out of one
+(`scripts/room_moves.py project-place`). Every function here that takes a
+`room` takes a scope: `_scope` splits it into (room, project or None).
+
 When it runs: at the minute tick (tick), at most once every
 config.ROOM_HELPER_MIN_SEC, and only when some session in the room has done
 something since the last run. Each run is its own detached process
@@ -62,6 +71,7 @@ something since the last run. Each run is its own detached process
 for each session working alone that has done something since its summary.
 
 Touches: swarms.py (placements: place, unplace, new_swarm, line_of_work),
+project_rooms.py (which sessions and swarms are in which project room),
 swarm_helper.py (ask_model, side_by_side, summarise_sessions, the
 member-activity reader, poke), sqlstore.py
 (session_summaries, swarm_pins, room_moves, room_helper_runs), the session
@@ -99,6 +109,8 @@ import swarm_helper
 import swarms
 
 ROLE = "room_helper"
+# The same helper scoped to one project room (see the top of the file).
+PROJECT_ROLE = "project_helper"
 KINDS = ("form", "join", "split", "release")
 
 # How much of a solo session's new activity one run reads. Less than a swarm
@@ -107,7 +119,7 @@ _SOLO_CHARS = 1500
 # How many of its own past moves a run is shown.
 _RECENT_MOVES = 10
 
-SYSTEM_PROMPT = """You are the room helper for the {room} room of one person's app, where AI \
+SYSTEM_PROMPT = """You are the {place} of one person's app, where AI \
 coding agents work in sessions. Sessions that message each other form a SWARM, and every swarm \
 has its own helper. You sit a layer above: your job is to watch over the sessions that are \
 running in the room and coordinate with them when it's needed — mostly by deciding who should \
@@ -160,6 +172,26 @@ def _now():
     return datetime.now().isoformat(timespec="seconds")
 
 
+def _scope(scope):
+    """A scope as (room, project room id or None): `coding` is the Coding
+    room's own helper, `coding:based-foods` the Based Foods project helper."""
+    room, _, project = str(scope).partition(":")
+    return room, project or None
+
+
+def _place_name(scope):
+    """What the helper is, in words: the room helper of a room, or the
+    project helper of a project room."""
+    room, project = _scope(scope)
+    if project is None:
+        return f"room helper for the {room} room"
+    import project_rooms
+    found = project_rooms.find(project)
+    name = found["name"] if found else project
+    return (f"project helper for the {name} project room, inside the {room} room — the"
+            f" sessions working on {name}")
+
+
 def _trim(text, cap):
     text = str(text or "").strip()
     return text if len(text) <= cap else "…" + text[-cap:]
@@ -167,20 +199,28 @@ def _trim(text, cap):
 
 # --- The helper's own session ---------------------------------------------------
 
-def is_helper(entry):
-    return isinstance(entry, dict) and entry.get("role") == ROLE
+def is_helper(entry, scope=None):
+    """Is this the helper of this scope (any room or project helper, when no
+    scope is given)?"""
+    if not isinstance(entry, dict) or entry.get("role") not in (ROLE, PROJECT_ROLE):
+        return False
+    if scope is None:
+        return True
+    room, project = _scope(scope)
+    if project is None:
+        return entry.get("role") == ROLE and entry.get("room") == room
+    return entry.get("role") == PROJECT_ROLE and entry.get("project_room") == project
 
 
 def find_helper(room, index=None):
-    """The room helper's session id for this room, or None."""
+    """The helper's session id for this scope (a room, or a project room), or None."""
     index = store.read("bot_chats/index", {}) if index is None else index
     return next((conv for conv, entry in index.items()
-                 if is_helper(entry) and entry.get("room") == room
-                 and not entry.get("archived")), None)
+                 if is_helper(entry, room) and not entry.get("archived")), None)
 
 
 def ensure_room_helper(room):
-    """The room helper's Observatory session for this room, made on first need."""
+    """The helper's Observatory session for this scope, made on first need."""
     from routes import observatory
     helper = find_helper(room)
     stored = (store.read("bot_chats/index", {}).get(helper) or {}) if helper else {}
@@ -195,11 +235,18 @@ def ensure_room_helper(room):
             index[helper]["allowed_tools"] = list(swarm_helper.HELPER_TOOLS)
             return helper
         helper = observatory._new_conv_id(index)
+        lane, project = _scope(room)
+        title = f"Room helper · {lane.capitalize()}"
+        if project is not None:
+            import project_rooms
+            found = project_rooms.find(project)
+            title = f"Project helper · {found['name'] if found else project}"
         index[helper] = {
-            "bot": "helper", "role": ROLE, "room": room,
-            "title": f"Room helper · {room.capitalize()}",
+            "bot": "helper", "role": PROJECT_ROLE if project else ROLE, "room": lane,
+            **({"project_room": project} if project else {}),
+            "title": title,
             "started": _now(), "last_at": _now(), "claude_session_id": None,
-            "cost_usd": 0.0, "journal": False, "lane": room,
+            "cost_usd": 0.0, "journal": False, "lane": lane,
             "cwd": str(store.BUILD_DIR), "allowed_tools": list(swarm_helper.HELPER_TOOLS),
         }
     return helper
@@ -212,25 +259,44 @@ def _helper_convs(index):
             if isinstance(e, dict) and e.get("role") in swarms.HELPER_ROLES}
 
 
-def open_swarms(room):
-    """The swarms in this room it works with: live and not closed. A closed
+def _project_members(room):
+    """{conv: project room id} for the room's sessions — empty, and nothing
+    read, when no project room is switched on."""
+    import project_rooms
+    return project_rooms.sync() if _scope(room)[0] == project_rooms.ROOM else {}
+
+
+def open_swarms(room, index=None, members=None):
+    """The swarms in this scope it works with: live, not closed, and in its
+    project room (for a project helper) or in none (for the room helper). A closed
     swarm (fewer than two sessions still working, swarms.is_closed) is left
     out of what it reads and can't be joined or split — there's no one left
     in it to coordinate with each other, and its one working session, if any,
     is listed as working alone (solo_sessions). It comes back here by itself
     when a second session works in it again."""
-    return [c for c in swarms.overview() if c["lane"] == room and not c.get("closed")]
+    import project_rooms
+    lane, project = _scope(room)
+    if index is None:
+        index = store.read("bot_chats/index", {})
+    members = _project_members(room) if members is None else members
+    return [c for c in swarms.overview() if c["lane"] == lane and not c.get("closed")
+            and project_rooms.swarm_room([m["conv"] for m in c["members"]], index,
+                                         members) == project]
 
 
-def solo_sessions(room, index, cards):
-    """The live sessions in this room working alone: not archived, finished or
-    handed on, not a helper, and in none of these (open) swarms — so the last
-    working session of a closed swarm is here too. Newest first."""
+def solo_sessions(room, index, cards, members=None):
+    """The live sessions in this scope working alone: not archived, finished or
+    handed on, not a helper, in its project room (or in none, for the room
+    helper), and in none of these (open) swarms — so the last working session
+    of a closed swarm is here too. Newest first."""
+    lane, project = _scope(room)
+    members = _project_members(room) if members is None else members
     in_swarm = {m["conv"] for card in cards for m in card["members"]}
     helpers = _helper_convs(index)
     found = [(entry.get("last_at") or "", conv) for conv, entry in index.items()
              if isinstance(entry, dict) and conv not in in_swarm and conv not in helpers
-             and not swarms.member_retired(entry) and lanes.derive_lane(entry) == room
+             and not swarms.member_retired(entry) and lanes.derive_lane(entry) == lane
+             and members.get(conv) == project
              # Saved for later: parked by her, so not the helper's to place
              # (routes/observatory.py save_for_later).
              and not entry.get("saved_at")]
@@ -300,6 +366,49 @@ def _describe(conv, entry):
     return f"`{conv}` {entry.get('title') or conv} — {state}, last active {entry.get('last_at') or '?'}"
 
 
+def _latest_overview(scope):
+    """The first line of the latest overview a helper's run wrote, or None."""
+    conn = sqlstore.open_db()
+    try:
+        row = conn.execute("SELECT output FROM room_helper_runs WHERE room = ? AND output"
+                           " IS NOT NULL ORDER BY id DESC LIMIT 1", (scope,)).fetchone()
+    finally:
+        conn.close()
+    try:
+        overview = (json.loads(row[0]).get("overview") or "").strip() if row else ""
+    except (ValueError, AttributeError):
+        overview = ""
+    return overview.splitlines()[0] if overview else None
+
+
+def project_blocks(room, index, members):
+    """The room helper's view of each project room: ONE block apiece — its
+    name, its helper's latest overview line, and how many open swarms and
+    working sessions it holds. What happens inside is its project helper's."""
+    import project_rooms
+    found = project_rooms.rooms() if _scope(room)[0] == project_rooms.ROOM else []
+    if not found:
+        return []
+    out = ["## Project rooms", "",
+           "Each project room has its own helper, which looks after the swarms and sessions"
+           " inside it; you don't move them. You may put a session into or out of a project"
+           " room: `scripts/room_moves.py project-place <build id|none> <conv>…`.", ""]
+    cards = [c for c in swarms.overview() if c["lane"] == _scope(room)[0] and not c.get("closed")]
+    for project in found:
+        scope = f"{_scope(room)[0]}:{project['id']}"
+        inside = [c for c in cards if project_rooms.swarm_room(
+            [m["conv"] for m in c["members"]], index, members) == project["id"]]
+        working = [conv for conv, at in members.items() if at == project["id"]
+                   and not swarms.member_retired(index.get(conv))]
+        helper = find_helper(scope, index)
+        out += [f"### {project['name']} (project room `{project['id']}`)"
+                + (f", helper `{helper}`" if helper else ", no helper yet"),
+                f"Its helper's latest overview: {_latest_overview(scope) or '(none yet)'}",
+                f"{len(inside)} open swarm{'s' if len(inside) != 1 else ''},"
+                f" {len(working)} session{'s' if len(working) != 1 else ''} still working.", ""]
+    return out
+
+
 def room_overview(room, activity=False):
     """The room as the room helper sees it, as one markdown document: every
     live swarm with its summaries and clusters, every session working alone,
@@ -308,10 +417,16 @@ def room_overview(room, activity=False):
     seed leaves it out."""
     index = store.read("bot_chats/index", {})
     index = index if isinstance(index, dict) else {}
-    cards = open_swarms(room)
+    members = _project_members(room)
+    cards = open_swarms(room, index, members)
     since = (datetime.now() - timedelta(hours=config.ROOM_HELPER_QUIET_HOURS)
              ).isoformat(timespec="seconds")
-    out = [f"# The {room} room, {_now()}", "", "## Swarms", ""]
+    lane, project = _scope(room)
+    title = f"The {lane} room" if project is None else f"The {project} project room"
+    out = [f"# {title}, {_now()}", ""]
+    if project is None:
+        out += project_blocks(room, index, members)
+    out += ["## Swarms", ""]
     conn = sqlstore.open_db()
     try:
         for card in cards:
@@ -341,7 +456,7 @@ def room_overview(room, activity=False):
         conn.close()
     if not cards:
         out += ["(no swarms)", ""]
-    solos = solo_sessions(room, index, cards)
+    solos = solo_sessions(room, index, cards, members)
     stored = _stored_summaries(solos)
     out += ["## Sessions working alone", ""]
     for conv in solos:
@@ -403,10 +518,19 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
     saved = [c for c in moved if (index.get(c) or {}).get("saved_at")]
     if saved and by != "owner":
         raise MoveError(f"saved for later by the owner: {', '.join(saved)}")
+    # Keep each helper to its own sessions: a project helper moves only the
+    # sessions in its project room, the room helper only those in none.
+    lane, project = _scope(room)
+    members = _project_members(room)
+    outside = [c for c in moved if members.get(c) != project]
+    if outside:
+        where = (f"the {project} project room" if project
+                 else "no project room (a project room's own helper moves those)")
+        raise MoveError(f"not in {where}: {', '.join(outside)}")
     # Where each session is now: its swarm only while that swarm is open. A
     # closed swarm's one working session is working alone (swarms.is_closed).
     open_ids = {c["id"] for c in swarms.overview() if not c.get("closed")}
-    live = {c["id"]: c for c in open_swarms(room)}
+    live = {c["id"]: c for c in open_swarms(room, index, members)}
     current = {c: (s if s in open_ids else None)
                for c, s in ((c, swarms.swarm_of(c)) for c in moved)}
     # A swarm is two lines of work still going: count the ones this move carries.
@@ -421,7 +545,7 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
                             " (a session and its continuations count once)")
     elif kind == "join":
         if swarm_id not in live:
-            raise MoveError(f"swarm {swarm_id} isn't an open swarm in the {room} room")
+            raise MoveError(f"swarm {swarm_id} isn't an open swarm in the {room} scope")
         if all(current[c] == swarm_id for c in moved):
             raise MoveError(f"already in swarm {swarm_id}")
         from_swarm = next((s for s in current.values() if s), None)
@@ -430,7 +554,7 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
         if working_lines < 2:
             return execute(room, "release", convs, None, reason, message, by)
         if swarm_id not in live:
-            raise MoveError(f"swarm {swarm_id} isn't an open swarm in the {room} room")
+            raise MoveError(f"swarm {swarm_id} isn't an open swarm in the {room} scope")
         if any(current[c] != swarm_id for c in moved):
             raise MoveError(f"split moves members of swarm {swarm_id} only")
         if not set(swarms.overview_members(swarm_id)) - set(moved):
@@ -460,7 +584,7 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
         conn.close()
     to_swarm = {"form": None, "split": None, "join": swarm_id, "release": None}[kind]
     if kind in ("form", "split"):
-        to_swarm = swarms.new_swarm(room)
+        to_swarm = swarms.new_swarm(lane)
     before = swarms.place(moved, to_swarm, move_id)
     conn = sqlstore.open_db()
     try:
@@ -491,7 +615,9 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
     alone_note = (f"(Room helper: swarm {from_swarm} has closed — everyone else in it has"
                   " finished or moved on, so you're working alone now. `scripts/peers.py"
                   " list` shows who else is working.)")
-    tell = ([(c, _move_note(kind, to_swarm, moved, index, recipient=c), message)
+    who = "Room helper" if project is None else "Project helper"
+    alone_note = alone_note.replace("(Room helper:", f"({who}:", 1)
+    tell = ([(c, _move_note(kind, to_swarm, moved, index, recipient=c, who=who), message)
              for c in moved] + [(c, alone_note, "") for c in left_alone])
     for conv, facts, words in tell:
         if swarms.member_retired(index.get(conv)):
@@ -510,13 +636,13 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
     return made
 
 
-def _move_note(kind, to_swarm, moved, index, recipient=None):
+def _move_note(kind, to_swarm, moved, index, recipient=None, who="Room helper"):
     """The facts line under a move's message: where the session is now. For a
     swarm, its number and name, how many others are still working in it, and
     at most three of them by name — a big swarm's full list was noise, and
     `scripts/peers.py swarm` has it."""
     if to_swarm is None:
-        return ("(Room helper: you're working alone now — out of your old swarm. "
+        return (f"({who}: you're working alone now — out of your old swarm. "
                 "`scripts/peers.py list` shows who else is working.)")
     conn = sqlstore.open_db()
     try:
@@ -527,12 +653,12 @@ def _move_note(kind, to_swarm, moved, index, recipient=None):
     others = [m for m in swarms.overview_members(to_swarm)
               if m != recipient and not swarms.member_retired(index.get(m))]
     if not others:
-        return (f"(Room helper: you're now in {called}. `scripts/peers.py swarm`"
+        return (f"({who}: you're now in {called}. `scripts/peers.py swarm`"
                 " shows it.)")
     named = ", ".join(f"{m} ({(index.get(m) or {}).get('title') or m})" for m in others[:3])
     count = f"{len(others)} other session{'s' if len(others) != 1 else ''} still working"
     more = f", among them {named}" if len(others) > 3 else f": {named}"
-    return (f"(Room helper: you're now in {called}, with {count}{more}. "
+    return (f"({who}: you're now in {called}, with {count}{more}. "
             "`scripts/peers.py swarm` lists them.)")
 
 
@@ -576,7 +702,8 @@ def undo(move_id):
 
 def _call_model(text, room):
     """A room run's call for the room as a whole: its overview and its moves."""
-    prompt = SYSTEM_PROMPT.format(room=room, quiet=f"{config.ROOM_HELPER_QUIET_HOURS:g}")
+    prompt = SYSTEM_PROMPT.format(place=_place_name(room),
+                                  quiet=f"{config.ROOM_HELPER_QUIET_HOURS:g}")
     return swarm_helper.ask_model(text, prompt, SCHEMA)
 
 
@@ -630,12 +757,17 @@ def run(room, trigger="tick"):
     # is still new to the next run.
     read_at = _now()
     # The files section stands apart from the summaries (edited_files.py).
-    text = room_overview(room, activity=True) + "\n" + edited_files.section(room)
-    # Make every call at once: the room's own, and one per session working
-    # alone that has done something since its summary was written.
     index = store.read("bot_chats/index", {})
     index = index if isinstance(index, dict) else {}
-    solos = solo_sessions(room, index, open_swarms(room))
+    lane, project = _scope(room)
+    members = _project_members(room)
+    # A project helper's files section lists only its project's sessions.
+    shown = index if project is None else {
+        c: e for c, e in index.items() if members.get(c) == project}
+    text = room_overview(room, activity=True) + "\n" + edited_files.section(lane, shown)
+    # Make every call at once: the room's own, and one per session working
+    # alone that has done something since its summary was written.
+    solos = solo_sessions(room, index, open_swarms(room, index, members), members)
     stored = _stored_summaries(solos)
     jobs = {"room": lambda: _call_model(text, room)}
     for conv in solos:
@@ -715,7 +847,7 @@ def _spawn(room, trigger):
             return False
         entry["running"] = True
         entry["last_at"] = _now()
-    log = store.DATA_DIR / "bot_chats" / ".turns" / f"room-helper-{room}.log"
+    log = store.DATA_DIR / "bot_chats" / ".turns" / f"room-helper-{room.replace(':', '-')}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "EXOCORTEX_DATA_DIR": str(store.DATA_DIR),
            "EXOCORTEX_CONTENT_DIR": str(store.CONTENT_DIR)}
@@ -741,15 +873,23 @@ def due(room, index=None):
             seconds=config.ROOM_HELPER_MIN_SEC):
         return False
     helpers = _helper_convs(index)
+    lane, project = _scope(room)
+    members = _project_members(room)
     return any(isinstance(e, dict) and c not in helpers and (e.get("last_at") or "") > last
-               and lanes.derive_lane(e) == room for c, e in index.items())
+               and lanes.derive_lane(e) == lane and members.get(c) == project
+               for c, e in index.items())
 
 
 def tick():
     """The minute tick: run each room's helper that's due. Returns how many
     runs started."""
+    import project_rooms
     started = 0
-    for room in config.ROOM_HELPER_ROOMS:
+    scopes = list(config.ROOM_HELPER_ROOMS)
+    # Each switched-on project room's helper, inside the room that holds them.
+    if project_rooms.ROOM in scopes:
+        scopes += [f"{project_rooms.ROOM}:{r['id']}" for r in project_rooms.rooms()]
+    for room in scopes:
         if due(room) and _spawn(room, "tick"):
             started += 1
     return started
@@ -765,7 +905,7 @@ def main(argv):
             # Never leave the helper looking busy forever.
             with store.mutate("bot_chats/index", {}) as index:
                 for entry in index.values():
-                    if is_helper(entry) and entry.get("room") == room:
+                    if is_helper(entry, room):
                         entry["running"] = False
             return 1
         return 0

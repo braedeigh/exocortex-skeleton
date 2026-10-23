@@ -298,6 +298,85 @@ or move solo sessions out of a swarm into the layer above."
   on its page (`SwarmNetwork.tsx`, its helper in the middle), and the
   sessions working alone in rows beneath. Data: `GET /api/swarms/room/<room>`.
 
+## Project rooms and the project helper
+
+A middle layer between the Coding room and its swarms (2026-10-14 and
+10-23). Her words: "maybe we make rooms where swarms can form like based
+foods. Swarms could form within the room? based off the room helper? Which
+can coordinate with the smaller swarm helpers." Swarm 16 had grown to 68
+member rows, "everything Based Foods": it was working as a project room, not
+as a few sessions in the same files.
+
+- **What one is** (`project_rooms.py`). A build from the Builds list
+  (`buildlist.py`, `terrain_builds.json`) switched on with `"project_room":
+  true` (`scripts/room_moves.py project on|off <build id>`). Her call: one
+  exists only when switched on, not for every build. Named "project room" in
+  code, never "project": `projects.json` already means the code-ownership map.
+- **The exocortex itself is not a project.** Sessions in the app checkout or
+  the vault stay with the Coding room helper exactly as before.
+- **How a session lands in one**, first rule that applies: a placement by
+  hand (`room_moves.py project-place <build id|none> <conv>…`, the whole line
+  of work); then where it works — most of its places in the build's repo or
+  any git worktree of it; then being spun off or continued from a session
+  already in the room (a spinoff only while it works nowhere else; a
+  continuation always — her words: "they'd probably stay in the same room if
+  they connected once in the past"). A place is an Edit/Write file, or the
+  folder a Bash command `cd`s into: she approved Edit/Write only, but most
+  project sessions edit through Bash (`cd /…/based-foods-x && python3 - <<…`)
+  — on 10-23 Edit/Write alone placed 2 of 8 working Based Foods sessions. cwd
+  says nothing: they all sit in the app checkout. A worktree is told by its
+  `.git` file pointing into the build's `.git/worktrees/`.
+- **Membership is stored** (`project_room_members`, rung 59), at most one room
+  per session, and only grows, like a swarm's. `project_rooms.sync` is a dry
+  pass first and takes the write lock only when someone new lands.
+- **A swarm's project** is the room most of its working members are in
+  (`project_rooms.swarm_room`).
+- **The project helper** is the room helper scoped to one project: role
+  `project_helper`, scope `coding:<build id>` everywhere `room_helper.py` takes
+  a room (`_scope`). It reads its project's open swarms, clusters and solo
+  sessions, makes form / join / split / release moves only inside its
+  project (`execute` refuses the rest), and runs on the room helper's pacing
+  from the minute tick. Its chat has `PROJECT_LEAD` (helper_chat.py); it may
+  message swarm helpers with `peers.py send`, which starts their own run.
+  Its rules file is `helper_rules/project-<build id>.md`.
+- **The Coding room helper** sees each project room as ONE block in its
+  overview (name, the project helper's latest overview line, counts of open
+  swarms and working sessions), makes swarm moves only for sessions in no
+  project room, and may place sessions into or out of one.
+- **Swarm helpers** are unchanged, except that a closing swarm's one line goes
+  to its project helper's chat when it belongs to a project room
+  (`swarm_helper._tell_room`).
+- **Only the closest helper is woken** (`helper_chat.own_sessions`). A member
+  of an open swarm wakes only its swarm helper; a session working alone in a
+  project wakes only the project helper; anything else wakes the room helper.
+  The higher helpers still see those sessions in part 3 of their seed, but get
+  no "new / files / asked / error / stalled / finished" wake for them. This is
+  what keeps chat turns — the real cost — from tripling.
+- **Questions open nearby** (`routes/observatory.open_questions_nearby`, what
+  `request_input.py` lists back when a session files): inside a project room,
+  "nearby" is every session in the project; elsewhere it's the swarm, as
+  before.
+- **Swarm 16 → the Based Foods project room** is a one-off,
+  `scripts/swarm_to_project_room.py` (dry run by default; `--apply` is hers to
+  approve): re-role its helper `2026-09-30.114222` (chat and rules kept, its
+  growing chat reset), release swarm 16 in one undoable owner move, switch
+  Based Foods on. Done in that order because a `swarm_helper` whose swarm has
+  no members is archived by `swarms._archive_helpers`; a `project_helper` is
+  not.
+- **What the Observatory shows.** `GET /api/swarms/room/<room>` carries
+  `projects` — each project room with its helper, its swarm ids, its solo
+  sessions and its helper's moves — and the room's own solos leave those
+  out; `GET /api/swarms/project/<id>` is one of them. The room map
+  (`RoomMap.tsx`) draws each project room as a collapsible box (remembered
+  open or shut) with its helper's dot on top, then its swarm stacks and its
+  solo rings, through the same `MapBody` the room uses; the project's page is
+  `/observatory/project/<id>` (`ProjectPage.tsx`), and a swarm's page has a
+  "‹ <project>" button up to it. A chat's helper button goes to the project
+  helper for a session working alone in a project, and from a project
+  swarm's helper up to it (`routes/swarms.helper_of`).
+- **Not done (decided):** no dormancy leaving, no Linear-team mapping, no
+  project rooms besides Based Foods.
+
 ## The Linear feed and the Linear helper
 
 Her ask: "I want to create something that pushes linear stuff to my app. And
@@ -450,6 +529,7 @@ context between every message."
 | Helper | `swarm_helper.py` (one tool-less Sonnet call per run, structured answer, every run in `swarm_helper_runs`); runs after member turns (debounced by `config.SWARM_HELPER_MIN_SEC`), on the minute tick, when a swarm forms, and straight away when messaged |
 | Helper chat | `helper_chat.py` — the rolling seed (`write_seed`, called by `begin_turn`, which never resumes a helper; the latest seed is kept at `bot_chats/helper_seed/<conv>.md`) her standing rules (`rules`, `add_rule`, `drop_rule`; `scripts/helper_rule.py`, allowed in `tools/helper_gate.py`), the wake-up (`wake_tick`, ticked by `scripts/coming_up_dispatcher.py`; `after_turn`, called by `after_turn`, puts a silent wake-up's card back) and the silent turn's hiding in `frontend/src/features/observatory/events.ts`; `config.HELPER_CHAT_EXCHANGES`, `HELPER_WAKE_*` (including `HELPER_WAKE_STATES`: a helper is also woken when a session it was shown asks the owner something, errors, stalls mid-turn or finishes — `helper_chat.state_changes`); exempt in `continuation.due`. A growing helper (`config.HELPER_GROW_ROLES`, by default all three kinds; reset size `HELPER_RESET_TOKENS`) is the exception to "never resumes": `begin_turn` resumes it while `helper_chat.resumes` says yes, handing it only what changed in the room since it was last shown it, ahead of the message (`write_update`; what it was shown is kept in `bot_chats/helper_seed/<conv>.shown.json`) and leaving its seed untouched so the prompt cache holds, and starts it over from a fresh seed once its context passes the reset size. The context page: `seed_parts`, `last_seed`, `rules_text`, `save_rules`; `GET /api/swarms/helper-context/<conv>` and `PUT …/rules` in `routes/swarms.py`; `HelperContextPage.tsx` |
 | Message summaries | `message_summaries.py` (`spawn` called by `peer_send` in `routes/observatory.py`; `tick`, the safety net, by `scripts/coming_up_dispatcher.py`; `gists`, `thread_summary` read by `line_messages` in `routes/swarms.py`); `message_summaries`, `message_thread_summaries` (sqlstore rung 53); the sheet in `SwarmNetwork.tsx` |
+| Project rooms | `project_rooms.py` (switch, membership `sync`, `place`, `swarm_room`); `project_room_members` (rung 59); the `project_room` flag in `buildlist.py`; the project helper is `room_helper.py` at scope `coding:<build id>`; `helper_chat.PROJECT_LEAD`, `own_sessions` (closest-helper wake); `scripts/room_moves.py project | project-place`; `scripts/swarm_to_project_room.py` |
 | Room helper | `room_helper.py` (runs, moves, undo, the room overview); placements in `swarms.py` (`place`, `unplace`, `new_swarm`, `line_of_work`; `links` cuts pre-placement messages); `swarm_pins`, `room_moves`, `session_summaries`, `room_helper_runs` (sqlstore rung 37); `scripts/room_moves.py`; ticked by `scripts/coming_up_dispatcher.py` |
 | Watches | `watches.py` (add, the minute check, the wake-up, the seed section); `helper_watches` (sqlstore rung 40); `scripts/helper_watch.py`; allowed in `tools/helper_gate.py`; ticked by `scripts/coming_up_dispatcher.py`; `config.HELPER_WATCH_*` |
 | Linear feed | `linear_feed.py` (the look, what counts as news, the once-only record, the Linear helper and its wake-up, the phone push); `linear_api.py` (`team`, `changes`); `linear_events` (sqlstore rung 44) and the `linear_feed` state file; the helper's lead, sessions and news section in `helper_chat.py`; `scripts/linear_feed.py`, allowed in `tools/helper_gate.py`; `GET /api/linear-room/feed` in `routes/linear_room.py`; `LinearNews.tsx`, `linearNewsSeen.ts`, `LinearDoor.tsx`; ticked by `scripts/coming_up_dispatcher.py`; `config.LINEAR_FEED*`, `LINEAR_HELPER_DAYS` |

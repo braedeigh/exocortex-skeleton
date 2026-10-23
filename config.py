@@ -293,7 +293,7 @@ HELPER_CHAT_EXCHANGES = int(os.environ.get("EXOCORTEX_HELPER_CHAT_EXCHANGES", "1
 # this design for all helpers."
 HELPER_GROW_ROLES = tuple(
     role.strip() for role in os.environ.get(
-        "EXOCORTEX_HELPER_GROW_ROLES", "room_helper,swarm_helper,linear_helper").split(",") if role.strip())
+        "EXOCORTEX_HELPER_GROW_ROLES", "room_helper,project_helper,swarm_helper,linear_helper").split(",") if role.strip())
 HELPER_RESET_TOKENS = int(os.environ.get("EXOCORTEX_HELPER_RESET_TOKENS", "300000"))
 # The helper's wake-up (helper_chat.wake_tick): the app starts a turn in a
 # helper's chat when the sessions it watches change, and the helper may stay
@@ -328,7 +328,7 @@ HELPER_WAKE_STATES = tuple(
 HELPER_WAKE_MIN_SEC = int(os.environ.get("EXOCORTEX_HELPER_WAKE_MIN_SEC", "300"))
 HELPER_WAKE_ROLES = tuple(
     role.strip() for role in os.environ.get(
-        "EXOCORTEX_HELPER_WAKE_ROLES", "room_helper,swarm_helper").split(",") if role.strip())
+        "EXOCORTEX_HELPER_WAKE_ROLES", "room_helper,project_helper,swarm_helper").split(",") if role.strip())
 # Every session's summary is written by a model call of its own, and one run's
 # calls are made side by side (swarm_helper.side_by_side). This is how many may
 # run at once: each is a `claude` process holding a few hundred MB.

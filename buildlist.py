@@ -101,7 +101,10 @@ def _clean(raw):
             "name": str(raw.get("name") or display_name(build_id)),
             "root": Path(root).expanduser(),
             "source": source or None,
-            "added": raw.get("added") if isinstance(raw.get("added"), str) else None}
+            "added": raw.get("added") if isinstance(raw.get("added"), str) else None,
+            # Switched on: the build is a project room in the Coding room
+            # (project_rooms.py). Off unless the entry says exactly true.
+            "project_room": raw.get("project_room") is True}
 
 
 def builds():
@@ -272,6 +275,21 @@ def remove(build_id):
             return False
         configured["builds"] = kept
         return True
+
+
+def set_project_room(build_id, on):
+    """Switch a build's project room on or off (project_rooms.py): the
+    `project_room` flag on its entry in the data file. True when the build
+    was there."""
+    with store.mutate("terrain_builds", {}) as configured:
+        for raw in configured.get("builds") or []:
+            if isinstance(raw, dict) and raw.get("id") == build_id:
+                if on:
+                    raw["project_room"] = True
+                else:
+                    raw.pop("project_room", None)
+                return True
+    return False
 
 
 # --- reading a folder ----------------------------------------------------------

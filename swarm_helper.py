@@ -1124,15 +1124,20 @@ def _render_closing(name, summary, error, report):
 
 
 def _tell_room(swarm_id, name, lane, helper, headline, now):
-    """Say in the room helper's chat that this swarm closed: one line with
-    what it did, so she sees a swarm closed without opening each helper. The
-    line is marked `swarm_closed`, and the chat page opens a line with that
-    mark into the whole summary (SwarmClosingFold.tsx). A room with no helper
-    is told nothing.
+    """Say in the closest helper above this swarm that it closed: one line
+    with what it did, so she sees a swarm closed without opening each helper.
+    That's the project helper when the swarm belongs to a project room
+    (project_rooms.swarm_room), else the room helper. The line is marked
+    `swarm_closed`, and the chat page opens a line with that mark into the
+    whole summary (SwarmClosingFold.tsx). No helper there: nobody is told.
     Prompt: "one line is fine as long as it is clickable to expand"."""
+    import project_rooms
     import room_helper
     index = store.read("bot_chats/index", {})
-    room = room_helper.find_helper(lane, index if isinstance(index, dict) else {})
+    index = index if isinstance(index, dict) else {}
+    project = (project_rooms.swarm_room(swarms.overview_members(swarm_id), index)
+               if lane == project_rooms.ROOM else None)
+    room = room_helper.find_helper(f"{lane}:{project}" if project else lane, index)
     if not room or room == helper:
         return False
     did = headline or "No summary was written; its closing check says what git shows."

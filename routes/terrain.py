@@ -852,6 +852,8 @@ def _helper_title(conv_id, index):
         return None
     if role == "room_helper":
         return "Room helper"
+    if role == "project_helper":
+        return "Project helper"
     title = str((index.get(conv_id) or {}).get("title") or "").strip()
     if role == "swarm_helper":
         name = title.partition("·")[2].strip()

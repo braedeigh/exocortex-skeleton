@@ -274,7 +274,7 @@ _WATCHED_LANES = ("personal", "coding", "research", "linear")
 # The helper sessions — a swarm's own, the room's and the Linear helper
 # (swarms.HELPER_ROLES). Whatever room they sit in, they only look things up
 # (tools/helper_gate.py).
-_HELPER_ROLES = ("swarm_helper", "room_helper", "linear_helper")
+_HELPER_ROLES = ("swarm_helper", "room_helper", "project_helper", "linear_helper")
 
 
 def _root_dir():
@@ -2256,17 +2256,24 @@ def _clear_questions(entry):
 def open_questions_nearby(conv_id, index=None):
     """The questions open right now in the OTHER sessions working beside this
     one, so a session about to ask can see whether someone already is. "Beside"
-    is its swarm today (swarms.swarm_of); this is the one place that decides
-    it, so widening it (to a project, say) changes only this function. Each
-    item: {conv, title, questions}. Empty when it's in no swarm, and never
-    raises — a lookup that fails must not stop a question being filed."""
+    is its project room when it's in one (project_rooms.py — every session
+    working on that project, swarm or not), else its swarm (swarms.swarm_of);
+    this is the one place that decides it. Each item: {conv, title,
+    questions}. Empty when it's in neither, and never raises — a lookup that
+    fails must not stop a question being filed."""
     try:
+        import project_rooms
         import swarms
-        swarm_id = swarms.swarm_of(conv_id)
-        if swarm_id is None:
-            return []
-        members = swarms.overview_members(swarm_id)
         index = index if index is not None else store.read("bot_chats/index", {})
+        in_rooms = project_rooms.sync(index)
+        project = in_rooms.get(conv_id)
+        if project is not None:
+            members = sorted(c for c, room in in_rooms.items() if room == project)
+        else:
+            swarm_id = swarms.swarm_of(conv_id)
+            if swarm_id is None:
+                return []
+            members = swarms.overview_members(swarm_id)
     except Exception:
         return []
     nearby = []

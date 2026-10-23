@@ -16,6 +16,9 @@ undoable like the helper's own.
     ./venv/bin/python3 scripts/room_moves.py release <conv>... --reason "…"
     ./venv/bin/python3 scripts/room_moves.py hubs
     ./venv/bin/python3 scripts/room_moves.py hub <conv> on|off|auto --reason "…"
+    ./venv/bin/python3 scripts/room_moves.py project on|off <build id>
+    ./venv/bin/python3 scripts/room_moves.py project-place <build id|none> <conv>... --reason "…"
+    ./venv/bin/python3 scripts/room_moves.py --room coding:<build id> form|join|… (a project helper's moves)
 
 A session's continuations always move with it. `--by-owner` marks a move as
 hers, which lets it redo a move she undid.
@@ -25,8 +28,14 @@ their messages link nobody into a swarm (swarms.hubs). `hub` overrides that
 for one session's line of work: `on` always a hub, `off` never one, `auto`
 back to the count. It isn't a room move, so there's no undo — set it back.
 
+`project` switches a build (from the Builds list) on or off as a project room
+inside the Coding room (project_rooms.py). `project-place` puts sessions, with
+their continuations, into one by hand, or out of every one (`none`); it prints
+where each was, which is how to put it back.
+
 Touches: room_helper.py (execute, undo, recent_moves), swarms.py (hubs,
-mark_hub), exo.db (room_moves, swarm_hubs).
+mark_hub), project_rooms.py (switch, place), exo.db (room_moves, swarm_hubs,
+project_room_members).
 """
 import argparse
 import os
@@ -41,6 +50,7 @@ if os.environ.get("EXOCORTEX_DATA_DIR"):
     store.DATA_DIR = Path(os.environ["EXOCORTEX_DATA_DIR"])
 
 import room_helper  # noqa: E402
+import project_rooms  # noqa: E402
 import sqlstore  # noqa: E402
 import swarms  # noqa: E402
 
@@ -66,7 +76,35 @@ def main(argv=None):
     hub.add_argument("state", choices=("on", "off", "auto"))
     hub.add_argument("--reason", required=True)
     hub.add_argument("--by-owner", action="store_true")
+    project = sub.add_parser("project")
+    project.add_argument("state", choices=("on", "off"))
+    project.add_argument("build_id")
+    project_place = sub.add_parser("project-place")
+    project_place.add_argument("build_id")
+    project_place.add_argument("convs", nargs="+")
+    project_place.add_argument("--reason", required=True)
     args = parser.parse_args(argv)
+
+    # Switch a project room on or off.
+    if args.cmd == "project":
+        try:
+            project_rooms.switch(args.build_id, args.state == "on")
+        except ValueError as e:
+            print(f"not done: {e}", file=sys.stderr)
+            return 1
+        print(f"project room {args.build_id}: {args.state}")
+        return 0
+    # Place sessions into a project room, or out of every one, by hand.
+    if args.cmd == "project-place":
+        target = None if args.build_id == "none" else args.build_id
+        try:
+            before = project_rooms.place(target, args.convs)
+        except ValueError as e:
+            print(f"not done: {e}", file=sys.stderr)
+            return 1
+        for conv, was in before.items():
+            print(f"{conv}: {was or 'no project room'} → {target or 'no project room'}")
+        return 0
 
     # List the hubs, counted and hand-marked, and every hand mark.
     if args.cmd == "hubs":

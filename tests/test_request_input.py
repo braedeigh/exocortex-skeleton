@@ -576,3 +576,19 @@ def test_filing_lists_what_the_rest_of_the_swarm_is_already_asking(data_dir, mon
     payload, _ = rr.request_input("c1", ["Raise the lint memory cap?"], about="Lint OOM.")
     assert payload["open_nearby"] == [{"conv": "c2", "title": "lint fixer",
                                        "questions": ["Raise the lint memory cap?"]}]
+
+
+def test_in_a_project_room_filing_lists_what_the_whole_project_is_asking(data_dir, monkeypatch):
+    """Inside a project room, "beside" is every session on the project, in
+    a swarm or not — and nobody outside it."""
+    _seed_asker()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c2"] = {"title": "cart", "awaiting_questions": ["Ship the cart?"],
+                       "awaiting_input": "Ship the cart?"}
+        index["c3"] = {"title": "elsewhere", "awaiting_questions": ["Unrelated?"],
+                       "awaiting_input": "Unrelated?"}
+    import project_rooms
+    monkeypatch.setattr(project_rooms, "sync",
+                        lambda index=None: {"c1": "shop", "c2": "shop", "c3": "other"})
+    payload, _ = rr.request_input("c1", ["Ship the cart?"], about="Cart.")
+    assert [n["conv"] for n in payload["open_nearby"]] == ["c2"]
