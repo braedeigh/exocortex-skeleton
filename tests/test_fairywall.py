@@ -148,6 +148,7 @@ def test_a_turn_in_the_room_starts_behind_the_wall(room, monkeypatch):
     agent = place["vault"] / "agent.sh"
     agent.write_text("#!/bin/sh\n"
                      "echo token=$CLAUDE_CODE_OAUTH_TOKEN leaked=$EXOCORTEX_SUDO_PASSWORD\n"
+                     "echo memory-off=$CLAUDE_CODE_DISABLE_AUTO_MEMORY\n"
                      "echo args=$*\n"
                      f"echo mine > note.txt && echo wrote-room\n"
                      f"echo x > {place['vault']}/tulku/journal.md || echo refused-vault\n"
@@ -159,6 +160,8 @@ def test_a_turn_in_the_room_starts_behind_the_wall(room, monkeypatch):
     output = proc.stdout.read()
     proc.wait(timeout=30)
     assert "token=the-room-token leaked=\n" in output
+    # Claude Code's auto-memory is off behind the wall too.
+    assert "memory-off=1\n" in output
     assert "wrote-room" in output and "refused-vault" in output and "token-file-hidden" in output
     assert (place["room"] / "note.txt").exists()
     assert (place["vault"] / "tulku" / "journal.md").read_text() == "a day she wrote down"

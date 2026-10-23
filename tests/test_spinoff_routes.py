@@ -946,3 +946,72 @@ def test_the_approval_card_shows_the_plan_she_is_approving(spinoff_client, monke
     _write_brief(store.SPINOFF_DIR, "other-job")
     spinoff.offer_spinoff(plain, ["other-job"])
     assert "plan" not in spinoff_client.get(f"/api/spinoff/offer/{plain}").get_json()["offer"]
+
+
+# --- a Keeper spinoff starts clean and leaves a line in her journal -----------
+# A spinoff inherits the Keeper's room (Personal), where the context-on-mention
+# hook (tools/mention_context.py) runs — but a session started from a brief
+# never gets it. And a spinoff from a journaling session writes one S card
+# carrying the child's id, which the journal draws as a "✦ <title>" chip.
+
+def _hooks_for(conv_id):
+    config = {**observatory._conv_config(_index()[conv_id]), "conv_id": conv_id}
+    return observatory._session_settings(config, config["allowed_tools"]).get("hooks", {})
+
+
+def test_a_keeper_spinoff_never_gets_journal_packs(spinoff_client, monkeypatch):
+    keeper = _sender(monkeypatch, lane="personal", journal=True)
+    _write_brief(store.SPINOFF_DIR, "clean-start", "# Spinoff: clean start\n")
+    child = _post(spinoff_client, "clean-start").get_json()["conversation_id"]
+    assert _index()[child]["lane"] == "personal"
+    assert "UserPromptSubmit" not in _hooks_for(child)
+    # The Keeper itself, in the same room, keeps the hook.
+    assert "UserPromptSubmit" in _hooks_for(keeper)
+
+
+@pytest.fixture
+def journal_cards(monkeypatch):
+    """Every card the journal engine is asked to record, as (args, body)."""
+    from types import SimpleNamespace
+
+    from routes import terminal
+    calls = []
+
+    def fake_stream(*args, stdin=None):
+        calls.append((args, stdin))
+        return SimpleNamespace(returncode=0, stdout="2026-10-23.1200s\n", stderr="")
+    monkeypatch.setattr(terminal, "_run_stream", fake_stream)
+    return calls
+
+
+def test_a_spinoff_from_a_journaling_session_leaves_one_card_pointing_at_it(
+        spinoff_client, monkeypatch, journal_cards):
+    _sender(monkeypatch, lane="personal", journal=True)
+    _write_brief(store.SPINOFF_DIR, "noted", "# Spinoff: the pattern quotes\n")
+    child = _post(spinoff_client, "noted").get_json()["conversation_id"]
+    assert journal_cards == [(("record", "--who", "S", "--session", child),
+                              "Spun off: the pattern quotes")]
+    # Rejoining the same spinoff writes nothing more.
+    _post(spinoff_client, "noted")
+    assert len(journal_cards) == 1
+
+
+def test_a_spinoff_from_a_session_that_does_not_journal_leaves_no_card(
+        spinoff_client, monkeypatch, journal_cards):
+    _sender(monkeypatch, lane="personal")
+    _write_brief(store.SPINOFF_DIR, "unnoted")
+    _post(spinoff_client, "unnoted")
+    assert journal_cards == []
+
+
+def test_a_journal_that_fails_never_fails_the_spawn(spinoff_client, monkeypatch):
+    from routes import terminal
+
+    def boom(*args, stdin=None):
+        raise RuntimeError("journal engine down")
+    monkeypatch.setattr(terminal, "_run_stream", boom)
+    monkeypatch.setattr(terminal, "_log_capture_failure", lambda *a: None)
+    _sender(monkeypatch, lane="personal", journal=True)
+    _write_brief(store.SPINOFF_DIR, "still-starts")
+    body = _post(spinoff_client, "still-starts").get_json()
+    assert body["newly_spawned"] is True and body["started"] is True

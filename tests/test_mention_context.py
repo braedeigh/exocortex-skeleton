@@ -291,6 +291,9 @@ def test_only_personal_and_journaling_sessions_are_wired(data_dir):
     assert hooked({"lane": "orchestra", "journal": True})
     assert not hooked({"lane": "coding"})
     assert not hooked({"lane": "personal", "helper_gate": True})
+    # A session started from a brief (a spinoff) never gets it, even in Personal.
+    assert not hooked({"lane": "personal", "from_brief": True})
+    assert not hooked({"lane": "personal", "journal": True, "from_brief": True})
 
 
 # --- Names that can't be trusted as a bare word (namerisk.py) -----------------

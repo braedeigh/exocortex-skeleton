@@ -46,3 +46,22 @@ re-run: it only fills entries with no `spawned_via`.
   arrows parent → child between orbs (`terrainLineage.ts`, drawn by
   `drawLineage` in `terrainCanvas.ts`). For a visitor a private parent is
   swapped for its opaque handle, the same one its orb carries.
+
+## In the journal
+
+A spinoff whose parent journals (the Keeper: `journal: true` on its entry)
+leaves one system card in her journal, `Spun off: <brief title>`, with the
+card's `session` set to the child's conversation id. The journal draws that as
+the "✦ <session title>" chip that opens the child (`EntryCard.tsx`, titles from
+`routes/cards.py` `_session_titles`). Written by `_journal_spinoff` in
+`routes/spinoff.py`, once at mint, best effort; a rejoin writes nothing, and a
+spinoff from any session that doesn't journal writes nothing.
+
+That card is the database record too: `cards.session` joins to
+`spinoff_briefs.conv`, and the brief row's `written_by` names the parent. No
+table of its own.
+
+A spinoff never gets the journal's context-on-mention hook
+(`tools/mention_context.py`), on any turn, even though it inherits the
+Keeper's room: `_conv_config` in `routes/observatory.py` marks any session with
+a `spinoff_brief` as `from_brief`, and `_session_settings` leaves the hook off.

@@ -57,6 +57,11 @@ swarm's helper) always plans first. The app's own spawns (helper buttons,
 triage, forks, stewards, the nightly fixer, continuations) name no stage and
 are unchanged.
 
+A spinoff starts clean: it never gets the journal's context-on-mention hook,
+even in the Keeper's room (routes/observatory.py _conv_config's `from_brief`).
+One sent off by a journaling session leaves a "Spun off: <title>" card in her
+journal pointing at it (_journal_spinoff; docs/spinoff-lineage.md).
+
 The entry keeps `draft`+`autostart` anyway, as the fallback for a runner that
 never starts: opening the session then fires the kickoff the old way. The two
 must not both land: whichever send arrives first pops both fields, the second
@@ -535,6 +540,10 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
     # the context from here.
     briefstore.opened(brief["id"], conv_id, preloaded, too_big, context)
 
+    # Leave a line in the journal when a journaling session spun this off.
+    if parent and isinstance(snapshot.get(parent), dict) and snapshot[parent].get("journal") is True:
+        _journal_spinoff(_title_of(brief_text, slug), conv_id)
+
     # Outside the index lock — launching a runner that immediately posts a send
     # (which takes that same lock) while still holding it would deadlock.
     started = _launch_runner(conv_id, kickoff) if start else False
@@ -554,6 +563,29 @@ def open_spinoff(slug, start=True, lane=None, model=None, branch=None,
         "worktree": str(wt_path) if wt_path else None,
         "branch": wt_branch,
     }, 200
+
+
+def _journal_spinoff(title, conv_id):
+    """Write one system card, "Spun off: <brief title>", carrying the child's
+    conversation id, so her journal shows the spinoff and its "✦ <title>"
+    chip opens it (frontend EntryCard.tsx; routes/cards.py _session_titles).
+    That card's `session` is also the join to spinoff_briefs.conv, so this is
+    the whole record: no table of its own. Only for a parent that journals
+    (the Keeper); see docs/spinoff-lineage.md.
+
+    Best effort and never raises: a journal that couldn't be written must not
+    fail a spawn that already happened.
+
+    Prompt: "I'm wanting for a spinoff to be left in the journal with a UI
+    pointing to it and some record of the spinoff in the database." """
+    try:
+        from routes import terminal
+        body = f"Spun off: {title}"
+        # `typed` only feeds the dedup hash kept for her typed prompts, which
+        # an S card never writes; the body stands in for it.
+        terminal._capture_journal(body, body, who="S", session=conv_id)
+    except Exception:
+        pass
 
 
 def _launch_runner(conv_id, kickoff):
@@ -616,9 +648,15 @@ def _brief_title(slug):
     """The one-line title from the brief's `# Spinoff: <title>` heading, or the
     slug when the heading isn't there — the Go card names each session by it."""
     brief = briefstore.latest(slug)
+    return _title_of(brief["body"] if brief else None, slug)
+
+
+def _title_of(body, slug):
+    """A brief's one-line title from its `# Spinoff: <title>` heading, or the
+    slug when there's no such first line."""
     try:
-        first = brief["body"].splitlines()[0]
-    except (TypeError, IndexError):
+        first = body.splitlines()[0]
+    except (AttributeError, IndexError):
         return slug
     title = re.sub(r"^#\s*(Spinoff:\s*)?", "", first).strip()
     return title or slug
@@ -761,10 +799,6 @@ def go_offer(conv_id, skip_plan=False):
     if approving and spawned:
         closed = close_conversation(conv_id)[1] == 200
     return {"ok": bool(spawned), "spawned": spawned, "errors": errors,
-        # Her approval of a plan takes its plan-ready mark off: nothing is
-        # waiting on her any more (routes/observatory.py mark_plan_ready).
-        if isinstance(offer, dict) and offer.get("kind") == "build":
-            entry.pop("plan_ready", None)
             "closed_source": closed}, 200
 
 

@@ -196,6 +196,27 @@ def test_the_turn_gets_its_conv_id_in_the_environment(bot_client):
     assert seen == ["c1"]
 
 
+def test_every_turn_starts_with_claude_codes_auto_memory_off(data_dir, monkeypatch):
+    """No hidden MEMORY.md may load into a session, whether or not the turn
+    belongs to a conversation."""
+    started = []
+
+    class FakeProc:
+        def __init__(self):
+            self.stdin = open(os.devnull, "w")
+
+    def fake_popen(command, **kw):
+        started.append(kw["env"])
+        return FakeProc()
+    monkeypatch.setattr(rr.subprocess, "Popen", fake_popen)
+    monkeypatch.delenv("EXOCORTEX_CONV_ID", raising=False)
+    config = {"cwd": str(store.BUILD_DIR), "allowed_tools": ["Read"]}
+    rr._spawn({**config, "conv_id": "c1"}, "hi", None)
+    rr._spawn(config, "hi", None)
+    assert [env.get("CLAUDE_CODE_DISABLE_AUTO_MEMORY") for env in started] == ["1", "1"]
+    assert started[0]["EXOCORTEX_CONV_ID"] == "c1" and "EXOCORTEX_CONV_ID" not in started[1]
+
+
 # --- a cleared question is handed back to the agent ---------------------------
 # Her next send clears the card whether or not it answers the questions — she
 # may be asking about something else — so the agent is told what was open and
