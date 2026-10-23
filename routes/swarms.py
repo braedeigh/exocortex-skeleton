@@ -16,7 +16,11 @@ summaries (swarm_helper.py). These routes hand that to the page:
                                   helper saw their work differ, and — once
                                   it has closed — what it did: the closing
                                   summaries its helper wrote, newest first,
-                                  each with its closing check.
+                                  each with its closing check — and `link_buttons`:
+                                  the buttons her swarm_links.json data file
+                                  gives that swarm (a label and an http(s)
+                                  address each, opened in a new tab), [] for
+                                  a swarm it doesn't name.
     GET  /api/swarms/<id>/closings
                                   only what a swarm did: its name, its
                                   helper's session and the closing summaries,
@@ -68,7 +72,8 @@ session, so the chat's normal mailbox (POST
 
 Touches: swarms.py, swarm_helper.py (the closing summaries), room_helper.py,
 helper_chat.py (the seed and the rules), message_summaries.py (the one-line
-summaries on a line's messages), the agent_messages,
+summaries on a line's messages), the swarm_links.json data file (a plain
+file in her data folder, read through store.py), the agent_messages,
 swarm_helper_runs, swarm_closings and session_summaries tables, tests/test_swarm_routes.py. Design: docs/swarms.md.
 """
 import json
@@ -88,6 +93,34 @@ import swarms
 # How much history the swarm page loads at once.
 _RUNS_SHOWN = 20
 _MESSAGES_SHOWN = 200
+
+
+def swarm_links(swarm_id):
+    """The buttons one swarm's page shows, from her swarm_links.json.
+
+    The file maps a swarm id (as a string) to a list of {"label", "url"};
+    each becomes a button that opens the url in a new tab. Only entries with
+    a label and an http(s) address are kept, so a `javascript:` or other odd
+    url never reaches the page. A missing or malformed file means no buttons,
+    never a broken swarm page. The code names no app: what to link lives in
+    her data.
+    Prompt: "make it such that i can click straight into it from here"."""
+    try:
+        links = store.read("swarm_links", {})
+    except (OSError, ValueError):
+        return []
+    entries = links.get(str(swarm_id)) if isinstance(links, dict) else None
+    if not isinstance(entries, list):
+        return []
+    kept = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        label, url = entry.get("label"), entry.get("url")
+        if (isinstance(label, str) and label.strip() and isinstance(url, str)
+                and url.lower().startswith(("http://", "https://"))):
+            kept.append({"label": label.strip(), "url": url})
+    return kept
 
 
 def detail(swarm_id):
@@ -120,7 +153,8 @@ def detail(swarm_id):
     latest = next((r["output"] for r in runs if r["output"]), None) or {}
     return {**card, "runs": runs, "messages": messages,
             "differences": latest.get("differences") or [],
-            "closings": list(reversed(swarm_helper.closings(swarm_id)))}
+            "closings": list(reversed(swarm_helper.closings(swarm_id))),
+            "link_buttons": swarm_links(swarm_id)}
 
 
 def line_messages(swarm_id, side_a, side_b):

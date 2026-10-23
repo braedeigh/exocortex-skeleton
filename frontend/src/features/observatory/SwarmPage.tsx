@@ -6,6 +6,8 @@
  * messaged each other (swarms.py), with a helper — a Sonnet that names the
  * swarm, keeps a summary of every member and notices where their work
  * collides (swarm_helper.py). This page shows, top to bottom:
+ *   - any buttons her swarm_links.json data file gives this swarm (an app the
+ *     swarm is building, say), each opening its address in a new tab;
  *   - a box to ask the helper about the swarm's work, a link to its own
  *     chat (the helper is a session of its own) and one to its context page
  *     (HelperContextPage.tsx);
@@ -42,6 +44,7 @@
  * · "i want to make it possible to add a session per swarm room"
  * · "when a swarm retires, i want a summary of what was done ... so i can
  * know what was completed and ask it questions about what happened"
+ * · "make it such that i can click straight into it from here"
  */
 import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
@@ -148,6 +151,20 @@ export function SwarmPage({ swarmId }: { swarmId: number }) {
           <>
             {/* Talking to the helper, first thing on the page: ask it about the
                 swarm's work. It's a session of its own (swarm_helper.py). */}
+            {/* Open what this swarm links to, in a tab of its own: plain links
+                to an address the server already checked is http(s), never
+                framed — an app with its own sign-in has to be opened at its
+                own address. */}
+            {swarm.link_buttons && swarm.link_buttons.length > 0 ? (
+              <div className={styles.linkRow}>
+                {swarm.link_buttons.map((l) => (
+                  <a key={l.url + l.label} className={styles.button} href={l.url} target="_blank" rel="noopener noreferrer">
+                    {l.label} &#8599;
+                  </a>
+                ))}
+              </div>
+            ) : null}
+
             <section className={styles.section}>
               <h2 className={styles.h2}>Ask the helper</h2>
               <div className={styles.askRow}>

@@ -103,6 +103,9 @@ export interface SwarmDetail extends Swarm {
   differences: string[];
   /** Newest first. Absent from an older server, so treat it as optional. */
   closings?: SwarmClosing[];
+  /** Buttons to other places, from her swarm_links.json data file: each opens
+   * its http(s) url in a new tab. Absent from an older server. */
+  link_buttons?: { label: string; url: string }[];
 }
 
 /** Every live swarm — one shared, polled query for the whole page. */

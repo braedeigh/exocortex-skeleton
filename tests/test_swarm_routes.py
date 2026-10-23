@@ -6,6 +6,8 @@ a closed swarm's page carries what it did, newest closing first, and the
 room chat's closed line opens into the same;
 a line of the drawing opens into exactly the messages it counts, both ways,
 and refuses a session from outside the swarm;
+a swarm's page carries the buttons her swarm_links file gives it, http(s) only,
+and no other swarm's does — a broken file just means none;
 unknown swarms 404; a card says whether it's closed; refresh starts a helper run; the room view lists the
 sessions working alone and the room helper's moves; helper-of links a session's
 chat to its swarm's helper, else its room's, and a helper one level up or nowhere;
@@ -83,6 +85,30 @@ def test_the_detail_shows_what_a_closed_swarm_did(client, monkeypatch):
     fold = client.get(f"/api/swarms/{swarm_id}/closings").get_json()
     assert [c["summary"] for c in fold["closings"]] == ["second time", "first time"]
     assert fold["helper_conv"] == helper and "runs" not in fold
+
+
+def test_a_swarm_page_carries_only_its_own_safe_links(client):
+    with store.mutate("bot_chats/index", {}) as index:
+        index["c"] = {"title": "C", "lane": "coding"}
+        index["d"] = {"title": "D", "lane": "coding"}
+    peermail.send("d", "hi", from_conv="c")
+    peermail.send("c", "hi back", from_conv="d")
+    peermail.send("d", "thanks", from_conv="c")
+    ours, other = sorted(swarms.sync())
+    store.write("swarm_links", {str(ours): [
+        {"label": "Open the app", "url": "https://example.test:8443"},
+        {"label": "Sneaky", "url": "javascript:alert(1)"},
+        {"label": "", "url": "https://example.test"},
+    ]})
+    assert client.get(f"/api/swarms/{ours}").get_json()["link_buttons"] == [
+        {"label": "Open the app", "url": "https://example.test:8443"}]
+    assert client.get(f"/api/swarms/{other}").get_json()["link_buttons"] == []
+    # The drawing's who-messaged-whom lines stay as they were beside them.
+    assert client.get(f"/api/swarms/{ours}").get_json()["links"][0]["messages"] > 0
+    # A broken file leaves the page whole, with no buttons.
+    (store.DATA_DIR / "swarm_links.json").write_text("{not json")
+    page = client.get(f"/api/swarms/{ours}")
+    assert page.status_code == 200 and page.get_json()["link_buttons"] == []
 
 
 def test_unknown_swarm_is_404(client):

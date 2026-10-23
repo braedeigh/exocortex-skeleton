@@ -71,6 +71,20 @@
   cursor: pointer;
 }
 
+/* The swarm's link buttons: anchors drawn as buttons, centred like one. */
+.linkRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.linkRow .button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .button:disabled {
   opacity: 0.5;
   cursor: default;
