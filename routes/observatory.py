@@ -487,8 +487,12 @@ def _session_settings(config, tools):
     # runs on each message she sends, and what it prints lands in the agent's
     # context. For a journaling session and for sessions in the rooms named in
     # config.MENTION_CONTEXT_ROOMS; never a helper, whose chat starts fresh
-    # every turn and would lose the pack.
+    # every turn and would lose the pack, and never a session started from a
+    # brief (a spinoff), on any turn: it inherits the Keeper's room, and its
+    # name-filled brief would pull journal packs into work that should start
+    # clean.
     if (app_config.MENTION_CONTEXT and config.get("conv_id") and not config.get("helper_gate")
+            and not config.get("from_brief")
             and (config.get("journal")
                  or config.get("lane") in app_config.MENTION_CONTEXT_ROOMS)):
         mention = Path(store.BUILD_DIR) / "tools" / "mention_context.py"
@@ -586,6 +590,10 @@ def _conv_config(entry):
         # to the stage it was born in (routes/spinoff.py), with no opt-out.
         # See _session_settings() / tools/plan_gate.py.
         "plan_gate": entry.get("spinoff_stage") == "plan",
+        # A session started from a brief (routes/spinoff.py open_spinoff puts
+        # `spinoff_brief` on every one). Keeps the journal's context-on-mention
+        # hook off it for its whole life. See _session_settings().
+        "from_brief": bool(entry.get("spinoff_brief")),
     }
 
 
@@ -723,6 +731,12 @@ def _build_cmd(config, resume_sid):
     return cmd
 
 
+# Switches every agent turn is started with, walled or not: Claude Code's
+# auto-memory off ("1" is what the CLI reads as off).
+# Prompt: "remove memory and turn it off"
+_AGENT_ENV = {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
+
+
 def _spawn(config, text, resume_sid, cwd_override=None):
     # Claude Code stores conversations PER DIRECTORY — resuming a session id
     # from a different cwd fails with "No conversation found". Every
@@ -735,10 +749,14 @@ def _spawn(config, text, resume_sid, cwd_override=None):
     # can call scripts/request_input.py to raise its "I need you" flag without
     # being told which conversation it is. Threaded through `config` (not a new
     # _spawn arg) so the existing test spies on _spawn keep their signatures.
-    env = None
+    # Claude Code's own auto-memory (~/.claude/projects/<folder>/memory/) is
+    # switched off for every turn, so no hidden MEMORY.md loads into a session.
+    # Rides in the environment because it must hold whatever settings file the
+    # machine has.
+    env = {**os.environ, **_AGENT_ENV}
     conv_id = config.get("conv_id")
     if conv_id:
-        env = {**os.environ, "EXOCORTEX_CONV_ID": str(conv_id)}
+        env["EXOCORTEX_CONV_ID"] = str(conv_id)
     # stderr goes to a spooled temp file, NOT a pipe: nobody reads stderr
     # until the process ends, and an unread pipe blocks claude cold once it
     # writes ~64KB of warnings (verbose mode makes that a real number).
@@ -749,6 +767,7 @@ def _spawn(config, text, resume_sid, cwd_override=None):
     # wall or no login this raises, and the turn is refused, not run open.
     if config.get("wall"):
         command, env = fairywall.spawn_parts(command, config["cwd"], CLAUDE_BIN)
+        env = {**env, **_AGENT_ENV}
         cwd = config["cwd"]
     stderr_f = tempfile.TemporaryFile()
     proc = subprocess.Popen(
