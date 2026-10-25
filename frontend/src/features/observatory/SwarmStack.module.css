@@ -29,6 +29,12 @@
   border-color: color-mix(in srgb, var(--orange) 55%, var(--border));
 }
 
+/* A member's plan waits on her go: steady purple, as strong as orange. */
+.stackPlan {
+  border-left-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
 /* 1. The name (a button to the swarm's page), the counts, the summary. */
 .head {
   display: flex;
@@ -205,6 +211,12 @@
   border-left-color: var(--orange);
 }
 
+/* Its plan waits on her go: a purple edge and a faint purple wash. */
+.member_plan {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
 /* Idle: grey text, so the working and waiting ones are what the eye lands on. */
 .member_silent {
   color: var(--text-secondary);
@@ -223,6 +235,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
+}
+
+/* "plan: <summary>" under the member's name, in the ordinary ink. */
+.memberPlanLine {
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .memberSummary {

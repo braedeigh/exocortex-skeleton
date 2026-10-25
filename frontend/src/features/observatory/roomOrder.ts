@@ -29,6 +29,8 @@
  * coloured here from the SAME roster and the SAME rule as the session cards
  * (sessionFilters). Done and retired members are left off the card and out of
  * its counts, and the card takes its band from the members still at work.
+ * A member whose plan waits on her go makes the swarm purple and floats it up
+ * with the ones waiting on her (swarmPaint).
  *
  * The done band doesn't stand among the other cards. SessionLane lifts it
  * into a Done drawer at the foot of the room (DoneDrawer.tsx), shut by default;
@@ -47,7 +49,7 @@
  * clicked them."
  */
 import type { SessionMeta } from './api';
-import { cardState, finalOutputAt, isAsking, sessionIs } from './sessionFilters';
+import { cardState, finalOutputAt, isAsking, planReady, planSummary, sessionIs } from './sessionFilters';
 import { swarmState, type MemberState, type Swarm, type SwarmMember } from './swarmApi';
 
 /** The four places a card can stand, top to bottom. `waiting` is split in two
@@ -138,6 +140,11 @@ export function orderRoom<T>(places: RoomPlace<T>[]): T[] {
  * turn), which shows as a grey chip with an orange dot. */
 export interface SwarmMemberView extends SwarmMember {
   unread: boolean;
+  /** An idle planning session whose plan waits on her go (sessionFilters
+   * planReady): a purple chip, waiting on her like a question. */
+  plan: boolean;
+  /** Its "plan:" line, when it marked a summary (sessionFilters.planSummary). */
+  planLine: string | null;
   /** The member's last activity, from the roster, for ordering the chips. */
   lastAt?: string;
 }
@@ -148,8 +155,22 @@ export interface SwarmView {
   members: SwarmMemberView[];
   counts: Record<MemberState, number>;
   state: MemberState;
-  /** The longest-waiting asking member's last activity, for the room's order. */
+  /** How many idle members have a plan waiting on her go. */
+  plans: number;
+  /** The longest-waiting asking member's last activity, for the room's order
+   * (or, with nobody asking, the longest-waiting member with a plan up). */
   waitingSince?: string;
+}
+
+/** The one colour a swarm's card wears: orange when a member asks her,
+ * purple and steady when a member's plan waits on her go, breathing purple
+ * when one is working, grey at rest. Questions first, as on a session card. */
+export type SwarmPaint = MemberState | 'plan';
+
+export function swarmPaint(view: Pick<SwarmView, 'state' | 'plans'>): SwarmPaint {
+  if (view.state === 'needs_input') return 'needs_input';
+  if (view.plans > 0) return 'plan';
+  return view.state;
 }
 
 /** Read a swarm through the roster. A member the roster doesn't carry (it may
@@ -162,7 +183,13 @@ export function swarmView(
 ): SwarmView {
   const counts: Record<MemberState, number> = { working: 0, silent: 0, needs_input: 0 };
   let waitingSince: string | undefined;
+  let planSince: string | undefined;
+  let plans = 0;
   const members: SwarmMemberView[] = [];
+  // The earlier of two stamps. Date.parse, not string order: stamps here
+  // aren't all in one format.
+  const earlier = (held: string | undefined, at: string | undefined) =>
+    at && !Number.isNaN(Date.parse(at)) && (!held || Date.parse(at) < Date.parse(held)) ? at : held;
   for (const member of swarm.members) {
     // Leave off finished members, by either account (the swarm list's
     // `retired`, or the roster's done/retired), and ones she saved for later,
@@ -171,36 +198,52 @@ export function swarmView(
     if (member.retired || (meta && (isDone(meta) || meta.saved_at))) continue;
     let state: MemberState = member.state;
     let unread = false;
+    let plan = false;
     if (meta) {
       state = isAsking(meta) ? 'needs_input' : meta.running ? 'working' : 'silent';
       const paint = cardState(meta, opened[member.conv], nowMs);
       unread = paint === 'unread' || paint === 'error';
-      // The swarm waits as long as its longest-waiting member.
-      // Date.parse, not string order: stamps here aren't all in one format.
-      if (
-        state === 'needs_input' &&
-        !Number.isNaN(Date.parse(meta.last_at ?? '')) &&
-        (!waitingSince || Date.parse(meta.last_at) < Date.parse(waitingSince))
-      ) {
-        waitingSince = meta.last_at;
+      // An idle member with a plan up waits on her go, purple not grey.
+      plan = state === 'silent' && planReady(meta);
+      if (plan) {
+        plans += 1;
+        planSince = earlier(planSince, meta.last_at);
       }
+      // The swarm waits as long as its longest-waiting member.
+      if (state === 'needs_input') waitingSince = earlier(waitingSince, meta.last_at);
     }
     counts[state] += 1;
-    members.push({ ...member, state, unread, lastAt: meta?.last_at });
+    members.push({
+      ...member,
+      state,
+      unread,
+      plan,
+      planLine: plan ? planSummary(meta) : null,
+      lastAt: meta?.last_at,
+    });
   }
-  return { swarm, members, counts, state: swarmState({ counts }), waitingSince };
+  const state = swarmState({ counts });
+  return {
+    swarm,
+    members,
+    counts,
+    state,
+    plans,
+    waitingSince: state === 'needs_input' ? waitingSince : planSince,
+  };
 }
 
-/** A swarm's members in the room's own order: asking first, then the others
- * waiting on her (dotted ones before plain), then working, each oldest first.
- * What the swarm card's chips follow. */
+/** A swarm's members in the room's own order: the ones waiting on her first
+ * (asking, a plan up for her go, or a reply she hasn't read), then the others
+ * waiting, then working, each oldest first. What the swarm card's chips
+ * follow. */
 export function orderMembers(members: SwarmMemberView[]): SwarmMemberView[] {
   return orderRoom(
     members.map((member) => ({
       item: member,
       tier: (member.state === 'working'
         ? 'running'
-        : member.state === 'needs_input' || member.unread
+        : member.state === 'needs_input' || member.plan || member.unread
           ? 'orange'
           : 'waiting') as RoomTier,
       at: member.lastAt,
@@ -208,12 +251,15 @@ export function orderMembers(members: SwarmMemberView[]): SwarmMemberView[] {
   );
 }
 
-/** A swarm's band in its room, from the members still at work: any asking
- * puts it with the orange ones, any working with the running ones, idle ones
- * with the waiting ones. With none left at work it sinks to done. */
+/** A swarm's band in its room, from the members still at work: any asking,
+ * or any idle one with a plan up for her go, puts it with the ones waiting on
+ * her; any working with the running ones; idle ones with the waiting ones.
+ * With none left at work it sinks to done. */
 export function swarmPlace(view: SwarmView): { tier: RoomTier; at?: string } {
   if (view.members.length === 0) return { tier: 'done' };
   if (view.state === 'needs_input') return { tier: 'orange', at: view.waitingSince };
+  // A member's plan waiting on her go puts the swarm with the ones waiting on her.
+  if (view.plans > 0) return { tier: 'orange', at: view.waitingSince };
   if (view.state === 'working') return { tier: 'running' };
   const oldest = view.members
     .map((m) => m.lastAt)

@@ -11,8 +11,9 @@
  *
  * It wears the same colours as a session card, by the same rule and from the
  * same stylesheet (SessionLane.module.css): orange when any member needs her
- * (a question or a command to approve), breathing purple when any is working,
- * grey at rest. The colours are read from the roster, not the server's swarm
+ * (a question or a command to approve), steady purple when a member's plan
+ * waits on her go (its chip purple too), breathing purple when any is
+ * working, grey at rest. The colours are read from the roster, not the server's swarm
  * list, so they match the session cards exactly (roomOrder.swarmView).
  * Finished members (marked done, archived, or handed on to a continuation)
  * aren't on the card at all, and the rest are chipped in the room's order:
@@ -37,15 +38,23 @@ import { useNavigate } from '@tanstack/react-router';
 import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import laneStyles from './SessionLane.module.css';
 import styles from './SwarmCard.module.css';
-import { orderMembers, type SwarmView } from './roomOrder';
+import { orderMembers, swarmPaint, type SwarmView } from './roomOrder';
 
-const CARD_CLASS = { needs_input: 'cardUnread', working: 'cardLive', silent: '' } as const;
-const DOT_CLASS = { needs_input: 'readyDot', working: 'liveDot', silent: 'restDot' } as const;
-const MEMBER_CLASS = { needs_input: 'memberNeeds', working: 'memberWorking', silent: 'memberSilent' } as const;
+// The card wears the swarm's one colour (roomOrder.swarmPaint); each chip its
+// member's, with a plan up for her go in purple.
+const CARD_CLASS = { needs_input: 'cardUnread', plan: 'cardPlan', working: 'cardLive', silent: '' } as const;
+const DOT_CLASS = { needs_input: 'readyDot', plan: 'planDot', working: 'liveDot', silent: 'restDot' } as const;
+const MEMBER_CLASS = {
+  needs_input: 'memberNeeds',
+  plan: 'memberPlan',
+  working: 'memberWorking',
+  silent: 'memberSilent',
+} as const;
 
 export function SwarmCard({ view, onOpen }: { view: SwarmView; onOpen: (convId: string) => void }) {
   const navigate = useNavigate();
-  const { swarm, state, members } = view;
+  const { swarm, members, plans } = view;
+  const state = swarmPaint(view);
   const { working, silent, needs_input: needing } = view.counts;
   return (
     <div
@@ -67,6 +76,11 @@ export function SwarmCard({ view, onOpen }: { view: SwarmView; onOpen: (convId: 
         </span>
         <span className={styles.counts}>
           {needing > 0 ? <span className={styles.needing}>{needing} need{needing === 1 ? 's' : ''} you</span> : null}
+          {plans > 0 ? (
+            <span className={styles.plans}>
+              {plans} plan{plans === 1 ? '' : 's'} ready
+            </span>
+          ) : null}
           <span className={styles.working}>{working} working</span>
           <span className={styles.silent}>{silent} silent</span>
         </span>
@@ -83,7 +97,7 @@ export function SwarmCard({ view, onOpen }: { view: SwarmView; onOpen: (convId: 
           <button
             type="button"
             key={m.conv}
-            className={[styles.member, styles[MEMBER_CLASS[m.state]]].join(' ')}
+            className={[styles.member, styles[MEMBER_CLASS[m.plan ? 'plan' : m.state]]].join(' ')}
             onClick={() => onOpen(m.conv)}
             title={`Open ${m.title}`}
             {...agentPointerProps(m.conv)}

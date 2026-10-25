@@ -10,6 +10,7 @@ import {
   orderMembers,
   orderRoom,
   sessionPlace,
+  swarmPaint,
   swarmPlace,
   swarmView,
   unreadDone,
@@ -144,6 +145,27 @@ describe('swarmView', () => {
     const view = swarmView(swarm([member('a'), member('b')]), roster, {}, NOW);
     expect(view.state).toBe('needs_input');
     expect(swarmPlace(view)).toEqual({ tier: 'orange', at: ago(30 * MIN) });
+  });
+
+  it('paints a swarm purple and floats it up when a member has a plan waiting on her go', () => {
+    const plan = { summary: 'Two files, one test', at: ago(40 * MIN) };
+    const roster = new Map([
+      ['quiet', session('quiet', { last_at: ago(90 * MIN) })],
+      ['planner', session('planner', { plan_ready: plan, last_at: ago(40 * MIN) })],
+      ['busy', session('busy', { running: true })],
+    ]);
+    const opened = { quiet: ago(0), planner: ago(0) };
+    const view = swarmView(swarm([member('quiet'), member('planner'), member('busy')]), roster, opened, NOW);
+    expect(swarmPaint(view)).toBe('plan');
+    expect(swarmPlace(view)).toEqual({ tier: 'orange', at: ago(40 * MIN) });
+    const planner = view.members.find((m) => m.conv === 'planner');
+    expect(planner).toMatchObject({ plan: true, planLine: 'Two files, one test', state: 'silent' });
+    expect(orderMembers(view.members).map((m) => m.conv)).toEqual(['planner', 'quiet', 'busy']);
+    // A question still outranks it: orange first.
+    roster.set('quiet', session('quiet', { awaiting_input: 'which?', last_at: ago(90 * MIN) }));
+    expect(swarmPaint(swarmView(swarm([member('quiet'), member('planner')]), roster, opened, NOW))).toBe(
+      'needs_input',
+    );
   });
 
   it('sinks a swarm with nobody left at work to the done band', () => {

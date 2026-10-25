@@ -52,7 +52,7 @@ import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import type { SessionMeta } from './api';
 import { useLaneOpen } from './LaneHead';
 import { orchestraRows } from './orchestra';
-import { orderMembers, type SwarmView } from './roomOrder';
+import { orderMembers, swarmPaint, type SwarmView } from './roomOrder';
 import { planSummary } from './sessionFilters';
 import { ApprovalCard, AwaitingCard } from './SessionCard';
 import laneStyles from './SessionLane.module.css';
@@ -60,8 +60,10 @@ import { SwarmNetwork } from './SwarmNetwork';
 import { SummaryLines } from './SummaryLines';
 import styles from './SwarmStack.module.css';
 
-const STACK_CLASS = { needs_input: 'stackNeeds', working: 'stackWorking', silent: '' } as const;
-const DOT_CLASS = { needs_input: 'readyDot', working: 'liveDot', silent: 'restDot' } as const;
+// The stack wears the swarm's one colour (roomOrder.swarmPaint); a member
+// card wears its member's, with a plan up for her go in purple.
+const STACK_CLASS = { needs_input: 'stackNeeds', plan: 'stackPlan', working: 'stackWorking', silent: '' } as const;
+const DOT_CLASS = { needs_input: 'readyDot', plan: 'planDot', working: 'liveDot', silent: 'restDot' } as const;
 
 export function SwarmStack({
   view,
@@ -76,7 +78,8 @@ export function SwarmStack({
   onChanged?: () => void;
 }) {
   const navigate = useNavigate();
-  const { swarm, state, members } = view;
+  const { swarm, members } = view;
+  const state = swarmPaint(view);
   const { working, silent, needs_input: needing } = view.counts;
   // Open or shut, remembered per swarm across reloads; open the first time.
   const [open, toggleOpen] = useLaneOpen(`swarm:${swarm.id}`);
@@ -185,7 +188,7 @@ export function SwarmStack({
               <button
                 key={m.conv}
                 type="button"
-                className={[styles.member, styles[`member_${m.state}`]].join(' ')}
+                className={[styles.member, styles[`member_${m.plan ? 'plan' : m.state}`]].join(' ')}
                 onClick={() => onOpen(m.conv)}
                 title={`Open ${m.title}`}
                 {...agentPointerProps(m.conv)}
@@ -193,11 +196,20 @@ export function SwarmStack({
                 <span className={styles.memberTop}>
                   {/* An unread reply or a failed turn: a grey card, orange dot. */}
                   <span
-                    className={laneStyles[m.unread && m.state === 'silent' ? 'readyDot' : DOT_CLASS[m.state]]}
+                    className={
+                      laneStyles[
+                        m.plan ? 'planDot' : m.unread && m.state === 'silent' ? 'readyDot' : DOT_CLASS[m.state]
+                      ]
+                    }
                     aria-hidden="true"
                   />
                   <span className={styles.memberTitle}>{m.title}</span>
                 </span>
+                {m.planLine ? (
+                  <span className={styles.memberPlanLine}>
+                    <span className={laneStyles.planLabel}>plan:</span> {m.planLine}
+                  </span>
+                ) : null}
                 {m.summary ? <span className={styles.memberSummary}>{m.summary}</span> : null}
               </button>
             ))}

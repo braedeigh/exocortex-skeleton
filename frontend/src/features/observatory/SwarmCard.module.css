@@ -56,6 +56,12 @@
   font-weight: 600;
 }
 
+/* Plans waiting on her go: the steady purple of a plan card. */
+.plans {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .working {
   color: var(--accent);
 }
@@ -114,6 +120,14 @@
   border-left-color: var(--orange);
   border-color: color-mix(in srgb, var(--orange) 55%, var(--border));
   background: color-mix(in srgb, var(--orange) 8%, transparent);
+}
+
+/* A member whose plan waits on her go: purple, as steady as the orange
+   chip, so it reads as waiting on her rather than idle. */
+.memberPlan {
+  border-left-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 /* Idle or done: grey all through, text included, so the working and waiting
