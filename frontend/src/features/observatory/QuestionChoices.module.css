@@ -38,11 +38,26 @@
   cursor: default;
 }
 
-/* The option she picked: filled, with a stronger edge. */
+/* The option she picked: a strong orange fill and a full orange edge, with a
+   tick before its label, so the choice reads at a glance.
+   [prompt: "Add a checkmark and a stronger fill"] */
 .picked {
-  border-color: var(--orange);
-  background: color-mix(in srgb, var(--orange) 22%, var(--card-bg, var(--bg)));
-  box-shadow: inset 3px 0 0 var(--orange);
+  border: 2px solid var(--orange);
+  background: color-mix(in srgb, var(--orange) 38%, var(--card-bg, var(--bg)));
+}
+
+.check {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--orange);
+  color: var(--card-bg, var(--bg));
+  font-size: var(--font-size-md);
+  font-weight: 800;
+  line-height: 1;
 }
 
 .optionLine {

@@ -7,7 +7,8 @@
  * each with its label, what it means and what it costs or gains, and the
  * recommended one tagged "recommended". Under them sits an "Other — type your
  * own" box; a question with no options gets only the box. Tapping an option
- * picks it, tapping it again lets it go; typing in the box replaces a pick.
+ * picks it (filled orange, with a tick), tapping it again lets it go; typing
+ * in the box replaces a pick.
  *
  * It is CONTROLLED and keeps no state of its own: the answer comes in as
  * `answer` and every change goes out through `onChange`. The parent holds the
@@ -63,6 +64,12 @@ export function QuestionChoices({
                 onClick={() => onChange(picked ? undefined : { kind: 'option', index: i })}
               >
                 <span className={styles.optionLine}>
+                  {/* A tick on the one she picked, so it reads at a glance. */}
+                  {picked ? (
+                    <span className={styles.check} aria-hidden="true">
+                      ✓
+                    </span>
+                  ) : null}
                   <span className={styles.optionLabel}>{option.label}</span>
                   {option.recommended ? <span className={styles.recommended}>recommended</span> : null}
                 </span>
