@@ -323,7 +323,8 @@ as a few sessions in the same files.
   they connected once in the past"). A place is an Edit/Write file, or the
   folder a Bash command `cd`s into: she approved Edit/Write only, but most
   project sessions edit through Bash (`cd /…/based-foods-x && python3 - <<…`)
-  — on 10-23 Edit/Write alone placed 2 of 8 working Based Foods sessions. cwd
+  — on 10-23 Edit/Write alone placed 2 of 8 working Based Foods sessions; she
+  approved counting Bash `cd` on 10-28 ("Keep Bash cd"). cwd
   says nothing: they all sit in the app checkout. A worktree is told by its
   `.git` file pointing into the build's `.git/worktrees/`.
 - **Membership is stored** (`project_room_members`, rung 59), at most one room
@@ -358,7 +359,8 @@ as a few sessions in the same files.
   before.
 - **Swarm 16 → the Based Foods project room** is a one-off,
   `scripts/swarm_to_project_room.py` (dry run by default; `--apply` is hers to
-  approve): re-role its helper `2026-09-30.114222` (chat and rules kept, its
+  approve; run 10-24 at her "Tell it yes", move #62): re-role its helper
+  `2026-09-30.114222` (chat and rules kept, its
   growing chat reset), release swarm 16 in one undoable owner move, switch
   Based Foods on. Done in that order because a `swarm_helper` whose swarm has
   no members is archived by `swarms._archive_helpers`; a `project_helper` is
@@ -374,6 +376,13 @@ as a few sessions in the same files.
   "‹ <project>" button up to it. A chat's helper button goes to the project
   helper for a session working alone in a project, and from a project
   swarm's helper up to it (`routes/swarms.helper_of`).
+- **The Linear line** (add-linear-mcp and its continuations) works mostly in
+  the vault, so the rules left it out; she had it placed in Based Foods by hand
+  (10-28): its project helper sees it and is woken for it.
+- **Cost, measured** (`room_helper_runs`, `swarm_helper_runs`): swarm 16's helper
+  ran 1–4 times a day before (28 on 10-23); since the switch-over it runs none,
+  the project helper 2–5 a day, the room helper 2–5 (down from 5–7), other
+  swarms' runs about flat. Chat-turn cost wasn't measured per day.
 - **Not done (decided):** no dormancy leaving, no Linear-team mapping, no
   project rooms besides Based Foods.
 
