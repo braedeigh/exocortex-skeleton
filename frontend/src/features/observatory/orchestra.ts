@@ -53,6 +53,9 @@ export interface OrchestraRow {
   about: string | null;
   /** Each question's options, lined up with `questions` (api.openOptions). */
   options: QuestionOption[][];
+  /** Her own words from the journal card the work started from, quoted above
+   * the questions (api.SessionMeta.awaiting_words), or null. */
+  words: string | null;
   /** A gated command the act-ask gate is blocking on this session, or null.
    * Non-null raises the inline Approve/Deny card — the most urgent state, even
    * above awaiting (she can't do anything until she resolves it). */
@@ -91,6 +94,7 @@ export function orchestraRows(
       questions: openQuestions(s),
       about: s.awaiting_about?.trim() || null,
       options: openOptions(s),
+      words: s.awaiting_words?.trim() || null,
       pendingApproval: s.awaiting_approval ?? null,
       error: s.last_error ?? null,
       files: [],

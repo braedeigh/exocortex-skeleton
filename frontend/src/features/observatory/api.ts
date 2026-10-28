@@ -307,6 +307,11 @@ export interface SessionMeta {
    * answer to). The recommended option is first and says so. Absent when no
    * question has options. Read through openOptions(). */
   awaiting_options?: QuestionOption[][];
+  /** Her own words, copied verbatim from the journal card(s) the work started
+   * from (request_input.py --card), joined by blank lines. The orange card
+   * quotes them above the questions. Absent when the set named no card;
+   * comes off with the questions. */
+  awaiting_words?: string;
   /** The session said its work is finished (scripts/session_done.py) at this
    * time. Her next message, or her Keep open, clears it along with
    * closes_at and done_note; a peer's or a job's turn leaves it standing

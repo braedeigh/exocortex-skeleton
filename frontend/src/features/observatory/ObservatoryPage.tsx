@@ -320,7 +320,11 @@ export function ObservatoryPage({
   const rosterMeta = (roster?.sessions ?? []).find((s) => s.id === convId);
   const rosterQuestions = openQuestions(rosterMeta);
   const openSet = convId
-    ? openQuestionSet(turns, rosterQuestions, { about: rosterMeta?.awaiting_about, options: openOptions(rosterMeta) })
+    ? openQuestionSet(turns, rosterQuestions, {
+        about: rosterMeta?.awaiting_about,
+        words: rosterMeta?.awaiting_words,
+        options: openOptions(rosterMeta),
+      })
     : null;
   const [floatedKey, setFloatedKey] = useState<string | null>(null);
   const questionsFloated = openSet !== null && floatedKey === openSet.key;
@@ -1088,6 +1092,7 @@ export function ObservatoryPage({
                     key={i}
                     questions={t.questions}
                     about={t.about}
+                    words={t.words}
                     options={t.options}
                     state={questionsState(turns, i)}
                     answeredElsewhere={t.answeredElsewhere}

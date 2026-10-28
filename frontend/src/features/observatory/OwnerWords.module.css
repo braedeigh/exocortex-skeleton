@@ -1,0 +1,28 @@
+/* OwnerWords — her own words quoted above a question set. A quiet aside: a
+   thin muted rule on the left, muted italic text, no orange (the orange is
+   the call to act; this is the reason for it). */
+
+.words {
+  margin: var(--space-2) 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid color-mix(in srgb, var(--text-muted) 45%, transparent);
+}
+
+/* "Your words": a small label so she knows whose these are. */
+.label {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+/* The quote itself: body-sized, line breaks kept as she wrote them. */
+.quote {
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+  font-style: italic;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -33,13 +33,15 @@
  *    mode, status, held_reason}                 in the recipient's; drawn as a
  *                                              colored card
  * - {type:'questions', questions, about?,     a set of questions the agent
- *    options?, ts}                              filed for her
+ *    options?, words?, cards?, ts}              filed for her
  *                                              (request_input.py) — drawn as
  *                                              an orange block where it was
  *                                              asked, kept after she answers;
  *                                              about = what it's building,
  *                                              options = per question, the
- *                                              choices she can tap
+ *                                              choices she can tap, words =
+ *                                              her own words from the journal
+ *                                              card(s) the work started from
  * - {type:'questions-withdrawn', questions,    the agent took its open set
  *    source, ts}                                down because her answer reached
  *                                              it by another route
@@ -137,6 +139,9 @@ export interface Turn {
   /** questions only: each question's options, lined up with `questions`
    * (an empty list for one she types an answer to). */
   options?: QuestionOption[][];
+  /** questions only: her own words, copied verbatim from the journal card the
+   * work started from (request_input.py --card), quoted above the questions. */
+  words?: string;
   /** questions only: the agent withdrew this set because her answer reached it
    * by another route — this is where it said her answer came from. */
   answeredElsewhere?: string;
@@ -392,6 +397,7 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
       const t = turn('questions');
       t.questions = list;
       if (typeof e.about === 'string' && e.about.trim()) t.about = e.about.trim();
+      if (typeof e.words === 'string' && e.words.trim()) t.words = e.words;
       if (options.some((o) => o.length > 0)) t.options = options;
       turns.push(t);
       return turns;
@@ -632,6 +638,8 @@ export interface OpenQuestionSet {
   questions: string[];
   /** What the agent is building and where it stands, when it said. */
   about?: string;
+  /** Her own words from the card the work started from, when it named one. */
+  words?: string;
   /** Each question's options, lined up with `questions`. */
   options: QuestionOption[][];
   turnIndex: number | null;
@@ -647,7 +655,7 @@ export interface OpenQuestionSet {
 export function openQuestionSet(
   turns: Turn[],
   rosterQuestions: string[],
-  roster?: { about?: string; options?: QuestionOption[][] },
+  roster?: { about?: string; words?: string; options?: QuestionOption[][] },
 ): OpenQuestionSet | null {
   for (let i = turns.length - 1; i >= 0; i--) {
     const t = turns[i];
@@ -657,6 +665,7 @@ export function openQuestionSet(
       return {
         questions,
         about: t.about,
+        words: t.words,
         options: questions.map((_, n) => t.options?.[n] ?? []),
         turnIndex: i,
         key: `${i}:${questions.join('\n')}`,
@@ -670,6 +679,7 @@ export function openQuestionSet(
   return {
     questions: rosterQuestions,
     about: roster?.about,
+    words: roster?.words,
     options: rosterQuestions.map((_, n) => roster?.options?.[n] ?? []),
     turnIndex: null,
     key: `end:${joined}`,

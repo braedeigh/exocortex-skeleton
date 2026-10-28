@@ -436,6 +436,22 @@ describe('questions', () => {
       turnIndex: 0,
     });
   });
+
+  // Her own words from the card the work started from ride the set exactly as
+  // filed, line breaks and all; a set filed before sets carried words still
+  // reads, with none. The roster's copy stands in when the chat has no line.
+  it("carries her quoted words verbatim, and reads an older set that has none", () => {
+    const words = 'it\'s hard to answer\n\n  — I need an *on ramp*';
+    const turns = turnsFromHistory([
+      { type: 'questions', questions: ['Old set?'], about: 'ctx' },
+      { type: 'user', text: 'yes' },
+      { type: 'questions', questions: ['Fold to three lines?'], about: 'ctx', words, cards: ['2026-10-14.2200b'] },
+    ]);
+    expect(turns[0].words).toBeUndefined();
+    expect(questionsState(turns, 0)).toBe('answered');
+    expect(openQuestionSet(turns, [])).toMatchObject({ words, turnIndex: 2 });
+    expect(openQuestionSet([], ['Unlogged?'], { words })).toMatchObject({ words, turnIndex: null });
+  });
 });
 
 // A room helper's chat gets one line per swarm that closes. The page opens

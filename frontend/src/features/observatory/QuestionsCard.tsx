@@ -37,6 +37,11 @@
  * card being floated and put back, and sends them the way the chat's own box
  * does. A settled set shows its about line and options as plain text.
  *
+ * A set about work that started from one of her journal cards also quotes
+ * her own words from that card (request_input.py --card), under the about
+ * line and above the questions, in every state, folded to three lines
+ * (OwnerWords.tsx).
+ *
  * QuestionsCard is the fallback for a set with no transcript line — one filed
  * before sets were logged. The page reads that set off the shared roster query
  * (useSessionRoster, the same fetch ChatApprovalCard uses, so no extra poll)
@@ -55,10 +60,12 @@
  * it back to where it sits in the chat. Don't want it constantly scrolling with
  * the chat.", then "i want it to size to the screen if it's that big, with the
  * extra going down at the bottom.", then "similar to Claude planning mode
- * where I can click options it presents or else type in my response".
+ * where I can click options it presents or else type in my response", then
+ * "Feeling like I need more of an on ramp." (her quoted words).
  */
 import type { QuestionOption } from './api';
 import type { OpenQuestionSet, QuestionsState } from './events';
+import { OwnerWords } from './OwnerWords';
 import { OptionsText, QuestionChoices } from './QuestionChoices';
 import { composeAnswers, hasRecommendations, type QuestionAnswer } from './questionAnswers';
 import styles from './QuestionsCard.module.css';
@@ -190,6 +197,7 @@ function OpenHead({ count, action, label }: { count: number; action: string; lab
 export function QuestionsBlock({
   questions,
   about,
+  words,
   options,
   state,
   answeredElsewhere,
@@ -198,6 +206,8 @@ export function QuestionsBlock({
   questions: string[];
   /** What the agent said it is building and where it stands. */
   about?: string;
+  /** Her own words from the journal card the work started from. */
+  words?: string;
   /** Each question's options, lined up with `questions`. */
   options?: QuestionOption[][];
   state: QuestionsState;
@@ -219,6 +229,7 @@ export function QuestionsBlock({
           <span className={styles.eyebrow}>{HEADINGS[state](questions.length)}</span>
         </div>
         <About about={about} />
+        <OwnerWords words={words} />
         <QuestionList questions={questions} options={options} />
         {state === 'elsewhere' && answeredElsewhere ? (
           <div className={styles.hint}>Taken down by the agent — her answer came from: {answeredElsewhere}</div>
@@ -252,6 +263,7 @@ export function QuestionsBlock({
     >
       <OpenHead count={questions.length} action="Float" label="Float the questions over the chat" />
       <About about={about} />
+      <OwnerWords words={words} />
       <AnswerList questions={questions} options={questions.map((_, i) => options?.[i] ?? [])} float={float} />
       <div className={styles.hint}>
         Tap an option or type your own, here or in the box below. Tap the card&rsquo;s heading to keep it in view
@@ -264,7 +276,16 @@ export function QuestionsBlock({
 /** The open set with no transcript line, drawn at the end of the chat. Same
  * block, same switch — its place just isn't a turn. */
 export function QuestionsCard({ set, float }: { set: OpenQuestionSet; float: QuestionsFloat }) {
-  return <QuestionsBlock questions={set.questions} about={set.about} options={set.options} state="open" float={float} />;
+  return (
+    <QuestionsBlock
+      questions={set.questions}
+      about={set.about}
+      words={set.words}
+      options={set.options}
+      state="open"
+      float={float}
+    />
+  );
 }
 
 /** The small "questions" chip above the message box. Floats the card when the
@@ -306,6 +327,7 @@ export function QuestionsFloating({
       />
       <div className={styles.floatedBody}>
         <About about={set.about} />
+        <OwnerWords words={set.words} />
         <AnswerList questions={questions} options={set.options} float={float} />
         <div className={styles.hint}>Tap the card&rsquo;s heading to send it back to its place in the chat.</div>
       </div>

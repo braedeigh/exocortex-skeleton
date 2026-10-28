@@ -1,0 +1,36 @@
+/* ClampedText — text folded to three lines, and the button that opens it.
+   The text's own look comes from the caller; only the fold lives here. */
+
+/* Three lines, then cut. Any quote marks belong in the text itself, never on
+   ::before/::after: a pseudo-element after clamped text gets cut off with the
+   line it lands on, so a closing quote would vanish on exactly the long text
+   this exists for. */
+.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Tap target for the expand/collapse, ~40px per the UI rules. Styled as quiet
+   text rather than a button: it sits under the words it opens and shouldn't
+   compete with the card's real controls. */
+.toggle {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+}
+
+.toggle:hover {
+  color: var(--text-secondary);
+  text-decoration: underline;
+}

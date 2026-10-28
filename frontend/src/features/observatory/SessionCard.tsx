@@ -3,7 +3,9 @@
  * component with its OWN state: ApprovalCard (a gated command needing her
  * Approve/Deny), AwaitingCard (a session waiting on her answer), and
  * SessionCard (everything else — idle, breathing, broken). AwaitingCard's
- * answers are tapped or typed per question in QuestionChoices.tsx. Until 08-03 all
+ * answers are tapped or typed per question in QuestionChoices.tsx, and her
+ * quoted words above them are OwnerWords.tsx. Her last message on a card is
+ * folded by ClampedText.tsx. Until 08-03 all
  * three lived inline in SessionLane behind seven parallel per-row Record
  * maps (stopArmed/closeArmed/expanded/fork/sticky/deciding/…); keying the
  * state to the component instead lets each card carry plain booleans. Cards
@@ -17,7 +19,7 @@
  * Shares SessionLane.module.css — the cards and the lane are one visual
  * language, and the stylesheet is named for it.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import { dispatchIntent } from '../../shell/panels/windowBus';
@@ -31,7 +33,9 @@ import {
   type SessionMeta,
 } from './api';
 import { resumeAfterDecision } from './resumeAfterDecision';
+import { ClampedText } from './ClampedText';
 import { CommandDecision } from './CommandDecision';
+import { OwnerWords } from './OwnerWords';
 import { QuestionChoices } from './QuestionChoices';
 import {
   composeAnswers,
@@ -77,72 +81,16 @@ const DOT_CLASS: Record<CardState, string> = {
   rest: 'restDot',
 };
 
-/** Her last ask, clamped to three lines with a tap to open it up.
- *
- * The button only appears when the text ACTUALLY overflows, and the only way
- * to know that is to ask the browser: with -webkit-line-clamp there's no
- * character count that answers it, because the answer moves with the card's
- * width and her font size. So we render the clamped text, compare scrollHeight
- * against clientHeight, and re-measure whenever the box is resized — a phone
- * rotation or a lane that reflows changes the answer.
- *
- * Expanded state is deliberately ephemeral: it lives here and resets on
- * reload. Opening a message is a peek, not a preference — and the card is
- * keyed by conversation id in the lane, so it survives every roster poll.
- */
+/** Her last ask, folded to three lines with a tap to open it up
+ * (ClampedText.tsx measures whether it overflows). */
 function LastPrompt({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const [overflows, setOverflows] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  // Measured against the CLAMPED box, so it has to run while clamped — once
-  // expanded, scrollHeight and clientHeight match and the question is moot.
-  // That's why `expanded` isn't a dependency: the last honest measurement,
-  // taken before she opened it, is the one that stays true.
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || expanded) return;
-    setOverflows(el.scrollHeight > el.clientHeight + 1);
-  }, [text, expanded]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => {
-      if (!ref.current || expanded) return;
-      setOverflows(ref.current.scrollHeight > ref.current.clientHeight + 1);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [expanded]);
-
   return (
-    <>
-      <div
-        ref={ref}
-        className={[styles.lastPrompt, expanded ? '' : styles.lastPromptClamped]
-          .filter(Boolean)
-          .join(' ')}
-      >
-        {/* Curly quotes as real text, not ::before/::after — a pseudo-element
-            on a clamped box gets cut off with the line it lands on, so the
-            closing quote used to vanish on exactly the long messages this
-            feature exists to show. */}
-        {'“'}
-        {text}
-        {'”'}
-      </div>
-      {overflows ? (
-        <button
-          type="button"
-          className={styles.lastPromptToggle}
-          aria-expanded={expanded}
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? 'Show less' : 'Show more'}
-        </button>
-      ) : null}
-    </>
+    <ClampedText className={styles.lastPrompt}>
+      {/* Curly quotes as real text, inside the fold — see ClampedText.module.css. */}
+      {'“'}
+      {text}
+      {'”'}
+    </ClampedText>
   );
 }
 
@@ -299,7 +247,9 @@ function DoneNote({
  *
  * The about line sits right under the title (the session's own words on what
  * it's building and where it stands, or its summary for a set filed before
- * sets carried one), so she can answer without opening the chat. Each
+ * sets carried one), so she can answer without opening the chat. Under it,
+ * when the session named the journal card the work started from, her own
+ * words from that card (OwnerWords.tsx). Each
  * question is a QuestionChoices; the card holds the answers and composes the
  * one numbered message Send sends (questionAnswers.ts). "Go with your
  * recommendations" takes the recommended option on every question that has
@@ -372,6 +322,8 @@ export function AwaitingCard({
       <PlanLine summary={planLine} />
       {/* What it's building and where it stands — read before the questions. */}
       {about ? <div className={styles.aboutLine}>{about}</div> : null}
+      {/* Her own words from the card that started the work, quoted. */}
+      <OwnerWords words={row.words} />
       {/* The questions and the Send row share one wrapper, because the row is
           a sticky footer (SessionLane.module.css .answerForm): it holds at the
           bottom of the screen while the questions scroll, and the wrapper is
