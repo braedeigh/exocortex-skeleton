@@ -35,7 +35,10 @@ told "go".** Your first message in the chat was the brief. In order:
      real alternatives gets 2–4 options, the one you recommend FIRST; the
      owner taps one or types her own. No unexplained PR or ticket numbers,
      setting names or private terms: she reads these away from the chat and
-     wants to learn why things are the way they are. The session turns orange
+     wants to learn why things are the way they are. When the work started
+     from one of her journal cards (the brief or a build-log item names it;
+     `build_log.py show` prints `owner_cards`), add `--card <id>` for each so
+     her own words open the questions. The session turns orange
      and the questions show on the roster and at the bottom of the chat; their
      answer arrives as your next message, and you carry on from there.
 4. **Build.** Execute the plan, following this repo's CLAUDE.md conventions

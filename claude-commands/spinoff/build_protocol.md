@@ -36,7 +36,10 @@ job is to carry the plan out, not to redesign it. In order:
    saying what you built, then a `--question` per pick with what you picked
    as its first `--option` and the alternatives after it, each saying what it
    costs or gains. No unexplained PR numbers, setting names or private
-   terms — the owner wants to learn why. Then end your turn. Only
+   terms — the owner wants to learn why. When the work started from one of
+   her journal cards (the brief or a build-log item names it; `build_log.py
+   show` prints `owner_cards`), add `--card <id>` for each so her own words
+   open the questions. Then end your turn. Only
    when the plan is built, you are unsure of nothing and nothing waits on the
    owner, end by running `scripts/session_done.py "<what was finished>"` so
    the session closes itself (see CLAUDE.md).

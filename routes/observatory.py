@@ -52,6 +52,7 @@ import threading
 import time
 
 import activityfeed
+import buildlog
 import config as app_config
 import fairywall
 import lanes
@@ -2116,6 +2117,15 @@ def rollover_running():
 # own answer. Prompt: "similar to Claude planning mode where I can click
 # options it presents or else type in my response".
 #
+# A SET CAN QUOTE HER OWN WORDS. When the work started from one of her
+# journal cards, the session names it (`cards`, request_input.py --card) and
+# her words are copied from it verbatim (buildlog.owner_words) into
+# `awaiting_words`, shown above the questions — so she meets her own reason
+# for the work before she has to answer about it. A card that isn't hers is
+# refused and nothing is filed. Prompt: "it's hard to answer a bunch of build
+# questions in a row and I have to be ready to comb through and understand
+# them… Feeling like I need more of an on ramp."
+#
 # THE CHAT KEEPS EVERY SET. Each filing also writes a `questions` line into the
 # transcript, so the chat draws the block where it was asked and it stays there,
 # above her answer, after the index flag comes off — marked answered once she
@@ -2172,6 +2182,10 @@ _QUESTIONS_PROMPT = (
     "- A question with real alternatives gets 2–4 `--option`s, each saying"
     " what it means and what it costs or gains. Put the one you recommend"
     " FIRST. A question with no sensible options gets none, and she types.\n"
+    "- When the work started from one of her journal cards (a spinoff brief or"
+    " a build-log item names it; `scripts/build_log.py show <id>` prints"
+    " `owner_cards`), pass each with `--card <id>` so her own words open the"
+    " questions.\n"
     "- No unexplained PR or ticket numbers, setting names or private terms —"
     " say what the thing is.\n"
     "- One more question for a set that's already open: `--add --question"
@@ -2246,10 +2260,12 @@ def _open_options(entry):
 
 def _clear_questions(entry):
     """Take an open set off a session entry: the questions, the one-line
-    copy older readers use, and the set's about line and options. Every place
+    copy older readers use, and the set's about line, options and her quoted
+    words. Every place
     that takes a set down comes through here, so no piece of one is left
     behind on the card."""
-    for field in ("awaiting_questions", "awaiting_input", "awaiting_about", "awaiting_options"):
+    for field in ("awaiting_questions", "awaiting_input", "awaiting_about", "awaiting_options",
+                  "awaiting_words", "awaiting_cards"):
         entry.pop(field, None)
 
 
@@ -2288,22 +2304,25 @@ def open_questions_nearby(conv_id, index=None):
     return nearby
 
 
-def request_input(conv_id, questions, about=None, options=None, add=False):
+def request_input(conv_id, questions, about=None, options=None, add=False, cards=None):
     """Set the open questions on a conversation — the one validated entry point
     the agent CLI (and any future HTTP door) share, so agents never write
     session state directly. `questions` is one string or a list of them;
     `about` is the line of context the whole set shares; `options` is one list
     per question, each item a dict {label, detail} or one line "<label> —
     <why>", the recommended one first. `add` appends these questions to the
-    set already open (keeping its about) instead of replacing it.
+    set already open (keeping its about and words) instead of replacing it.
+    `cards` names her journal cards the set quotes: their words are copied
+    verbatim (buildlog.owner_words), and a card that is missing or not hers
+    refuses the whole filing.
 
     Filing exactly the set that's already open changes nothing and writes no
     transcript line, so nothing is woken for it (`unchanged` in the payload).
     The payload's `open_nearby` lists what the sessions beside this one are
     already asking (open_questions_nearby).
 
-    Returns (payload, status): 200 on success, 400 on a bad id / no question,
-    404 on an unknown conversation. Loud, precise failures — same narrow-door
+    Returns (payload, status): 200 on success, 400 on a bad id / no question /
+    a card that isn't hers, 404 on an unknown conversation. Loud, precise failures — same narrow-door
     doctrine as open_spinoff()."""
     if not (conv_id and _CONV_ID_RE.match(str(conv_id))):
         return {"error": "invalid conversation id"}, 400
@@ -2321,13 +2340,20 @@ def request_input(conv_id, questions, about=None, options=None, add=False):
     if not kept:
         return {"error": "empty question"}, 400
     about = " ".join(str(about or "").split())[:_ABOUT_MAX]
+    # Copy her words from the cards she named, before anything is written: a
+    # missing card, or one that isn't hers, refuses the whole filing.
+    cards = list(dict.fromkeys(str(c).strip() for c in (cards or []) if str(c or "").strip()))
+    try:
+        words = buildlog.owner_words(cards) if cards else ""
+    except ValueError as refused:
+        return {"error": str(refused)}, 400
     with store.mutate("bot_chats/index", {}) as index:
         entry = index.get(conv_id)
         if not isinstance(entry, dict):
             return {"error": "not found"}, 404
         # The set to file: these questions alone, or (adding) the open set
-        # with these after it. Adding keeps the open set's about unless a new
-        # one is given.
+        # with these after it. Adding keeps the open set's about, and her
+        # quoted words, unless new ones are given.
         new_options = _clean_options(kept_options, len(kept))
         if add and not _open_questions(entry) and not about:
             return {"error": "nothing open to add to — file a new set, with --about"}, 400
@@ -2335,6 +2361,9 @@ def request_input(conv_id, questions, about=None, options=None, add=False):
             cleaned = (_open_questions(entry) + kept)[:_REQUEST_INPUT_MAX_COUNT]
             cleaned_options = (_open_options(entry) + new_options)[:len(cleaned)]
             about = about or str(entry.get("awaiting_about") or "")
+            if not cards:
+                words = str(entry.get("awaiting_words") or "")
+                cards = list(entry.get("awaiting_cards") or [])
         else:
             cleaned = kept[:_REQUEST_INPUT_MAX_COUNT]
             cleaned_options = new_options[:len(cleaned)]
@@ -2342,12 +2371,15 @@ def request_input(conv_id, questions, about=None, options=None, add=False):
         # The same set again is a no-op: no new line, so no wake, no churn.
         unchanged = (cleaned == _open_questions(entry)
                      and about == str(entry.get("awaiting_about") or "")
-                     and cleaned_options == _open_options(entry))
+                     and cleaned_options == _open_options(entry)
+                     and words == str(entry.get("awaiting_words") or ""))
         if not unchanged:
             entry["awaiting_questions"] = cleaned
             entry["awaiting_input"] = "\n".join(cleaned)
             for field, value in (("awaiting_about", about),
-                                 ("awaiting_options", cleaned_options if has_options else None)):
+                                 ("awaiting_options", cleaned_options if has_options else None),
+                                 ("awaiting_words", words),
+                                 ("awaiting_cards", cards if words else None)):
                 if value:
                     entry[field] = value
                 else:
@@ -2355,7 +2387,8 @@ def request_input(conv_id, questions, about=None, options=None, add=False):
         nearby = open_questions_nearby(conv_id, index)
     payload = {"ok": True, "awaiting_input": "\n".join(cleaned),
                "awaiting_questions": cleaned, "awaiting_about": about,
-               "awaiting_options": cleaned_options, "open_nearby": nearby}
+               "awaiting_options": cleaned_options, "awaiting_words": words,
+               "open_nearby": nearby}
     if unchanged:
         return {**payload, "unchanged": True}, 200
     # Keep the set in the transcript too, where it was asked. The index field
@@ -2368,6 +2401,9 @@ def request_input(conv_id, questions, about=None, options=None, add=False):
         line["about"] = about
     if has_options:
         line["options"] = cleaned_options
+    if words:
+        line["words"] = words
+        line["cards"] = cards
     peermail.append_line(_chats_dir() / f"{conv_id}.jsonl", line)
     return payload, 200
 

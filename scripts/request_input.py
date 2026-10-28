@@ -24,8 +24,14 @@ way they are, so every filing carries its context and its choices:
   --question  one question. The --options after it belong to it.
   --option    "<label> — <what it means, what it costs or gains>". 0 options
               (she types her answer) or 2-4; the one you recommend FIRST.
+  --card      a journal card of the owner's that started this work (e.g.
+              2026-10-14.2200b), repeatable. Her words are copied from it
+              verbatim and shown above the questions, so she meets her own
+              reason for the work before the questions. Belongs to the set,
+              like --about; a card that isn't hers files nothing.
   --add       append these questions to the set already open, keeping its
-              about, instead of filing a new set (filing replaces).
+              about and her words, instead of filing a new set (filing
+              replaces).
 
 Filing exactly the set that's open again changes nothing. The JSON printed
 back lists, under `open_nearby`, questions already open in the other
@@ -53,7 +59,9 @@ call, unknown conversation, nothing open to withdraw).
 Touches: routes/observatory.py (request_input, withdraw_questions),
 tests/test_request_input.py.
 
-Prompts: "Agent symbol stayed orange when it got the answer from another chat
+Prompts: "it's hard to answer a bunch of build questions in a row and I have
+to be ready to comb through and understand them… Feeling like I need more of
+an on ramp." (--card) · "Agent symbol stayed orange when it got the answer from another chat
 and not me" (the --answered form) · "I think most choices should be
 questions. I want to learn why things are the way they are." · "similar to
 Claude planning mode where I can click options it presents or else type in my
@@ -71,12 +79,12 @@ from routes.observatory import request_input, withdraw_questions  # noqa: E402
 _USAGE = (
     'usage: request_input.py --about "<what you are building and where it stands>"'
     ' --question "<question>" [--option "<label> — <what it means, what it costs or gains>" ...]'
-    ' [--question ...]'
+    ' [--question ...] [--card <journal card id> ...]'
     '  |  add one to the open set: request_input.py --add --question "<question>" [--option ...]'
     '  |  her answer came another way: request_input.py --answered "<where her answer came from>".'
     ' Each question gets 0 options (she types) or 2-4, the one you recommend first.'
 )
-_FLAGS_WITH_VALUE = ("--about", "--question", "--option")
+_FLAGS_WITH_VALUE = ("--about", "--question", "--option", "--card")
 
 
 class _Refused(ValueError):
@@ -84,10 +92,11 @@ class _Refused(ValueError):
 
 
 def parse(arguments):
-    """Read a filing's arguments into (about, questions, options, add).
-    `options` is one list per question. Raises _Refused on anything it
-    doesn't understand, so nothing malformed is ever filed."""
-    about, questions, options, add = None, [], [], False
+    """Read a filing's arguments into (about, questions, options, add, cards).
+    `options` is one list per question; `cards` the owner's journal card ids
+    the whole set quotes. Raises _Refused on anything it doesn't understand,
+    so nothing malformed is ever filed."""
+    about, questions, options, add, cards = None, [], [], False, []
     tokens = list(arguments)
     while tokens:
         token = tokens.pop(0)
@@ -105,6 +114,8 @@ def parse(arguments):
                 raise _Refused(f"{flag} needs a value after it")
             if flag == "--about":
                 about = value
+            elif flag == "--card":
+                cards.append(value.strip())
             elif flag == "--question":
                 questions.append(value)
                 options.append([])
@@ -132,7 +143,7 @@ def parse(arguments):
             raise _Refused(f"one option isn't a choice — give 2-4 or none: {question[:80]!r}")
         if len(offered) > 4:
             raise _Refused(f"at most 4 options a question: {question[:80]!r}")
-    return about, questions, options, add
+    return about, questions, options, add, cards
 
 
 def main(arguments=None):
@@ -149,7 +160,7 @@ def main(arguments=None):
     else:
         # A filing: refused whole, with the right form, unless it parses.
         try:
-            about, questions, options, add = parse(arguments)
+            about, questions, options, add, cards = parse(arguments)
         except _Refused as refused:
             print(json.dumps({"error": f"{refused} — nothing was filed. {_USAGE}"}))
             return 2
@@ -161,7 +172,7 @@ def main(arguments=None):
         payload, status = withdraw_questions(conv_id, arguments[1])
     else:
         payload, status = request_input(conv_id, questions, about=about,
-                                        options=options, add=add)
+                                        options=options, add=add, cards=cards)
     print(json.dumps(payload))
     return 0 if status == 200 else 1
 

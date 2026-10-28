@@ -592,3 +592,79 @@ def test_in_a_project_room_filing_lists_what_the_whole_project_is_asking(data_di
                         lambda index=None: {"c1": "shop", "c2": "shop", "c3": "other"})
     payload, _ = rr.request_input("c1", ["Ship the cart?"], about="Cart.")
     assert [n["conv"] for n in payload["open_nearby"]] == ["c2"]
+
+
+# --- a set can open with her own words, copied from her journal card ----------
+# The work started from something she said. Naming that card (--card) puts her
+# words, verbatim, above the questions on the roster and in the chat, so she
+# meets her own reason for the work before she answers. Only her cards count.
+
+HER_WORDS = 'it\'s hard to answer a bunch of build questions in a row\n\n  — I need an *on ramp*, "really"'
+
+
+def _seed_cards():
+    """Her card, a follow-up of hers, and a Keeper card, in the journal pool."""
+    import cardstore
+    pool = cardstore.pool_dir()
+    pool.mkdir(parents=True, exist_ok=True)
+    (pool / "2026-10-14.2200b.md").write_text(f"---\nts: 22:00\nwho: B\n---\n{HER_WORDS}\n")
+    (pool / "2026-10-15.0900b.md").write_text("---\nts: 09:00\nwho: B\n---\nAnd a follow-up.\n")
+    (pool / "2026-10-14.2201k.md").write_text("---\nts: 22:01\nwho: K\n---\nThe Keeper's take.\n")
+
+
+def test_a_set_quotes_her_words_verbatim_on_the_roster_and_in_the_chat(bot_client, monkeypatch):
+    _seed_asker()
+    _seed_cards()
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "c1")
+    code, printed = _file("--about", "Building the on-ramp.", "--card", "2026-10-14.2200b",
+                          "--question", "Fold her words to three lines?",
+                          "--card", "2026-10-15.0900b")
+    assert code == 0
+    both = HER_WORDS + "\n\nAnd a follow-up."
+    assert printed["awaiting_words"] == both
+    waiting = _roster_entry(bot_client, "c1")
+    assert waiting["awaiting_words"] == both
+    assert waiting["awaiting_cards"] == ["2026-10-14.2200b", "2026-10-15.0900b"]
+    line = _chat_lines(bot_client, "c1")[-1]
+    assert (line["words"], line["cards"]) == (both, waiting["awaiting_cards"])
+
+
+@pytest.mark.parametrize("card", ["2026-10-14.2201k", "2026-10-14.2359b"])
+def test_a_card_that_is_not_hers_files_nothing(bot_client, monkeypatch, card):
+    # A Keeper's card would put someone else's words under her name; a missing
+    # one would quote nothing. Either way the whole set is refused.
+    _seed_asker()
+    _seed_cards()
+    monkeypatch.setenv("EXOCORTEX_CONV_ID", "c1")
+    code, printed = _file("--about", "x", "--card", card, "--question", "Q?")
+    assert code != 0 and card in printed["error"]
+    assert "awaiting_questions" not in store.read("bot_chats/index", {})["c1"]
+    log = store.DATA_DIR / "bot_chats" / "c1.jsonl"
+    assert not log.exists() or "questions" not in log.read_text()
+
+
+def test_her_words_live_and_die_with_the_set(bot_client, monkeypatch):
+    """Adding keeps them; a new set without a card drops them; her reply and a
+    withdrawal both take them down with the questions."""
+    _seed_asker()
+    _seed_cards()
+    entry = lambda: store.read("bot_chats/index", {})["c1"]
+    rr.request_input("c1", ["Where?"], about="ctx", cards=["2026-10-14.2200b"])
+    rr.request_input("c1", ["And when?"], add=True)
+    assert entry()["awaiting_words"] == HER_WORDS
+    assert entry()["awaiting_questions"] == ["Where?", "And when?"]
+    # The same set again, words and all, is still a no-op.
+    again, _ = rr.request_input("c1", ["Where?", "And when?"], about="ctx",
+                                cards=["2026-10-14.2200b"])
+    assert again.get("unchanged") is True
+
+    rr.request_input("c1", ["Something else?"], about="ctx")
+    assert "awaiting_words" not in entry() and "awaiting_cards" not in entry()
+
+    rr.request_input("c1", ["Where?"], about="ctx", cards=["2026-10-14.2200b"])
+    rr.withdraw_questions("c1", "relayed by c2: she said here")
+    assert "awaiting_words" not in entry() and "awaiting_cards" not in entry()
+
+    rr.request_input("c1", ["Where?"], about="ctx", cards=["2026-10-14.2200b"])
+    _drain(bot_client.post("/api/observatory/conversation/c1/send", json={"text": "here"}))
+    assert not {"awaiting_words", "awaiting_cards"} & set(entry())
