@@ -159,6 +159,26 @@ describe('context-loaded', () => {
   });
 });
 
+describe('plan lines', () => {
+  it('draws a plan marked ready and a Go pressed on her word, where they happened', () => {
+    const turns = turnsFromHistory([
+      assistant('Here is the plan.'),
+      { type: 'result' },
+      { type: 'plan-ready', summary: 'Two files, one test', ts: '2026-10-28T10:00:00' },
+      { type: 'user', text: 'go' },
+      { type: 'go-by-word', words: 'make the pond one go', by: '2026-09-27.213703', by_title: 'Room helper · Coding' },
+      // A line with nothing to say draws nothing.
+      { type: 'go-by-word', words: '  ' },
+    ]);
+    expect(turns.map((t) => t.role)).toEqual(['assistant', 'plan', 'user', 'plan']);
+    expect(turns[1]).toMatchObject({ text: 'Two files, one test', plan: { kind: 'ready' } });
+    expect(turns[3]).toMatchObject({
+      text: 'make the pond one go',
+      plan: { kind: 'go', by: 'Room helper · Coding' },
+    });
+  });
+});
+
 describe('reminder', () => {
   it('is its own System turn carrying who set it, never a user turn', () => {
     const turns: Turn[] = [];

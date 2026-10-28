@@ -789,6 +789,26 @@
   font-size: var(--font-size-sm);
 }
 
+/* A plan marked ready, or a Go pressed on her word: one line in the plan
+   card's steady purple, so it reads as the same thing the roster shows. */
+.planNote {
+  margin: var(--space-3) 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  color: var(--text);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.planNoteLabel {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .gap {
   margin: var(--space-6) 0;
   text-align: center;

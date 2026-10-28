@@ -1019,6 +1019,26 @@ export function ObservatoryPage({
                   </div>
                 );
               }
+              if (t.role === 'plan') {
+                // A plan marked ready for her go, or a Go a helper pressed on
+                // her word: one purple line, where it happened.
+                return (
+                  <div key={i} className={styles.planNote}>
+                    {t.plan?.kind === 'go' ? (
+                      <>
+                        <span className={styles.planNoteLabel}>Go pressed by {t.plan.by} on your word:</span>{' '}
+                        {'“'}
+                        {t.text}
+                        {'”'}
+                      </>
+                    ) : (
+                      <>
+                        <span className={styles.planNoteLabel}>Plan ready for your go:</span> {t.text}
+                      </>
+                    )}
+                  </div>
+                );
+              }
               if (t.role === 'decision') {
                 // A gated command she approved/denied — the actual command,
                 // labelled, so the transcript says what she did (green ✓ /

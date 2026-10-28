@@ -46,6 +46,13 @@
  *                                              (request_input.py --answered) —
  *                                              marks the block above it
  *                                              answered elsewhere
+ * - {type:'plan-ready', summary, ts}          a planning session marked its
+ *                                              plan ready for her go
+ *                                              (plan_ready.py) — a purple line
+ * - {type:'go-by-word', words, by, by_title,   a helper pressed this session's
+ *    ts}                                        Go because she said to
+ *                                              (plan_go.py) — a purple line
+ *                                              quoting her words
  * - {type:'peer-status', id, status}           a held agent message she let
  *                                              through — updates its card
  * - {type:'context-loaded', text}               the app handed the agent her
@@ -81,7 +88,17 @@ import type { QuestionOption } from './api';
 import type { Arrival } from './queuedMessages';
 
 export interface Turn {
-  role: 'user' | 'assistant' | 'gap' | 'error' | 'decision' | 'reminder' | 'peer' | 'questions' | 'context';
+  role:
+    | 'user'
+    | 'assistant'
+    | 'gap'
+    | 'error'
+    | 'decision'
+    | 'reminder'
+    | 'peer'
+    | 'questions'
+    | 'context'
+    | 'plan';
   /** user/error: the text. assistant: committed markdown (authoritative).
    * decision: the exact command she approved/denied. reminder: what it says. */
   text: string;
@@ -123,6 +140,10 @@ export interface Turn {
   /** questions only: the agent withdrew this set because her answer reached it
    * by another route — this is where it said her answer came from. */
   answeredElsewhere?: string;
+  /** plan only: which plan line this is — the plan marked ready (`text` is
+   * its summary), or a Go a helper pressed on her word (`text` is her words,
+   * `by` the helper's title). */
+  plan?: { kind: 'ready' | 'go'; by?: string };
   /** peer only: the agent message this card draws. */
   peer?: PeerMessage;
   /** Spans of this turn she highlighted into the journal. Offsets are into the
@@ -386,6 +407,22 @@ export function applyEvent(turns: Turn[], raw: unknown): Turn[] {
           typeof e.source === 'string' && e.source.trim() ? e.source.trim() : 'another route';
         break;
       }
+      return turns;
+    }
+    case 'plan-ready':
+    case 'go-by-word': {
+      // A plan marked ready for her go, or a Go a helper pressed because she
+      // said to. Both are lines of their own, so a Go she didn't tap herself
+      // shows in the chat and not only in the transcript file.
+      // [prompt: "add a one-line card in the chat for both" — "Yes, both"]
+      const go = e.type === 'go-by-word';
+      const text = go ? e.words : e.summary;
+      if (typeof text !== 'string' || text.trim() === '') return turns;
+      const t = turn('plan', text.trim());
+      t.plan = go
+        ? { kind: 'go', by: typeof e.by_title === 'string' && e.by_title.trim() ? e.by_title.trim() : 'a helper' }
+        : { kind: 'ready' };
+      turns.push(t);
       return turns;
     }
     case 'peer-status': {

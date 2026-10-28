@@ -856,7 +856,7 @@ def go_by_word(target_conv, caller_conv, words):
     import peermail
     peermail.append_line(_chats_dir() / f"{target_conv}.jsonl",
                          {"type": "go-by-word", "words": words, "by": caller_conv,
-                          "ts": _now()})
+                          "by_title": caller.get("title") or caller_conv, "ts": _now()})
     return go_offer(target_conv)
 
 

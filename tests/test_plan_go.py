@@ -54,7 +54,7 @@ def test_a_helper_pressing_go_on_her_word_starts_the_builder_and_closes_the_plan
              (store.DATA_DIR / "bot_chats" / f"{planner}.jsonl").read_text().splitlines()]
     pressed = [line for line in lines if line.get("type") == "go-by-word"]
     assert pressed == [{"type": "go-by-word", "words": "make the pond one go",
-                        "by": HELPER, "ts": pressed[0]["ts"]}]
+                        "by": HELPER, "by_title": "Room helper", "ts": pressed[0]["ts"]}]
 
 
 def test_only_a_helper_with_her_words_can_press_a_card_that_is_up(spinoff_client, monkeypatch):
