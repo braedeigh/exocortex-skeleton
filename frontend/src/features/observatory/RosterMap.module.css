@@ -307,7 +307,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .roomButton,
-  .tile {
+  .tile,
+  .count {
     transition: none;
   }
 }
@@ -331,6 +332,50 @@
   margin: 0;
   font-size: var(--font-size-lg);
   font-weight: 700;
+}
+
+/* One room's count: the name, what's waiting, a way in. Calm until there's
+   something behind it, and then the words carry the orange, not the box. */
+.count {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease;
+}
+
+.count:hover:not(:disabled),
+.count:focus-visible {
+  border-color: var(--accent);
+}
+
+.count:disabled {
+  background: none;
+  cursor: default;
+}
+
+.countName {
+  flex: none;
+  font-weight: 600;
+}
+
+.countWords {
+  color: var(--orange);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.countQuiet {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
 
 /* The stack caps itself at a phone-friendly width; here it has the whole side. */

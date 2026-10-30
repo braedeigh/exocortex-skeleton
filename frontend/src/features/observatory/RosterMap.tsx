@@ -12,11 +12,13 @@
  *     tile per swarm and one line per session. Nothing here tells the whole story
  *     of anything: a tile says what the swarm is and how many need her, drawn as
  *     a tiny circle of dots (MiniSwarm); a line is a session's dot and its name.
- *   - RIGHT, wider, the detail. It opens on what needs her: the questions as full
- *     cards, then plans, failures and replies to read. Clicking a swarm, a project
- *     room or a room's heading swaps it to that thing's whole story, with a way
- *     back: the swarm's network and members, the project helper and its swarms,
- *     the room's sessions as cards with its Done drawer and past sessions.
+ *   - RIGHT, wider, the detail. It opens on a short count per room: "Coding: 4
+ *     need you · 1 plan". Clicking a count shows those as full cards (questions,
+ *     plans, failures, replies to read). Clicking a swarm, a project room or a
+ *     room's heading swaps it to that thing's whole story, with a way back: the
+ *     swarm's network and members, the project helper and its swarms, the room's
+ *     sessions as cards with its Done drawer and past sessions. Sudo and file
+ *     requests stay on top of the count, since they're answered right there.
  *     Clicking a session's line opens the session itself, in the pane on the right
  *     of this page (shell/panels/conversationRouting.ts).
  *   - FOOT: one slim row of doors to the other rooms, stopping short of the notes
@@ -27,7 +29,7 @@
  * strip, "3 need you · 2 plans", and clicking in swaps the overview for the detail.
  *
  * With filters down, the overview hides the tiles, boxes and lines with no match,
- * and the right side narrows to the matching sessions. Where each session stands,
+ * and the right side lists the matching sessions as cards, skipping the count. Where each session stands,
  * and what the filters do to that, is mapPlaces.ts (tested); this file only draws.
  *
  * Touches: RosterPage.tsx (owns the state, draws this), mapPlaces.ts, RoomMap.tsx
@@ -39,7 +41,8 @@
  * a glance in the observatory, so like which rooms, which sessions are open in
  * which rooms, how many need me, etc.. but i want to be able to click into each to
  * get more information." · "the left panel is too wide and the right panel is too
- * small and it's too much information at a glance"
+ * small and it's too much information at a glance" · "A short count per room
+ * with the questions one click away"
  */
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
@@ -50,15 +53,19 @@ import { SudoRequests } from '../sudo/SudoRequests';
 import type { RoomInfo, SessionMeta } from './api';
 import { DoneDrawer } from './DoneDrawer';
 import {
+  countWords,
   helperConvs,
   narrowPlaces,
+  needsByRoom,
   placeRoster,
   roomCensus,
   sideGroups,
   stripLine,
+  waitingCount,
   type MapProject,
   type MapRing,
   type MapRoom,
+  type RoomNeeds,
 } from './mapPlaces';
 import { orchestraRows } from './orchestra';
 import { MapBody } from './RoomMap';
@@ -83,7 +90,9 @@ interface CardActions {
 
 /** What the right side is showing: what needs her, or one thing she clicked. */
 type Detail =
-  | { kind: 'needs' }
+  /** The count per room, or with `room` that room's waiting cards ('all' for
+   * every room's). */
+  | { kind: 'needs'; room?: string }
   | { kind: 'room'; room: string }
   | { kind: 'project'; id: string }
   | { kind: 'swarm'; id: number };
@@ -102,13 +111,13 @@ const DOT_OF: Record<CardState, string> = {
 };
 
 /** Sentence-ish numbers for a heading: only the ones with something to say. */
-function censusWords(place: MapRoom, opened: Record<string, string>): { open: number; needing: number; rest: string } {
-  const { open, needing, running, done } = roomCensus(place);
+function censusWords(place: MapRoom, opened: Record<string, string>): { open: number; rest: string } {
+  const { open, running, done } = roomCensus(place);
   // A closing report she hasn't read still says so, though its card is a click away.
   const unread = unreadDone(place.done, opened);
   const doneWords = done > 0 ? `${done} done${unread > 0 ? ` (${unread} unread)` : ''}` : '';
   const rest = [running > 0 ? `${running} running` : '', doneWords].filter(Boolean).join(' · ');
-  return { open, needing, rest };
+  return { open, rest };
 }
 
 /** One session on the overview: its dot and its name. Clicking opens it. */
@@ -275,6 +284,7 @@ function ProjectBox({
 function RoomSection({
   place,
   whole,
+  needing,
   heading,
   detail,
   rosterById,
@@ -287,6 +297,9 @@ function RoomSection({
   place: MapRoom;
   /** The room before any filter: its heading's numbers stay the room's own. */
   whole: MapRoom;
+  /** How many here are stopped on her: the same number as the count on the right
+   * (needsByRoom), which includes a helper asking something. */
+  needing: number;
   heading: string;
   detail: Detail;
   rosterById: Map<string, SessionMeta>;
@@ -296,7 +309,7 @@ function RoomSection({
   onNew: () => void;
   onDetail: (next: Detail) => void;
 }) {
-  const { open, needing, rest } = censusWords(whole, opened);
+  const { open, rest } = censusWords(whole, opened);
   const selected = detail.kind === 'room' && detail.room === place.room;
   const rings = [...place.solos, ...place.others];
   const empty = place.swarms.length + place.projects.length + rings.length === 0;
@@ -388,10 +401,61 @@ function useCards(sessions: SessionMeta[], opened: Record<string, string>, terra
   };
 }
 
-/** What the right side opens on: everything that wants her, in the room's order. */
+/** What the right side opens on: how much is waiting in each room, each a click
+ * away from its cards. */
+function NeedsSummary({
+  needs,
+  headingOf,
+  saved,
+  onPick,
+  actions,
+}: {
+  needs: RoomNeeds[];
+  headingOf: (room: string) => string;
+  saved: SessionMeta[];
+  onPick: (room: string) => void;
+  actions: CardActions;
+}) {
+  const roomsWaiting = needs.filter((room) => waitingCount(room.groups) > 0).length;
+  return (
+    <>
+      <SudoRequests />
+      <FileRequests />
+      <h3 className={styles.detailName}>What needs you</h3>
+      <div className={styles.group}>
+        {needs.map(({ room, groups }) => {
+          const words = countWords(groups);
+          return (
+            <button
+              type="button"
+              key={room}
+              className={styles.count}
+              disabled={words.length === 0}
+              onClick={() => onPick(room)}
+            >
+              <span className={styles.countName}>{headingOf(room)}</span>
+              <span className={words.length > 0 ? styles.countWords : styles.countQuiet}>
+                {words.length > 0 ? words.join(' · ') : 'Nothing waiting'}
+              </span>
+              {words.length > 0 ? <span className={styles.chevron} aria-hidden="true">&rsaquo;</span> : null}
+            </button>
+          );
+        })}
+      </div>
+      {roomsWaiting > 1 ? (
+        <button type="button" className={styles.pastLink} onClick={() => onPick('all')}>
+          See all of them &rarr;
+        </button>
+      ) : null}
+      <SavedLane sessions={saved} onOpen={actions.onOpen} onChanged={actions.onChanged} />
+    </>
+  );
+}
+
+/** What's waiting as full cards, in the room's order: one room's, every room's,
+ * or whatever the pressed filters match. */
 function NeedsYou({
   sessions,
-  saved,
   opened,
   helpers,
   filtering,
@@ -400,7 +464,6 @@ function NeedsYou({
   actions,
 }: {
   sessions: SessionMeta[];
-  saved: SessionMeta[];
   opened: Record<string, string>;
   helpers: ReadonlySet<string>;
   filtering: boolean;
@@ -431,7 +494,6 @@ function NeedsYou({
       {nothing ? (
         <p className={styles.note}>{filtering ? 'No sessions match those filters.' : 'Nothing is waiting on you.'}</p>
       ) : null}
-      {filtering ? null : <SavedLane sessions={saved} onOpen={actions.onOpen} onChanged={actions.onChanged} />}
     </>
   );
 }
@@ -553,7 +615,13 @@ export function RosterMap({
       ? (everywhere.flatMap((place) => place.projects).find((box) => box.project.id === detail.id) ?? null)
       : null;
   const roomDetail = detail.kind === 'room' ? (everywhere.find((place) => place.room === detail.room) ?? null) : null;
-  const onDetailPage = swarmDetail !== null || projectDetail !== null || roomDetail !== null;
+  const needs = needsByRoom(everywhere, stray, roomable, opened, helpers);
+  const needsRoom = detail.kind === 'needs' ? detail.room : undefined;
+  const needsSessions =
+    needsRoom === undefined || needsRoom === 'all'
+      ? roomable
+      : (needs.find((room) => room.room === needsRoom)?.sessions ?? []);
+  const onDetailPage = swarmDetail !== null || projectDetail !== null || roomDetail !== null || needsRoom !== undefined;
 
   const needsGroups = sideGroups(roomable, opened, helpers, null);
   const rightShowing = size === 'wide' || listOpen;
@@ -562,7 +630,7 @@ export function RosterMap({
     <div className={styles.right}>
       {onDetailPage ? (
         <button type="button" className={styles.back} onClick={() => setDetail({ kind: 'needs' })}>
-          &larr; What needs you
+          &larr; What needs you, by room
         </button>
       ) : null}
       {swarmDetail ? (
@@ -599,15 +667,22 @@ export function RosterMap({
           terrain={terrain}
           actions={actions}
         />
-      ) : (
+      ) : filtering || needsRoom !== undefined ? (
         <NeedsYou
-          sessions={roomable}
-          saved={saved}
+          sessions={needsSessions}
           opened={opened}
           helpers={helpers}
           filtering={filtering}
           matchesMeta={matchesMeta}
           terrain={terrain}
+          actions={actions}
+        />
+      ) : (
+        <NeedsSummary
+          needs={needs}
+          headingOf={headingOf}
+          saved={saved}
+          onPick={(room) => setDetail({ kind: 'needs', room })}
           actions={actions}
         />
       )}
@@ -632,6 +707,7 @@ export function RosterMap({
               key={place.room}
               place={place}
               whole={everywhere[i]}
+              needing={needs[i].groups.asking.length}
               heading={headingOf(place.room)}
               detail={detail}
               rosterById={rosterById}

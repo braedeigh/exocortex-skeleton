@@ -261,12 +261,61 @@ export function sideGroups(
   return groups;
 }
 
+/** What's waiting on her in one room, for the summary on the right. `sessions`
+ * are the ones behind the numbers, so a click can show exactly those. */
+export interface RoomNeeds {
+  room: string;
+  sessions: SessionMeta[];
+  groups: SideGroups;
+}
+
+/** Sort what's waiting by room. A session counts in the room the overview draws
+ * it in, so these numbers agree with the room's heading even when a swarm has a
+ * member from another room. One the overview doesn't draw (a helper asking
+ * something) counts in its own lane's room. */
+export function needsByRoom(
+  places: MapRoom[],
+  stray: string | null,
+  sessions: SessionMeta[],
+  opened: Record<string, string>,
+  helpers: ReadonlySet<string>,
+  nowMs: number = Date.now(),
+): RoomNeeds[] {
+  const rooms = places.map((place) => place.room);
+  const home = new Map<string, string>();
+  for (const place of places) {
+    const views = [...place.swarms, ...place.projects.flatMap((box) => box.swarms)];
+    const rings = [...place.solos, ...place.others, ...place.projects.flatMap((box) => box.solos)];
+    for (const view of views) for (const member of view.members) home.set(member.conv, place.room);
+    for (const ring of rings) home.set(ring.conv, place.room);
+    for (const meta of place.done) home.set(meta.id, place.room);
+  }
+  const roomOf = (meta: SessionMeta) =>
+    home.get(meta.id) ??
+    (meta.lane && rooms.includes(meta.lane) ? meta.lane : stray && rooms.includes(stray) ? stray : rooms[0]);
+  return rooms.map((room) => {
+    const inRoom = sessions.filter((meta) => roomOf(meta) === room);
+    return { room, sessions: inRoom, groups: sideGroups(inRoom, opened, helpers, null, nowMs) };
+  });
+}
+
+/** How many things are waiting in these groups. */
+export function waitingCount(groups: SideGroups): number {
+  return groups.asking.length + groups.plans.length + groups.errors.length + groups.toRead.length;
+}
+
 /** The one line that stands in for the side column on a narrower map. */
 export function stripLine(groups: SideGroups): string {
+  const parts = countWords(groups);
+  return parts.length > 0 ? parts.join(' · ') : 'Nothing waiting on you';
+}
+
+/** The groups' counts in words, leaving out what's empty. */
+export function countWords(groups: SideGroups): string[] {
   const parts: string[] = [];
   if (groups.asking.length > 0) parts.push(`${groups.asking.length} need${groups.asking.length === 1 ? 's' : ''} you`);
   if (groups.plans.length > 0) parts.push(`${groups.plans.length} plan${groups.plans.length === 1 ? '' : 's'}`);
   if (groups.errors.length > 0) parts.push(`${groups.errors.length} failed`);
   if (groups.toRead.length > 0) parts.push(`${groups.toRead.length} to read`);
-  return parts.length > 0 ? parts.join(' · ') : 'Nothing waiting on you';
+  return parts;
 }

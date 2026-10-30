@@ -5,7 +5,17 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { SessionMeta } from './api';
-import { helperConvs, narrowPlaces, placeRoster, roomCensus, sideGroups, stripLine, type MapRoom } from './mapPlaces';
+import {
+  helperConvs,
+  narrowPlaces,
+  needsByRoom,
+  placeRoster,
+  roomCensus,
+  sideGroups,
+  stripLine,
+  waitingCount,
+  type MapRoom,
+} from './mapPlaces';
 import { swarmView } from './roomOrder';
 import { matchesAny, type RosterFilter } from './sessionFilters';
 import type { RoomView, Swarm } from './swarmApi';
@@ -155,6 +165,34 @@ describe('what a room says at a glance', () => {
   it('counts every open session in the room, boxes included', () => {
     const [coding] = scene().rooms;
     expect(roomCensus(coding)).toEqual({ open: 8, needing: 2, running: 1, done: 3 });
+  });
+});
+
+describe('the count per room', () => {
+  it('agrees with the room headings, even for a swarm member from another room', () => {
+    const sessions = [
+      session('coding-asks', { awaiting_input: 'q' }),
+      session('personal-asks', { lane: 'personal', awaiting_input: 'q' }),
+      session('personal-in-coding-swarm', { lane: 'personal', awaiting_input: 'q' }),
+      session('reply', { lane: 'personal' }),
+      session('helper-1', { awaiting_input: 'q' }),
+    ];
+    const swarms = [swarm(1, ['personal-in-coding-swarm'])];
+    const byId = new Map(sessions.map((s) => [s.id, s]));
+    const places = placeRoster({
+      rooms: ['coding', 'personal'],
+      stray: 'coding',
+      sessions,
+      views: swarms.map((s) => swarmView(s, byId, {}, NOW)),
+      swarms,
+      roomViews: new Map(),
+    });
+    const [coding, personal] = needsByRoom(places, 'coding', sessions, {}, helperConvs(swarms, new Map()), NOW);
+    // The helper isn't drawn as a session, so it counts in its lane's room.
+    expect(coding.groups.asking.map((m) => m.id).sort()).toEqual(['coding-asks', 'helper-1', 'personal-in-coding-swarm']);
+    expect(personal.groups.asking.map((m) => m.id)).toEqual(['personal-asks']);
+    expect(personal.groups.toRead.map((m) => m.id)).toEqual(['reply']);
+    expect(waitingCount(personal.groups)).toBe(2);
   });
 });
 
