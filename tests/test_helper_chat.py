@@ -889,3 +889,70 @@ def test_only_the_closest_helper_is_woken(room, tmp_path):
     assert helper not in [conv for conv, _ in started]
     seed = helper_chat.seed_text(helper, store.read("bot_chats/index", {})[helper])
     assert f"## `{A}`" in seed and f"## `{C}`" in seed
+
+
+def test_a_project_helper_is_told_of_a_change_once(room, tmp_path):
+    """Her complaint: the same "Room change" digest, every wake-up, forever.
+    A project helper is told a session closed once, whether its turn starts
+    from a fresh seed or resumes — and its seed lists the sessions in its room."""
+    _, started, _ = room
+    build = tmp_path / "shop"
+    subprocess.run(["git", "init", "-q", str(build)], check=True)
+    store.write("terrain_builds", {"builds": [
+        {"id": "shop", "name": "Shop", "root": str(build), "project_room": True}]})
+    _seed(A, B, C, last_at="2026-09-27T12:00:00")
+    for conv in (A, B, C):
+        _did(conv, _edit(build / f"{conv}.txt"))
+        _summary(conv, f"Works on {conv}.", "2026-09-27T12:00:00")
+    lead = room_helper.ensure_room_helper("coding:shop")
+    assert helper_chat.wake_tick() == 0                        # its first look
+
+    # A session closes: a fresh seed's turn tells it, and only that once.
+    with store.mutate("bot_chats/index", {}) as index:
+        index[A]["archived"] = True
+    assert helper_chat.wake_tick() == 1
+    count, told = _woken(started)
+    assert count == 1 and f"`{A}`" in told and "was closed" in told
+    _turn_ends(lead, helper_chat.SILENT)
+    _gap_passes(lead)
+    assert helper_chat.wake_tick() == 0
+
+    # The same holds on a resumed turn, the path a growing helper is on.
+    with store.mutate("bot_chats/index", {}) as index:
+        index[lead].update(claude_session_id="grown-1", context_tokens=60000,
+                           helper_grown_at="2026-09-27T12:00:00")
+        index[B]["done_at"] = "2026-09-27T12:40:00"
+    assert helper_chat.wake_tick() == 1
+    count, told = _woken(started)
+    assert count == 2 and f"`{B}`" in told and "marked itself done" in told
+    assert f"`{A}`" not in told.split("Since your last turn:")[1].split("You don't")[0]
+    _turn_ends(lead, helper_chat.SILENT)
+    _gap_passes(lead)
+    assert helper_chat.wake_tick() == 0
+    assert f"## `{C}`" in helper_chat.seed_text(lead, _entry(lead))
+
+
+def test_a_helper_whose_seed_fails_refuses_the_turn_and_says_so(room, monkeypatch):
+    """A helper without its seed must not answer blind: the turn doesn't run,
+    the card goes red with the reason, and the wake-up waits out its gap."""
+    helper, started, _ = room
+
+    def broken(conv_id, entry):
+        raise TypeError("the seed broke")
+    monkeypatch.setattr(helper_chat, "write_seed", broken)
+
+    result = observatory.begin_turn(helper, "who is on pond.py?")
+    assert result["ok"] is False and result["status"] == 500
+    entry = _entry(helper)
+    assert entry["last_error"] == "helper seed failed: the seed broke"
+    assert entry["running"] is False and started == []
+
+    # A wake-up it can't start counts against the gap, so it isn't retried every minute.
+    _seed(A, last_at="2026-09-27T12:00:00")
+    assert helper_chat.wake_tick() == 0                        # its first look
+    _summary(A, "Builds the pond page.", "2026-09-27T12:00:00")
+    assert helper_chat.wake_tick() == 0 and started == []
+    stamped = _entry(helper)["helper_wake_at"]
+    assert "helper_wake_last_at" not in _entry(helper)
+    _summary(A, "Still building it.", "2026-09-27T12:10:00")
+    assert helper_chat.wake_tick() == 0 and _entry(helper)["helper_wake_at"] == stamped

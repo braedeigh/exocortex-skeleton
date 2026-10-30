@@ -5149,7 +5149,10 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
     # so the seed's messages end where this new one begins. A growing helper
     # that is resuming keeps the seed it started from, untouched — a changed
     # system prompt would throw its prompt cache away — and is handed the
-    # active sessions as they stand now ahead of its message instead.
+    # active sessions as they stand now ahead of its message instead. A seed
+    # that can't be built refuses the turn and turns the card red: a helper
+    # without its seed would answer blind, and the wake-up's record of what it
+    # was shown wouldn't be saved, so it would be told the same news forever.
     helper_update = ""
     if helper_chat_entry is not None:
         import helper_chat
@@ -5161,6 +5164,8 @@ def begin_turn(conv_id, text, record=True, decision=None, operator=False,
                 config["system_prompt_file"] = helper_chat.write_seed(conv_id, helper_chat_entry)
         except Exception as e:
             print(f"helper seed failed for {conv_id}: {e}", file=sys.stderr)
+            msg = f"helper seed failed: {e}"
+            return _refuse(500, {"error": msg}, last_error=msg)
 
     log_path = _chats_dir() / f"{conv_id}.jsonl"
     if batch is not None:

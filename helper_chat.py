@@ -820,8 +820,8 @@ def seed_parts(conv_id, entry, watched=None):
         import project_rooms
         project = entry.get("project_room")
         room = entry.get("room") or project_rooms.ROOM
-        found = project_rooms.find(project)
-        lead = PROJECT_LEAD.format(name=found["name"] if found else project, room=room,
+        build = project_rooms.find(project)
+        lead = PROJECT_LEAD.format(name=build["name"] if build else project, room=room,
                                    scope=f"{room}:{project}")
     elif entry.get("role") == "linear_helper":
         lead = LINEAR_LEAD
@@ -1309,7 +1309,12 @@ def wake_tick(now=None):
         # Started now or not at all: a wake-up left waiting would arrive
         # later with a stale list (the next tick writes a fresh one).
         started = observatory.begin_turn(conv, text, record=False, system=system, fallback=False)
+        # Count a refused wake-up against the gap too, so a helper that can't
+        # start (its seed is broken, say) is retried once a gap, not every minute.
         if not started.get("ok"):
+            with store.mutate("bot_chats/index", {}) as live:
+                if isinstance(live.get(conv), dict):
+                    live[conv]["helper_wake_at"] = now.isoformat(timespec="seconds")
             continue
         with store.mutate("bot_chats/index", {}) as live:
             if isinstance(live.get(conv), dict):
