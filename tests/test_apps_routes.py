@@ -29,6 +29,6 @@ def test_apps_map_names_every_app_with_its_parts_and_flags_unknown_crossings(cli
     # The borrowed session list is in the baseline; the made-up import isn't.
     assert known == {"/observatory": True, "y.py": False}
     statuses = {p["status"] for p in body["based_foods"]["pages"]}
-    assert statuses <= {"in-based-foods", "to-port"} and "foods" in body["based_foods"]["tables"]
+    assert statuses == {"in-based-foods", "to-port", "exocortex-only"} and "foods" in body["based_foods"]["tables"]
     assert "settings.py" in body["shared"]["routes"]
     assert appboundaries.BASED_FOODS == body["based_foods"]["id"]

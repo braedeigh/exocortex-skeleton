@@ -104,7 +104,8 @@
 }
 
 .toPort,
-.ported {
+.ported,
+.staysHere {
   padding: 0 var(--space-1);
   border-radius: var(--radius-pill);
   font-size: 12px;
@@ -116,6 +117,10 @@
 
 .ported {
   background: color-mix(in srgb, #3f9f5f 25%, transparent);
+}
+
+.staysHere {
+  background: color-mix(in srgb, var(--text-secondary) 25%, transparent);
 }
 
 .note {

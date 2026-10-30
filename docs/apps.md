@@ -70,9 +70,15 @@ in the service's environment, which wins but needs a restart. Neither means no l
 is drawn. The kitchen and Food
 pages here (Kitchen, the ecosystem map, foods, nutrients, contaminants, review, the
 food map, shared recipes) belong to no exocortex app; `apps.json` `based_foods.pages`
-marks each `in-based-foods` or `to-port` — the port checklist, also drawn in the
-Terrain's Apps room. They stay reachable at their addresses; nothing was deleted.
-Missing features are rebuilt in Based Foods by its own team, by PR.
+marks each `in-based-foods`, `to-port` or `exocortex-only` — the port checklist, also
+drawn in the Terrain's Apps room. They stay reachable at their addresses; nothing was
+deleted. Missing features are rebuilt in Based Foods by its own team, by PR.
+
+**What moves** (her rule, 2026-10-28): a feature moves to Based Foods when someone
+else would want it and it works without her AI setup. Everything else stays an
+exocortex extra: receipts and reading them, Claude's organic estimates, the machine's
+source proposals and their review page, food tests. Her groceries (list, trips, pantry)
+will live in Based Foods.
 
 ## The boundary map, and the ratchet
 

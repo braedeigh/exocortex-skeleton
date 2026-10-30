@@ -1,5 +1,5 @@
 import { TerrainRoomHeader } from '../TerrainRoomHeader';
-import { useAppsMap, type AppParts, type Crossing } from './api';
+import { useAppsMap, type AppParts, type Crossing, type PortPage } from './api';
 import styles from './AppsRoom.module.css';
 
 /**
@@ -13,8 +13,8 @@ import styles from './AppsRoom.module.css';
  * its code uses another app's (appboundaries.py). A crossing the baseline
  * doesn't know yet is marked "new": that's what the ratchet test is about to
  * fail on. The Based Foods column is the port checklist: each kitchen page
- * here, and whether Based Foods already has it. Core, shared by all, sits at
- * the end. Read-only.
+ * here, and whether Based Foods already has it, still needs it, or it stays
+ * here as an exocortex extra. Core, shared by all, sits at the end. Read-only.
  *
  * Reads GET /api/apps (routes/apps.py). Design: docs/apps.md.
  *
@@ -29,6 +29,13 @@ const PART_LABELS: Array<[keyof AppParts, string]> = [
   ['scripts', 'Scripts'],
   ['tables', 'Tables'],
 ];
+
+/** How each page on the Based Foods checklist is marked: its label and its colour. */
+const PORT_STATUS: Record<PortPage['status'], { label: string; className: string }> = {
+  'to-port': { label: 'to port', className: styles.toPort },
+  'in-based-foods': { label: 'in Based Foods', className: styles.ported },
+  'exocortex-only': { label: 'stays here', className: styles.staysHere },
+};
 
 /** One kind of part, shut by default, with its count on the fold. */
 function PartList({ label, items }: { label: string; items: string[] }) {
@@ -106,13 +113,11 @@ export function AppsRoom() {
             <h3 className={styles.name}>
               <span aria-hidden="true">{data.based_foods.glyph}</span> {data.based_foods.name}
             </h3>
-            <p className={styles.projects}>Its own app. These pages here, and whether it has them yet:</p>
+            <p className={styles.projects}>Its own app. These pages here, and whether each moves there:</p>
             <ul className={styles.list}>
               {data.based_foods.pages.map((page) => (
                 <li key={page.path} className={styles.port}>
-                  <span className={page.status === 'to-port' ? styles.toPort : styles.ported}>
-                    {page.status === 'to-port' ? 'to port' : 'in Based Foods'}
-                  </span>{' '}
+                  <span className={PORT_STATUS[page.status].className}>{PORT_STATUS[page.status].label}</span>{' '}
                   {page.path}
                   <span className={styles.note}>{page.note}</span>
                 </li>

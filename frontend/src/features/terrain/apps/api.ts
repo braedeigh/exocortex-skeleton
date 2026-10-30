@@ -26,7 +26,7 @@ export interface AppColumn extends AppParts {
 
 export interface PortPage {
   path: string;
-  status: 'in-based-foods' | 'to-port';
+  status: 'in-based-foods' | 'to-port' | 'exocortex-only';
   note: string;
 }
 

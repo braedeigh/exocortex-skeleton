@@ -108,12 +108,12 @@
     "pages": ["/wiki", "/recordings", "/transcripts", "/notes", "/build", "/scratchpad", "/vscode", "/car", "/meditation", "/movement", "/housing", "/travel"]
   },
   "based_foods": {
-    "_about": "Based Foods is its own app at its own address (config.based_foods_url, EXOCORTEX_BASED_FOODS_URL), linked from the others, never proxied. The kitchen project's pages here belong to no exocortex app; each says whether Based Foods already has it (in-based-foods) or it still has to be rebuilt there (to-port). They stay reachable at their addresses.",
+    "_about": "Based Foods is its own app at its own address (config.based_foods_url, EXOCORTEX_BASED_FOODS_URL), linked from the others, never proxied. The rule for what moves there: a feature moves to Based Foods when someone else would want it and it works without the owner's AI setup; everything else stays an exocortex extra. The kitchen project's pages here belong to no exocortex app; each says whether Based Foods already has it (in-based-foods), it still has to be rebuilt there (to-port), or it stays here by that rule (exocortex-only). They stay reachable at their addresses.",
     "name": "Based Foods",
     "glyph": "🥕",
     "projects": ["kitchen"],
     "pages": [
-      {"path": "/kitchen", "status": "to-port", "note": "Based Foods has the grocery list, pantry, recipes, meals and week plan. Not there yet: receipt import, purchase history and spend trend, the organic-or-not verdicts, food experiments on the page, 'where it comes from'."},
+      {"path": "/kitchen", "status": "to-port", "note": "Based Foods has the grocery list, pantry, recipes, meals and week plan. Still to port: purchase history, spend trend, the organic chip, 'where it comes from'. Staying here as exocortex extras: receipt import, Claude's organic estimates, food experiments."},
       {"path": "/food", "status": "to-port", "note": "The ecosystem map of where foods come from — nothing like it in Based Foods."},
       {"path": "/ecosystem", "status": "to-port", "note": "Old address of /food; it redirects there."},
       {"path": "/food/foods", "status": "in-based-foods", "note": "Based Foods' Foods screen: search, barcode, label."},
@@ -122,7 +122,7 @@
       {"path": "/food/nutrients/$key", "status": "in-based-foods", "note": "Based Foods' nutrient page."},
       {"path": "/food/contaminants", "status": "to-port", "note": "Contaminants and exposure — not in Based Foods."},
       {"path": "/food/contaminants/$id", "status": "to-port", "note": "One contaminant's page — not in Based Foods."},
-      {"path": "/food/review", "status": "to-port", "note": "Reviewing machine-proposed sources — not in Based Foods."},
+      {"path": "/food/review", "status": "exocortex-only", "note": "Reviewing machine-proposed sources. The proposals are AI-made, so this stays an exocortex extra."},
       {"path": "/food-map", "status": "to-port", "note": "The public food map — not in Based Foods."},
       {"path": "/share/recipes", "status": "in-based-foods", "note": "Based Foods' public recipes screen."},
       {"path": "/share/r/$token", "status": "in-based-foods", "note": "Based Foods' shared recipe page."}
