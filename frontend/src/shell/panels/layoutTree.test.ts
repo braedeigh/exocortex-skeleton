@@ -4,7 +4,9 @@ import {
   canClosePanel,
   closePanel,
   findPanel,
+  fullScreenPlan,
   isLayoutNode,
+  isWhollyHidden,
   listPanels,
   moveTabToPanel,
   parentOf,
@@ -264,5 +266,75 @@ describe('trusting what came out of storage', () => {
     expect(
       isLayoutNode({ type: 'split', id: 's', dir: 'row', sizes: [50], children: [panel('a'), panel('b')] }),
     ).toBe(false);
+  });
+});
+
+describe('automatic full screen', () => {
+  /** A saved arrangement: the roster, Terrain and a stack under the primary. */
+  const arranged = (): LayoutNode => ({
+    type: 'split',
+    id: 's1',
+    dir: 'row',
+    sizes: [50, 25, 25],
+    children: [
+      panel('roster', 'route', '/observatory'),
+      panel('map', 'route', '/terrain/files'),
+      {
+        type: 'split',
+        id: 's2',
+        dir: 'col',
+        sizes: [50, 50],
+        children: [panel('code', 'route', '/code'), panel('main', 'primary')],
+      },
+    ],
+  });
+  const plan = (tree: LayoutNode, over: Partial<Parameters<typeof fullScreenPlan>[1]> = {}) =>
+    fullScreenPlan(tree, { primaryHref: '/todos', off: false, beside: [], ...over });
+
+  it('hides everything but the panel on the page, and leaves the tree alone', () => {
+    const tree = arranged();
+    const before = JSON.stringify(tree);
+    const { home, hidden } = plan(tree);
+    expect(home).toBe('roster');
+    expect([...hidden].sort()).toEqual(['code', 'main', 'map']);
+    expect(JSON.stringify(tree)).toBe(before);
+  });
+
+  it('a panel brought forward stays beside the map, and its split shows while any of it does', () => {
+    const { hidden } = plan(arranged(), { beside: ['code'] });
+    expect([...hidden].sort()).toEqual(['main', 'map']);
+    const stack = (arranged() as Extract<LayoutNode, { type: 'split' }>).children[2];
+    expect(isWhollyHidden(stack, hidden)).toBe(false);
+    expect(isWhollyHidden(stack, new Set(['code', 'main']))).toBe(true);
+  });
+
+  it('leaving the page shows the arrangement, and coming back resumes with the same panels beside', () => {
+    const away = setPanelUrl(arranged(), 'roster', '/observatory/worktrees');
+    expect(plan(away, { beside: ['code'] })).toMatchObject({ home: null });
+    expect(plan(away, { beside: ['code'] }).hidden.size).toBe(0);
+    const back = setPanelUrl(away, 'roster', '/observatory?app=observatory');
+    expect([...plan(back, { beside: ['code'] }).hidden].sort()).toEqual(['main', 'map']);
+  });
+
+  it('turned off, nothing hides but the home still carries the switch', () => {
+    const { home, hidden } = plan(arranged(), { off: true });
+    expect(home).toBe('roster');
+    expect(hidden.size).toBe(0);
+  });
+
+  it('the primary can be the home, through the real address', () => {
+    const tree = setPanelUrl(arranged(), 'roster', '/code');
+    expect(plan(tree, { primaryHref: '/observatory' }).home).toBe('main');
+  });
+
+  it('a panel that may not be home (the Journal list) never takes the window', () => {
+    const { home, hidden } = plan(arranged(), { eligible: (p) => p.id !== 'roster' });
+    expect(home).toBeNull();
+    expect(hidden.size).toBe(0);
+  });
+
+  it('a boundary across hidden panels moves the two it stands between', () => {
+    const tree = resizeSplit(arranged(), 's1', 0, 5, 2) as Extract<LayoutNode, { type: 'split' }>;
+    expect(tree.sizes).toEqual([55, 25, 20]);
   });
 });

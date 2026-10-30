@@ -25,6 +25,8 @@ import { isLayoutNode, type LayoutNode, type PanelNode } from './layoutTree';
  * saved and would win forever. Hence VERSION: bumping it drops saved layouts
  * once, so a new default actually reaches her.
  *
+ * Also here: this window's automatic full screen state (useFullScreenState).
+ *
  * Touches: layoutTree.ts (the shape it stores), Workspace.tsx (the only
  * caller), tabSets.ts (what the setIds mean).
  */
@@ -38,6 +40,9 @@ const SEED_KEY = 'exo-workspace-last'; // localStorage — what a new window sta
    saved, so it wins forever. A version mismatch drops the saved layout once,
    and only once. */
 const VERSION = 2;
+
+const FULL_SCREEN_OFF_KEY = 'exo-workspace-fullscreen-off'; // sessionStorage
+const BESIDE_KEY = 'exo-workspace-beside'; // sessionStorage
 
 /* Ids only have to be unique within one window's tree, and they're generated
    one at a time by user gestures, so a counter is plenty — no need for uuid.
@@ -149,6 +154,49 @@ export function useLayout(): [LayoutNode, (next: LayoutNode | ((cur: LayoutNode)
   }, []);
 
   return [layout, setLayout];
+}
+
+/** Read a stored value, or the fallback if storage is refused or it's garbled. */
+function readStored<T>(key: string, fallback: T, valid: (value: unknown) => value is T): T {
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    const parsed: unknown = raw === null ? null : JSON.parse(raw);
+    return valid(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStored(key: string, value: unknown): void {
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage denied — it still works until a reload.
+  }
+}
+
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
+const isStringList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string');
+
+/**
+ * This window's automatic full screen (layoutTree.fullScreenPlan): whether she
+ * turned it off, and which panels she has brought forward beside the map. Per
+ * window, like the arrangement, and kept apart from it: a saved layout is hers
+ * and this must never touch it.
+ */
+export function useFullScreenState() {
+  const [off, setOffState] = useState(() => readStored(FULL_SCREEN_OFF_KEY, false, isBoolean));
+  const [beside, setBeside] = useState(() => readStored<string[]>(BESIDE_KEY, [], isStringList));
+  useEffect(() => writeStored(FULL_SCREEN_OFF_KEY, off), [off]);
+  useEffect(() => writeStored(BESIDE_KEY, beside), [beside]);
+  const bringForward = useCallback((panelId: string) => {
+    setBeside((cur) => (cur.includes(panelId) ? cur : [...cur, panelId]));
+  }, []);
+  const forget = useCallback((panelId: string) => {
+    setBeside((cur) => (cur.includes(panelId) ? cur.filter((id) => id !== panelId) : cur));
+  }, []);
+  return { off, setOff: setOffState, beside, bringForward, forget };
 }
 
 /** A fresh route panel. New panels open on the terrain map rather than blank:

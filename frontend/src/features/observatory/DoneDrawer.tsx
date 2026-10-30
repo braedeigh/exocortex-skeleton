@@ -33,6 +33,7 @@ export function DoneDrawer({
   laneKey,
   count,
   unread,
+  roomName,
   children,
 }: {
   /** The room it sits in, so each room remembers its own drawer. */
@@ -41,6 +42,9 @@ export function DoneDrawer({
   count: number;
   /** How many of them have a final output she hasn't opened. */
   unread: number;
+  /** Which room's it is, for a column holding several rooms' drawers
+   * (RosterMap.tsx). Inside a room it goes without saying. */
+  roomName?: string;
   /** The done cards themselves, drawn by the room as usual. */
   children: ReactNode;
 }) {
@@ -54,7 +58,7 @@ export function DoneDrawer({
         >
           &#9654;
         </span>
-        <span>Done · {count}</span>
+        <span>{roomName ? `Done in ${roomName}` : 'Done'} · {count}</span>
         {unread > 0 ? (
           <span className={styles.doneUnread}>
             <span className={styles.doneUnreadDot} aria-hidden="true" />

@@ -16,8 +16,11 @@ import styles from './NightCrew.module.css';
  * looked at (what someone else did there — linear_feed.py), a running
  * session, or a failure she hasn't seen warms the row and says so. It never
  * navigates for her.
+ *
+ * `slim` is the one-line version for the foot of the desktop map (RosterMap.tsx):
+ * the title and its warning only, with the "wanting" tint kept.
  */
-export function LinearDoor({ state }: { state: LinearRoomState | null }) {
+export function LinearDoor({ state, slim = false }: { state: LinearRoomState | null; slim?: boolean }) {
   const navigate = useNavigate();
   const sessions = state?.sessions ?? [];
   const running = state?.running ?? 0;
@@ -44,7 +47,7 @@ export function LinearDoor({ state }: { state: LinearRoomState | null }) {
   return (
     <button
       type="button"
-      className={[styles.door, wanting ? styles.doorWanting : ''].filter(Boolean).join(' ')}
+      className={[styles.door, slim ? styles.doorSlim : '', wanting ? styles.doorWanting : ''].filter(Boolean).join(' ')}
       onClick={() => void navigate({ to: '/observatory/linear' })}
       data-track="observatory-linear-door"
     >

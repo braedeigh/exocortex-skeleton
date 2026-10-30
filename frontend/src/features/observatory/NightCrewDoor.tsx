@@ -25,13 +25,16 @@ import styles from './NightCrew.module.css';
  * Deliberately NOT counted by the rail's colour buttons. Those count the
  * sessions the ROOMS draw (roomRoster in sessionFilters.ts); night crew is its
  * own place now, reached through here.
+ *
+ * `slim` is the one-line version for the foot of the desktop map (RosterMap.tsx):
+ * the title and its warning only, with the "wanting" tint kept.
  */
-export function NightCrewDoor() {
+export function NightCrewDoor({ slim = false }: { slim?: boolean } = {}) {
   const navigate = useNavigate();
   return (
     <button
       type="button"
-      className={styles.door}
+      className={[styles.door, slim ? styles.doorSlim : ''].filter(Boolean).join(' ')}
       onClick={() => void navigate({ to: '/observatory/nightcrew' })}
     >
       <span className={styles.doorMain}>

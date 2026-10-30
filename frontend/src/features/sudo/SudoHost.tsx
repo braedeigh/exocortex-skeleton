@@ -7,7 +7,8 @@
  * password box and all. The × tucks it into a small orange pill (still there,
  * still counting); tapping the pill opens it again. A request that arrives
  * after she tucked it away opens it again by itself. It stays hidden while the
- * Observatory roster is showing the cards itself (inlineClaim.ts).
+ * Observatory roster is showing the cards itself (inlineClaim.ts). The root
+ * portals it to <body>, so `position: fixed` in Sudo.module.css means the window.
  */
 import { useState, useSyncExternalStore } from 'react';
 import { inlineShown, subscribeInline } from './inlineClaim';

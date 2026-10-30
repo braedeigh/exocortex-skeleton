@@ -77,7 +77,7 @@ import styles from './SessionLane.module.css';
  * however many rooms are showing.
  *
  * THE ROOM FROM ABOVE. A room with a room helper (room_helper.py) opens with
- * a RoomMap: the room helper on top, every swarm as one stack (its summary,
+ * a RoomMap: every swarm as one stack (its summary,
  * its circle, its members' question cards, a little card per member), the
  * sessions working alone in rows beneath. There the swarms live in the map
  * only: no SwarmCard in the list, so a swarm isn't shown twice. The room
@@ -119,6 +119,7 @@ export function SessionLane({
   onClose,
   swarmId,
   roster,
+  helperInBand = false,
 }: {
   /** Which room this is — the key its open/shut state is remembered under, so
    * collapsing Coding doesn't also collapse Personal. */
@@ -161,6 +162,9 @@ export function SessionLane({
   /** Every session the page knows, to read swarm members' colours from —
    * members can live in other rooms. Defaults to this room's own sessions. */
   roster?: SessionMeta[];
+  /** The page shows the room helper in the band at its top, so the room map
+   * leaves it out (RoomHelperBand.tsx). */
+  helperInBand?: boolean;
 }) {
   const navigate = useNavigate();
   // The Keeper's slot is never shut — it has no chevron to shut it with. The
@@ -359,6 +363,7 @@ export function SessionLane({
           rosterById={rosterById}
           onOpen={onOpen}
           onChanged={onChanged}
+          helperInBand={helperInBand}
         />
       ) : null}
 

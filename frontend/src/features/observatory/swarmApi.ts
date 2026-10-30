@@ -19,7 +19,7 @@
  * her standing rules for it), and
  * terrain/TerrainPage.tsx (the outlines around swarm members on the map).
  */
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { makeStickyToggle } from '../terrain/codeHeatPref';
 
@@ -158,16 +158,27 @@ export interface RoomView {
   }[];
 }
 
-/** One room's view from above, polled with the swarms. */
-export function useRoomView(room: string, enabled = true) {
-  return useQuery({
+/** The one poll behind a room's view: a shared key, so asking twice is one request. */
+function roomViewQuery(room: string, enabled = true) {
+  return {
     queryKey: ['swarm-room', room] as const,
     enabled,
-    queryFn: async ({ signal }) =>
+    queryFn: async ({ signal }: { signal: AbortSignal }) =>
       api.get<RoomView>(`/api/swarms/room/${encodeURIComponent(room)}`, signal),
     staleTime: 4_000,
     refetchInterval: 10_000,
-  });
+  };
+}
+
+/** One room's view from above, polled with the swarms. */
+export function useRoomView(room: string, enabled = true) {
+  return useQuery(roomViewQuery(room, enabled));
+}
+
+/** Several rooms' views at once, for the desktop map; undefined until loaded. */
+export function useRoomViews(rooms: readonly string[]): Map<string, RoomView | undefined> {
+  const results = useQueries({ queries: rooms.map((room) => roomViewQuery(room)) });
+  return new Map(rooms.map((room, i) => [room, results[i]?.data]));
 }
 
 /** One project room from above, for its own page (routes/swarms.py

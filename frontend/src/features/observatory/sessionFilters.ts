@@ -1,7 +1,7 @@
 /**
- * sessionFilters.ts — the three coloured buttons on the Observatory's
- * top-right rail, as pure predicates so the counts and the filtering can't
- * disagree.
+ * sessionFilters.ts — the coloured buttons on the Observatory's rail, and the
+ * two labelled ones on the desktop map, as pure predicates so the counts and the
+ * filtering can't disagree.
  *
  * The three colours are the ones the cards already wear (SessionLane.module.css):
  *
@@ -48,9 +48,17 @@ import { isUnread } from './readReceipts';
 
 export type StateFilter = 'running' | 'active' | 'unread' | 'error';
 
+/** The two filters on the desktop map only (RosterMap.tsx). Unlike the coloured
+ * four they name a KIND of session: "Needs you" is anything stopped on her,
+ * "Planning" is every planning session, whatever colour it wears right now.
+ * [prompt: "the ability to filter by planning or needs you sessions"] */
+export type KindFilter = 'needs_you' | 'planning';
+
+export type RosterFilter = StateFilter | KindFilter;
+
 /** Every button, in the order they stack. Anything that walks the whole set
  * (the counts, the tests) reads this rather than repeating the list. */
-export const ALL_FILTERS: StateFilter[] = ['running', 'active', 'unread', 'error'];
+export const ALL_FILTERS: RosterFilter[] = ['running', 'active', 'unread', 'error', 'needs_you', 'planning'];
 
 /** "Last used in the past hour" — her words, and the whole definition of the
  * purple ACTIVE button's idle half. */
@@ -227,7 +235,11 @@ export function cardState(
    WHAT IT GIVES UP: a session that's both recent and unread now answers to
    ORANGE only, not purple, because orange is what it wears. Nothing becomes
    unreachable — the buttons still UNION, so purple and orange together is every
-   card that's alive or unwatched. */
+   card that's alive or unwatched.
+
+   THE ONE EXCEPTION: "Needs you" and "Planning" on the desktop map aren't
+   colours, so they aren't in this table. They wear words on their buttons, and
+   each answers a plain question about the session (matchesFilter). */
 const FILTER_PAINT: Record<StateFilter, CardState[]> = {
   running: ['running'],
   active: ['running', 'recent', 'plan'],
@@ -236,16 +248,34 @@ const FILTER_PAINT: Record<StateFilter, CardState[]> = {
   error: ['error'],
 };
 
-/** Does this card wear a colour the pressed button means — what the rail
- * filters and counts by, so the number on a button is the number of cards she
- * can see wearing it. */
+/** Is this an open planning session: still planning, whether or not its plan
+ * is up for her go yet. Finished ones don't count. */
+export function isPlanning(meta: Pick<SessionMeta, 'spinoff_stage' | 'done_at' | 'retired'>): boolean {
+  return meta.spinoff_stage === 'plan' && !meta.done_at && meta.retired !== true;
+}
+
+/** Does this session answer to the pressed button: for a coloured one, does its
+ * card wear that colour; for a kind, is it that kind. What every count and every
+ * filter reads, so the number on a button is the number of sessions behind it. */
 export function matchesFilter(
   meta: SessionMeta,
   openedAt: string | undefined,
-  filter: StateFilter,
+  filter: RosterFilter,
   nowMs: number = Date.now(),
 ): boolean {
+  if (filter === 'needs_you') return isAsking(meta);
+  if (filter === 'planning') return isPlanning(meta);
   return FILTER_PAINT[filter].includes(cardState(meta, openedAt, nowMs));
+}
+
+/** Does this session answer to any pressed button (they union). */
+export function matchesAny(
+  meta: SessionMeta,
+  openedAt: string | undefined,
+  filters: readonly RosterFilter[],
+  nowMs: number = Date.now(),
+): boolean {
+  return filters.some((filter) => matchesFilter(meta, openedAt, filter, nowMs));
 }
 
 /** The sessions the ROOMS on the roster can actually draw — and therefore the
@@ -342,8 +372,15 @@ export function filterCounts(
   sessions: SessionMeta[],
   opened: Record<string, string>,
   nowMs: number = Date.now(),
-): Record<StateFilter, number> {
-  const counts: Record<StateFilter, number> = { running: 0, active: 0, unread: 0, error: 0 };
+): Record<RosterFilter, number> {
+  const counts: Record<RosterFilter, number> = {
+    running: 0,
+    active: 0,
+    unread: 0,
+    error: 0,
+    needs_you: 0,
+    planning: 0,
+  };
   for (const s of sessions) {
     for (const key of ALL_FILTERS) {
       if (matchesFilter(s, opened[s.id], key, nowMs)) counts[key] += 1;
@@ -366,11 +403,9 @@ export function filterCounts(
 export function applyFilter(
   sessions: SessionMeta[],
   opened: Record<string, string>,
-  filters: StateFilter[],
+  filters: readonly RosterFilter[],
   nowMs: number = Date.now(),
 ): SessionMeta[] {
   if (filters.length === 0) return sessions;
-  return sessions.filter((s) =>
-    filters.some((f) => matchesFilter(s, opened[s.id], f, nowMs)),
-  );
+  return sessions.filter((s) => matchesAny(s, opened[s.id], filters, nowMs));
 }

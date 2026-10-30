@@ -1,0 +1,319 @@
+/* RosterMap — the Observatory's desktop map: fixed rows on top and at the foot,
+   and between them a map and a side column that each scroll by themselves. The
+   page as a whole never scrolls. */
+
+.page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-2);
+}
+
+.page > * {
+  flex-shrink: 0;
+}
+
+.page > .main {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.mainWide {
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+.map,
+.side {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: var(--space-1);
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.side > * {
+  flex-shrink: 0;
+}
+
+/* --- the map --- */
+
+.room {
+  margin-bottom: var(--space-4);
+}
+
+.roomBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* As many circles as fit: wide enough that a big swarm's names still show, and
+   no wider, since a lone circle in a wide room would otherwise fill the screen. */
+.circles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 480px));
+  gap: var(--space-3);
+}
+
+.swarm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+}
+
+.swarmSelected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.swarmName {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.swarmName:hover,
+.swarmName:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.swarmNameText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.swarmCounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.needing {
+  color: var(--orange);
+  font-weight: 600;
+}
+
+.working {
+  color: var(--accent);
+}
+
+/* The circle itself, in the colour of the swarm's state: orange when anyone
+   needs her, purple when anyone works or a plan waits, faint at rest. */
+.circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  box-sizing: border-box;
+  border: 2px solid color-mix(in srgb, var(--text-muted) 40%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  cursor: pointer;
+}
+
+.circle > * {
+  width: 100%;
+}
+
+.circleWorking,
+.circlePlan {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.circleNeeds {
+  border-color: var(--orange);
+}
+
+/* A project helper's dot with its last move beside it, not above: on a map the
+   height belongs to the circles. */
+.helperRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.helperRow > button {
+  flex: none;
+}
+
+.helperMove {
+  margin: 0;
+  max-width: 70ch;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* --- the side column --- */
+/* A question card's Send row sticks to the bottom of whatever scrolls it, with
+   room left for the column page's bottom bar. There's no such bar here. */
+.side :global(form) {
+  bottom: 0;
+}
+
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.groupHead {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.sideNote {
+  margin: 0;
+  padding: var(--space-3) var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.back {
+  align-self: flex-start;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.back:hover {
+  border-color: var(--accent);
+}
+
+/* A reply to read: a line, not a card. */
+.readRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.readOpen {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: var(--tap-target);
+  padding: var(--space-1);
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.readOpen:hover .readTitle {
+  color: var(--accent);
+}
+
+.readTitle,
+.readSummary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.readTitle {
+  font-weight: 600;
+}
+
+.readSummary {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* --- the strip that stands in for the side column on a narrower map --- */
+
+.strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.strip:hover {
+  border-color: var(--accent);
+}
+
+.stripLine {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* --- the foot: one row of doors, stopping short of the notes pill's corner --- */
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-right: calc(94px + var(--space-4));
+  overflow-x: auto;
+}
+
+.pastLink {
+  flex: none;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pastLink:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}

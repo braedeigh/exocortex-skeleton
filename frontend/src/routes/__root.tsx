@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createRootRoute, Outlet, redirect, useRouterState } from '@tanstack/react-router';
 import { SudoHost } from '../features/sudo/SudoHost';
 import { FileRequestHost } from '../features/fileedit/FileRequestHost';
@@ -135,19 +136,29 @@ function WindowRoot() {
           >
             <Outlet />
           </div>
-          {/* Keeper-staged change queue — polls /api/pending, renders nothing
-              when empty. Mounted at the root so approvals surface on every
-              page (the legacy dashboard polled this globally too). */}
-          {/* Not in the desktop app: its server has no pending queue. */}
-          {!isPublic && !standalone ? <ApprovalsHost /> : null}
-          {/* Agents' sudo requests — the bottom popup with a password box.
-              Polls /api/sudo/requests, renders nothing when none are open. */}
-          {!isPublic ? <SudoHost /> : null}
-          {/* Sessions asking her to open a file and edit it — the same bottom
-              popup, taking turns with sudo. Polls /api/file-edit/requests.
-              Not in the desktop app: its server has no such door. */}
-          {!isPublic && !standalone ? <FileRequestHost /> : null}
         </SplitLayout>
+        {/* The popups stand at window level, outside every panel. A panel is its
+            own measuring box for anything fixed inside it, and automatic full
+            screen can hide any panel, so inside one they'd sit in the wrong
+            place or not show at all. A portal keeps them in this React tree
+            (providers, router) while they sit on <body>. */}
+        {createPortal(
+          <>
+              {/* Keeper-staged change queue — polls /api/pending, renders nothing
+                  when empty. Mounted at the root so approvals surface on every
+                  page (the legacy dashboard polled this globally too). */}
+              {/* Not in the desktop app: its server has no pending queue. */}
+              {!isPublic && !standalone ? <ApprovalsHost /> : null}
+              {/* Agents' sudo requests — the bottom popup with a password box.
+                  Polls /api/sudo/requests, renders nothing when none are open. */}
+              {!isPublic ? <SudoHost /> : null}
+              {/* Sessions asking her to open a file and edit it — the same bottom
+                  popup, taking turns with sudo. Polls /api/file-edit/requests.
+                  Not in the desktop app: its server has no such door. */}
+              {!isPublic && !standalone ? <FileRequestHost /> : null}
+          </>,
+          document.body,
+        )}
       </SessionsProvider>
     </main>
   );

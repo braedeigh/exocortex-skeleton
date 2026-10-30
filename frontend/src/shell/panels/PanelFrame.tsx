@@ -11,7 +11,8 @@ import styles from './PanelFrame.module.css';
  * beside, a button to split below, and a close.
  *
  * That's the entire vocabulary of the workspace: whatever you can arrange, you
- * arrange with those three.
+ * arrange with those three. The one panel the Observatory fills the window from
+ * also gets a fourth, the switch for that.
  *
  * Every panel can be closed while more than one is open — the primary too,
  * which hands the address bar to a neighbour first (layoutTree.closePanel).
@@ -26,6 +27,7 @@ export function PanelFrame({
   onSplitDown,
   onClose,
   headerLeft,
+  fullScreen,
   children,
 }: {
   onSplitRight: () => void;
@@ -33,6 +35,9 @@ export function PanelFrame({
   /** Omitted when this panel can't close — it's the last one. */
   onClose?: () => void;
   headerLeft?: ReactNode;
+  /** On the panel the Observatory fills the window from: the on/off switch for
+   * that (layoutTree.fullScreenPlan). Absent on every other panel. */
+  fullScreen?: { on: boolean; onToggle: () => void };
   children: ReactNode;
 }) {
   return (
@@ -40,6 +45,18 @@ export function PanelFrame({
       <header className={styles.head}>
         {headerLeft}
         <div className={styles.actions}>
+          {fullScreen ? (
+            <button
+              type="button"
+              className={styles.action}
+              onClick={fullScreen.onToggle}
+              aria-pressed={fullScreen.on}
+              title={fullScreen.on ? 'Show your other panels beside this' : 'Fill the window with this page'}
+              aria-label={fullScreen.on ? 'Show your other panels beside this' : 'Fill the window with this page'}
+            >
+              {fullScreen.on ? <ShrinkIcon /> : <FillIcon />}
+            </button>
+          ) : null}
           <button
             type="button"
             className={styles.action}
@@ -79,6 +96,34 @@ export function PanelFrame({
 /* Drawn rather than typed: the box-drawing characters that mean "split" don't
    render in every font, and a control that sometimes shows a tofu box is not a
    control. These are 16px, inherit the button's colour, and stay crisp. */
+
+function FillIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ShrinkIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 function SplitRightIcon() {
   return (

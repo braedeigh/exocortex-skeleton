@@ -16,8 +16,11 @@ import styles from './NightCrew.module.css';
  * SAME RULE AS THE OTHER DOORS: it must not go silent. A worker still running
  * or a failure she hasn't seen warms the row and says so; it never navigates
  * for her.
+ *
+ * `slim` is the one-line version for the foot of the desktop map (RosterMap.tsx):
+ * the title and its warning only, with the "wanting" tint kept.
  */
-export function ResearchDoor({ state }: { state: ResearchRoomState | null }) {
+export function ResearchDoor({ state, slim = false }: { state: ResearchRoomState | null; slim?: boolean }) {
   const navigate = useNavigate();
   const sessions = state?.sessions ?? [];
   const running = state?.running ?? 0;
@@ -40,7 +43,7 @@ export function ResearchDoor({ state }: { state: ResearchRoomState | null }) {
   return (
     <button
       type="button"
-      className={[styles.door, wanting ? styles.doorWanting : ''].filter(Boolean).join(' ')}
+      className={[styles.door, slim ? styles.doorSlim : '', wanting ? styles.doorWanting : ''].filter(Boolean).join(' ')}
       onClick={() => void navigate({ to: '/observatory/research' })}
       data-track="observatory-research-door"
     >

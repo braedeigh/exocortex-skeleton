@@ -27,6 +27,9 @@ import styles from './ChatFinder.module.css';
  * in the chats, or what the agents DID (the files they touched, the commands
  * they ran).
  *
+ * On the desktop map the list drops from the box instead of sitting under it
+ * (`dropdown`), so looking something up doesn't push the map down.
+ *
  * This file also holds the pieces the Past sessions page (ArchivePage.tsx)
  * shares: the `useChatSearch` hook, the Said / Did chips and the result row.
  *
@@ -270,8 +273,19 @@ function RecentRow({ session, onOpen }: { session: RecentSession; onOpen: (convI
   );
 }
 
-export function ChatFinder({ onOpen }: { onOpen: (convId: string) => void }) {
+export function ChatFinder({
+  onOpen,
+  dropdown = false,
+}: {
+  onOpen: (convId: string) => void;
+  /** Keep the list out of the page's flow: it drops from the box while the box
+   * is in use and goes away after. For the desktop map, where nothing may push
+   * the map down. */
+  dropdown?: boolean;
+}) {
   const [typed, setTyped] = useState('');
+  const [dropped, setDropped] = useState(false);
+  const finderRef = useRef<HTMLDivElement>(null);
   const [where, setWhere] = useState<SearchIn>('said');
   const search = useChatSearch(typed, where);
   const { data: recent, refetch } = useRecentSessions(RECENT_LONG);
@@ -318,12 +332,35 @@ export function ChatFinder({ onOpen }: { onOpen: (convId: string) => void }) {
     }
   }, [refetch]);
 
+  // Shut the dropdown when she clicks away or presses Escape.
+  useEffect(() => {
+    if (!dropdown || !dropped) return;
+    const onPointer = (event: PointerEvent) => {
+      if (!finderRef.current?.contains(event.target as Node)) setDropped(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDropped(false);
+    };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [dropdown, dropped]);
+
+  // Opening a session from the dropdown shuts it.
+  const openFromList = (convId: string) => {
+    setDropped(false);
+    onOpen(convId);
+  };
+
   const sessions = recent?.sessions ?? [];
   const shownRecent = showAll ? sessions : sessions.slice(0, RECENT_SHORT);
   const results = search.results ?? [];
 
   return (
-    <div className={styles.finder}>
+    <div ref={finderRef} className={dropdown ? styles.finderBar : styles.finder}>
       <div className={styles.searchBar}>
         <input
           type="search"
@@ -332,7 +369,11 @@ export function ChatFinder({ onOpen }: { onOpen: (convId: string) => void }) {
           aria-label="Search every chat"
           value={typed}
           autoComplete="off"
-          onChange={(e) => setTyped(e.target.value)}
+          onFocus={() => setDropped(true)}
+          onChange={(e) => {
+            setTyped(e.target.value);
+            setDropped(true);
+          }}
         />
         {typed ? (
           <button type="button" className={styles.clear} aria-label="Clear search" onClick={() => setTyped('')}>
@@ -341,41 +382,45 @@ export function ChatFinder({ onOpen }: { onOpen: (convId: string) => void }) {
         ) : null}
       </div>
 
-      {search.searchingMode ? (
-        <div className={styles.results}>
-          <SearchInToggle value={where} onChange={setWhere} />
-          <SearchNotes state={search} shown={results.length} where={where} />
-          {results.map((r) => (
-            <SearchResultRow key={r.id} result={r} where={where} onOpen={onOpen} />
-          ))}
-        </div>
-      ) : sessions.length > 0 ? (
-        <section className={styles.recent}>
-          <button
-            type="button"
-            className={styles.recentHead}
-            aria-expanded={!folded}
-            onClick={toggleFold}
-          >
-            <span className={styles.chevron} aria-hidden="true">
-              {folded ? '▸' : '▾'}
-            </span>
-            Recently opened
-          </button>
-          {folded ? null : (
-            <>
-              {shownRecent.map((s) => (
-                <RecentRow key={s.id} session={s} onOpen={onOpen} />
+      {dropdown && !dropped ? null : (
+        <div className={dropdown ? styles.dropdown : undefined}>
+          {search.searchingMode ? (
+            <div className={styles.results}>
+              <SearchInToggle value={where} onChange={setWhere} />
+              <SearchNotes state={search} shown={results.length} where={where} />
+              {results.map((r) => (
+                <SearchResultRow key={r.id} result={r} where={where} onOpen={openFromList} />
               ))}
-              {sessions.length > RECENT_SHORT ? (
-                <button type="button" className={styles.showAll} onClick={() => setShowAll((v) => !v)}>
-                  {showAll ? 'Show fewer' : `Show all ${sessions.length}`}
-                </button>
-              ) : null}
-            </>
-          )}
-        </section>
-      ) : null}
+            </div>
+          ) : sessions.length > 0 ? (
+            <section className={styles.recent}>
+              <button
+                type="button"
+                className={styles.recentHead}
+                aria-expanded={!folded}
+                onClick={toggleFold}
+              >
+                <span className={styles.chevron} aria-hidden="true">
+                  {folded ? '▸' : '▾'}
+                </span>
+                Recently opened
+              </button>
+              {folded && !dropdown ? null : (
+                <>
+                  {shownRecent.map((s) => (
+                    <RecentRow key={s.id} session={s} onOpen={openFromList} />
+                  ))}
+                  {sessions.length > RECENT_SHORT ? (
+                    <button type="button" className={styles.showAll} onClick={() => setShowAll((v) => !v)}>
+                      {showAll ? 'Show fewer' : `Show all ${sessions.length}`}
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </section>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

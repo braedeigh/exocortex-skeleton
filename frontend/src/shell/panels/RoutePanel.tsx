@@ -35,7 +35,16 @@ import styles from './RoutePanel.module.css';
  * Touches: panelContext.ts (stops the app re-drawing itself inside the tile),
  * routes/__root.tsx (obeys that flag), PanelFrame.tsx (the chrome around it).
  */
-export function RoutePanel({ url, onUrlChange }: { url: string; onUrlChange: (url: string) => void }) {
+export function RoutePanel({
+  url,
+  onUrlChange,
+  onCaught,
+}: {
+  url: string;
+  onUrlChange: (url: string) => void;
+  /** This tile caught something sent to it: the workspace brings it into sight. */
+  onCaught?: () => void;
+}) {
   const [router] = useState(() =>
     createRouter({
       routeTree,
@@ -51,8 +60,8 @@ export function RoutePanel({ url, onUrlChange }: { url: string; onUrlChange: (ur
      `onUrlChange` directly — it would freeze whatever those were on the tile's
      first render. They read these refs instead, which are rewritten every
      render and are therefore always current. */
-  const latest = useRef({ url, onUrlChange });
-  latest.current = { url, onUrlChange };
+  const latest = useRef({ url, onUrlChange, onCaught });
+  latest.current = { url, onUrlChange, onCaught };
 
   // Page moved itself (a link, a redirect) — tell the workspace so the
   // arrangement remembers where this tile actually ended up.
@@ -85,6 +94,7 @@ export function RoutePanel({ url, onUrlChange }: { url: string; onUrlChange: (ur
     const { unregister, bump } = registerIntentTarget(acceptsKey.split(',') as IntentKind[], (intent) => {
       const next = urlForIntent(intent);
       if (next) latest.current.onUrlChange(next);
+      latest.current.onCaught?.();
     });
     bumpRef.current = bump;
     return () => {

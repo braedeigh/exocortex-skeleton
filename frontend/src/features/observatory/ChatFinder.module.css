@@ -7,6 +7,30 @@
   margin-bottom: var(--space-4);
 }
 
+/* The desktop map's version: the box sits in a row with other things, and the
+   list drops over the map from under it. */
+.finderBar {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.dropdown {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  min-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
 .searchBar {
   display: flex;
   align-items: center;

@@ -667,6 +667,30 @@
   }
 }
 
+/* The slim door, in the row at the foot of the desktop map (RosterMap.tsx): the
+   title alone, as big as a tap target and no bigger. What it warms for still
+   shows, in its border and its short warning. */
+.doorSlim {
+  flex: none;
+  width: auto;
+  min-height: var(--tap-target);
+  margin-bottom: 0;
+  padding: 0 var(--space-3);
+  white-space: nowrap;
+}
+
+.doorSlim .doorMotif,
+.doorSlim .doorLine,
+.doorSlim .doorSpend,
+.doorSlim .doorArrow {
+  display: none;
+}
+
+.doorSlim .doorTitle {
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
 /* --- the piles: one section per question the stack is asking --- */
 /* Each pile wears the same title line as a room on the roster (LaneHead), so
    "there is more behind this" is one gesture everywhere in the app. Spaced

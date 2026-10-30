@@ -112,7 +112,7 @@ describe('counts', () => {
   // broken, and broken outranks everything.
   it('counts a session under the one colour it wears', () => {
     const s = [session('a', { last_at: ago(2 * MIN), last_error: 'boom' })];
-    expect(filterCounts(s, {}, NOW)).toEqual({ running: 0, active: 0, unread: 0, error: 1 });
+    expect(filterCounts(s, {}, NOW)).toEqual({ running: 0, active: 0, unread: 0, error: 1, needs_you: 0, planning: 0 });
   });
 
   it('reads the opened map per session id', () => {

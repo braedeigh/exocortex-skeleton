@@ -51,7 +51,7 @@ function WorktreeMotif({ busyCount }: { busyCount: number }) {
   );
 }
 
-export function WorktreeMapDoor() {
+export function WorktreeMapDoor({ slim = false }: { slim?: boolean } = {}) {
   const navigate = useNavigate();
   const { data } = useWorktreeMap(600, 30_000);
   const nowMs = Date.now();
@@ -69,7 +69,7 @@ export function WorktreeMapDoor() {
   return (
     <button
       type="button"
-      className={[styles.door, colliding.length > 0 ? styles.doorWanting : ''].filter(Boolean).join(' ')}
+      className={[styles.door, slim ? styles.doorSlim : '', colliding.length > 0 ? styles.doorWanting : ''].filter(Boolean).join(' ')}
       onClick={() => void navigate({ to: '/observatory/worktrees' })}
       data-track="observatory-worktrees-door"
     >

@@ -6,10 +6,11 @@
  * helper (room_helper.py — the Coding room, for now), a collapsible card
  * draws the whole room at once:
  *
- *   - the ROOM HELPER on top, a filled dot like a swarm helper's: it sits a
- *     layer above the swarms and decides who works together. Tap it to open
- *     its chat, where every move it makes is posted with its reason and an
- *     undo line. Its last move is written beside it;
+ *   - the ROOM HELPER, a filled dot like a swarm helper's: it sits a layer
+ *     above the swarms and decides who works together. Tap it to open its chat,
+ *     where every move it makes is posted with its reason and an undo line. On
+ *     the Observatory page it's in the band at the top instead
+ *     (RoomHelperBand.tsx), so this map leaves it out (`helperInBand`);
  *   - each SWARM as one stack (SwarmStack.tsx): its name and the helper's
  *     summary, then its circle drawn exactly as on its own page
  *     (SwarmNetwork.tsx), then the questions its members are asking her as
@@ -69,7 +70,7 @@ import { shortTitle } from './swarmNetworkMath';
 
 /** A session's state, read from the roster the same way the swarm cards
  * read theirs: asking her beats working beats resting. */
-function stateOf(meta: SessionMeta | undefined, fallback: MemberState): MemberState {
+export function stateOf(meta: SessionMeta | undefined, fallback: MemberState): MemberState {
   if (!meta) return fallback;
   if (meta.awaiting_input) return 'needs_input';
   if (meta.running) return 'working';
@@ -77,7 +78,7 @@ function stateOf(meta: SessionMeta | undefined, fallback: MemberState): MemberSt
 }
 
 /** One ring — the same drawing SwarmNetwork uses for a session. */
-function Ring({ state, big = false }: { state: MemberState; big?: boolean }) {
+export function Ring({ state, big = false }: { state: MemberState; big?: boolean }) {
   return (
     <svg width="32" height="32" viewBox="0 0 32 32" className={ring.ringBox} aria-hidden="true">
       {big ? null : <circle cx="16" cy="16" r="10" className={ring.ring} />}
@@ -96,6 +97,13 @@ const MOVE_WORDS: Record<RoomMove['kind'], string> = {
   split: 'split out of a swarm:',
   release: 'released to work alone:',
 };
+
+/** One helper move in words: what it did, to how many, and why. */
+export function moveLine(move: RoomMove): string {
+  const sessions = `${move.convs.length} ${move.convs.length === 1 ? 'session' : 'sessions'}`;
+  const where = move.to_swarm !== null ? ` (swarm ${move.to_swarm})` : '';
+  return `${MOVE_WORDS[move.kind]} ${sessions}${where} — ${move.reason}`;
+}
 
 /** How many members of these swarms need her, for a title line. */
 function needingIn(swarms: SwarmView[]): number {
@@ -147,11 +155,7 @@ export function MapBody({
             <span className={styles.agentName}>{helperLabel}</span>
           </button>
           {lastMove ? (
-            <p className={styles.lastMove}>
-              Last move: {MOVE_WORDS[lastMove.kind]} {lastMove.convs.length}{' '}
-              {lastMove.convs.length === 1 ? 'session' : 'sessions'}
-              {lastMove.to_swarm !== null ? ` (swarm ${lastMove.to_swarm})` : ''} — {lastMove.reason}
-            </p>
+            <p className={styles.lastMove}>Last move: {moveLine(lastMove)}</p>
           ) : null}
         </div>
       ) : null}
@@ -263,6 +267,7 @@ export function RoomMap({
   rosterById,
   onOpen,
   onChanged,
+  helperInBand = false,
 }: {
   room: string;
   view: RoomView;
@@ -276,6 +281,9 @@ export function RoomMap({
   onOpen: (conv: string) => void;
   /** After she answers a question here, so the roster refreshes. */
   onChanged?: () => void;
+  /** The room helper is up in the band at the top of the page
+   * (RoomHelperBand.tsx), so its dot leaves this map and shows once. */
+  helperInBand?: boolean;
 }) {
   const projects = view.projects ?? [];
   // A project's swarms are drawn in its box, so the room's own are the rest.
@@ -310,7 +318,7 @@ export function RoomMap({
           </div>
         ) : null}
         <MapBody
-          helperConv={view.helper_conv}
+          helperConv={helperInBand ? null : view.helper_conv}
           helperLabel="Room helper"
           moves={view.moves}
           solos={view.solos}

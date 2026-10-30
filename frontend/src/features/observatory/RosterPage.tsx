@@ -1,6 +1,7 @@
 /**
  * RosterPage.tsx — the Sessions page: every observatory session, in its room,
- * with the Keeper hoisted above them and the colour rail to filter by state.
+ * with the Keeper hoisted above them and the colour rail to filter by state. On
+ * a wide desktop panel the same page draws as a map (RosterMap.tsx).
  * The long note on RosterPage below is the page's design history. Touches
  * api.ts (the shared roster query and the session calls), SessionLane.tsx (the
  * cards), sessionFilters.ts (the rail), and the doors to the sub-rooms.
@@ -29,9 +30,12 @@ import {
 } from './api';
 import { sessionLocation } from './sessionLocation';
 import { openedMap, setConversationRead } from './readReceipts';
-import { applyFilter, filterCounts, roomRoster, rosterView, type StateFilter } from './sessionFilters';
+import { applyFilter, filterCounts, roomRoster, rosterView, sessionIs, type RosterFilter } from './sessionFilters';
 import { SessionDialog, type SessionDraft } from './SessionDialog';
 import { SessionLane } from './SessionLane';
+import { RoomHelperBand } from './RoomHelperBand';
+import { RosterMap } from './RosterMap';
+import { useShownWidth } from './SwarmNetwork';
 import { NightCrewDoor } from './NightCrewDoor';
 import { HelpersDoor } from './HelpersDoor';
 import { LinearDoor } from './LinearDoor';
@@ -51,6 +55,8 @@ import { useToasts } from '../journal/useJournalData';
 import { ToastStack } from '../../ui';
 import { isStandalone, pageIsOffered } from '../../shell/standalone';
 import { useCurrentApp } from '../../shell/apps';
+import { openConversationInPane } from '../../shell/paneConversation';
+import { DESKTOP_QUERY, useMediaQuery } from '../../shell/useMediaQuery';
 import { ChatFinder } from './ChatFinder';
 import styles from './RosterPage.module.css';
 
@@ -96,13 +102,15 @@ function sortRoster(sessions: SessionMeta[], dir: RosterSort): SessionMeta[] {
  * red button on a page with nothing broken is a permanent false alarm, so it
  * isn't drawn at all until something actually fails. */
 const FILTERS: {
-  key: StateFilter;
+  key: RosterFilter;
   /** The class carrying this button's --hue; every other rule reads from it. */
   hue: string;
   label: string;
   title: string;
   emptyNote: string;
   onlyWhenPresent?: boolean;
+  /** On the desktop map only. The phone's rail stays at four. */
+  mapOnly?: boolean;
 }[] = [
   {
     key: 'running',
@@ -134,7 +142,29 @@ const FILTERS: {
     emptyNote: 'Nothing broken in this room.',
     onlyWhenPresent: true,
   },
+  {
+    key: 'needs_you',
+    hue: 'filterHueKind',
+    label: 'Needs you',
+    title: 'Sessions stopped on you: a question, or a command to approve',
+    emptyNote: 'Nothing is waiting on you here.',
+    mapOnly: true,
+  },
+  {
+    key: 'planning',
+    hue: 'filterHueKind',
+    label: 'Planning',
+    title: 'Planning sessions, with the plans waiting on your go first',
+    emptyNote: 'No planning sessions here.',
+    mapOnly: true,
+  },
 ];
+
+/* How wide the page's own panel has to be for each desktop view: from here the
+   map and its side column, from here the map with a one-line strip. Narrower
+   than that it's the column, as on a phone. */
+const MAP_WIDE_PX = 1100;
+const MAP_STRIP_PX = 600;
 
 /** Each room's fuller introduction, in the page's own voice — headings come
  * from LANE_LABEL (api.ts), the shared single source, and the walk order from
@@ -228,6 +258,10 @@ function roomIntro(lane: Lane): string {
  * as the 07-27 ordering call applied to a wider set. The ordering survived
  * night crew becoming a page: the door kept the spot the section held.
  *
+ * ON A DESKTOP this page is a map rather than this column (RosterMap.tsx), once
+ * its panel is wide enough: see `mapSize`. Everything below the state here is
+ * shared; the column's bottom-bar rail is what the map moves up into a row.
+ *
  * IN THE DESKTOP APP (shell/standalone.ts) some doors aren't drawn: each door
  * asks pageIsOffered() for its own address, and the ones that lead to rooms
  * only the owner's install has — Worktrees, Night crew, Helpers, Research,
@@ -260,7 +294,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // Which colours of the floating rail are pressed. Any number at once, empty
   // for the whole roster. Deliberately NOT persisted: a filter that survived a
   // reload would hide sessions she'd forgotten she'd hidden.
-  const [filters, setFilters] = useState<StateFilter[]>([]);
+  const [filters, setFilters] = useState<RosterFilter[]>([]);
   // Bumped when she flips a card's read dot, so the render that reads
   // localStorage runs again immediately instead of waiting for the 5.5s poll.
   const [, bumpOpened] = useState(0);
@@ -279,6 +313,20 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   // Keeper. Doors to other rooms show only where the app holds their page.
   const app = useCurrentApp();
   const view = rosterView(app);
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  const opensInPane = isDesktop && view.rooms === null && !isStandalone();
+  // Which view this panel has room for, measured on the panel rather than the
+  // window: with a session pane open the same screen has half the width. The
+  // docked pane, the Journal's list, the desktop app and phones keep the column.
+  const [pageRef, pageWidth] = useShownWidth();
+  const mapSize: 'wide' | 'strip' | null =
+    !opensInPane || onOpenConversation
+      ? null
+      : pageWidth >= MAP_WIDE_PX
+        ? 'wide'
+        : pageWidth >= MAP_STRIP_PX
+          ? 'strip'
+          : null;
   const offered = (url: string) => pageIsOffered(url, app);
   const rooms = useRooms().filter((room) => view.rooms === null || view.rooms.includes(room.id));
   // The rail's roomless '+' can only skip asking which room when the app has
@@ -312,6 +360,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   const { data: terrain } = useTerrain(anyRunning, 350);
 
   const ordered = useMemo(() => sortRoster(sessions, sortDir), [sessions, sortDir]);
+  const rosterById = useMemo(() => new Map(sessions.map((s) => [s.id, s])), [sessions]);
+  // The room helper's band: only where every room shows, which leaves out the
+  // Journal's list, and never in the desktop app, which has no room helper.
+  const helperBandOn = view.rooms === null && !isStandalone();
   const opened = openedMap();
 
   // Everything below — the rail's numbers AND the rooms' contents — comes off
@@ -335,9 +387,18 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     .join(',');
   useEffect(() => {
     if (!vanished) return;
-    const gone = vanished.split(',') as StateFilter[];
+    const gone = vanished.split(',') as RosterFilter[];
     setFilters((cur) => (cur.some((f) => gone.includes(f)) ? cur.filter((f) => !gone.includes(f)) : cur));
   }, [vanished]);
+
+  // The map's own buttons aren't drawn on the column, so let go of any pressed
+  // when the panel narrows to it, or she'd be narrowed with no way to undo it.
+  const onMap = mapSize !== null;
+  useEffect(() => {
+    if (onMap) return;
+    const mapOnly = FILTERS.filter((f) => f.mapOnly).map((f) => f.key);
+    setFilters((cur) => (cur.some((f) => mapOnly.includes(f)) ? cur.filter((f) => !mapOnly.includes(f)) : cur));
+  }, [onMap]);
 
   // The Keeper stands OUTSIDE the rooms (her 08-03 ask): one pinned session at
   // the top of the page, in no lane, with no chevron over it. It's the door to
@@ -400,11 +461,16 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     });
   };
 
+  // Open a session: in the docked pane's own seam, else in a pane on the right
+  // of this page (shell/panels/conversationRouting.ts), else by moving this page,
+  // which is what a phone does because nothing there catches it. The Journal's
+  // list and the desktop app keep moving the page.
   const open = (convId: string) => {
     if (onOpenConversation) {
       onOpenConversation(convId);
       return;
     }
+    if (opensInPane && openConversationInPane(convId)) return;
     void navigate(sessionLocation(convId));
   };
 
@@ -445,19 +511,164 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
       .catch(() => setActionFailed(true));
   };
 
+  // The roster's controls, built once: the column stands them in its bottom bar,
+  // the map in a row above itself. RoomMap and the cards take no part in this.
+  const newButton = (
+          <button
+            type="button"
+            className={styles.railNew}
+            onClick={() => setCreating(onlyRoom ?? 'unset')}
+            title="New session"
+            aria-label="New session"
+          >
+            +
+          </button>
+  );
+  const filterButtons = (
+          <div className={styles.filters} role="group" aria-label="Filter sessions by state">
+            {FILTERS.filter((f) => onMap || !f.mapOnly).map(({ key, hue, label, title, onlyWhenPresent }) => {
+              const n = counts[key];
+              if (onlyWhenPresent && n === 0) return null;
+              const on = filters.includes(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={[
+                    styles.filterBtn,
+                    styles[hue],
+                    on ? styles.filterOn : '',
+                    n === 0 ? styles.filterEmpty : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-pressed={on}
+                  disabled={n === 0}
+                  title={n === 0 ? `${title} — none right now` : title}
+                  onClick={() =>
+                    setFilters((cur) =>
+                      cur.includes(key) ? cur.filter((f) => f !== key) : [...cur, key],
+                    )
+                  }
+                >
+                  <span className={styles.filterDot} aria-hidden="true" />
+                  <span className={styles.filterCount}>{n}</span>
+                  <span className={styles.filterLabel}>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+  );
+  const sortButton = (
+          <div className={styles.railUtils}>
+            <button
+              type="button"
+              className={styles.railUtil}
+              onClick={toggleSort}
+              title={
+                sortDir === 'oldest'
+                  ? 'Oldest first — tap for newest first'
+                  : 'Newest first — tap for oldest first'
+              }
+              aria-label="Change session sort order"
+            >
+              <span className={styles.railUtilIcon} aria-hidden="true">
+                {sortDir === 'oldest' ? '↓' : '↑'}
+              </span>
+              <span className={styles.railUtilLabel}>
+                {sortDir === 'oldest' ? 'Oldest' : 'Newest'}
+              </span>
+            </button>
+          </div>
+  );
+
+  // The map's Keeper is a small door rather than the big card: the same way to
+  // her day, in the row at the top, with its dot saying if there's something new.
+  const keeperMeta = keeper[0];
+  const keeperDoor = keeperMeta ? (
+    <button
+      type="button"
+      className={styles.keeperDoor}
+      onClick={() => open(keeperMeta.id)}
+      title="Open the Keeper"
+    >
+      {sessionIs(keeperMeta, opened[keeperMeta.id], 'unread') ? (
+        <span className={styles.keeperUnread} aria-label="Unread" />
+      ) : null}
+      <span aria-hidden="true">&#x1F319;</span> Keeper
+    </button>
+  ) : null;
+
+  const helperBands = helperBandOn
+    ? rooms.map(({ id }) => <RoomHelperBand key={id} room={id} rosterById={rosterById} onOpen={open} />)
+    : null;
+
+  // The map's rooms: a room with a room helper leads (Coding, then Personal).
+  const mapRooms = [...rooms].sort((a, b) => (a.id === 'coding' ? 0 : 1) - (b.id === 'coding' ? 0 : 1));
+
   return (
-    <div className={styles.page}>
-      {/* Two columns: the roster, and a lane of its own on the right for the
-          rail. .layoutRoomy widens that lane into the empty margin a full-width
-          screen has either side of the 640px roster — it's off in the desktop
-          split's docked pane, where the roster fills the pane and every pixel
-          the lane took would come off the cards. */}
+    <div ref={pageRef} className={[styles.page, mapSize ? styles.pageMap : ''].filter(Boolean).join(' ')}>
+      {mapSize ? (
+        <RosterMap
+          size={mapSize}
+          band={helperBands}
+          title={
+            <div className={styles.mapTitleRow}>
+              <h1 className={styles.title}>Observatory</h1>
+              <ChatFinder onOpen={open} dropdown />
+              {keeperDoor}
+              <div className={styles.mapMeter}>
+                <MemoryMeter />
+              </div>
+            </div>
+          }
+          controls={
+            <div className={styles.mapControls}>
+              {newButton}
+              {filterButtons}
+              {sortButton}
+            </div>
+          }
+          doors={
+            <>
+              {offered('/observatory/worktrees') ? <WorktreeMapDoor slim /> : null}
+              {offered('/observatory/nightcrew') ? <NightCrewDoor slim /> : null}
+              {offered('/observatory/helpers') ? <HelpersDoor state={helpersState} slim /> : null}
+              {offered('/observatory/research') ? <ResearchDoor state={researchState} slim /> : null}
+              {offered('/observatory/linear') ? <LinearDoor state={linearState} slim /> : null}
+              {offered('/observatory/tree') ? <SpinoffTreeDoor slim /> : null}
+              {offered('/observatory/burn') ? <TokenBurnDoor slim /> : null}
+            </>
+          }
+          rooms={mapRooms}
+          roomable={roomable}
+          rosterById={rosterById}
+          saved={saved}
+          opened={opened}
+          filters={filters}
+          terrain={terrain}
+          stray={strayRoom()}
+          onNew={(room) => setCreating(toLane(room))}
+          onOpen={open}
+          onSetRead={setRead}
+          onRename={setEditTarget}
+          onChanged={refresh}
+          onClose={onCloseSession}
+        />
+      ) : (
       <div
         className={[styles.layout, onOpenConversation ? '' : styles.layoutRoomy]
           .filter(Boolean)
           .join(' ')}
       >
+        {/* Two columns: the roster, and a lane of its own on the right for the
+            rail. .layoutRoomy widens that lane into the empty margin a full-width
+            screen has either side of the 640px roster — it's off in the desktop
+            split's docked pane, where the roster fills the pane and every pixel
+            the lane took would come off the cards. */}
         <div className={styles.inner}>
+          {/* The room helper first of all, at every width (RoomHelperBand.tsx). */}
+          {helperBands}
           {/* Just the title now — sort moved into the rail, so every control
               that acts on the roster lives in one column instead of two. */}
           {/* The title, and under it a hairline saying how full the box is.
@@ -509,6 +720,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               blurb={roomIntro(lane)}
               sessions={byLane(lane)}
               roster={ordered}
+              helperInBand={helperBandOn}
               terrain={terrain}
               opened={opened}
               emptyNote={emptyNote}
@@ -564,44 +776,6 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               and when. A plain door: the numbers load once she walks in. */}
           {offered('/observatory/burn') ? <TokenBurnDoor /> : null}
 
-          {/* Seeded from the '+' she actually pressed, and NOT seeded at all
-              from the rail's — that one gets a null lane, which makes the sheet
-              open on "Choose a room…" with its button dead until she picks.
-              No default there on purpose: the room fixes where the session runs
-              for good, and a sheet that pre-answers the one irreversible field
-              is making that choice for her. The heading follows suit — it only
-              names a room when there's a room to name. */}
-          <SessionDialog
-            open={creating !== null}
-            title={
-              creating && creating !== 'unset'
-                ? `New session in ${laneLabel(creating)}`
-                : 'New session'
-            }
-            lane={creating === 'unset' ? null : creating}
-            modelChoices={modelChoices}
-            onClose={() => setCreating(null)}
-            onSave={onCreate}
-          />
-          {/* The ✎ sheet seeds "Asks first" from `act_gate_set` — her PIN — not
-              from the resolved `act_gate`. Resolved is what the session
-              currently DOES, which for an un-pinned Orchestra session is "asks"
-              by inheritance; seeding from it made the picker read "Always ask",
-              and saving wrote that back as a deliberate choice, so moving a
-              session Orchestra → Personal carried every gate along with it. */}
-          <SessionDialog
-            open={editTarget !== null}
-            title={editTarget ? `Edit ${editTarget.title || editTarget.id}` : 'Edit session'}
-            initial={editTarget?.title ?? ''}
-            initialJournal={editTarget?.journal === true}
-            initialModel={editTarget?.model ?? ''}
-            lane={toLane(editTarget?.lane)}
-            editable
-            initialActGate={editTarget?.act_gate_set ?? null}
-            modelChoices={modelChoices}
-            onClose={() => setEditTarget(null)}
-            onSave={onEdit}
-          />
         </div>
 
         {/* The rail, in its own lane and sticky so it floats alongside as the
@@ -622,76 +796,51 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
               room she means — and it doesn't pretend to. It opens the sheet
               with the room blank and makes her say. The per-room '+' on each
               title line is the one that carries an answer with it. */}
-          <button
-            type="button"
-            className={styles.railNew}
-            onClick={() => setCreating(onlyRoom ?? 'unset')}
-            title="New session"
-            aria-label="New session"
-          >
-            +
-          </button>
-
-          <div className={styles.filters} role="group" aria-label="Filter sessions by state">
-            {FILTERS.map(({ key, hue, label, title, onlyWhenPresent }) => {
-              const n = counts[key];
-              if (onlyWhenPresent && n === 0) return null;
-              const on = filters.includes(key);
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  className={[
-                    styles.filterBtn,
-                    styles[hue],
-                    on ? styles.filterOn : '',
-                    n === 0 ? styles.filterEmpty : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  aria-pressed={on}
-                  disabled={n === 0}
-                  title={n === 0 ? `${title} — none right now` : title}
-                  onClick={() =>
-                    setFilters((cur) =>
-                      cur.includes(key) ? cur.filter((f) => f !== key) : [...cur, key],
-                    )
-                  }
-                >
-                  <span className={styles.filterDot} aria-hidden="true" />
-                  <span className={styles.filterCount}>{n}</span>
-                  <span className={styles.filterLabel}>{label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Utilities, under the colours and set apart from them. Ink, not
-              hue: colour in this rail means STATE, so an action that isn't a
-              state doesn't get to borrow one. Read state stays a per-card
-              thing (the dot on each card) — there's no bulk clear. */}
-          <div className={styles.railUtils}>
-            <button
-              type="button"
-              className={styles.railUtil}
-              onClick={toggleSort}
-              title={
-                sortDir === 'oldest'
-                  ? 'Oldest first — tap for newest first'
-                  : 'Newest first — tap for oldest first'
-              }
-              aria-label="Change session sort order"
-            >
-              <span className={styles.railUtilIcon} aria-hidden="true">
-                {sortDir === 'oldest' ? '↓' : '↑'}
-              </span>
-              <span className={styles.railUtilLabel}>
-                {sortDir === 'oldest' ? 'Oldest' : 'Newest'}
-              </span>
-            </button>
-          </div>
+          {newButton}
+          {filterButtons}
+          {sortButton}
         </div>
       </div>
+      )}
+
+      {/* Seeded from the '+' she actually pressed, and NOT seeded at all
+          from the rail's — that one gets a null lane, which makes the sheet
+          open on "Choose a room…" with its button dead until she picks.
+          No default there on purpose: the room fixes where the session runs
+          for good, and a sheet that pre-answers the one irreversible field
+          is making that choice for her. The heading follows suit — it only
+          names a room when there's a room to name. */}
+      <SessionDialog
+        open={creating !== null}
+        title={
+          creating && creating !== 'unset'
+            ? `New session in ${laneLabel(creating)}`
+            : 'New session'
+        }
+        lane={creating === 'unset' ? null : creating}
+        modelChoices={modelChoices}
+        onClose={() => setCreating(null)}
+        onSave={onCreate}
+      />
+      {/* The ✎ sheet seeds "Asks first" from `act_gate_set` — her PIN — not
+          from the resolved `act_gate`. Resolved is what the session
+          currently DOES, which for an un-pinned Orchestra session is "asks"
+          by inheritance; seeding from it made the picker read "Always ask",
+          and saving wrote that back as a deliberate choice, so moving a
+          session Orchestra → Personal carried every gate along with it. */}
+      <SessionDialog
+        open={editTarget !== null}
+        title={editTarget ? `Edit ${editTarget.title || editTarget.id}` : 'Edit session'}
+        initial={editTarget?.title ?? ''}
+        initialJournal={editTarget?.journal === true}
+        initialModel={editTarget?.model ?? ''}
+        lane={toLane(editTarget?.lane)}
+        editable
+        initialActGate={editTarget?.act_gate_set ?? null}
+        modelChoices={modelChoices}
+        onClose={() => setEditTarget(null)}
+        onSave={onEdit}
+      />
 
       {/* The same floating dev-notes / ideas pill every other page has — now
           in the docked pane too, since that's where this page is most often

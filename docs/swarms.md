@@ -294,9 +294,13 @@ or move solo sessions out of a swarm into the layer above."
 - **The room from above** (`RoomMap.tsx`, at the head of any room with a room
   helper). Her ask: "a display on the front with circles for each swarm and
   the generated helpers in the middle and extra agents in rows below that."
-  The room helper on top with its last move, each swarm in a circle drawn as
-  on its page (`SwarmNetwork.tsx`, its helper in the middle), and the
-  sessions working alone in rows beneath. Data: `GET /api/swarms/room/<room>`.
+  Each swarm in a circle drawn as on its page (`SwarmNetwork.tsx`, its helper
+  in the middle), and the sessions working alone in rows beneath, with each
+  project room as a box above them. The room helper isn't in it on the
+  Observatory: it's in a band at the very top of the page, above everything it
+  arranges (`RoomHelperBand.tsx`), at every width. On desktop the same data
+  draws as the page's map (`RosterMap.tsx`, `mapPlaces.ts`). Data:
+  `GET /api/swarms/room/<room>`.
 
 ## Project rooms and the project helper
 

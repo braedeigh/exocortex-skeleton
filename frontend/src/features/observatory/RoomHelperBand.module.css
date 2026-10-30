@@ -1,0 +1,67 @@
+/* RoomHelperBand — the room helper across the top of the page: a quiet strip,
+   not a card, because it's a door to one session rather than a thing to read.
+   Each line stays on one line, which is what holds it to about 60px on a phone. */
+
+.band {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 56px;
+  margin-bottom: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease;
+}
+
+.band:hover,
+.band:focus-visible {
+  border-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .band {
+    transition: none;
+  }
+}
+
+.words {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.name {
+  flex: none;
+  font-weight: 600;
+}
+
+.summary,
+.move {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.arrow {
+  flex: none;
+  color: var(--text-muted);
+}

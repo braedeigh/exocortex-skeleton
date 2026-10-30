@@ -34,8 +34,8 @@
  * What a panel is showing.
  *
  * - 'primary' — the app's normal routed content (whatever page the address
- *   bar says). Exactly one of these exists: it's the panel the browser URL,
- *   the back button, and the app's popups ride on. It CAN be closed — another
+ *   bar says). Exactly one of these exists: it's the panel the browser URL
+ *   and the back button ride on. It CAN be closed — another
  *   panel is promoted to take the job over first (closePanel below), so there
  *   is never none.
  * - 'pane'    — the reading room stack: Observatory / the open session /
@@ -106,6 +106,63 @@ export function parentOf(root: LayoutNode, id: string): SplitNode | null {
     if (hit) return hit;
   }
   return null;
+}
+
+/* ---------- automatic full screen ---------- */
+
+/** What one window's automatic full screen is doing right now. */
+export interface FullScreenPlan {
+  /** The panel the Observatory page fills the window from, whether or not full
+   * screen is on: it's the panel that carries the on/off button. */
+  home: string | null;
+  /** The panels to draw as nothing. They stay mounted; the tree doesn't change. */
+  hidden: ReadonlySet<string>;
+}
+
+const NOTHING_HIDDEN: ReadonlySet<string> = new Set();
+const OBSERVATORY_PATH = '/observatory';
+
+/**
+ * Which panels step aside so the Observatory page has the window.
+ *
+ * The home is the first panel sitting exactly on /observatory that may be one
+ * (`eligible`: the Journal's list and the desktop app may not). Everything else
+ * hides, except the panels in `beside`, the ones brought forward next to the
+ * map (a session she opened, a panel she split off). When no panel is on the
+ * page, or she turned it `off`, nothing hides, so leaving the page shows the
+ * arrangement as she left it and coming back resumes.
+ *
+ * This is display only: no tree is changed and nothing about it is saved in the
+ * layout, so every saved arrangement keeps working untouched.
+ *
+ * Prompt that produced it: "i'm also wanting for the observatory page to be
+ * full screen when i'm on it."
+ */
+export function fullScreenPlan(
+  root: LayoutNode,
+  options: {
+    primaryHref: string;
+    off: boolean;
+    beside: readonly string[];
+    eligible?: (panel: PanelNode) => boolean;
+  },
+): FullScreenPlan {
+  const { primaryHref, off, beside, eligible } = options;
+  const panels = listPanels(root);
+  const onPage = (panel: PanelNode) => {
+    const url = panel.kind === 'primary' ? primaryHref : (panel.url ?? '');
+    return url.split('?')[0].replace(/\/$/, '') === OBSERVATORY_PATH;
+  };
+  const home = panels.find((panel) => onPage(panel) && (eligible?.(panel) ?? true));
+  if (!home) return { home: null, hidden: NOTHING_HIDDEN };
+  if (off) return { home: home.id, hidden: NOTHING_HIDDEN };
+  const kept = new Set([home.id, ...beside]);
+  return { home: home.id, hidden: new Set(panels.filter((p) => !kept.has(p.id)).map((p) => p.id)) };
+}
+
+/** Is this whole part of the tree hidden? A split is only when all of it is. */
+export function isWhollyHidden(node: LayoutNode, hidden: ReadonlySet<string>): boolean {
+  return listPanels(node).every((panel) => hidden.has(panel.id));
 }
 
 /* ---------- changing the tree ---------- */
@@ -251,17 +308,20 @@ function removeNode(node: LayoutNode, id: string): LayoutNode | null {
 
 /** Drag a boundary: move `delta` percent from the child after it to the child
  *  before it (or the other way for a negative delta). Only those two children
- *  move, so dragging one boundary never disturbs the rest of the row. */
+ *  move, so dragging one boundary never disturbs the rest of the row. `next` is
+ *  the child after it, which is further along than `boundary + 1` when hidden
+ *  panels sit between the two (fullScreenPlan). */
 export function resizeSplit(
   root: LayoutNode,
   splitId: string,
   boundary: number,
   delta: number,
+  next: number = boundary + 1,
 ): LayoutNode {
   const target = findSplit(root, splitId);
   if (!target) return root;
   const a = target.sizes[boundary];
-  const b = target.sizes[boundary + 1];
+  const b = target.sizes[next];
   if (a === undefined || b === undefined) return root;
 
   // Clamp so neither side crosses MIN_PCT. Both panels keep a grabbable
@@ -271,7 +331,7 @@ export function resizeSplit(
 
   const sizes = [...target.sizes];
   sizes[boundary] = a + move;
-  sizes[boundary + 1] = b - move;
+  sizes[next] = b - move;
   return replaceNode(root, splitId, { ...target, sizes });
 }
 

@@ -20,8 +20,11 @@ import styles from './NightCrew.module.css';
  * or the last one failed, the row says so and warms; it never navigates for
  * her. Borrows NightCrew.module.css's door styles outright so the two doors
  * read as one idiom.
+ *
+ * `slim` is the one-line version for the foot of the desktop map (RosterMap.tsx):
+ * the title and its warning only, with the "wanting" tint kept.
  */
-export function HelpersDoor({ state }: { state: HelpersState | null }) {
+export function HelpersDoor({ state, slim = false }: { state: HelpersState | null; slim?: boolean }) {
   const navigate = useNavigate();
   const runs = state?.runs ?? [];
   const running = state?.running ?? 0;
@@ -44,7 +47,7 @@ export function HelpersDoor({ state }: { state: HelpersState | null }) {
   return (
     <button
       type="button"
-      className={[styles.door, wanting ? styles.doorWanting : ''].filter(Boolean).join(' ')}
+      className={[styles.door, slim ? styles.doorSlim : '', wanting ? styles.doorWanting : ''].filter(Boolean).join(' ')}
       onClick={() => void navigate({ to: '/observatory/helpers' })}
       data-track="observatory-helpers-door"
     >

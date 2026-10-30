@@ -4,8 +4,9 @@ import { conversationUrl, routeConversation, windowAcceptsConversations } from '
 
 /**
  * The owner's rule for where a conversation opens, checked in order:
- * visible → reveal; a background tab → switch; an observatory panel → new tab
- * there; nowhere observatory → a new pane. Plus the gate: a window with no
+ * visible → reveal; a background tab → switch; a panel showing a conversation
+ * → new tab there; an observatory page → a pane on its right; nowhere
+ * observatory → a new pane. Plus the gate: a window with no
  * observatory presence at all doesn't claim conversations.
  */
 
@@ -66,7 +67,7 @@ describe('rule 2 — a background tab: that panel switches to it', () => {
   it('reuses the tab own url, params intact', () => {
     const tabUrl = `${CONV_URL}&scroll=42`;
     const tree = row(
-      panel({ id: 'o', url: '/observatory', tabs: [{ url: tabUrl, at: 1 }] }),
+      panel({ id: 'o', url: '/code', tabs: [{ url: tabUrl, at: 1 }] }),
       panel({ id: 'p', kind: 'primary' }),
     );
     expect(routeConversation(tree, CONV, '/todos')).toEqual({
@@ -76,35 +77,94 @@ describe('rule 2 — a background tab: that panel switches to it', () => {
       url: tabUrl,
     });
   });
-});
 
-describe('rule 3 — an observatory panel takes it as a new tab', () => {
-  it('prefers a roster panel over one reading another conversation, and the primary last', () => {
+  it('never takes the roster away: a tab in the roster row opens in a pane instead', () => {
     const tree = row(
-      panel({ id: 'reading', url: conversationUrl('other') }),
-      panel({ id: 'roster', url: '/observatory' }),
+      panel({ id: 'o', url: '/observatory', tabs: [{ url: CONV_URL, at: 1 }] }),
       panel({ id: 'p', kind: 'primary' }),
     );
-    expect(routeConversation(tree, CONV, '/observatory')).toEqual({
+    expect(routeConversation(tree, CONV, '/todos')).toEqual({
+      kind: 'split',
+      targetId: 'o',
+      url: CONV_URL,
+      dir: 'row',
+    });
+  });
+});
+
+describe('rule 3 — a panel showing a conversation takes it as a new tab', () => {
+  it('opens into the rightmost route panel, leaving the roster where it is', () => {
+    const tree = row(
+      panel({ id: 'roster', url: '/observatory' }),
+      panel({ id: 'left', url: conversationUrl('other') }),
+      panel({ id: 'right', url: conversationUrl('another') }),
+      panel({ id: 'p', kind: 'primary' }),
+    );
+    expect(routeConversation(tree, CONV, '/todos')).toEqual({
       kind: 'show',
-      panelId: 'roster',
+      panelId: 'right',
       isPrimary: false,
       url: CONV_URL,
     });
   });
 
-  it('falls to the primary when it alone shows the observatory', () => {
-    const tree = row(panel({ id: 'c', url: '/code' }), panel({ id: 'p', kind: 'primary' }));
-    expect(routeConversation(tree, CONV, '/observatory')).toEqual({
+  it('uses the primary only when it alone shows a conversation', () => {
+    const tree = row(panel({ id: 'roster', url: '/observatory' }), panel({ id: 'p', kind: 'primary' }));
+    expect(routeConversation(tree, CONV, conversationUrl('other'))).toEqual({
       kind: 'show',
       panelId: 'p',
       isPrimary: true,
       url: CONV_URL,
     });
   });
+
+  it('a session pane in front of her beats a hidden one', () => {
+    const tree = row(
+      panel({ id: 'roster', url: '/observatory' }),
+      panel({ id: 'shown', url: conversationUrl('other') }),
+      panel({ id: 'tucked', url: conversationUrl('another') }),
+    );
+    expect(routeConversation(tree, CONV, '/todos', new Set(['tucked']))).toMatchObject({
+      kind: 'show',
+      panelId: 'shown',
+    });
+  });
+
+  it('a hidden session pane still takes it, rather than a new pane piling up', () => {
+    const tree = row(
+      panel({ id: 'roster', url: '/observatory' }),
+      panel({ id: 'tucked', url: conversationUrl('another') }),
+    );
+    expect(routeConversation(tree, CONV, '/todos', new Set(['tucked']))).toMatchObject({
+      kind: 'show',
+      panelId: 'tucked',
+    });
+  });
 });
 
-describe('rule 4 — nowhere observatory: a new pane is born', () => {
+describe('rule 4 — an observatory page with no conversation: a new pane on its right', () => {
+  it('splits off the roster, even when the primary shows the page too', () => {
+    const tree = row(panel({ id: 'roster', url: '/observatory' }), panel({ id: 'p', kind: 'primary' }));
+    expect(routeConversation(tree, CONV, '/observatory/worktrees')).toEqual({
+      kind: 'split',
+      targetId: 'roster',
+      url: CONV_URL,
+      dir: 'row',
+    });
+  });
+
+  it('splits off the primary when it alone shows the observatory', () => {
+    const tree = row(panel({ id: 'c', url: '/code' }), panel({ id: 'p', kind: 'primary' }));
+    expect(routeConversation(tree, CONV, '/observatory')).toEqual({
+      kind: 'split',
+      targetId: 'p',
+      url: CONV_URL,
+      dir: 'row',
+    });
+  });
+});
+
+describe('rule 5 — nowhere observatory: a new pane is born', () => {
   it('splits off the primary', () => {
     // Qualification is the caller's gate (windowAcceptsConversations); the
     // router itself still answers for a window with, say, only an
@@ -128,7 +188,7 @@ describe('the reading room is not this rule s business', () => {
       { type: 'panel', id: 'rr', kind: 'pane' },
       panel({ id: 'p', kind: 'primary' }),
     );
-    expect(routeConversation(tree, CONV, '/observatory')).toEqual({
+    expect(routeConversation(tree, CONV, conversationUrl('other'))).toEqual({
       kind: 'show',
       panelId: 'p',
       isPrimary: true,
