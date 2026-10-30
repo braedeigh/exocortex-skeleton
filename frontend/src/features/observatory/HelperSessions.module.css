@@ -1,0 +1,99 @@
+/* HelperSessions — a chat's row, and the rail beside a helper's chat. The chat is
+   its own positioned box so what floats inside it stays over the chat, not the
+   rail. With no rail it fills the row exactly as it would alone. */
+
+.row {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+.chat {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Spans the row out of flow, only to measure how wide the panel is. */
+.measure {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0;
+  visibility: hidden;
+}
+
+.rail,
+.railOver {
+  flex: none;
+  width: clamp(260px, 34%, 380px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+  /* Clear of the notes pill in the panel's corner at the end of the scroll. */
+  padding: var(--space-2) var(--space-3) calc(var(--space-8) + 40px);
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.rail > *,
+.railOver > * {
+  flex-shrink: 0;
+}
+
+/* Too narrow for both: over the chat, from the panel's right edge. */
+.railOver {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  width: min(320px, 90%);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.2);
+}
+
+.railShut {
+  flex: none;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.unfold {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: var(--tap-target);
+  min-height: var(--tap-target);
+  padding: var(--space-2) 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-lg);
+  cursor: pointer;
+}
+
+.unfold:hover,
+.unfold:focus-visible {
+  color: var(--accent);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.groupName {
+  margin: 0;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}

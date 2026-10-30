@@ -181,6 +181,23 @@ export function placeRoster({
   return [...placed.values()];
 }
 
+/** What a helper looks after: for a room helper its whole room, for a project
+ * helper its project room. Null for any other session, a swarm helper included. */
+export type HelperScope = { kind: 'room'; place: MapRoom } | { kind: 'project'; box: MapProject };
+
+export function helperScope(
+  conv: string,
+  places: MapRoom[],
+  roomViews: Map<string, RoomView | undefined>,
+): HelperScope | null {
+  for (const place of places) {
+    if (roomViews.get(place.room)?.helper_conv === conv) return { kind: 'room', place };
+    const box = place.projects.find((candidate) => candidate.project.helper_conv === conv);
+    if (box) return { kind: 'project', box };
+  }
+  return null;
+}
+
 /** A room's numbers, for its heading: how many sessions are open in it, how many
  * need her, how many are running, how many are done. */
 export interface RoomCensus {

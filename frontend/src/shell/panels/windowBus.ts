@@ -38,7 +38,9 @@
 
 /** The kinds of thing one part of the app can hand to another. */
 export type Intent =
-  | { kind: 'conversation'; convId: string }
+  /** `keep` names a conversation that must stay on screen: the one she opened
+   * this from (conversationRouting.ts). */
+  | { kind: 'conversation'; convId: string; keep?: string }
   | {
       kind: 'code';
       repo: string;

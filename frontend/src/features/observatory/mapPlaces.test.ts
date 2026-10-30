@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { SessionMeta } from './api';
 import {
   helperConvs,
+  helperScope,
   narrowPlaces,
   needsByRoom,
   placeRoster,
@@ -165,6 +166,17 @@ describe('what a room says at a glance', () => {
   it('counts every open session in the room, boxes included', () => {
     const [coding] = scene().rooms;
     expect(roomCensus(coding)).toEqual({ open: 8, needing: 2, running: 1, done: 3 });
+  });
+});
+
+describe('what a helper looks after', () => {
+  it('a room helper its room, a project helper its project, anyone else nothing', () => {
+    const { rooms, roomViews } = scene();
+    expect(helperScope('room-helper', rooms, roomViews)).toMatchObject({ kind: 'room', place: { room: 'coding' } });
+    const project = helperScope('project-helper', rooms, roomViews);
+    expect(project?.kind === 'project' && project.box.solos.map((r) => r.conv)).toEqual(['alone-in-project']);
+    expect(helperScope('helper-1', rooms, roomViews)).toBeNull();
+    expect(helperScope('alone', rooms, roomViews)).toBeNull();
   });
 });
 

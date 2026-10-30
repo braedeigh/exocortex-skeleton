@@ -181,3 +181,25 @@ describe('rule 5 — nowhere observatory: a new pane is born', () => {
     });
   });
 });
+
+describe('opening a session from the chat that must stay up', () => {
+  const HELPER = conversationUrl('helper');
+
+  it('a new pane is born beside it, rather than it giving way', () => {
+    const tree = row(panel({ id: 'roster', url: '/observatory' }), panel({ id: 'h', url: HELPER }));
+    expect(routeConversation(tree, CONV, '/todos', new Set(), 'helper')).toEqual({
+      kind: 'split',
+      targetId: 'h',
+      url: CONV_URL,
+      dir: 'row',
+    });
+  });
+
+  it('another session pane takes it, and a tab in the kept panel stays put', () => {
+    const tree = row(
+      panel({ id: 'h', url: HELPER, tabs: [{ url: CONV_URL, at: 1 }] }),
+      panel({ id: 'other', url: conversationUrl('zzz') }),
+    );
+    expect(routeConversation(tree, CONV, '/todos', new Set(), 'helper')).toMatchObject({ kind: 'show', panelId: 'other' });
+  });
+});

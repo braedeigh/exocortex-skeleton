@@ -15,7 +15,8 @@ import { dispatchIntent } from './panels/windowBus';
  * falls through to the routed observatory page exactly as it always did.
  *
  * Callers: TerrainPage (an agent orb or session row on the map), JournalPage,
- * RosterPage (a card on the Observatory, on desktop).
+ * RosterPage (a card on the Observatory, on desktop), HelperSessions (a session
+ * beside its helper's chat).
  *
  * Prompt that produced this: "i really want for when i click on an agent on
  * the terrain page, that opens that session on the left hand page middle tab
@@ -24,8 +25,9 @@ import { dispatchIntent } from './panels/windowBus';
  */
 
 /** Ask any tile, in any window, to open `convId`. False = nowhere took it, so
- * the caller should navigate to the routed observatory page instead. */
-export function openConversationInPane(convId: string): boolean {
+ * the caller should navigate to the routed observatory page instead. `keep` is
+ * a conversation that must stay on screen while this one opens. */
+export function openConversationInPane(convId: string, keep?: string): boolean {
   if (!convId) return false;
-  return dispatchIntent({ kind: 'conversation', convId }) !== 'none';
+  return dispatchIntent({ kind: 'conversation', convId, ...(keep ? { keep } : {}) }) !== 'none';
 }

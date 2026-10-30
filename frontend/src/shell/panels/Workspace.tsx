@@ -251,7 +251,7 @@ export function Workspace({ children }: { children: ReactNode }) {
     const { unregister } = registerIntentTarget(['conversation'], (intent) => {
       if (intent.kind !== 'conversation') return;
       const { layout: tree, href: primaryHref, hidden } = latest.current;
-      const action = routeConversation(tree, intent.convId, primaryHref, hidden);
+      const action = routeConversation(tree, intent.convId, primaryHref, hidden, intent.keep);
       if (!action) return;
       if (action.kind === 'reveal') {
         if (hidden.has(action.panelId)) bringForward(action.panelId);

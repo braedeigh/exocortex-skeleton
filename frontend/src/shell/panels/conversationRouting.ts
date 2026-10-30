@@ -92,19 +92,23 @@ export function windowAcceptsConversations(layout: LayoutNode, primaryHref: stri
 /** Where `convId` should open in this window — the rule set above, in order.
  * `hidden` is the panels automatic full screen has out of sight
  * (layoutTree.fullScreenPlan): they still count, but only after the ones in
- * front of her. Returns null only for a layout with no panels at all (can't
+ * front of her. `keep` is a conversation that must stay on screen, because she's
+ * opening this one from it (a session beside its helper's chat): the panel
+ * showing it never gives way, and a new pane is born on its right. Returns null only for a layout with no panels at all (can't
  * happen live). */
 export function routeConversation(
   layout: LayoutNode,
   convId: string,
   primaryHref: string,
   hidden: ReadonlySet<string> = new Set(),
+  keep?: string,
 ): ConvAction | null {
   const panels = listPanels(layout);
   if (panels.length === 0) return null;
   const url = conversationUrl(convId);
   const showing = (p: PanelNode) => urlOf(p, primaryHref);
   const onRoster = (p: PanelNode) => pathOf(showing(p)) === ROSTER_PATH;
+  const keeping = (p: PanelNode) => keep !== undefined && convIdOf(showing(p)) === keep;
 
   // 1. Already in front of her somewhere.
   for (const p of panels) {
@@ -114,21 +118,24 @@ export function routeConversation(
   // 2. Open as a background tab — reuse that tab's own url, so whatever
   //    search params it carried survive the round trip.
   for (const p of panels) {
-    if (onRoster(p)) continue;
+    if (onRoster(p) || keeping(p)) continue;
     const tab = (p.tabs ?? []).find((t) => convIdOf(t.url) === convId);
     if (tab) return { kind: 'show', panelId: p.id, isPrimary: p.kind === 'primary', url: tab.url };
   }
 
   // 3. A panel showing a conversation takes it as a new tab. Lowest score wins;
   //    ties go to the rightmost, which is why this walks from the right.
-  const reading = panels.filter((p) => convIdOf(showing(p)) !== null).reverse();
+  const reading = panels.filter((p) => convIdOf(showing(p)) !== null && !keeping(p)).reverse();
   if (reading.length > 0) {
     const score = (p: PanelNode) => (hidden.has(p.id) ? 2 : 0) + (p.kind === 'primary' ? 1 : 0);
     const best = reading.reduce((a, b) => (score(b) < score(a) ? b : a));
     return { kind: 'show', panelId: best.id, isPrimary: best.kind === 'primary', url };
   }
 
-  // 4. A panel on an observatory page gets a new pane on its right.
+  // 4. A panel on an observatory page gets a new pane on its right: the kept
+  //    one first, so the new pane stands right beside it.
+  const kept = panels.find(keeping);
+  if (kept) return { kind: 'split', targetId: kept.id, url, dir: 'row' };
   const pages = panels.filter((p) => isObservatoryUrl(showing(p)));
   if (pages.length > 0) {
     const score = (p: PanelNode) => (hidden.has(p.id) ? 2 : 0) + (onRoster(p) ? 0 : 1);

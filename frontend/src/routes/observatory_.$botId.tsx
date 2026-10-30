@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
+import { HelperSessions } from '../features/observatory/HelperSessions';
+import styles from '../features/observatory/HelperSessions.module.css';
 import { ObservatoryPage } from '../features/observatory/ObservatoryPage';
 import { getSessions } from '../features/observatory/api';
 import { useSessionMountKey } from '../features/observatory/sessionMountKey';
@@ -42,14 +44,22 @@ function ObservatoryChatRoute() {
   // streaming live (sessionMountKey.ts).
   const mount = useSessionMountKey(conv);
   if (conv === 'latest') return <LatestConvResolver botId={botId} />;
+  // The chat, and beside it (a room or project helper's chat, on desktop) the
+  // sessions that helper looks after. Everywhere else the rail draws nothing and
+  // the chat fills the row as if it were alone.
   return (
-    <ObservatoryPage
-      key={`${botId}:${mount.key}`}
-      botId={botId}
-      convId={conv}
-      cameFrom={from}
-      onSessionCreated={mount.adopt}
-    />
+    <div className={styles.row}>
+      <div className={styles.chat}>
+        <ObservatoryPage
+          key={`${botId}:${mount.key}`}
+          botId={botId}
+          convId={conv}
+          cameFrom={from}
+          onSessionCreated={mount.adopt}
+        />
+      </div>
+      {conv ? <HelperSessions conv={conv} /> : null}
+    </div>
   );
 }
 

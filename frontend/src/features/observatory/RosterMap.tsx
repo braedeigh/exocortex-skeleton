@@ -111,7 +111,7 @@ const DOT_OF: Record<CardState, string> = {
 };
 
 /** Sentence-ish numbers for a heading: only the ones with something to say. */
-function censusWords(place: MapRoom, opened: Record<string, string>): { open: number; rest: string } {
+export function censusWords(place: MapRoom, opened: Record<string, string>): { open: number; rest: string } {
   const { open, running, done } = roomCensus(place);
   // A closing report she hasn't read still says so, though its card is a click away.
   const unread = unreadDone(place.done, opened);
@@ -147,7 +147,7 @@ function SessionLine({
   );
 }
 
-function SessionLines({
+export function SessionLines({
   rings,
   rosterById,
   opened,
@@ -195,7 +195,7 @@ function MiniSwarm({ view }: { view: SwarmView }) {
 
 /** One swarm on the overview: what it is and how many need her. Clicking reads
  * it on the right. */
-function SwarmTile({ view, selected, onSelect }: { view: SwarmView; selected: boolean; onSelect: () => void }) {
+export function SwarmTile({ view, selected, onSelect }: { view: SwarmView; selected: boolean; onSelect: () => void }) {
   const paint = swarmPaint(view);
   const { needs_input: needing, working } = view.counts;
   return (
