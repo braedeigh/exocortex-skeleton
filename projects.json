@@ -570,6 +570,7 @@
         "swarm_pins",
         "swarm_hubs",
         "project_room_members",
+        "room_proposals",
         "room_moves",
         "room_helper_runs",
         "helper_watches",

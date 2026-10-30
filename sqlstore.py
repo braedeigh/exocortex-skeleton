@@ -43,7 +43,7 @@ import time
 import store
 import tablelog
 
-_SCHEMA_VERSION = 59
+_SCHEMA_VERSION = 60
 
 
 def _db_path():
@@ -212,6 +212,7 @@ _EXPECTED_TABLES = (
     # The agents' mailbox, token accounting per model call, and swarms.
     "agent_messages", "model_calls", "swarms", "swarm_members", "swarm_helper_runs",
     "session_summaries", "swarm_pins", "swarm_hubs", "project_room_members", "room_moves", "room_helper_runs",
+    "room_proposals",
     # Verifiable exposure scores (rung 36).
     "hazard_facts", "food_pdp_codes", "data_pulls", "exposure_scores", "exposure_terms",
     "source_files", "passage_pages",
@@ -3494,6 +3495,38 @@ def _run_ladder(conn):
         )
         conn.execute("CREATE INDEX IF NOT EXISTS project_room_members_by_room"
                      " ON project_room_members (room_id)")
+    if version < 60:
+        # What the room helper asked a project helper to do inside its project
+        # room, and how it was answered (room_helper.propose). A row is a
+        # question, not a move: an approved one points at the move it became
+        # in room_moves.
+        #
+        # Prompt: "the room helper basically tries to assign it and then the
+        # project helper approves it or not"
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS room_proposals ("
+            "  id INTEGER PRIMARY KEY,"
+            "  at TEXT NOT NULL,"
+            # The build id of the project room whose helper answers it.
+            "  project TEXT NOT NULL,"
+            # form, join, split, release, place or close.
+            "  kind TEXT NOT NULL,"
+            # JSON list of the sessions, continuation chains included.
+            "  convs TEXT NOT NULL,"
+            "  swarm INTEGER,"
+            # A place's destination (its build id; NULL is out of every room).
+            "  target TEXT,"
+            "  reason TEXT,"
+            "  message TEXT,"
+            "  proposed_by TEXT,"
+            "  status TEXT NOT NULL DEFAULT 'open'"
+            "    CHECK (status IN ('open', 'approved', 'declined', 'lapsed')),"
+            "  answered_at TEXT,"
+            "  answer_reason TEXT,"
+            "  move_id INTEGER)"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS room_proposals_by_project"
+                     " ON room_proposals (project, status)")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 

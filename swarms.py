@@ -766,13 +766,18 @@ def place(convs, swarm_id, move_id=None):
     return {c: before.get(c) for c in convs}
 
 
-def unplace(before):
+def unplace(before, joined=None):
     """Undo `place`: give each session back the placement it had before
     ({conv: [swarm_id, at] or None} — None removes its placement, so its old
-    messages link it again). Syncs afterwards."""
+    messages link it again). `joined` is a swarm these sessions were placed
+    into that stands without them: their rows there go too, since a member row
+    otherwise stays for good. Syncs afterwards."""
     conn = sqlstore.open_db()
     try:
         sqlstore.begin_immediate(conn)
+        if joined is not None:
+            conn.executemany("DELETE FROM swarm_members WHERE swarm_id = ? AND conv = ?",
+                             [(joined, conv) for conv in before])
         for conv, pin in before.items():
             if pin:
                 conn.execute("INSERT OR REPLACE INTO swarm_pins (conv, swarm_id, at)"

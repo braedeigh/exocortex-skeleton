@@ -1552,7 +1552,7 @@
   },
   "project_room_members": {
     "holds": "Which project room each Coding session is in: a build switched on as a room inside the Coding room, with its own helper. At most one room per session.",
-    "source": "Written by project_rooms.sync from where each session works (its tool calls) and who started it, and by project_rooms.place for a placement by hand. Rows only grow. Not rebuildable by hand placements; the hourly backup dumps this table as text.",
+    "source": "Written by project_rooms.sync from where each session works (its tool calls) and who started it, and by project_rooms.place for a placement. Rows only grow, until a room is closed: room_helper.close_room keeps them in its move and deletes them. Not rebuildable by hand placements; the hourly backup dumps this table as text.",
     "kind": "record",
     "time_column": "joined_at",
     "columns": {
@@ -1590,9 +1590,59 @@
       }
     }
   },
+  "room_proposals": {
+    "holds": "What the room helper asked a project helper to do inside its project room, and how it was answered: approved, declined with a reason, or lapsed after a day unanswered.",
+    "source": "Written by room_helper.propose, from its runs or from scripts/room_moves.py; answered by room_helper.approve and decline, lapsed by lapse_proposals on the minute tick. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "The proposal's number — what approve and decline name."
+      },
+      "at": {
+        "holds": "When it was filed."
+      },
+      "project": {
+        "holds": "The build id of the project room whose helper answers it."
+      },
+      "kind": {
+        "holds": "form, join, split, release, place or close."
+      },
+      "convs": {
+        "holds": "The sessions it's about, as a JSON list, continuations included; empty for a close."
+      },
+      "swarm": {
+        "holds": "The swarm a join or split refers to."
+      },
+      "target": {
+        "holds": "Where a place puts them (a build id; empty is out of every room), or the room a close closes."
+      },
+      "reason": {
+        "holds": "Why the room helper asks, in plain words."
+      },
+      "message": {
+        "holds": "The note for the moved sessions if it's approved."
+      },
+      "proposed_by": {
+        "holds": "Who filed it: 'room_helper' from a run, 'cli' from its chat."
+      },
+      "status": {
+        "holds": "open, approved, declined or lapsed."
+      },
+      "answered_at": {
+        "holds": "When it was answered or lapsed."
+      },
+      "answer_reason": {
+        "holds": "The project helper's reason, when it declined."
+      },
+      "move_id": {
+        "holds": "The move it became in room_moves, when approved."
+      }
+    }
+  },
   "room_moves": {
-    "holds": "Every move the room helper made — forming, joining, splitting or releasing swarms — with its reason and what it replaced, so any move can be undone.",
-    "source": "Written by room_helper.execute, from its runs or from scripts/room_moves.py; undone_at set by an undo. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
+    "holds": "Every move the room helper made — forming, joining, splitting or releasing swarms, placing sessions in project rooms, opening and closing those rooms — with its reason and what it replaced, so any move can be undone.",
+    "source": "Written by room_helper.execute, place, open_room and close_room, from its runs or from scripts/room_moves.py; undone_at set by an undo. Not rebuildable and has no file of its own: the hourly backup dumps this table as text.",
     "kind": "record",
     "time_column": "at",
     "columns": {
@@ -1606,7 +1656,7 @@
         "holds": "Which room."
       },
       "kind": {
-        "holds": "form, join, split or release."
+        "holds": "form, join, split or release (swarm moves); place, open or close (room moves)."
       },
       "convs": {
         "holds": "The sessions moved, as a JSON list, continuations included."
@@ -1621,7 +1671,7 @@
         "holds": "Why, in plain words."
       },
       "before": {
-        "holds": "Each session's placement before the move, as JSON — what an undo puts back."
+        "holds": "What an undo puts back, as JSON: for a swarm move each session's placement before it; for a room move the room and its member rows."
       },
       "undone_at": {
         "holds": "When she undid it, if she did."

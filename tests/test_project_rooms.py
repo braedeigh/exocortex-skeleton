@@ -5,6 +5,11 @@ worktree of a switched-on build lands in that build's room, and so does one
 that only `cd`s there in Bash; a placement by hand beats the files; a
 continuation stays in its parent's room; the app's own sessions land in
 none; and a swarm belongs to the room most of its working members are in.
+
+And the room helper above the rooms: a placement is a recorded, undoable move;
+inside a room it proposes and the room's helper approves, declines or lets it
+lapse; it opens rooms itself above a floor of working sessions; closing gives
+a room's sessions back to it; and a project helper's report up wakes it.
 """
 import itertools
 import subprocess
@@ -227,3 +232,282 @@ def test_a_big_swarm_becomes_a_project_room_and_keeps_its_helper(project, monkey
     entry = store.read("bot_chats/index", {})[helper]
     assert not entry.get("archived") and not entry.get("helper_closed_at")
     assert swarms.retired(swarm_id) is False
+
+
+# --- The room helper above the project rooms ------------------------------------------
+
+@pytest.fixture
+def ladder(helpers, monkeypatch):
+    """The `helpers` room, with a second switched-on room (Mill), and no
+    detached runs: the runs started are collected."""
+    import room_helper
+    spawned = []
+    monkeypatch.setattr(room_helper, "_spawn", lambda scope, trigger: spawned.append(scope) or True)
+    root = helpers_root = store.DATA_DIR.parent / "mill"
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    builds = store.read("terrain_builds", {})
+    builds["builds"].append({"id": "mill", "name": "Mill", "root": str(helpers_root),
+                             "project_room": True})
+    store.write("terrain_builds", builds)
+    project_rooms._REPO_CACHE.clear()
+    return {**helpers, "spawned": spawned, "mill": root}
+
+
+def _chat(conv):
+    path = store.DATA_DIR / "bot_chats" / f"{conv}.jsonl"
+    return path.read_text() if path.exists() else ""
+
+
+def test_a_placement_is_a_real_move_and_undo_puts_it_back(ladder):
+    """Moved from one room to another: recorded with its reason, the session
+    told once which room it's in and whose it is, every chat involved told, and
+    undo brings the session back to the room it was in."""
+    import room_helper
+    mill = room_helper.ensure_room_helper("coding:mill")
+    move = room_helper.place("mill", ["c"], "it works on the mill now", by="owner")
+    assert project_rooms.room_of("c") == "mill"
+    [stored] = [m for m in room_helper.recent_moves("coding") if m["id"] == move["id"]]
+    assert stored["reason"] == "it works on the mill now" and stored["target"] == "Mill"
+    notes = [text for _, to, text in ladder["sent"] if to == "c"]
+    assert len(notes) == 1 and "Mill project room" in notes[0] and mill in notes[0]
+    for chat in (ladder["room"], mill, ladder["lead"]):
+        assert f"Move #{move['id']}" in _chat(chat)
+    room_helper.undo(move["id"])
+    assert project_rooms.room_of("c") == "shop"
+    assert room_helper.recent_moves("coding")[0]["undone_at"]
+
+
+def test_the_room_helpers_own_placement_waits_for_the_answer(ladder):
+    """A run's `place` doesn't move anything; approving does, and a proposal
+    for out of a room goes to the room the session is leaving."""
+    import room_helper
+    filed = room_helper.propose("place", ["out"], target="shop", reason="it's shop work",
+                                by="room_helper")["proposal"]
+    assert project_rooms.room_of("out") is None
+    assert any(to == ladder["lead"] and f"approve {filed['id']}" in text
+               for _, to, text in ladder["sent"])
+    assert "`out`" not in room_helper.room_overview("coding:shop").split("Proposals")[0]
+    move = room_helper.approve("coding:shop", filed["id"])
+    assert project_rooms.room_of("out") == "shop"
+    assert room_helper.proposals("shop", "approved")[0]["move_id"] == move["id"]
+    away = room_helper.propose("place", ["c"], target=None, reason="not shop work")["proposal"]
+    assert away["project"] == "shop"
+
+
+def test_a_proposal_inside_a_room_is_approved_made_and_undoable(ladder):
+    import room_helper
+    import swarms
+    filed = room_helper.propose("join", ["c"], ladder["swarm"], reason="same work",
+                                message="Work with a and b.", by="room_helper")["proposal"]
+    assert swarms.swarm_of("c") is None
+    # It's in the project helper's seed and run until answered, and the
+    # room helper's block says it's waiting.
+    index = store.read("bot_chats/index", {})
+    import helper_chat
+    assert f"#{filed['id']} join" in helper_chat.seed_text(ladder["lead"], index[ladder["lead"]])
+    assert f"#{filed['id']} join" in room_helper.room_overview("coding:shop")
+    assert f"#{filed['id']} join" in room_helper.room_overview("coding").split("## Swarms")[0]
+    with pytest.raises(room_helper.MoveError):
+        room_helper.approve("coding:mill", filed["id"])
+    move = room_helper.approve("coding:shop", filed["id"])
+    assert swarms.swarm_of("c") == ladder["swarm"] and move["kind"] == "join"
+    assert any(to == "c" and text.startswith("Work with a and b.") for _, to, text in ladder["sent"])
+    assert f"Proposal #{filed['id']} was approved" in _chat(ladder["room"])
+    room_helper.undo(move["id"])
+    assert swarms.swarm_of("c") is None
+    with pytest.raises(room_helper.MoveError):
+        room_helper.approve("coding:shop", filed["id"])
+
+
+def test_a_declined_proposal_tells_the_reason_and_cant_be_asked_again(ladder):
+    import room_helper
+    import swarms
+    filed = room_helper.propose("join", ["c"], ladder["swarm"], reason="same work")["proposal"]
+    with pytest.raises(room_helper.MoveError, match="already waiting"):
+        room_helper.propose("join", ["c"], ladder["swarm"], reason="still the same")
+    room_helper.decline("coding:shop", filed["id"], "c is on another part of the shop")
+    assert swarms.swarm_of("c") is None
+    assert any(to == ladder["room"] and "c is on another part of the shop" in text
+               for _, to, text in ladder["sent"])
+    with pytest.raises(room_helper.MoveError, match="declined"):
+        room_helper.propose("join", ["c"], ladder["swarm"], reason="again")
+    # ...unless she asks for it herself, which skips the exchange.
+    assert "move" in room_helper.propose("join", ["c"], ladder["swarm"], reason="she said", by="owner")
+    assert swarms.swarm_of("c") == ladder["swarm"]
+
+
+def test_a_proposal_nobody_answers_lapses_and_may_be_asked_again(ladder):
+    from datetime import datetime, timedelta
+    import room_helper
+    filed = room_helper.propose("release", ["c"], reason="done with it")["proposal"]
+    assert room_helper.lapse_proposals() == 0
+    assert room_helper.lapse_proposals(datetime.now() + timedelta(hours=25)) == 1
+    assert room_helper.proposals("shop", "lapsed")[0]["id"] == filed["id"]
+    assert any(to == ladder["room"] and "lapsed" in text for _, to, text in ladder["sent"])
+    with pytest.raises(room_helper.MoveError, match="already lapsed"):
+        room_helper.approve("coding:shop", filed["id"])
+    assert room_helper.propose("release", ["c"], reason="asking again")["proposal"]["status"] == "open"
+
+
+def test_a_run_inside_a_project_files_a_proposal_and_opens_rooms_itself(ladder, project, monkeypatch):
+    """The room helper's run: a move on a project's sessions becomes a proposal
+    rather than a refusal, a close too, and a room below the floor is refused
+    and reported."""
+    import room_helper
+    import swarm_helper
+    import swarms
+    answer = {"overview": "o", "moves": [
+        {"kind": "release", "convs": ["a"], "reason": "r", "message": "m"},
+        {"kind": "close", "convs": [], "project": "mill", "reason": "over", "message": ""},
+        {"kind": "open", "convs": [], "project": str(ladder["mill"]) + "-nope", "reason": "r",
+         "message": ""}]}
+    monkeypatch.setattr(room_helper, "_call_model", lambda text, room: (answer, 0.0))
+    monkeypatch.setattr(swarm_helper, "_call_session", lambda text: ({"summary": "s"}, 0.0))
+    room_helper.run("coding")
+    assert swarms.swarm_of("a") == ladder["swarm"]
+    assert [p["kind"] for p in room_helper.proposals("shop")] == ["release"]
+    assert [p["kind"] for p in room_helper.proposals("mill")] == ["close"]
+    chat = _chat(ladder["room"])
+    assert "Proposed to the Shop helper" in chat and "not made" in chat
+
+
+def test_a_project_run_reporting_up_wakes_the_room_helper_and_shows_in_its_block(ladder, monkeypatch):
+    import room_helper
+    import swarm_helper
+    answer = {"overview": "Stuck.", "moves": [], "up": "Blocked on the mill's new API."}
+    monkeypatch.setattr(room_helper, "_call_model", lambda text, room: (answer, 0.0))
+    monkeypatch.setattr(swarm_helper, "_call_session", lambda text: ({"summary": "s"}, 0.0))
+    room_helper.run("coding:shop")
+    reports = [text for _, to, text in ladder["sent"]
+               if to == ladder["room"] and "Blocked on the mill's new API." in text]
+    assert len(reports) == 1
+    block = room_helper.room_overview("coding").split("## Swarms")[0]
+    assert "reported up" in block and "Blocked on the mill's new API." in block
+    # The same words on its next run aren't sent again.
+    room_helper.run("coding:shop")
+    assert len([t for _, to, t in ladder["sent"] if to == ladder["room"] and "Blocked" in t]) == 1
+    assert "Your last report up" in room_helper.room_overview("coding:shop")
+
+
+def _worktree_sessions(root, *convs):
+    for conv in convs:
+        _seed(conv, last_at="2026-10-23T10:00:00")
+        _call(conv, "Edit", str(root / f"{conv}.txt"))
+
+
+def test_opening_a_folder_lists_it_lands_its_sessions_and_undo_reverts_all(helpers, tmp_path, monkeypatch):
+    """An unlisted repo with three sessions in a worktree of it: opened from
+    the worktree's path, the main checkout goes on the list, the sessions land,
+    the helper exists and its first run starts. Undo takes all of it back."""
+    import buildlist
+    import room_helper
+    spawned = []
+    monkeypatch.setattr(room_helper, "_spawn", lambda scope, trigger: spawned.append(scope) or True)
+    git = ["git", "-c", "user.email=t@t", "-c", "user.name=t"]
+    root = tmp_path / "barn"
+    subprocess.run(git + ["init", "-q", str(root)], check=True)
+    (root / "a.txt").write_text("a")
+    subprocess.run(git + ["-C", str(root), "add", "."], check=True)
+    subprocess.run(git + ["-C", str(root), "commit", "-qm", "a"], check=True)
+    worktree = tmp_path / "barn-x"
+    subprocess.run(git + ["-C", str(root), "worktree", "add", "-q", str(worktree)], check=True)
+    _worktree_sessions(worktree, "w1", "w2", "w3")
+    project_rooms._REPO_CACHE.clear()
+
+    move = room_helper.open_room(str(worktree), reason="three sessions on the barn")
+    assert buildlist.find("barn")["root"] == root.resolve()
+    assert project_rooms.members("barn") == ["w1", "w2", "w3"]
+    helper = room_helper.find_helper("coding:barn")
+    assert helper and spawned == ["coding:barn"]
+    assert move["convs"] == ["w1", "w2", "w3"]
+    assert all(any(to == w and "just opened" in text and helper in text
+                   for _, to, text in helpers["sent"]) for w in move["convs"])
+    assert "shop" in {r["id"] for r in project_rooms.rooms()}
+
+    room_helper.undo(move["id"])
+    assert buildlist.find("barn") is None
+    assert room_helper.find_helper("coding:barn") is None
+    assert project_rooms.sync().get("w1") is None and project_rooms.rows(["w1"])["w1"] is None
+    assert project_rooms.members("shop") == ["a", "b", "c"]
+    # She undid it, so the room helper doesn't open it again by itself.
+    with pytest.raises(room_helper.MoveError, match="undid"):
+        room_helper.open_room(str(root), reason="again")
+
+
+def test_opening_is_refused_below_the_floor_unless_she_asks(helpers, tmp_path, monkeypatch):
+    import buildlist
+    import room_helper
+    monkeypatch.setattr(room_helper, "_spawn", lambda *a: True)
+    root = tmp_path / "barn"
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    _worktree_sessions(root, "w1")
+    project_rooms._REPO_CACHE.clear()
+    with pytest.raises(room_helper.MoveError, match="at least 3"):
+        room_helper.open_room(str(root), reason="one session")
+    assert buildlist.find("barn") is None
+    move = room_helper.open_room(str(root), name="The Barn", reason="she asked", by="owner")
+    assert move["convs"] == ["w1"] and buildlist.find("barn")["name"] == "The Barn"
+
+
+def test_the_apps_own_folder_can_never_be_opened(helpers, monkeypatch):
+    import room_helper
+    monkeypatch.setattr(room_helper, "_spawn", lambda *a: True)
+    with pytest.raises(room_helper.MoveError, match="overlaps the app code"):
+        room_helper.open_room(str(store.BUILD_DIR), reason="no", by="owner")
+
+
+def test_closing_one_of_two_rooms_gives_its_sessions_back_and_undo_restores_it(ladder):
+    """The sync bug this pins: a switched-off room's rows hid its sessions from
+    every helper while another room was on."""
+    import room_helper
+    _seed("m1", last_at="2026-10-23T10:00:00")
+    _call("m1", "Edit", str(ladder["mill"] / "m.txt"))
+    assert project_rooms.room_of("m1") == "mill"
+    move = room_helper.close_room("shop", "the work is over", by="owner")
+    index = store.read("bot_chats/index", {})
+    assert project_rooms.rooms()[0]["id"] == "mill" and len(project_rooms.rooms()) == 1
+    assert project_rooms.members("mill") == ["m1"]
+    assert {"a", "b", "c"} <= set(room_helper.solo_sessions("coding", index, []))
+    assert room_helper.find_helper("coding:shop") is None
+    assert "`c`" in room_helper.room_overview("coding")
+    assert ladder["swarm"] in {c["id"] for c in room_helper.open_swarms("coding")}
+    room_helper.undo(move["id"])
+    assert project_rooms.members("shop") == ["a", "b", "c"]
+    assert room_helper.find_helper("coding:shop") == ladder["lead"]
+    assert ladder["swarm"] in {c["id"] for c in room_helper.open_swarms("coding:shop")}
+
+
+def test_the_room_helper_asks_to_close_and_its_helper_says_yes(ladder):
+    import room_helper
+    filed = room_helper.propose("close", target="shop", reason="it's over")["proposal"]
+    assert project_rooms.find("shop")
+    move = room_helper.approve("coding:shop", filed["id"])
+    assert project_rooms.find("shop") is None and move["kind"] == "close"
+
+
+def test_a_room_switched_off_by_hand_hides_nobody_and_they_can_land_elsewhere(ladder):
+    _seed("c2", last_at="2026-10-23T10:00:00")
+    project_rooms.switch("shop", False)
+    assert "c" not in project_rooms.sync()
+    _call("c", "Edit", str(ladder["mill"] / "m.txt"))
+    _call("c", "Edit", str(ladder["mill"] / "n.txt"))
+    _call("c", "Edit", str(ladder["mill"] / "o.txt"))
+    assert project_rooms.room_of("c") == "mill"
+    assert project_rooms.room_of("a") is None
+
+
+def test_the_command_line_files_a_proposal_unless_she_asks(ladder, monkeypatch, capsys):
+    import importlib.util
+    monkeypatch.delenv("EXOCORTEX_DATA_DIR", raising=False)
+    spec = importlib.util.spec_from_file_location(
+        "room_moves", store.BUILD_DIR / "scripts" / "room_moves.py")
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    assert script.main(["project-place", "shop", "out", "--reason", "shop work"]) == 0
+    assert project_rooms.room_of("out") is None and "proposal #" in capsys.readouterr().out
+    assert script.main(["project-place", "mill", "out", "--reason", "she said", "--by-owner"]) == 0
+    assert project_rooms.room_of("out") == "mill"
+    assert script.main(["--room", "coding:shop", "close", "shop", "--reason", "no"]) == 1
+    assert script.main(["--room", "coding:shop", "proposals"]) == 0
+    number = script.room_helper.proposals("shop")[0]["id"]
+    assert script.main(["--room", "coding:shop", "decline", str(number), "--reason", "not ours"]) == 0

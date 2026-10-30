@@ -32,6 +32,15 @@ Membership is stored (`project_room_members`), at most one room per session,
 and only grows, like a swarm's: a session that later works elsewhere stays,
 until it's placed by hand. `sync` refreshes it cheaply — a dry pass first, and
 the write lock only when something is new, the same pattern as swarms.sync.
+Rows of a room that is switched off count for nothing: its sessions are in no
+room, and may land in another one by the rules.
+
+WHO OPENS AND CLOSES A ROOM, AND WHO MOVES SESSIONS BETWEEN ROOMS is the room
+helper's (room_helper.py: open_room, close_room, place, propose). This file
+only keeps the rows and answers the questions those moves ask: `rows`,
+`clear` and `restore` for what an undo puts back, `working_in` for how many
+sessions already work in a folder, `build_at` and `main_checkout` for which
+build a folder belongs to.
 
 A SWARM'S PROJECT is the room most of its working members are in (swarm_room).
 
@@ -226,7 +235,10 @@ def sync(index=None):
             except BaseException:
                 conn.execute("ROLLBACK")
                 raise
-        return {conv: room for conv, (room, _) in stored(conn).items() if room}
+        # Leave out rows of a room that is switched off: with another room still
+        # on, they would hide those sessions from every helper.
+        live = {r["id"] for r in rooms()}
+        return {conv: room for conv, (room, _) in stored(conn).items() if room in live}
     finally:
         conn.close()
 
@@ -234,12 +246,16 @@ def sync(index=None):
 def _assign(conn, index, dry):
     have = stored(conn)
     live_rooms = {r["id"] for r in rooms()}
-    todo = [c for c in _candidates(index) if c not in have]
+    # Run the rules for sessions with no row, and for those whose row is in a
+    # room that is switched off. A hand placement out of every room (no room
+    # on its row) stands.
+    todo = [c for c in _candidates(index)
+            if c not in have or (have[c][0] and have[c][0] not in live_rooms)]
     if not todo:
         return
     by_repo = _room_by_repo()
     places = _places(conn, sorted(todo))
-    decided = {conv: room for conv, (room, _) in have.items()}
+    decided = {conv: (room if room in live_rooms else None) for conv, (room, _) in have.items()}
 
     def parent_room(conv):
         parent = (index.get(conv) or {}).get("spawned_from")
@@ -270,7 +286,7 @@ def _assign(conn, index, dry):
             continue
         if dry:
             raise _WriteNeeded
-        conn.execute("INSERT OR IGNORE INTO project_room_members (conv, room_id, joined_at,"
+        conn.execute("INSERT OR REPLACE INTO project_room_members (conv, room_id, joined_at,"
                      " how) VALUES (?, ?, ?, ?)", (conv, room, _now(), how))
 
 
@@ -315,6 +331,89 @@ def place(room_id, convs, by="cli"):
     finally:
         conn.close()
     return {conv: before.get(conv) for conv in sorted(moved)}
+
+
+def rows(convs):
+    """These sessions' stored rows, as {conv: [room id or None, joined_at, how]
+    or None for no row} — what an undo puts back (restore)."""
+    conn = sqlstore.open_db()
+    try:
+        found = {conv: [room, joined, how] for conv, room, joined, how in conn.execute(
+            "SELECT conv, room_id, joined_at, how FROM project_room_members")}
+    finally:
+        conn.close()
+    return {conv: found.get(conv) for conv in convs}
+
+
+def _write(steps):
+    """Run these (sql, params) under the write lock, all or nothing."""
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        for sql, params in steps:
+            conn.execute(sql, params)
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
+def restore(before):
+    """Put stored rows back as `rows` returned them: a session that had no row
+    loses its row, and is run through the rules again."""
+    _write([("DELETE FROM project_room_members WHERE conv = ?", (conv,)) if row is None else
+            ("INSERT OR REPLACE INTO project_room_members (conv, room_id, joined_at, how)"
+             " VALUES (?, ?, ?, ?)", (conv, *row))
+            for conv, row in before.items()])
+
+
+def clear(room_id):
+    """Delete every row of this room. Returns them, as `rows` does, so a move
+    can keep them for its undo."""
+    conn = sqlstore.open_db()
+    try:
+        kept = {conv: [room_id, joined, how] for conv, joined, how in conn.execute(
+            "SELECT conv, joined_at, how FROM project_room_members WHERE room_id = ?", (room_id,))}
+    finally:
+        conn.close()
+    _write([("DELETE FROM project_room_members WHERE room_id = ?", (room_id,))])
+    return kept
+
+
+def working_in(folder, index=None):
+    """The working Coding sessions (not helpers, not retired) with most of
+    their places in this folder's repo, whatever room they're in now."""
+    repo = repo_of(folder)
+    if not repo:
+        return []
+    if index is None:
+        index = store.read("bot_chats/index", {})
+    index = index if isinstance(index, dict) else {}
+    convs = _candidates(index)
+    conn = sqlstore.open_db()
+    try:
+        places = _places(conn, sorted(convs))
+    finally:
+        conn.close()
+    return sorted(conv for conv in convs if _by_files(places.get(conv, Counter()), {repo: conv}))
+
+
+def build_at(folder):
+    """The build on the list whose repo this folder is in, or None."""
+    repo = repo_of(folder)
+    if not repo:
+        return None
+    return next((b for b in buildlist.builds() if repo_of(b["root"]) == repo), None)
+
+
+def main_checkout(folder):
+    """The main checkout of the repo this folder is in, so that opening a room
+    from a worktree or a subfolder lists the repo itself. A folder in no repo
+    comes back as it is (buildlist.add_folder refuses it)."""
+    repo = repo_of(folder)
+    return Path(repo).parent if repo and Path(repo).name == ".git" else Path(folder)
 
 
 def swarm_room(member_convs, index, all_members=None):

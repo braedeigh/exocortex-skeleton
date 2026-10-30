@@ -346,6 +346,13 @@ ROOM_HELPER_ROOMS = tuple(
     if room.strip())
 ROOM_HELPER_MIN_SEC = int(os.environ.get("EXOCORTEX_ROOM_HELPER_MIN_SEC", "900"))
 ROOM_HELPER_QUIET_HOURS = float(os.environ.get("EXOCORTEX_ROOM_HELPER_QUIET_HOURS", "2"))
+# The room helper above the project rooms (room_helper.py). It may open a
+# project room by itself only when at least PROJECT_ROOM_MIN_SESSIONS working
+# Coding sessions already work mostly in that repo; the owner's own open skips
+# this. A proposal it sends a project helper lapses after
+# ROOM_PROPOSAL_LAPSE_HOURS unanswered.
+PROJECT_ROOM_MIN_SESSIONS = int(os.environ.get("EXOCORTEX_PROJECT_ROOM_MIN_SESSIONS", "3"))
+ROOM_PROPOSAL_LAPSE_HOURS = float(os.environ.get("EXOCORTEX_ROOM_PROPOSAL_LAPSE_HOURS", "24"))
 # How far back the room helper's "Files being edited now" section looks
 # (edited_files.py): a file an open session changed within it is listed.
 ROOM_HELPER_FILES_HOURS = float(os.environ.get("EXOCORTEX_ROOM_HELPER_FILES_HOURS", "2"))

@@ -57,12 +57,30 @@ clusters and moves up when it needs them.
 
 A PROJECT HELPER is this same helper scoped to one project room
 (project_rooms.py): the scope `coding:<build id>` instead of `coding`. It
-reads and moves only the swarms and sessions inside its project; the Coding
-room helper reads each project room as ONE block (its name, its helper's
-latest overview, how many swarms and sessions) and moves only the sessions in
-no project room — though it may place a session into or out of one
-(`scripts/room_moves.py project-place`). Every function here that takes a
-`room` takes a scope: `_scope` splits it into (room, project or None).
+reads and moves only the swarms and sessions inside its project. Every
+function here that takes a `room` takes a scope: `_scope` splits it into
+(room, project or None).
+
+The Coding room helper SITS ABOVE the project helpers. It reads each project
+room as ONE block (its name, its helper's latest overview, its swarms and
+sessions by id, its helper's moves and report up since the last run, and what's
+waiting there) and moves only the sessions in no project room. Above that:
+
+  - OPEN (open_room): it makes a project room by itself, from a build on the
+    list or a folder it adds to the list, when at least
+    config.PROJECT_ROOM_MIN_SESSIONS working sessions already work there.
+  - PROPOSE (propose): inside a room it assigns and that room's helper
+    approves or declines, for form, join, split, release, PLACE (into or out
+    of a project room) and CLOSE. Approving makes the move through the same
+    doors, recorded and undoable; declining sends the reason back up; 24 hours
+    unanswered lapses (lapse_proposals) and it's told.
+  - REPORT UP: a project helper's run may say `up` when its project is stuck or
+    crossing into other projects, which wakes the room helper.
+
+Her words: "the room helper basically tries to assign it and then the project
+helper approves it or not." The owner skips all of it with `--by-owner`. Which
+helper is WOKEN for a session's activity doesn't change: the closest
+(helper_chat.own_sessions). Rooms are never merged.
 
 When it runs: at the minute tick (tick), at most once every
 config.ROOM_HELPER_MIN_SEC, and only when some session in the room has done
@@ -74,7 +92,8 @@ Touches: swarms.py (placements: place, unplace, new_swarm, line_of_work),
 project_rooms.py (which sessions and swarms are in which project room),
 swarm_helper.py (ask_model, side_by_side, summarise_sessions, the
 member-activity reader, poke), sqlstore.py
-(session_summaries, swarm_pins, room_moves, room_helper_runs), the session
+(session_summaries, swarm_pins, room_moves, room_proposals, room_helper_runs),
+buildlist.py (the folders a room can be opened on), the session
 index (the helper's own entry — `role: "room_helper"`), routes/observatory.py
 (peer_send, and its chat turns), helper_chat.py, edited_files.py (the files
 section), config.py (ROOM_HELPER_*),
@@ -92,6 +111,7 @@ permissions to them." — then: it acts on its own, every move posted with its
 reason and undoable; placements override the message links ("spins could
 lead to disconnected swarms"); the Coding room only, to start.
 """
+import copy
 import json
 import os
 import subprocess
@@ -99,6 +119,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import buildlist
 import config
 import edited_files
 import lanes
@@ -112,6 +133,11 @@ ROLE = "room_helper"
 # The same helper scoped to one project room (see the top of the file).
 PROJECT_ROLE = "project_helper"
 KINDS = ("form", "join", "split", "release")
+# The moves about project rooms, not swarms: whose room a session is in, and
+# which rooms exist. Only the room helper above the project rooms makes them.
+ROOM_KINDS = ("place", "open", "close")
+# What the room helper can ask a project helper to do (propose).
+PROPOSAL_KINDS = (*KINDS, "place", "close")
 
 # How much of a solo session's new activity one run reads. Less than a swarm
 # member gets: the room helper only needs to know what the work is about.
@@ -147,8 +173,32 @@ session doesn't need moving.
 3. For every move write the reason (for the owner) and one short message to the moved \
 sessions: who they're now working with and why it matters to their work. One message per \
 move; don't chat.
-Use session ids exactly as given; `swarm` is the swarm id a join or split refers to. Plain \
-words; the owner reads everything you write."""
+Use session ids exactly as given; `swarm` is the swarm id a join or split refers to.{ladder} \
+Plain words; the owner reads everything you write."""
+
+# What a run of the helper above the project rooms is told about them.
+ROOM_LADDER = """
+
+You also sit above the project rooms, each shown below as one block. Each has its own helper, which \
+looks after what's inside it. You have three more moves, and `project` says which room:
+   - open: make a project room (`project`: a build id or a full folder path, `convs` empty) when \
+at least {floor} working sessions already work mostly in that repo. It's refused below that. Don't \
+reopen a room that was closed unless the work has clearly come back.
+   - place: put sessions into a project room (`project`: its build id) or out of every one \
+(`project`: null). This goes to that room's helper as a proposal, for it to approve or decline.
+   - close: ask a project room's helper to close its room, when the work there is over (`project`: \
+its build id, `convs` empty). Also a proposal.
+A form, join, split or release of sessions inside a project room is a proposal too: you assign, its \
+helper approves or declines. Don't repeat a proposal that's waiting or was declined."""
+
+# What a project helper's run is told about the helper above it.
+PROJECT_LADDER = """
+
+You sit under the room helper, which sees this project as one block and may propose moves here. \
+Proposals waiting on you are listed below; you answer those in your chat, never in `moves`. `up` is \
+your report to the room helper: a sentence or two when this project is stuck, or when its work is \
+crossing into other projects. It wakes the room helper, so leave it an empty string when there's \
+nothing, and don't repeat your last report."""
 
 SCHEMA = {
     "type": "object",
@@ -166,6 +216,23 @@ SCHEMA = {
     },
     "required": ["overview", "moves"],
 }
+
+
+def _schema(scope):
+    """The answer a run must give in this scope: the moves it may make, plus,
+    for a project helper, its report up, and for the helper above the project
+    rooms, the room moves and which room they're about."""
+    import project_rooms
+    lane, project = _scope(scope)
+    schema = copy.deepcopy(SCHEMA)
+    if project is not None:
+        schema["properties"]["up"] = {"type": "string"}
+        schema["required"].append("up")
+    elif lane == project_rooms.ROOM:
+        item = schema["properties"]["moves"]["items"]
+        item["properties"]["kind"]["enum"] = [*KINDS, *ROOM_KINDS]
+        item["properties"]["project"] = {"type": ["string", "null"]}
+    return schema
 
 
 def _now():
@@ -337,13 +404,25 @@ def recent_moves(room, limit=_RECENT_MOVES):
     conn = sqlstore.open_db()
     try:
         rows = conn.execute(
-            "SELECT id, at, kind, convs, from_swarm, to_swarm, reason, undone_at"
+            "SELECT id, at, kind, convs, from_swarm, to_swarm, reason, undone_at, before"
             " FROM room_moves WHERE room = ? ORDER BY id DESC LIMIT ?", (room, limit)).fetchall()
     finally:
         conn.close()
     return [{"id": i, "at": at, "kind": kind, "convs": json.loads(convs), "from_swarm": f,
-             "to_swarm": t, "reason": reason, "undone_at": undone}
-            for i, at, kind, convs, f, t, reason, undone in rows]
+             "to_swarm": t, "reason": reason, "undone_at": undone,
+             "target": _target_words(kind, t, before)}
+            for i, at, kind, convs, f, t, reason, undone, before in rows]
+
+
+def _target_words(kind, to_swarm, before):
+    """Where a move took its sessions, in words. A room move keeps the room
+    in its `before` JSON; a swarm move has its `to_swarm`."""
+    if kind not in ROOM_KINDS:
+        return f"swarm {to_swarm}" if to_swarm is not None else "alone"
+    before = json.loads(before) if isinstance(before, str) else (before or {})
+    if kind == "place":
+        return before.get("to_name") or "no project room"
+    return f"{'opened' if kind == 'open' else 'closed'} {before.get('name') or before.get('build')}"
 
 
 def _stored_summaries(convs):
@@ -381,18 +460,41 @@ def _latest_overview(scope):
     return overview.splitlines()[0] if overview else None
 
 
+def _last_report_up(scope, since=""):
+    """The newest report up a project helper's runs wrote after `since`, as
+    (when, the words), or None."""
+    conn = sqlstore.open_db()
+    try:
+        rows = conn.execute("SELECT at, output FROM room_helper_runs WHERE room = ? AND at > ?"
+                            " AND output IS NOT NULL ORDER BY id DESC LIMIT 50",
+                            (scope, since)).fetchall()
+    finally:
+        conn.close()
+    for at, output in rows:
+        try:
+            words = (json.loads(output).get("up") or "").strip()
+        except (ValueError, AttributeError):
+            continue
+        if words:
+            return at, words
+    return None
+
+
 def project_blocks(room, index, members):
     """The room helper's view of each project room: ONE block apiece — its
-    name, its helper's latest overview line, and how many open swarms and
-    working sessions it holds. What happens inside is its project helper's."""
+    name, its helper's latest overview line, how many open swarms and working
+    sessions it holds, those swarms and sessions by id (a proposal has to name
+    them), its helper's moves and report up since the room helper's last run,
+    and the proposals waiting there. Their detail is its project helper's."""
     import project_rooms
     found = project_rooms.rooms() if _scope(room)[0] == project_rooms.ROOM else []
     if not found:
         return []
     out = ["## Project rooms", "",
            "Each project room has its own helper, which looks after the swarms and sessions"
-           " inside it; you don't move them. You may put a session into or out of a project"
-           " room: `scripts/room_moves.py project-place <build id|none> <conv>…`.", ""]
+           " inside it. You sit above it: inside a room you propose and its helper approves or"
+           " declines.", ""]
+    last_run = (index.get(find_helper(room, index)) or {}).get("helper_last_run") or ""
     cards = [c for c in swarms.overview() if c["lane"] == _scope(room)[0] and not c.get("closed")]
     for project in found:
         scope = f"{_scope(room)[0]}:{project['id']}"
@@ -405,7 +507,27 @@ def project_blocks(room, index, members):
                 + (f", helper `{helper}`" if helper else ", no helper yet"),
                 f"Its helper's latest overview: {_latest_overview(scope) or '(none yet)'}",
                 f"{len(inside)} open swarm{'s' if len(inside) != 1 else ''},"
-                f" {len(working)} session{'s' if len(working) != 1 else ''} still working.", ""]
+                f" {len(working)} session{'s' if len(working) != 1 else ''} still working."]
+        # Its swarms and sessions by id, so a proposal can name them.
+        for card in inside:
+            ids = [m["conv"] for m in card["members"] if not m.get("retired")]
+            out.append(f"- swarm {card['id']} ({card['name']}): {', '.join(ids)}")
+        solos = solo_sessions(scope, index, inside, members)
+        if solos:
+            out.append(f"- working alone: {', '.join(solos)}")
+        moves = [m for m in recent_moves(scope) if m["at"] > last_run]
+        if moves:
+            out.append("Its helper's moves since your last run:")
+            out += [f"- #{m['id']} {m['kind']} {', '.join(m['convs'])} → {m['target']}: {m['reason']}"
+                    for m in reversed(moves)]
+        waiting = proposals(project["id"])
+        if waiting:
+            out.append("Your proposals waiting on its helper:")
+            out += [f"- {_proposal_words(p)}" for p in waiting]
+        report = _last_report_up(scope, last_run)
+        if report:
+            out.append(f"Its helper reported up at {report[0]}: {report[1]}")
+        out.append("")
     return out
 
 
@@ -470,14 +592,20 @@ def room_overview(room, activity=False):
         out.append("")
     if not solos:
         out += ["(none)", ""]
+    # What a project helper owes the helper above it: its answers, and its last
+    # report, so it doesn't repeat one.
+    if project is not None:
+        out += [proposals_section(project), ""]
+        report = _last_report_up(room)
+        if report:
+            out += [f"Your last report up, at {report[0]}: {report[1]}", ""]
     out += ["## Your recent moves", ""]
     moves = recent_moves(room)
     for move in moves:
         undone = (f" — SHE UNDID THIS at {move['undone_at']}; don't redo it"
                   if move["undone_at"] else "")
-        target = move["to_swarm"] if move["kind"] in ("form", "join", "split") else "alone"
         out.append(f"- #{move['id']} {move['at']} {move['kind']} {', '.join(move['convs'])}"
-                   f" → {target}: {move['reason']}{undone}")
+                   f" → {move['target']}: {move['reason']}{undone}")
     if not moves:
         out.append("(none yet)")
     return "\n".join(out) + "\n"
@@ -495,29 +623,49 @@ def _was_undone(room, kind, convs):
                for m in recent_moves(room, limit=50))
 
 
-def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
-    """Make one move: place the sessions (with their continuations), record
-    it so it can be undone, tell each moved session, and wake the helpers of
-    the swarms it touched. Returns the stored move as a dict. Raises
-    MoveError when the move doesn't fit the room as it is now."""
-    from routes import observatory
-    if kind not in KINDS:
-        raise MoveError(f"unknown move {kind!r}")
-    index = store.read("bot_chats/index", {})
+def _whole_lines(convs, index, by):
+    """The sessions a move is really about: every one checked to exist and not
+    be a helper, each with its whole line of work, since its continuations
+    would re-link it otherwise. Refuses a session she saved for later, unless
+    she's the one moving it."""
     unknown = [c for c in convs if not isinstance(index.get(c), dict)]
     if unknown or not convs:
         raise MoveError(f"no such session: {', '.join(unknown) or '(none given)'}")
     if _helper_convs(index) & set(convs):
         raise MoveError("helpers can't be moved")
-    # A line of work moves whole: its continuations would re-link it otherwise.
     moved = set()
     for conv in convs:
         moved |= swarms.line_of_work(conv, index)
     moved = sorted(moved)
-    # Refuse to move a session she saved for later, unless she's the one moving it.
     saved = [c for c in moved if (index.get(c) or {}).get("saved_at")]
     if saved and by != "owner":
         raise MoveError(f"saved for later by the owner: {', '.join(saved)}")
+    return moved
+
+
+def _tell_sessions(helper, tell, index):
+    """Tell each session its note, once, at the end of its turn: one message
+    of the words and the facts, to those still working."""
+    from routes import observatory
+    for conv, facts, words in tell:
+        if swarms.member_retired(index.get(conv)):
+            continue
+        text = "\n\n".join(t for t in ((words or "").strip(), facts) if t)
+        try:
+            observatory.peer_send(helper, conv, text, mode="queue")
+        except (KeyError, ValueError) as e:
+            print(f"{_now()} room move message to {conv} failed: {e}", file=sys.stderr)
+
+
+def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
+    """Make one move: place the sessions (with their continuations), record
+    it so it can be undone, tell each moved session, and wake the helpers of
+    the swarms it touched. Returns the stored move as a dict. Raises
+    MoveError when the move doesn't fit the room as it is now."""
+    if kind not in KINDS:
+        raise MoveError(f"unknown move {kind!r}")
+    index = store.read("bot_chats/index", {})
+    moved = _whole_lines(convs, index, by)
     # Keep each helper to its own sessions: a project helper moves only the
     # sessions in its project room, the room helper only those in none.
     lane, project = _scope(room)
@@ -525,7 +673,8 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
     outside = [c for c in moved if members.get(c) != project]
     if outside:
         where = (f"the {project} project room" if project
-                 else "no project room (a project room's own helper moves those)")
+                 else "no project room (a project room's own helper moves those: propose it"
+                      " with `scripts/room_moves.py propose`)")
         raise MoveError(f"not in {where}: {', '.join(outside)}")
     # Where each session is now: its swarm only while that swarm is open. A
     # closed swarm's one working session is working alone (swarms.is_closed).
@@ -619,17 +768,10 @@ def execute(room, kind, convs, swarm_id=None, reason="", message="", by=None):
     alone_note = alone_note.replace("(Room helper:", f"({who}:", 1)
     tell = ([(c, _move_note(kind, to_swarm, moved, index, recipient=c, who=who), message)
              for c in moved] + [(c, alone_note, "") for c in left_alone])
-    for conv, facts, words in tell:
-        if swarms.member_retired(index.get(conv)):
-            continue
-        text = "\n\n".join(t for t in ((words or "").strip(), facts) if t)
-        try:
-            observatory.peer_send(helper, conv, text, mode="queue")
-        except (KeyError, ValueError) as e:
-            print(f"{_now()} room move message to {conv} failed: {e}", file=sys.stderr)
+    _tell_sessions(helper, tell, index)
     made = {"id": move_id, "at": now, "kind": kind, "convs": moved,
             "from_swarm": from_swarm, "to_swarm": to_swarm, "reason": reason,
-            "left_alone": left_alone}
+            "left_alone": left_alone, "target": _target_words(kind, to_swarm, None)}
     # A move made by hand is posted in the helper's chat too; a run posts its own.
     if by != "room_helper":
         _post(helper, _render_move(made, by), now)
@@ -665,30 +807,44 @@ def _move_note(kind, to_swarm, moved, index, recipient=None, who="Room helper"):
 def undo(move_id):
     """Put the sessions of one move back where they were before it. Returns
     the move, or raises MoveError (no such move, already undone, or a later
-    move has moved the same sessions since — undo that one first)."""
+    move of its own family has touched the same sessions or room since — undo
+    that one first). A swarm move and a room move are separate families: which
+    swarm a session is in and which project room it's in don't overrule each
+    other."""
     conn = sqlstore.open_db()
     try:
-        row = conn.execute("SELECT room, convs, before, undone_at FROM room_moves WHERE id = ?",
-                           (move_id,)).fetchone()
+        row = conn.execute("SELECT room, kind, convs, before, undone_at, to_swarm FROM room_moves"
+                           " WHERE id = ?", (move_id,)).fetchone()
         if row is None:
             raise MoveError(f"no move #{move_id}")
-        room, convs, before, undone_at = row
+        room, kind, convs, before, undone_at, to_swarm = row
         if undone_at:
             raise MoveError(f"move #{move_id} was already undone at {undone_at}")
         convs = set(json.loads(convs))
-        later = [i for i, c in conn.execute(
-            "SELECT id, convs FROM room_moves WHERE id > ? AND undone_at IS NULL", (move_id,))
-            if convs & set(json.loads(c))]
+        before = json.loads(before)
+        later = [i for i, k, c, b in conn.execute(
+            "SELECT id, kind, convs, before FROM room_moves WHERE id > ? AND undone_at IS NULL",
+            (move_id,))
+            if (k in ROOM_KINDS) == (kind in ROOM_KINDS)
+            and (convs & set(json.loads(c)) or _same_room(kind, before, k, b))]
     finally:
         conn.close()
     if later:
         raise MoveError(f"move #{later[-1]} moved the same sessions since — undo it first")
-    swarms.unplace(json.loads(before))
+    if kind == "place":
+        _undo_place(before)
+    elif kind == "open":
+        before = _undo_open(before)
+    elif kind == "close":
+        _undo_close(before)
+    else:
+        swarms.unplace(before, joined=to_swarm if kind == "join" else None)
     now = _now()
     conn = sqlstore.open_db()
     try:
         sqlstore.begin_immediate(conn)
-        conn.execute("UPDATE room_moves SET undone_at = ? WHERE id = ?", (now, move_id))
+        conn.execute("UPDATE room_moves SET undone_at = ?, before = ? WHERE id = ?",
+                     (now, json.dumps(before), move_id))
         conn.execute("COMMIT")
     finally:
         conn.close()
@@ -698,13 +854,488 @@ def undo(move_id):
     return {"id": move_id, "undone_at": now}
 
 
+def _same_room(kind, before, later_kind, later_before):
+    """Did a later room move touch the room this open or close was about? Two
+    placements only clash over the same sessions."""
+    if kind not in ROOM_KINDS or later_kind not in ROOM_KINDS or {kind, later_kind} == {"place"}:
+        return False
+    later_before = json.loads(later_before)
+    return bool(_rooms_touched(kind, before) & _rooms_touched(later_kind, later_before))
+
+
+def _rooms_touched(kind, before):
+    if kind == "place":
+        return {before.get("to"), *(before.get("from") or [])} - {None}
+    return {before.get("build")}
+
+
+# --- Project rooms: placing sessions, opening and closing rooms -----------------------
+# The moves above decide which SWARM a session is in. These decide which PROJECT
+# ROOM it's in, and which rooms exist. They're recorded in `room_moves` under the
+# room's own scope, posted and undoable the same way; what an undo needs goes in
+# the move's `before` JSON.
+
+def _room_name(project):
+    """A project room's name, whether it's switched on or not."""
+    build = buildlist.find(project)
+    return build["name"] if build else project
+
+
+def _record_room_move(room, kind, convs, reason, before):
+    """Write down one room move. Returns (its id, when)."""
+    now = _now()
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        move_id = conn.execute(
+            "INSERT INTO room_moves (at, room, kind, convs, reason, before)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (now, room, kind, json.dumps(convs), reason, json.dumps(before))).lastrowid
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
+    return move_id, now
+
+
+def _room_move_made(move_id, now, kind, convs, reason, before):
+    """A room move as `execute` returns a swarm move."""
+    return {"id": move_id, "at": now, "kind": kind, "convs": convs, "from_swarm": None,
+            "to_swarm": None, "reason": reason, "left_alone": [],
+            "target": _target_words(kind, None, before)}
+
+
+def _undone_before(room, kind):
+    """The `before` of each move of this kind she undid in this scope."""
+    conn = sqlstore.open_db()
+    try:
+        return [json.loads(row[0]) for row in conn.execute(
+            "SELECT before FROM room_moves WHERE room = ? AND kind = ? AND undone_at IS NOT NULL"
+            " ORDER BY id DESC LIMIT 50", (room, kind))]
+    finally:
+        conn.close()
+
+
+def place(target, convs, reason="", message="", by=None):
+    """Put sessions (with their continuations) into a project room, or out of
+    every one (target None), as a recorded move: posted in the room helper's
+    chat and in the chats of the rooms they joined or left, each session still
+    working told once which room it's in now and who its helper is. Returns
+    the move. A placement beats the files from then on (project_rooms.place).
+
+    Making it is this function's job, not deciding it: the room helper's own
+    placements go through `propose`, and reach here once approved."""
+    import project_rooms
+    room = project_rooms.ROOM
+    if target is not None and project_rooms.find(target) is None:
+        raise MoveError(f"{target!r} isn't a switched-on project room")
+    index = store.read("bot_chats/index", {})
+    moved = _whole_lines(convs, index, by)
+    members = project_rooms.sync(index)
+    if all(members.get(c) == target for c in moved):
+        raise MoveError("already in " + (_room_name(target) if target else "no project room"))
+    if by != "owner" and _was_undone(room, "place", moved):
+        raise MoveError("she undid this same move before")
+    left = sorted({members.get(c) for c in moved} - {None, target})
+    before = {"to": target, "to_name": _room_name(target) if target else None, "from": left,
+              "rows": project_rooms.rows(moved)}
+    project_rooms.place(target, moved)
+    move_id, now = _record_room_move(room, "place", moved, reason, before)
+    made = _room_move_made(move_id, now, "place", moved, reason, before)
+    text = _render_move(made, by)
+    # Post it in the room helper's chat (a run posts its own) and in each
+    # project helper's it touched.
+    helper = ensure_room_helper(room)
+    if by != "room_helper":
+        _post(helper, text, now)
+    joined = ensure_room_helper(f"{room}:{target}") if target else None
+    if joined:
+        _post(joined, text, now)
+    for project in left:
+        losing = find_helper(f"{room}:{project}", index)
+        if losing:
+            _post(losing, text, now)
+    # Tell each moved session which room it's in now, and whose it is.
+    facts = (f"(Room helper: you're in the {_room_name(target)} project room now. Its helper,"
+             f" `{joined}`, looks after the sessions and swarms in it.)" if target else
+             f"(Room helper: you're in no project room now. The {room} room's helper, `{helper}`,"
+             " looks after you.)")
+    _tell_sessions(helper, [(conv, facts, message) for conv in moved], index)
+    return made
+
+
+def _undo_place(before):
+    """Put the moved sessions' rows back, and say so in the rooms it touched."""
+    import project_rooms
+    project_rooms.restore(before.get("rows") or {})
+    for project in _rooms_touched("place", before):
+        helper = find_helper(f"{project_rooms.ROOM}:{project}")
+        if helper:
+            _post(helper, "↩ A placement was undone: its sessions are back where they were.", _now())
+
+
+def _archive_project_helper(scope):
+    """Put a closed room's helper away. Its chat and rules stay on disk."""
+    helper = find_helper(scope)
+    if helper:
+        with store.mutate("bot_chats/index", {}) as index:
+            if isinstance(index.get(helper), dict):
+                index[helper]["archived"] = _now()
+    return helper
+
+
+def _bring_back_project_helper(scope):
+    """Bring back the newest archived helper of this project room, if it has
+    one, so a room opened again keeps its helper's chat."""
+    with store.mutate("bot_chats/index", {}) as index:
+        put_away = sorted((str(entry.get("archived")), conv) for conv, entry in index.items()
+                          if is_helper(entry, scope) and entry.get("archived"))
+        if put_away and not find_helper(scope, index):
+            index[put_away[-1][1]].pop("archived", None)
+
+
+def open_room(where, name=None, reason="", by=None):
+    """Open a project room: a build on the list, or a folder on this machine,
+    which is added to the list. Unless the owner asks, it's refused when fewer
+    than config.PROJECT_ROOM_MIN_SESSIONS working sessions already work mostly
+    in that repo, or when she undid opening this one. The room's helper is made
+    at once and its first run started; each session that landed is told.
+    Returns the move.
+
+    Prompt: "I want some mechanism for project rooms to be created."
+    """
+    import project_rooms
+    room = project_rooms.ROOM
+    build = buildlist.find(where)
+    folder = None
+    if build is None:
+        folder = Path(str(where)).expanduser()
+        if not folder.is_absolute():
+            raise MoveError(f"no build {where!r} on the list, and that isn't a full folder path")
+        if not folder.is_dir():
+            raise MoveError(f"no folder at {folder}")
+        build = project_rooms.build_at(folder)
+        folder = project_rooms.main_checkout(folder)
+    root = str(build["root"]) if build else str(folder)
+    if build and build["project_room"]:
+        raise MoveError(f"{build['name']} is already a project room")
+    # Hold the room helper to the floor, and to what she undid.
+    if by != "owner":
+        if any(b.get("root") == root for b in _undone_before(room, "open")):
+            raise MoveError("she undid opening this room before")
+        working = project_rooms.working_in(root)
+        if len(working) < config.PROJECT_ROOM_MIN_SESSIONS:
+            raise MoveError(f"only {len(working)} working session(s) work mostly in {root};"
+                            f" a project room takes at least {config.PROJECT_ROOM_MIN_SESSIONS}")
+    added = build is None
+    if added:
+        try:
+            build = buildlist.add_folder(root, name)
+        except ValueError as e:
+            raise MoveError(str(e))
+    project_rooms.switch(build["id"], True)
+    landed = project_rooms.members(build["id"])
+    scope = f"{room}:{build['id']}"
+    _bring_back_project_helper(scope)
+    project_helper = ensure_room_helper(scope)
+    try:
+        _spawn(scope, "opened")
+    except Exception as e:
+        print(f"{_now()} first run of {scope} not started: {e}", file=sys.stderr)
+    before = {"build": build["id"], "name": build["name"], "root": root, "added": added,
+              "project_room": False}
+    move_id, now = _record_room_move(room, "open", landed, reason, before)
+    made = _room_move_made(move_id, now, "open", landed, reason, before)
+    helper = ensure_room_helper(room)
+    if by != "room_helper":
+        _post(helper, _render_move(made, by), now)
+    index = store.read("bot_chats/index", {})
+    facts = (f"(Room helper: the {build['name']} project room just opened, and you're in it. Its"
+             f" helper, `{project_helper}`, looks after the sessions and swarms in it.)")
+    _tell_sessions(helper, [(conv, facts, "") for conv in landed], index)
+    return made
+
+
+def _undo_open(before):
+    """Take a room's opening back: its member rows (kept in the move), the
+    flag, its helper, and its place on the list if the opening added it.
+    Returns the move's `before` with the rows in it."""
+    import project_rooms
+    build = before["build"]
+    if buildlist.find(build):
+        project_rooms.switch(build, False)
+    removed = project_rooms.clear(build)
+    _archive_project_helper(f"{project_rooms.ROOM}:{build}")
+    if before.get("added"):
+        buildlist.remove(build)
+    return {**before, "removed_rows": removed}
+
+
+def close_room(project, reason="", by=None):
+    """Close a project room: switch it off, keep its member rows in the move
+    and delete them, and archive its helper. Its sessions and swarms go back to
+    the room helper. Returns the move. The room helper's own closes go through
+    `propose`, and reach here once approved."""
+    import project_rooms
+    room = project_rooms.ROOM
+    found = project_rooms.find(project)
+    if found is None:
+        raise MoveError(f"{project!r} isn't a switched-on project room")
+    scope = f"{room}:{project}"
+    project_rooms.switch(project, False)
+    rows = project_rooms.clear(project)
+    before = {"build": project, "name": found["name"], "root": str(found["root"]), "rows": rows}
+    move_id, now = _record_room_move(room, "close", sorted(rows), reason, before)
+    made = _room_move_made(move_id, now, "close", sorted(rows), reason, before)
+    text = _render_move(made, by)
+    project_helper = find_helper(scope)
+    if project_helper:
+        _post(project_helper, text, now)
+    _archive_project_helper(scope)
+    if by != "room_helper":
+        _post(ensure_room_helper(room), text, now)
+    return made
+
+
+def _undo_close(before):
+    """Open a closed room again as it was: its rows, its flag, its helper."""
+    import project_rooms
+    build = before["build"]
+    if buildlist.find(build) is None:
+        raise MoveError(f"{build} is no longer on the Builds list")
+    project_rooms.switch(build, True)
+    project_rooms.restore(before.get("rows") or {})
+    _bring_back_project_helper(f"{project_rooms.ROOM}:{build}")
+
+
+# --- Proposals: the room helper assigns, the project helper answers -------------------
+# Inside a project room the room helper doesn't move anything itself. It files a
+# PROPOSAL, which wakes that room's helper; approving makes the move like any
+# other, recorded and undoable, and declining sends the reason back up. The owner
+# skips all of this (by="owner"). Unanswered ones lapse (lapse_proposals).
+#
+# Prompt: "the room helper basically tries to assign it and then the project
+# helper approves it or not".
+
+_PROPOSAL_COLUMNS = ("id", "at", "project", "kind", "convs", "swarm", "target", "reason",
+                     "message", "proposed_by", "status", "answered_at", "answer_reason", "move_id")
+
+
+def _proposal_rows(where, params):
+    conn = sqlstore.open_db()
+    try:
+        rows = conn.execute(f"SELECT {', '.join(_PROPOSAL_COLUMNS)} FROM room_proposals {where}",
+                            params).fetchall()
+    finally:
+        conn.close()
+    found = [dict(zip(_PROPOSAL_COLUMNS, row)) for row in rows]
+    for proposal in found:
+        proposal["convs"] = json.loads(proposal["convs"])
+    return found
+
+
+def proposals(project=None, status="open"):
+    """Proposals in this state, oldest first: one project room's, or all."""
+    where, params = "WHERE status = ?", [status]
+    if project is not None:
+        where, params = where + " AND project = ?", [status, project]
+    return _proposal_rows(where + " ORDER BY id", params)
+
+
+def _proposal_words(proposal):
+    """One proposal as a line."""
+    what = proposal["kind"]
+    if what == "place":
+        what += f" into {_room_name(proposal['target'])}" if proposal["target"] else " out of it"
+    if proposal["swarm"] is not None:
+        what += f" (swarm {proposal['swarm']})"
+    who = f" {', '.join(proposal['convs'])}" if proposal["convs"] else ""
+    return f"#{proposal['id']} {what}{who} — {proposal['reason']}"
+
+
+def proposals_section(project):
+    """What a project helper is shown of the proposals waiting on it. It stays
+    the same text until a proposal changes, so a growing helper isn't handed
+    it again for nothing (helper_chat.write_update)."""
+    import project_rooms
+    waiting = proposals(project)
+    scope = f"{project_rooms.ROOM}:{project}"
+    out = ["# Proposals waiting on you", ""]
+    if not waiting:
+        return "\n".join(out + ["(none)"]) + "\n"
+    out += ["The room helper asks these of you. Answer each: `./venv/bin/python3 scripts/room_moves.py"
+            f" --room {scope} approve <n>`, or `decline <n> --reason \"…\"` and say why.", ""]
+    out += [f"- {_proposal_words(p)}" for p in waiting]
+    return "\n".join(out) + "\n"
+
+
+def _proposal_target(kind, convs, swarm_id, target, index, by):
+    """What a proposal is about, checked against the rooms as they are now:
+    (the project room whose helper answers it, the sessions with their whole
+    lines). A place goes to the room it puts them in, or the room it takes them
+    out of; a close to the room closing; a swarm move to the room its sessions
+    are in."""
+    import project_rooms
+    if kind not in PROPOSAL_KINDS:
+        raise MoveError(f"unknown proposal {kind!r}")
+    if kind == "close":
+        if project_rooms.find(target) is None:
+            raise MoveError(f"{target!r} isn't a switched-on project room")
+        return target, []
+    moved = _whole_lines(convs, index, by)
+    if kind == "place" and target is not None:
+        if project_rooms.find(target) is None:
+            raise MoveError(f"{target!r} isn't a switched-on project room")
+        return target, moved
+    inside = {project_rooms.sync(index).get(c) for c in moved}
+    if None in inside or len(inside) != 1:
+        raise MoveError("those sessions aren't all in one project room")
+    project = inside.pop()
+    # A join or split has to name an open swarm of that room: its helper isn't
+    # woken for one that can't be made.
+    if kind in ("join", "split") and swarm_id not in {
+            c["id"] for c in open_swarms(f"{project_rooms.ROOM}:{project}", index)}:
+        raise MoveError(f"swarm {swarm_id} isn't an open swarm in the {project} project room")
+    return project, moved
+
+
+def _carry_out(project, kind, convs, swarm_id, target, reason, message, by):
+    """Make the move a proposal asks for. Returns the move."""
+    import project_rooms
+    if kind == "place":
+        return place(target, convs, reason, message, by=by)
+    if kind == "close":
+        return close_room(project, reason, by=by)
+    return execute(f"{project_rooms.ROOM}:{project}", kind, convs, swarm_id, reason, message, by=by)
+
+
+def propose(kind, convs=(), swarm_id=None, target=None, reason="", message="", by=None):
+    """Ask a project room's helper to make a move: form, join, split, release,
+    place (`target`: where to, None for out of every room) or close (`target`:
+    which room). Wakes that helper with it. Returns {"proposal": the row}, or
+    {"move": the move} when the owner asked, which skips the exchange. Raises
+    MoveError when it's about no one project room, is waiting already, or was
+    declined or undone before."""
+    import project_rooms
+    from routes import observatory
+    room = project_rooms.ROOM
+    index = store.read("bot_chats/index", {})
+    project, moved = _proposal_target(kind, list(convs), swarm_id, target, index, by)
+    if by == "owner":
+        return {"move": _carry_out(project, kind, moved, swarm_id, target, reason, message, by)}
+    # Refuse one that's waiting already, or that was answered no. A lapsed one
+    # may be asked again: nobody said no to it.
+    same = [p for p in proposals(project) + proposals(project, "declined")
+            if p["kind"] == kind and set(p["convs"]) == set(moved) and p["target"] == target]
+    for proposal in same:
+        if proposal["status"] == "open":
+            raise MoveError(f"already waiting on its helper: proposal #{proposal['id']}")
+        raise MoveError(f"its helper declined this before (#{proposal['id']}):"
+                        f" {proposal['answer_reason']}")
+    # Refuse one she undid, as for a move made directly.
+    undone = (any(b.get("build") == target for b in _undone_before(room, "close"))
+              if kind == "close" else
+              _was_undone(room, "place", moved) if kind == "place" else
+              _was_undone(f"{room}:{project}", kind, moved))
+    if undone:
+        raise MoveError("she undid this same move before")
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        number = conn.execute(
+            "INSERT INTO room_proposals (at, project, kind, convs, swarm, target, reason, message,"
+            " proposed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (_now(), project, kind, json.dumps(moved), swarm_id, target, reason, message,
+             by or "cli")).lastrowid
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
+    [proposal] = _proposal_rows("WHERE id = ?", (number,))
+    scope = f"{room}:{project}"
+    text = (f"(Room helper proposes) {_proposal_words(proposal)}\n\nApprove or decline, and say"
+            f" why if not: `./venv/bin/python3 scripts/room_moves.py --room {scope} approve"
+            f" {number}` or `decline {number} --reason \"…\"`.")
+    observatory.peer_send(ensure_room_helper(room), ensure_room_helper(scope), text)
+    return {"proposal": proposal}
+
+
+def _answered(number, status, answer_reason="", move_id=None):
+    conn = sqlstore.open_db()
+    try:
+        sqlstore.begin_immediate(conn)
+        conn.execute("UPDATE room_proposals SET status = ?, answered_at = ?, answer_reason = ?,"
+                     " move_id = ? WHERE id = ?", (status, _now(), answer_reason, move_id, number))
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
+
+
+def _open_proposal(scope, number):
+    """The open proposal with this number, for this scope's project helper."""
+    project = _scope(scope)[1]
+    found = _proposal_rows("WHERE id = ?", (number,))
+    if not found or found[0]["project"] != project:
+        raise MoveError(f"no proposal #{number} for {project or 'this scope'}")
+    if found[0]["status"] != "open":
+        raise MoveError(f"proposal #{number} is already {found[0]['status']}")
+    return found[0]
+
+
+def approve(scope, number, by=None):
+    """A project helper says yes: the move is made like any other, recorded and
+    undoable, and the room helper's chat says so. A move that no longer fits
+    is refused and the proposal stays open. Returns the move."""
+    proposal = _open_proposal(scope, number)
+    room = _scope(scope)[0]
+    move = _carry_out(proposal["project"], proposal["kind"], proposal["convs"], proposal["swarm"],
+                      proposal["target"], proposal["reason"], proposal["message"],
+                      by="owner" if by == "owner" else "proposal")
+    _answered(number, "approved", move_id=move["id"])
+    _post(ensure_room_helper(room), f"Proposal #{number} was approved: move #{move['id']}.", _now())
+    return move
+
+
+def decline(scope, number, reason):
+    """A project helper says no, and why: the room helper hears it."""
+    from routes import observatory
+    proposal = _open_proposal(scope, number)
+    _answered(number, "declined", answer_reason=reason)
+    observatory.peer_send(ensure_room_helper(scope), ensure_room_helper(_scope(scope)[0]),
+                          f"(Project helper for {_room_name(proposal['project'])} declined your"
+                          f" proposal) {_proposal_words(proposal)}\n\nWhy: {reason}")
+    return proposal
+
+
+def lapse_proposals(now=None):
+    """Lapse every proposal left unanswered past config.ROOM_PROPOSAL_LAPSE_HOURS,
+    and tell the room helper. Returns how many. Run on the minute tick."""
+    from routes import observatory
+    import project_rooms
+    cutoff = ((now or datetime.now()) - timedelta(hours=config.ROOM_PROPOSAL_LAPSE_HOURS)
+              ).isoformat(timespec="seconds")
+    stale = _proposal_rows("WHERE status = 'open' AND at <= ? ORDER BY id", (cutoff,))
+    for proposal in stale:
+        _answered(proposal["id"], "lapsed")
+        try:
+            observatory.peer_send(None, ensure_room_helper(project_rooms.ROOM),
+                                  f"(Nobody answered your proposal, so it lapsed)"
+                                  f" {_proposal_words(proposal)}", mode="queue")
+        except (KeyError, ValueError) as e:
+            print(f"{_now()} telling of lapsed proposal failed: {e}", file=sys.stderr)
+    return len(stale)
+
+
 # --- One run ------------------------------------------------------------------------
 
 def _call_model(text, room):
     """A room run's call for the room as a whole: its overview and its moves."""
-    prompt = SYSTEM_PROMPT.format(place=_place_name(room),
+    import project_rooms
+    lane, project = _scope(room)
+    ladder = (PROJECT_LADDER if project is not None else
+              ROOM_LADDER.format(floor=config.PROJECT_ROOM_MIN_SESSIONS)
+              if lane == project_rooms.ROOM else "")
+    prompt = SYSTEM_PROMPT.format(place=_place_name(room), ladder=ladder,
                                   quiet=f"{config.ROOM_HELPER_QUIET_HOURS:g}")
-    return swarm_helper.ask_model(text, prompt, SCHEMA)
+    return swarm_helper.ask_model(text, prompt, _schema(room))
 
 
 def _post(helper, text, now, **marks):
@@ -726,26 +1357,71 @@ def closed_line(move):
 
 
 def _render_move(move, by=None):
-    target = (f"swarm {move['to_swarm']}" if move["to_swarm"] is not None
-              else "working alone")
-    who = {"owner": " (by the owner)", "cli": " (by hand)"}.get(by, "")
+    target = move.get("target")
+    if not target or move["kind"] in KINDS:
+        target = (f"swarm {move['to_swarm']}" if move["to_swarm"] is not None
+                  else "working alone")
+    who = {"owner": " (by the owner)", "cli": " (by hand)",
+           "proposal": " (a proposal, approved)"}.get(by, "")
     return "\n".join(line for line in [
         f"**Move #{move['id']} — {move['kind']}{who}** {', '.join(move['convs'])} → {target}",
         move["reason"], closed_line(move),
         f"Undo: `./venv/bin/python3 scripts/room_moves.py undo {move['id']}`"] if line)
 
 
-def _render(answer, made, refused):
+def _render(answer, made, refused, proposed=()):
     lines = ["**The room now**", "", answer.get("overview") or ""]
     if answer.get("solos"):
         lines += ["", "**Working alone**"]
         lines += [f"- `{s.get('conv')}` — {s.get('summary')}" for s in answer["solos"]]
     for move in made:
         lines += ["", _render_move(move)]
+    for proposal in proposed:
+        lines += ["", f"**Proposed to the {_room_name(proposal['project'])} helper:**"
+                      f" {_proposal_words(proposal)}"]
     for move, why in refused:
         lines += ["", f"~~{move.get('kind')} {', '.join(move.get('convs') or [])}~~"
                       f" — not made: {why}"]
+    if (answer.get("up") or "").strip():
+        lines += ["", f"**Reported up to the room helper:** {answer['up'].strip()}"]
     return "\n".join(lines)
+
+
+def _run_move(room, move):
+    """Carry out one move from a run's answer. Returns (the move, None) when it
+    was made, (None, the proposal) when it went to a project helper. The helper
+    above the project rooms opens rooms itself, and anything inside a room, or
+    placing or closing one, becomes a proposal. Raises MoveError."""
+    import project_rooms
+    kind = move.get("kind")
+    convs = list(move.get("convs") or [])
+    reason = (move.get("reason") or "").strip()
+    message = (move.get("message") or "").strip()
+    lane, project = _scope(room)
+    if project is None and lane == project_rooms.ROOM:
+        if kind == "open":
+            return open_room(move.get("project"), reason=reason, by="room_helper"), None
+        if kind in ("place", "close"):
+            return None, propose(kind, convs, None, move.get("project"), reason, message,
+                                 by="room_helper")["proposal"]
+        members = _project_members(room)
+        inside = {members.get(c) for c in convs}
+        if len(inside) == 1 and None not in inside:
+            return None, propose(kind, convs, move.get("swarm"), None, reason, message,
+                                 by="room_helper")["proposal"]
+    return execute(room, kind, convs, move.get("swarm"), reason, message, by="room_helper"), None
+
+
+def _report_up(room, helper, words):
+    """Send a project helper's report up to the room helper, which wakes it.
+    The same words as its last report aren't sent again. Never fails the run."""
+    from routes import observatory
+    lane, project = _scope(room)
+    try:
+        observatory.peer_send(helper, ensure_room_helper(lane),
+                              f"(Project helper for {_room_name(project)} reports up) {words}")
+    except Exception as e:
+        print(f"{_now()} report up from {room} failed: {e}", file=sys.stderr)
 
 
 def run(room, trigger="tick"):
@@ -776,6 +1452,8 @@ def run(room, trigger="tick"):
                                        swarms._status(index[conv]), summary, summary_at)
         if job:
             jobs[conv] = job
+    # Read its last report up before this run's is stored, to tell a new one.
+    last_up = _last_report_up(room) if project is not None else None
     results = swarm_helper.side_by_side(jobs)
     found, error = results["room"]
     answer, cost = found if found else (None, None)
@@ -804,18 +1482,23 @@ def run(room, trigger="tick"):
         conn.execute("COMMIT")
     finally:
         conn.close()
-    made, refused = [], []
+    made, refused, proposed = [], [], []
     for move in (answer or {}).get("moves") or []:
         try:
-            made.append(execute(room, move.get("kind"), list(move.get("convs") or []),
-                                move.get("swarm"), (move.get("reason") or "").strip(),
-                                (move.get("message") or "").strip(), by="room_helper"))
+            done, filed = _run_move(room, move)
+            if done:
+                made.append(done)
+            else:
+                proposed.append(filed)
         except Exception as e:
             # A move that doesn't fit is reported in the chat, not dropped.
             refused.append((move, str(e)))
+    up = ((answer or {}).get("up") or "").strip()
+    if project is not None and up and (last_up or (None, None))[1] != up:
+        _report_up(room, helper, up)
     log_path = store.DATA_DIR / "bot_chats" / f"{helper}.jsonl"
     if answer:
-        _post(helper, _render(answer, made, refused), now)
+        _post(helper, _render(answer, made, refused, proposed), now)
     else:
         peermail.append_line(log_path, {"type": "error", "error": error, "ts": now})
     peermail.append_line(log_path, {"type": "result", "subtype": "success" if answer else "error",
@@ -885,6 +1568,11 @@ def tick():
     runs started."""
     import project_rooms
     started = 0
+    # Lapse the proposals left unanswered too long; it mustn't stop the runs.
+    try:
+        lapse_proposals()
+    except Exception as e:
+        print(f"{_now()} lapsing proposals failed: {e}", file=sys.stderr)
     scopes = list(config.ROOM_HELPER_ROOMS)
     # Each switched-on project room's helper, inside the room that holds them.
     if project_rooms.ROOM in scopes:

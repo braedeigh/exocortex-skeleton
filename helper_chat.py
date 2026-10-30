@@ -26,7 +26,9 @@ things:
      open WATCHES (watches.py). A swarm helper whose swarm has closed also
      finds there what the swarm did: the closing summaries it wrote, kept
      in `swarm_closings` (swarm_helper.closings_text), so it can answer her
-     questions about what happened. There is no retelling of the chat.
+     questions about what happened. A project helper finds the room helper's
+     proposals waiting on it (room_helper.proposals_section). There is no
+     retelling of the chat.
   2. HER LAST MESSAGES TO THE HELPER, EACH WITH ITS REPLY — the last
      config.HELPER_CHAT_EXCHANGES exchanges she started, whole, nothing cut.
      The reply is the helper's words, not its tool calls. Turns she didn't
@@ -120,7 +122,24 @@ reason. In this chat you answer her questions about the room and make or undo mo
 asks, or when you see the need, with `./venv/bin/python3 scripts/room_moves.py list | \
 undo <id> | form <conv>... | join <swarm> <conv>... | split <swarm> <conv>... | \
 release <conv>... --reason "…"` (add `--by-owner` when she asked for it). A session's \
-continuations always move with it."""
+continuations always move with it.
+
+You also sit above the project rooms: a project (a repo of its own) whose sessions gather in one \
+room with its own helper, which looks after them. Her words: "the room helper basically tries to \
+assign it and then the project helper approves it or not." So:
+- You open rooms yourself: `scripts/room_moves.py open <build id | folder path> [--name "…"] \
+--reason "…"`. It adds the folder to the Builds list if needed, makes the room's helper and starts \
+its first run. It's refused unless at least {floor} working sessions already work mostly in that \
+repo; `--by-owner` skips that, only when she asked.
+- Inside a room you propose, and its helper approves or declines: `scripts/room_moves.py propose \
+form <conv>... | release <conv>... | join <swarm> <conv>... | split <swarm> <conv>... | place <build \
+id|none> <conv>... | close <build id> --reason "…" [--message "…"]`. `project-place` and `close` file \
+the same proposals. `proposals` lists what's waiting; a decline comes back to you with its reason, \
+and one nobody answers lapses after {lapse:g} hours. Don't ask again what was declined. When she \
+asks for it, `--by-owner` makes the move at once, with no proposal.
+- `undo <id>` takes back any of these moves. Rooms are never merged.
+- To talk to a project helper: `./venv/bin/python3 scripts/peers.py send <helper id> "…"`. It reports \
+up to you when its project is stuck or crossing into other projects, which wakes you."""
 
 PROJECT_LEAD = """You are the project helper for the {name} project room, inside the {room} room of \
 one person's app — the owner, who talks to you in this chat. AI coding agents work on {name} in \
@@ -134,8 +153,16 @@ you see the need, with `./venv/bin/python3 scripts/room_moves.py --room {scope} 
 | form <conv>... | join <swarm> <conv>... | split <swarm> <conv>... | release <conv>... --reason \
 "…"` (add `--by-owner` when she asked for it). A session's continuations always move with it. To \
 coordinate with a swarm, message its helper: `./venv/bin/python3 scripts/peers.py send <helper id> \
-"…"` starts that helper's own run, which reads your message. The {room} room's helper sees this \
-project as one block; tell it the same way anything it should know across projects."""
+"…"` starts that helper's own run, which reads your message.
+
+You sit under the {room} room's helper, which sees this project as one block and opens and closes \
+project rooms. It may propose moves in this project, closing it included; each is listed below under \
+"Proposals waiting on you". Answer every one, and say why if not: `./venv/bin/python3 \
+scripts/room_moves.py --room {scope} approve <n>` makes the move like any other of yours, and \
+`decline <n> --reason "…"` sends your reason back up. Report up through your runs: their `up` field \
+wakes the room helper when this project is stuck or its work crosses into other projects. For \
+anything else it should know across projects, tell it with `peers.py send`. It alone places sessions \
+into or out of this room: ask it if one is in the wrong place."""
 
 LINEAR_LEAD = """You are the Linear helper for one person's app — the owner, who talks to you in this chat. She \
 plans a project with other people in a shared Linear team (Linear is an outside issue tracker), \
@@ -237,7 +264,7 @@ finds which sessions talked about something.
 query "<select>"`. `swarms` holds each swarm's name and summary, `swarm_members` who is in \
 which, `swarm_closings` what each swarm did, written when it closed; `spinoff_briefs` what each \
 spun-off session was asked to do (its brief, by slug and date); `room_moves` the room helper's moves (`scripts/room_moves.py list` prints the recent \
-ones); `agent_messages` every message between sessions (and hers sent mid-turn); `tool_calls` \
+ones); `room_proposals` what the room helper asked of a project helper and the answer; `agent_messages` every message between sessions (and hers sent mid-turn); `tool_calls` \
 every tool any agent ran, so any file's readers and editors. `exo_query.py schema <table>` \
 lists a table's columns.
 - Git in {repo} is the truth about what shipped, and `git status` what is uncommitted.
@@ -815,7 +842,9 @@ def seed_parts(conv_id, entry, watched=None):
     chats = store.DATA_DIR / "bot_chats"
     found, finished, place = watched or sessions(entry)
     if entry.get("role") == "room_helper":
-        lead = ROOM_LEAD.format(room=entry.get("room") or "coding")
+        lead = ROOM_LEAD.format(room=entry.get("room") or "coding",
+                                floor=config.PROJECT_ROOM_MIN_SESSIONS,
+                                lapse=config.ROOM_PROPOSAL_LAPSE_HOURS)
     elif entry.get("role") == "project_helper":
         import project_rooms
         project = entry.get("project_room")
@@ -855,6 +884,12 @@ def seed_parts(conv_id, entry, watched=None):
               f"# 1. This doc\n\n{prompt}\n"),
              ("rules", "Your standing rules", _rules_section(entry)),
              ("watches", "Its open watches", watches.seed_section(conv_id))]
+    # A project helper's doc carries what the room helper is asking of it: its
+    # chat is where it answers, and a proposal must not roll out of view.
+    if entry.get("role") == "project_helper":
+        import room_helper
+        parts.append(("proposals", "Proposals waiting on it",
+                      room_helper.proposals_section(entry.get("project_room"))))
     # A swarm helper's doc carries what its swarm did, once it has closed: the
     # closing message is posted on a turn she didn't start, so nothing else
     # would hand it back when she asks what happened.
