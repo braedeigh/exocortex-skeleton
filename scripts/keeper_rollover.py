@@ -51,6 +51,8 @@ import json                                      # noqa: E402
 
 ORIGIN = "keeper_rollover"
 RUN_ID = "keeper_rollover"   # id in the scheduled_runs.json registry
+# What the harness writes as the reply when the API's output filter stops a turn.
+FILTER_BLOCK_TEXT = "Output blocked by content filtering policy"
 
 # --- Cross-process lock: the 3 AM cron firing and a UI-triggered manual
 # rollover (routes/observatory.py's POST .../keeper/rollover) must never run
@@ -228,6 +230,34 @@ def _tail_is_error(log_path):
     return False
 
 
+def _blocked_by_filter(log_path):
+    """Did the API's output filter stop the last turn? Reads back to the turn's
+    opening user line, looking for the harness's stock error text.
+    A session jammed this way can never close: everything it was shown stays in
+    its context, so every later turn, /endsession included, gets blocked too.
+    Prompt: a rollover must not stay stuck behind a Keeper the filter has jammed."""
+    try:
+        lines = log_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    for line in reversed(lines):
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "user" and "text" in event:
+            return False
+        if event.get("type") == "assistant":
+            content = (event.get("message") or {}).get("content") or []
+            if any(isinstance(block, dict)
+                   and FILTER_BLOCK_TEXT in (block.get("text") or "")
+                   for block in content):
+                return True
+    return False
+
+
 def _run_turn_sync(bot_id_dict, text, conv_id, resume_sid, cwd):
     """One synchronous turn against an existing conversation's jsonl, the
     same shape spark_morning's _run_orientation uses: append the user event
@@ -302,6 +332,14 @@ def _close(dry_run=False, set_running=None):
 
     bot = dict(rr._bot("keeper") or {}, allowed_tools=KEEPER_TOOLS)
     log_path = _run_turn_sync(bot, "/endsession", conv_id, resume_sid, cwd)
+
+    # Let a filter-jammed session go instead of aborting. No retry can ever close
+    # it, and aborting would leave her with no working Keeper at all. It writes
+    # no diary entry; the day's cards stay in the pool for the next Keeper.
+    if _tail_is_error(log_path) and _blocked_by_filter(log_path):
+        _log(f"close: pinned conv {conv_id} is blocked by the output filter — "
+             f"no diary entry written, moving on to open a fresh Keeper")
+        return conv_id
 
     if _tail_is_error(log_path):
         raise RuntimeError(
