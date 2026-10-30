@@ -298,8 +298,9 @@ or move solo sessions out of a swarm into the layer above."
   in the middle), and the sessions working alone in rows beneath, with each
   project room as a box above them. The room helper isn't in it on the
   Observatory: it's in a band at the very top of the page, above everything it
-  arranges (`RoomHelperBand.tsx`), at every width. On desktop the same data
-  draws as the page's map (`RosterMap.tsx`, `mapPlaces.ts`). Data:
+  arranges (`RoomHelperBand.tsx`), at every width. On desktop the Observatory
+  draws the same data as an overview of small tiles and lines, and this map
+  shows on a project room's page (`RosterMap.tsx`, `mapPlaces.ts`). Data:
   `GET /api/swarms/room/<room>`.
 
 ## Project rooms and the project helper

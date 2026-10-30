@@ -1,13 +1,15 @@
-/* RosterMap — the Observatory's desktop map: fixed rows on top and at the foot,
-   and between them a map and a side column that each scroll by themselves. The
-   page as a whole never scrolls. */
+/* RosterMap — the Observatory's desktop page: fixed rows on top and at the foot,
+   and between them a quiet overview on the left and the detail on the right, each
+   scrolling by itself. The page as a whole never scrolls. The overview's rule is
+   one thing per line and colour only where it means something, so a glance lands
+   on the orange. */
 
 .page {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-4) var(--space-2);
 }
 
@@ -23,102 +25,118 @@
 .main {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
+  gap: var(--space-5);
 }
 
+/* The right side is the wider one: it's where the reading happens. It stops
+   growing at a comfortable line length, and past that the overview takes the
+   extra room. */
 .mainWide {
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(62%, 860px));
 }
 
-.map,
-.side {
+.overview,
+.right {
   min-height: 0;
   overflow-y: auto;
   padding-right: var(--space-1);
 }
 
-.side {
+.right {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
 }
 
-.side > * {
+.right > * {
   flex-shrink: 0;
 }
 
-/* --- the map --- */
+/* A question card's Send row sticks to the bottom of whatever scrolls it, with
+   room left for the column page's bottom bar. There's no such bar here. */
+.right :global(form) {
+  bottom: 0;
+}
+
+/* --- the overview --- */
 
 .room {
-  margin-bottom: var(--space-4);
-}
-
-.roomBody {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
 }
 
-/* As many circles as fit: wide enough that a big swarm's names still show, and
-   no wider, since a lone circle in a wide room would otherwise fill the screen. */
-.circles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 480px));
-  gap: var(--space-3);
-}
-
-.swarm {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-  padding: var(--space-2);
-  border: 1px solid transparent;
-  border-radius: var(--radius-lg);
-}
-
-.swarmSelected {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-
-.swarmName {
+.roomHead {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
+}
+
+.roomButton {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-3);
   min-height: var(--tap-target);
-  padding: 0 var(--space-2);
-  border: none;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: none;
   color: var(--text);
   font: inherit;
-  font-weight: 600;
   text-align: left;
   cursor: pointer;
+  transition: background 180ms ease;
 }
 
-.swarmName:hover,
-.swarmName:focus-visible {
+.roomButton:hover,
+.roomButton:focus-visible,
+.boxHead:hover,
+.boxHead:focus-visible,
+.line:hover,
+.line:focus-visible {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
-.swarmNameText {
-  min-width: 0;
-  overflow-wrap: anywhere;
+.roomName {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
 }
 
-.swarmCounts {
+.roomNew {
+  flex: none;
+  width: var(--tap-target);
+  height: var(--tap-target);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.roomNew:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.numbers {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
-  padding: 0 var(--space-2);
+  column-gap: var(--space-2);
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
 }
 
 .needing {
   color: var(--orange);
+  font-size: var(--font-size-sm);
   font-weight: 600;
 }
 
@@ -126,60 +144,175 @@
   color: var(--accent);
 }
 
-/* The circle itself, in the colour of the swarm's state: orange when anyone
-   needs her, purple when anyone works or a plan waits, faint at rest. */
-.circle {
+.chevron {
+  margin-left: auto;
+  align-self: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+/* Whatever is open on the right says so here. */
+.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* A project room: a room within the room, so a quiet outline and nothing louder. */
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.boxHead {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 100%;
-  aspect-ratio: 1;
-  box-sizing: border-box;
-  border: 2px solid color-mix(in srgb, var(--text-muted) 40%, transparent);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  gap: var(--space-3);
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
-.circle > * {
-  width: 100%;
+.boxName {
+  font-weight: 600;
 }
 
-.circleWorking,
-.circlePlan {
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
-}
-
-.circleNeeds {
-  border-color: var(--orange);
-}
-
-/* A project helper's dot with its last move beside it, not above: on a map the
-   height belongs to the circles. */
-.helperRow {
-  display: flex;
-  align-items: center;
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: var(--space-2);
 }
 
-.helperRow > button {
+.tile {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 64px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease;
+}
+
+.tile:hover,
+.tile:focus-visible {
+  border-color: var(--accent);
+}
+
+.tileNeeds {
+  border-color: var(--orange);
+}
+
+.tileWorking,
+.tilePlan {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+/* Selected wins over the state's edge: it's what connects this to the right. */
+.tile.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.tileWords {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tileName {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* The miniature: a faint ring, a centre dot for the helper, a dot per member. */
+.mini {
   flex: none;
 }
 
-.helperMove {
+.miniRing {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  stroke-width: 1.5;
+}
+
+.miniCentre,
+.mini_silent {
+  fill: var(--text-muted);
+}
+
+.mini_working,
+.miniPlan {
+  fill: var(--accent);
+}
+
+.mini_needs_input {
+  fill: var(--orange);
+}
+
+/* One line per session, in two columns where there's room. */
+.lines {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  column-gap: var(--space-2);
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lineTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note {
   margin: 0;
-  max-width: 70ch;
-  color: var(--text-secondary);
+  padding: var(--space-2);
+  color: var(--text-muted);
   font-size: var(--font-size-sm);
 }
 
-/* --- the side column --- */
-/* A question card's Send row sticks to the bottom of whatever scrolls it, with
-   room left for the column page's bottom bar. There's no such bar here. */
-.side :global(form) {
-  bottom: 0;
+@media (prefers-reduced-motion: reduce) {
+  .roomButton,
+  .tile {
+    transition: none;
+  }
 }
 
+/* --- the right side --- */
 
 .group {
   display: flex;
@@ -194,11 +327,27 @@
   font-weight: 600;
 }
 
-.sideNote {
+.detailName {
   margin: 0;
-  padding: var(--space-3) var(--space-1);
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+}
+
+/* The stack caps itself at a phone-friendly width; here it has the whole side. */
+.swarmDetail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.swarmDetail > * {
+  width: 100%;
+}
+
+.projectBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
 .back {
@@ -262,7 +411,28 @@
   font-size: var(--font-size-sm);
 }
 
-/* --- the strip that stands in for the side column on a narrower map --- */
+.pastLink {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.pastLink:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* --- the strip that stands in for the right side on a narrower panel --- */
 
 .strip {
   display: flex;
@@ -297,23 +467,4 @@
   gap: var(--space-2);
   margin-right: calc(94px + var(--space-4));
   overflow-x: auto;
-}
-
-.pastLink {
-  flex: none;
-  min-height: var(--tap-target);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: none;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.pastLink:hover {
-  border-color: var(--accent);
-  color: var(--text);
 }

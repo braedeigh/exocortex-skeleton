@@ -58,6 +58,6 @@ export function urlForIntent(intent: Intent): string | null {
     return `/observatory/session?conv=${encodeURIComponent(intent.convId)}`;
   }
   if (intent.kind === 'activity') return activityUrl(intent.convId);
-  // A tmux session isn't a page — only the reading room's terminal takes those.
+  // A tmux session isn't a page, so no tile takes those.
   return null;
 }

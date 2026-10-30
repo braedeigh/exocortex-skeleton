@@ -28,7 +28,7 @@
  * otherwise keep collecting intents that go nowhere. Announcements carry a
  * timestamp and go stale, so a dead window drops out on its own.
  *
- * Touches: PaneStack.tsx and RoutePanel.tsx (register as targets),
+ * Touches: RoutePanel.tsx and Workspace.tsx (register as targets),
  * paneConversation.ts (the conversation seam), sessionIntent.ts (the terminal
  * seam), TerrainPage/JournalPage/SessionCard (senders).
  *

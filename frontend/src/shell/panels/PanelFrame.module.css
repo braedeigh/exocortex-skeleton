@@ -1,8 +1,7 @@
 /* One panel: a header row that never scrolls, and a body that fills the rest.
    Theme variables rather than the terminal's pinned indigo — a panel can hold
    any page in the app, and dark chrome stapled above a light dashboard page
-   reads as a bug. The reading-room panel keeps its own pinned colours inside
-   the header slot it fills. */
+   reads as a bug. */
 
 .panel {
   display: flex;
@@ -29,8 +28,7 @@
   border-bottom: 1px solid var(--border);
 }
 
-/* The panel hands in what fills the left of this row — its tab bar, or the
-   reading room's switcher — and it takes all the space the actions don't. */
+/* The panel hands in what fills the left of this row — its tab bar — and it takes all the space the actions don't. */
 .head > :first-child {
   flex: 1;
   min-width: 0;

@@ -4,7 +4,7 @@
  *
  * What this is, in plain English: the map (RosterMap.tsx) draws each room as
  * swarm circles, project boxes and rings for sessions working alone, with a side
- * column for what wants her. This file answers two questions.
+ * side for what wants her. This file answers two questions.
  *
  *   placeRoster   Where does each session LIVE on the map? Each has exactly one
  *                 home: drawn as a helper (the band, a circle's middle, a project
@@ -12,7 +12,7 @@
  *                 room, the room's Done drawer, or, if none of those claims it,
  *                 a ring in "Other sessions". The server's list of who works
  *                 alone isn't the whole roster, which is why the last one exists.
- *   sideGroups    What goes in the side column? Each session goes in at most one
+ *   sideGroups    What goes in the "Needs you" list on the right? Each session goes in at most one
  *                 group: asking, a plan up for her go, a failed turn, or a reply
  *                 to read. A session in a group still has its home on the map;
  *                 the side column is where she acts on it. Each group is in the
@@ -21,9 +21,9 @@
  * narrowPlaces is what the filters do to the map: it drops the circles, boxes
  * and rings that have nothing matching.
  *
- * Circles and rings keep the order they arrive in rather than floating by
- * urgency: a map is something she finds her way around by where things are, and
- * the side column is what's sorted by what needs her.
+ * Swarms stand in the room's own order, so one that needs her floats to the top
+ * as on the phone's list (roomOrder.ts). Sessions working alone keep the page's
+ * order: they're a list she finds her way around by where things are.
  *
  * Touches: RosterMap.tsx (the only caller), roomOrder.ts (the swarm view and the
  * order), sessionFilters.ts (the state rules), swarmApi.ts (the room view),
@@ -33,7 +33,7 @@
  * like the easy scroll UI on desktop."
  */
 import type { SessionMeta } from './api';
-import { foldsIntoDone, orderRoom, sessionPlace, type SwarmView } from './roomOrder';
+import { foldsIntoDone, orderRoom, sessionPlace, swarmPlace, type SwarmView } from './roomOrder';
 import { cardState, isAsking } from './sessionFilters';
 import type { MemberState, ProjectView, RoomView, Swarm } from './swarmApi';
 
@@ -111,7 +111,9 @@ export function placeRoster({
 
   // Who's in a circle, from the swarm views, which have already dropped the
   // finished members.
-  const drawn = views.filter((view) => !DOOR_LANES.has(view.swarm.lane));
+  const drawn = orderRoom(
+    views.filter((view) => !DOOR_LANES.has(view.swarm.lane)).map((view) => ({ item: view, ...swarmPlace(view) })),
+  );
   const inCircle = new Set(drawn.flatMap((view) => view.members.map((member) => member.conv)));
 
   // Who the server says is working alone, and where.
@@ -177,6 +179,30 @@ export function placeRoster({
     else room.others.push(ringOf(meta));
   }
   return [...placed.values()];
+}
+
+/** A room's numbers, for its heading: how many sessions are open in it, how many
+ * need her, how many are running, how many are done. */
+export interface RoomCensus {
+  open: number;
+  needing: number;
+  running: number;
+  done: number;
+}
+
+export function roomCensus(room: MapRoom): RoomCensus {
+  const views = [...room.swarms, ...room.projects.flatMap((box) => box.swarms)];
+  const rings = [...room.solos, ...room.others, ...room.projects.flatMap((box) => box.solos)];
+  return {
+    open: views.reduce((total, view) => total + view.members.length, 0) + rings.length,
+    needing:
+      views.reduce((total, view) => total + view.counts.needs_input, 0) +
+      rings.filter((ring) => ring.state === 'needs_input').length,
+    running:
+      views.reduce((total, view) => total + view.counts.working, 0) +
+      rings.filter((ring) => ring.state === 'working').length,
+    done: room.done.length,
+  };
 }
 
 /** What a filter leaves of a room: only the circles with a matching member, the

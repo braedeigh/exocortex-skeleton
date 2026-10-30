@@ -42,8 +42,7 @@ export interface PanelTreeProps {
   onResize: (splitId: string, boundary: number, deltaPct: number, next: number) => void;
   onDragChange: (dragging: boolean) => void;
   renderContent: (panel: PanelNode) => ReactNode;
-  /** What fills the left of a panel's header row — its tab bar, or the
-   *  reading room's switcher. */
+  /** What fills the left of a panel's header row — its tab bar. */
   renderHeaderLeft?: (panel: PanelNode) => ReactNode | undefined;
   /** Whether a panel can be closed right now (layoutTree.canClosePanel). */
   isClosable: (panel: PanelNode) => boolean;

@@ -70,16 +70,12 @@ export function SwarmStack({
   rosterById,
   onOpen,
   onChanged,
-  hideBubble = false,
 }: {
   view: SwarmView;
   /** Every session the page knows: the members' live state and questions. */
   rosterById: Map<string, SessionMeta>;
   onOpen: (conv: string) => void;
   onChanged?: () => void;
-  /** Leave the bubble out: on the desktop map the circle is on the map itself,
-   * and this stack is its side column (RosterMap.tsx). */
-  hideBubble?: boolean;
 }) {
   const navigate = useNavigate();
   const { swarm, members } = view;
@@ -157,16 +153,14 @@ export function SwarmStack({
       {open ? (
         <>
         {/* 2. The bubble: the swarm as a network, in its circle. */}
-        {hideBubble ? null : (
-          <div className={styles.circle}>
-            <SwarmNetwork
-              swarm={swarm}
-              onOpen={onOpen}
-              helperWorking={!!(swarm.helper_conv && rosterById.get(swarm.helper_conv)?.running)}
-              round
-            />
-          </div>
-        )}
+        <div className={styles.circle}>
+          <SwarmNetwork
+            swarm={swarm}
+            onOpen={onOpen}
+            helperWorking={!!(swarm.helper_conv && rosterById.get(swarm.helper_conv)?.running)}
+            round
+          />
+        </div>
 
         {/* 3. The questions its members are asking her, answerable here. */}
         {asking.length > 0 ? (

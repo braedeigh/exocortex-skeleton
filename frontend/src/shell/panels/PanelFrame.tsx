@@ -6,8 +6,8 @@ import styles from './PanelFrame.module.css';
  * you can do to the panel itself.
  *
  * One header row, ~40px so everything in it is a comfortable target. The panel
- * hands in what fills the left of that row — its tab bar (TabBar.tsx), or the
- * reading room's own switcher — and this adds, at the right, a button to split
+ * hands in what fills the left of that row — its tab bar (TabBar.tsx) — and this
+ * adds, at the right, a button to split
  * beside, a button to split below, and a close.
  *
  * That's the entire vocabulary of the workspace: whatever you can arrange, you
@@ -19,8 +19,7 @@ import styles from './PanelFrame.module.css';
  * The last panel standing has no close button: absent rather than disabled,
  * because a disabled button invites you to wonder what you did wrong.
  *
- * Touches: PanelTree.tsx (renders these), TabBar.tsx and PaneStack.tsx (what
- * goes in the header).
+ * Touches: PanelTree.tsx (renders these), TabBar.tsx (what goes in the header).
  */
 export function PanelFrame({
   onSplitRight,

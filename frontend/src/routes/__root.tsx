@@ -76,8 +76,8 @@ function PanelRoot() {
  * SessionsProvider wraps TopTabs + Outlet (not just the /chat route) so the
  * mobile Chat tab's label and the /chat route's session switcher share one
  * live useSessions() instance — see SessionsContext.tsx. Only enabled on
- * mobile+authed: desktop gets its own instance inside the reading-room tile,
- * and public visitors get neither.
+ * mobile+authed: desktop has no terminal to list, and public
+ * visitors get neither.
  */
 function WindowRoot() {
   useFrameBridge();

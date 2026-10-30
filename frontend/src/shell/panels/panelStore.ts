@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isLayoutNode, type LayoutNode, type PanelNode } from './layoutTree';
+import { dropReadingRoom, isLayoutNode, type LayoutNode, type PanelNode } from './layoutTree';
 
 /**
  * panelStore.ts — remembering the workspace arrangement, and minting ids.
@@ -58,10 +58,8 @@ export function newId(prefix: string): string {
  * right, each wearing its own set of tabs — work on the left, life on the
  * right.
  *
- * The left panel is an ordinary route panel rather than the old reading-room
- * stack, because the reading room bundles the Observatory with a terminal she
- * doesn't use and can't be opened twice. As a route panel it gets a tab bar
- * like everything else, and she can have as many as she likes.
+ * The left panel is an ordinary route panel, so it gets a tab bar like
+ * everything else, and she can have as many as she likes.
  */
 export function defaultLayout(): LayoutNode {
   return {
@@ -106,7 +104,8 @@ function read(store: Storage | undefined, key: string): LayoutNode | null {
     if (!parsed || typeof parsed !== 'object') return null;
     const box = parsed as { v?: unknown; tree?: unknown };
     if (box.v !== VERSION) return null;
-    return usable(box.tree) ? box.tree : null;
+    const tree = dropReadingRoom(box.tree);
+    return usable(tree) ? tree : null;
   } catch {
     // Unparseable, or storage denied — fall through to the default.
     return null;

@@ -4,10 +4,10 @@ import { useCallback, useRef } from 'react';
  * sessionMountKey.ts — the React `key` a chat page is mounted under, so that a
  * brand-new session's first reply keeps streaming live.
  *
- * Both homes of the chat page (the routed page and the docked pane in
- * shell/KeeperPane.tsx) key it on the conversation id, so that switching
+ * The chat page's route (routes/observatory_.$botId.tsx) keys it on the
+ * conversation id, so that switching
  * conversations starts from a clean page. But a blank compose has no id until
- * its first send creates one — and pointing the URL (or the pane) at that new
+ * its first send creates one — and pointing the URL at that new
  * id mid-reply would change the key, throw the page away, and cut the live
  * stream, leaving only the 2-second log poll (useReattach.ts) to show the
  * reply. So the page ADOPTS the id it just made: it says so (adopt) before it
@@ -15,8 +15,7 @@ import { useCallback, useRef } from 'react';
  * anywhere else afterwards retires the adoption and bumps a generation, so the
  * next blank compose gets a key of its own and never inherits the old page.
  *
- * Touches: routes/observatory_.$botId.tsx and shell/KeeperPane.tsx (the two
- * callers), ObservatoryPage.tsx (calls adopt via its onSessionCreated prop).
+ * Touches: routes/observatory_.$botId.tsx (the caller), ObservatoryPage.tsx (calls adopt via its onSessionCreated prop).
  */
 
 export interface MountKeyState {

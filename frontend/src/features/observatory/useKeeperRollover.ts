@@ -17,10 +17,6 @@ export type RolloverPhase = 'idle' | 'confirming' | 'rolling' | 'error';
 export function useKeeperRollover(args: {
   botId: string;
   pinned: boolean;
-  /** Docked mode (the desktop split pane): swap the pane's conversation
-   * instead of routing the whole app to it — see ObservatoryPage's prop of
-   * the same name. */
-  onOpenConversation?: (convId: string) => void;
 }): {
   phase: RolloverPhase;
   errorMsg: string | null;
@@ -28,7 +24,7 @@ export function useKeeperRollover(args: {
   cancelConfirm: () => void;
   confirm: () => Promise<void>;
 } {
-  const { botId, pinned, onOpenConversation } = args;
+  const { botId, pinned } = args;
   const navigate = useNavigate();
   const [phase, setPhase] = useState<RolloverPhase>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -85,13 +81,11 @@ export function useKeeperRollover(args: {
         const outcome = status.registry?.last_status;
         if (outcome === 'ok' && status.pinned_conv_id) {
           setPhase('idle');
-          if (onOpenConversation) onOpenConversation(status.pinned_conv_id);
-          else
-            void navigate({
-              to: '/observatory/$botId',
-              params: { botId },
-              search: { conv: status.pinned_conv_id },
-            });
+          void navigate({
+            to: '/observatory/$botId',
+            params: { botId },
+            search: { conv: status.pinned_conv_id },
+          });
         } else {
           setErrorMsg('Rollover failed — check keeper_rollover.log');
           setPhase('error');
@@ -102,7 +96,7 @@ export function useKeeperRollover(args: {
       cancelled = true;
       clearInterval(id);
     };
-  }, [phase, navigate, botId, onOpenConversation]);
+  }, [phase, navigate, botId]);
 
   const requestConfirm = useCallback(() => {
     setErrorMsg(null);

@@ -111,16 +111,8 @@ function firstShownTurn(turns: Turn[], exchanges: number): number {
  * just sent. See the history-load effect below and useScrollContract.ts's
  * pinToAnchor.
  *
- * DOCKED MODE (07-25): this page is also the desktop split's left pane (see
- * shell/KeeperPane.tsx), where there is no URL of its own to keep in step —
- * the address bar belongs to the right pane. `onOpenConversation` is that
- * seam: when it's passed, the two places this page would otherwise route
- * ("the session I just created", "the fresh Keeper the rollover woke") hand
- * the id to the pane instead, and the app's route never moves. Everything
- * else about the page is identical in both homes.
- *
- * A SESSION IT JUST MADE STAYS THIS PAGE (09-28). Both homes key the page on
- * the conversation id, so pointing them at the session a blank compose just
+ * A SESSION IT JUST MADE STAYS THIS PAGE (09-28). The route keys the page on
+ * the conversation id, so pointing it at the session a blank compose just
  * created would remount it mid-reply and cut the live stream. `onSessionCreated`
  * fires first, and the home keeps this mount (sessionMountKey.ts) — which is
  * what lets the history load's same-mount fast path actually happen.
@@ -129,29 +121,23 @@ export function ObservatoryPage({
   botId,
   convId,
   cameFrom,
-  onOpenConversation,
   onSessionCreated,
-  onTitleChange,
 }: {
   botId: string;
   convId?: string;
   /** The chat a spinoff Go brought her here from (`?from=`), which this page
    * offers to close. See SpinoffOffer.tsx. */
   cameFrom?: string;
-  onOpenConversation?: (convId: string) => void;
   /** Told the id of a session this page just created, right before the page
    * points its home at it — so the home keeps this mount instead of
    * remounting (sessionMountKey.ts). */
   onSessionCreated?: (convId: string) => void;
-  /** Docked mode: report this session's title so the pane's tab can wear it
-   * instead of a generic label. null while it's still unresolved. */
-  onTitleChange?: (title: string | null) => void;
 }) {
   const navigate = useNavigate();
   // Presence heartbeat: while this room is open and visible, stamp its
   // conversation "open" so the terrain page's agent bar can show it as active
-  // (presence.ts). Keyed on convId, so the docked pane re-stamps when
-  // it swaps conversations; a no-op until a convId exists (brand-new room).
+  // (presence.ts). Keyed on convId, so it re-stamps when the
+  // conversation changes; a no-op until a convId exists (brand-new room).
   useOpenSessionHeartbeat(convId);
   // Sessions dissolved the "bot" persona (07-24) — there's no roster of named
   // bots to look a display name up in anymore. The header/placeholder show
@@ -159,9 +145,7 @@ export function ObservatoryPage({
   // resolves it; a brand-new session (nothing to load yet) gets a plain
   // generic label.
   //
-  // null means "not resolved yet", kept distinct from the generic label so the
-  // docked pane's tab can hold off on wearing a title until there's a real one
-  // (see onTitleChange) rather than flashing the placeholder as if it were one.
+  // null means "not resolved yet", kept distinct from the generic label.
   const [roomTitle, setRoomTitle] = useState<string | null>(null);
   const roomLabel = roomTitle ?? 'Observatory';
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -522,14 +506,6 @@ export function ObservatoryPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convId, serverRunning, rosterReadAt, histLoaded, writing, wordFlow.pacing]);
 
-  // Docked mode: hand the title to the pane holding us, so its tab reads as the
-  // session she's actually in. Fires with null on mount too — the pane remounts
-  // this page per conversation, so that's what clears the previous session's
-  // name off the tab while the new one loads.
-  useEffect(() => {
-    onTitleChange?.(roomTitle);
-  }, [roomTitle, onTitleChange]);
-
   // The pause (off-record) button only exists where the journal is live —
   // in a workshop session there's nothing to pause. Clear any stale state
   // when the session turns out not to journal.
@@ -547,22 +523,19 @@ export function ObservatoryPage({
   // Point this page's home at a session it just created: the URL catches up
   // as soon as the session exists, not once the reply finishes — a reload
   // mid-turn lands back here instead of a blank compose that would try to
-  // create a second session. Docked in the split pane there's no URL to catch
-  // up; the pane takes the id instead. onSessionCreated goes first, so either
-  // home keeps this mount rather than remounting it mid-reply.
+  // create a second session. onSessionCreated goes first, so the page keeps
+  // this mount rather than remounting it mid-reply.
   const pointAtNewSession = useCallback(
     (conv: string) => {
       onSessionCreated?.(conv);
-      if (onOpenConversation) onOpenConversation(conv);
-      else
-        void navigate({
-          to: '/observatory/$botId',
-          params: { botId },
-          search: { conv },
-          replace: true,
-        });
+      void navigate({
+        to: '/observatory/$botId',
+        params: { botId },
+        search: { conv },
+        replace: true,
+      });
     },
-    [botId, navigate, onOpenConversation, onSessionCreated],
+    [botId, navigate, onSessionCreated],
   );
 
   // Her messages waiting in the session's mailbox (useMessageQueue.ts). Up
@@ -745,7 +718,7 @@ export function ObservatoryPage({
     ],
   );
 
-  const rollover = useKeeperRollover({ botId, pinned: sessionPinned === true, onOpenConversation });
+  const rollover = useKeeperRollover({ botId, pinned: sessionPinned === true });
 
   const photo = usePhotoAttach();
 
@@ -847,8 +820,7 @@ export function ObservatoryPage({
   // still always sees current state.
   //
   // Only the page she's looking at answers. Every mounted page listens on the
-  // window, and the docked one stays mounted while hidden behind the roster or
-  // the terminal — so a hidden page (display:none, no layout boxes) ignores the
+  // window, and one in a hidden panel stays mounted — so a hidden page (display:none, no layout boxes) ignores the
   // key, and when focus sits inside one chat page, the others ignore it too.
   const escapeRef = useRef<() => void>(() => {});
   escapeRef.current = () => {
@@ -1379,19 +1351,14 @@ export function ObservatoryPage({
           >
             activity
           </button>
-          {/* Go to this session's helper — its swarm's, or its room's. Docked
-              in the split pane it opens there, like every other session jump
-              from this page. */}
+          {/* Go to this session's helper — its swarm's, or its room's. */}
           {helperLink ? (
             <button
               type="button"
               className={styles.toolBtn}
               title={`Open ${helperLink.title}`}
               aria-label={`Open ${helperLink.title}`}
-              onClick={() => {
-                if (onOpenConversation) onOpenConversation(helperLink.conv);
-                else void navigate(sessionLocation(helperLink.conv));
-              }}
+              onClick={() => void navigate(sessionLocation(helperLink.conv))}
             >
               {helperLink.kind === 'swarm' ? 'swarm helper' : helperLink.kind === 'project' ? 'project helper' : 'room helper'}
             </button>

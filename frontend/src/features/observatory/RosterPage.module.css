@@ -38,19 +38,9 @@
   margin-bottom: var(--space-4);
 }
 
-/* --- the rail, as the DOCKED pane draws it --- */
-/* STICKY to the bottom, not fixed. This is the desktop split's left pane, and
-   a fixed bar measures the viewport, not the pane — it would break out and
-   float across the whole app, terminal included. Sticky pins it to the bottom
-   of the pane's own scrollport instead, which is what "along the bottom" means
-   in here. It's also the last child in the column, so at the end of the scroll
-   it simply sits after the final card rather than covering it.
-   It sits on the pane's LEFT, with the notes pill in the pane's right corner —
-   the two ends of the pane's bottom edge, rather than stacked at one end.
-   The full-page route overrides this to `fixed` further down, where the bar
-   has to line up with the notes pill on the viewport's edge.
-   [prompt: "put the dev notes on the right corner and the other buttons on the
-   left"] */
+/* --- the rail --- */
+/* The base look; .layoutRoomy .rail further down pins it along the frame's
+   bottom edge. */
 .rail {
   position: sticky;
   bottom: var(--space-2);
@@ -689,10 +679,6 @@
    bottom instead, in the row the dev-notes pill already occupies, so it takes
    no width from the cards at all and the roster runs full-bleed.
 
-   Keyed on .layoutRoomy — the ROUTED page — not on a width. The other case is
-   the docked pane (KeeperPane passes onOpenConversation), which keeps the
-   sticky rail above.
-
    ANCHORED TO THE FRAME THE PAGE FILLS, NOT THE WINDOW. The bar was `fixed`
    back when this route WAS the whole screen. It isn't any more — the panel
    workspace renders /observatory as one tile among several, and a
@@ -778,11 +764,7 @@
   pointer-events: auto;
 }
 
-/* Every button in the bar is exactly one tap target wide — in EVERY context.
-   This was scoped to the full-page route back when the docked pane still had a
-   vertical lane; once the pane got the bar too, the sort button was left with
-   no width at all and collapsed to the width of its arrow — a 12px sliver 40px
-   tall. A rule that only half-applies is worse than one that doesn't. */
+/* Every button in the bar is exactly one tap target wide. */
 .railNew,
 .filterBtn,
 .railUtil {
@@ -888,21 +870,66 @@
   cursor: pointer;
 }
 
-/* --- the desktop map's rows (RosterMap.tsx) --- */
-/* Title, search, the Keeper's door, the meter, on one line. */
-.mapTitleRow {
+/* --- the desktop overview's one row of controls (RosterMap.tsx) --- */
+/* Everything that acts on the page, on one line, so the rooms start as high up as
+   they can. The two kinds she filters by most carry their names; the coloured
+   states stay a dot and a count, with the name on hover. Those two stand first,
+   and the two states that come and go last, so nothing she aims at ever moves. */
+.mapControls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
-.mapTitleRow .title {
-  flex: none;
+.mapControls .filters {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.mapControls .filterBtn {
+  order: 3;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.mapControls .filterHueKind {
+  order: 1;
+  width: auto;
+  padding: 0 var(--space-3);
+}
+
+.mapControls .filterHueRunning {
+  order: 5;
+}
+
+.mapControls .filterHueError {
+  order: 6;
+}
+
+.mapControls .filterOn {
+  box-shadow: 0 0 18px color-mix(in srgb, var(--glow) 65%, transparent),
+    0 0 44px color-mix(in srgb, var(--glow) 32%, transparent);
+}
+
+.mapControls .filterHueKind .filterLabel {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip-path: none;
+}
+
+.mapControls .railUtil {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
 }
 
 .mapMeter {
   flex: none;
-  width: 160px;
+  width: 140px;
 }
 
 .keeperDoor {
@@ -931,58 +958,6 @@
   height: 10px;
   border-radius: 50%;
   background: var(--orange);
-}
-
-/* The controls in flow here, not floating: labelled, since there's room. The
-   two that come and go (Running, Errors) stand last, so the ones she aims at
-   without looking never move. */
-.mapControls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.mapControls .filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.mapControls .filterHueRunning {
-  order: 5;
-}
-
-.mapControls .filterHueError {
-  order: 6;
-}
-
-.mapControls .filterBtn,
-.mapControls .railUtil {
-  width: auto;
-  min-width: var(--tap-target);
-  padding: 0 var(--space-2);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow: none;
-}
-
-.mapControls .filterOn {
-  box-shadow: 0 0 18px color-mix(in srgb, var(--glow) 65%, transparent),
-    0 0 44px color-mix(in srgb, var(--glow) 32%, transparent);
-}
-
-.mapControls .filterLabel,
-.mapControls .railUtilLabel {
-  position: static;
-  width: auto;
-  height: auto;
-  overflow: visible;
-  clip-path: none;
-}
-
-.mapControls .railUtils {
-  margin-left: auto;
 }
 
 /* A kind of session rather than a state, so ink rather than a colour. */

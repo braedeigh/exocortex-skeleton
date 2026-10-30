@@ -1,58 +1,59 @@
 /**
- * RosterMap.tsx — the Observatory on a desktop: the rooms as a map, with a side
- * column for what wants her, instead of one long column of cards.
+ * RosterMap.tsx — the Observatory on a desktop: everything at a glance on the
+ * left, and the detail of whatever she clicks into on the right.
  *
- * What this is, in plain English, top to bottom:
+ * What this is, in plain English:
  *
- *   - the room helper's band, then a row with the title, the search box, a small
- *     door to the Keeper and the memory meter, then a row with the '+', the
- *     filters and the sort. RosterPage hands these in; they don't scroll.
- *   - LEFT, filling the space, the map: each room with its heading and '+'. Each
- *     swarm is a circle (SwarmNetwork, as on its own page), each session working
- *     alone a ring, and each project room a collapsible box of its own circles
- *     and rings. Tap a ring to open that session, in the pane on the right
- *     (shell/panels/conversationRouting.ts). Tap a circle's name or its empty
- *     space to read that swarm in the side column.
- *   - RIGHT, the side column: sudo and file requests, then the question and
- *     approval cards, plans waiting on her go, failed turns, a quieter list of
- *     replies to read, then the Done drawers and Saved for later, shut. The
- *     question cards live only here on this view; a swarm's circle says how many
- *     need her and wears an orange ring.
- *   - the FOOT: one slim row of doors to the other rooms and the rooms' past
- *     sessions, stopping short of the notes pill's corner.
+ *   - TOP: the room helper's band, then one row with the '+', the filters, the
+ *     sort, the search box, the Keeper's door and the memory meter. RosterPage
+ *     hands these in; they don't scroll.
+ *   - LEFT, the overview. Each room is a heading with its numbers ("12 open · 5
+ *     need you · 2 running"), its project rooms as boxes, and inside them a small
+ *     tile per swarm and one line per session. Nothing here tells the whole story
+ *     of anything: a tile says what the swarm is and how many need her, drawn as
+ *     a tiny circle of dots (MiniSwarm); a line is a session's dot and its name.
+ *   - RIGHT, wider, the detail. It opens on what needs her: the questions as full
+ *     cards, then plans, failures and replies to read. Clicking a swarm, a project
+ *     room or a room's heading swaps it to that thing's whole story, with a way
+ *     back: the swarm's network and members, the project helper and its swarms,
+ *     the room's sessions as cards with its Done drawer and past sessions.
+ *     Clicking a session's line opens the session itself, in the pane on the right
+ *     of this page (shell/panels/conversationRouting.ts).
+ *   - FOOT: one slim row of doors to the other rooms, stopping short of the notes
+ *     pill's corner.
  *
- * Each column scrolls by itself; the page as a whole doesn't. On a narrower panel
- * (RosterPage decides by measuring it) the side column gives way to a one-line
- * strip, "3 need you · 2 plans", and tapping that swaps the map for the list.
+ * Each side scrolls by itself; the page as a whole doesn't. On a narrower panel
+ * (RosterPage decides by measuring it) the right side gives way to a one-line
+ * strip, "3 need you · 2 plans", and clicking in swaps the overview for the detail.
  *
- * With filters down, the map hides circles, boxes and rings with no match and
- * dims the non-matching rings in the circles that stay; the side column narrows
- * to the matching sessions. Where each session stands, and what the filters do to
- * that, is mapPlaces.ts (tested); this file only draws it.
+ * With filters down, the overview hides the tiles, boxes and lines with no match,
+ * and the right side narrows to the matching sessions. Where each session stands,
+ * and what the filters do to that, is mapPlaces.ts (tested); this file only draws.
  *
  * Touches: RosterPage.tsx (owns the state, draws this), mapPlaces.ts, RoomMap.tsx
- * (Ring, stateOf, moveLine), SwarmStack.tsx (a swarm in the side column),
- * SwarmNetwork.tsx (the circles), SessionCard.tsx (the cards), DoneDrawer.tsx,
- * SavedLane.tsx, swarmApi.ts (the data), RosterMap.module.css.
+ * (MapBody, for a project room's detail), SwarmStack.tsx (a swarm's detail),
+ * SessionCard.tsx (the cards), DoneDrawer.tsx, SavedLane.tsx, swarmApi.ts (the
+ * data), RosterMap.module.css.
  *
- * Prompt that produced it: "it needs to have a better dashboard UI, rather than
- * like the easy scroll UI on desktop." She chose a map first, "but with like, the
- * ability to filter by planning or needs you sessions".
+ * Prompt that produced it: "i am wanting it to be easy to see what is going on at
+ * a glance in the observatory, so like which rooms, which sessions are open in
+ * which rooms, how many need me, etc.. but i want to be able to click into each to
+ * get more information." · "the left panel is too wide and the right panel is too
+ * small and it's too much information at a glance"
  */
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { agentPointerProps } from '../../shell/panels/agentHoverBus';
-import { CollapsibleCard } from '../body/CollapsibleCard';
 import type { TerrainData } from '../terrain/api';
 import { FileRequests } from '../fileedit/FileRequests';
 import { SudoRequests } from '../sudo/SudoRequests';
 import type { RoomInfo, SessionMeta } from './api';
 import { DoneDrawer } from './DoneDrawer';
-import { LaneHead, useLaneOpen } from './LaneHead';
 import {
   helperConvs,
   narrowPlaces,
   placeRoster,
+  roomCensus,
   sideGroups,
   stripLine,
   type MapProject,
@@ -60,21 +61,18 @@ import {
   type MapRoom,
 } from './mapPlaces';
 import { orchestraRows } from './orchestra';
-import { moveLine, Ring, stateOf } from './RoomMap';
-import { swarmPaint, swarmView, unreadDone, type SwarmView } from './roomOrder';
+import { MapBody } from './RoomMap';
+import { orderRoom, sessionPlace, swarmPaint, swarmView, unreadDone, type SwarmView } from './roomOrder';
 import { SavedLane } from './SavedLane';
 import { ApprovalCard, AwaitingCard, SessionCard } from './SessionCard';
-import { matchesAny, planSummary, type RosterFilter } from './sessionFilters';
+import { cardState, isAsking, matchesAny, planSummary, type CardState, type RosterFilter } from './sessionFilters';
 import laneStyles from './SessionLane.module.css';
-import { ClosedSwarmsToggle, SwarmNetwork, SwarmNetworkKey } from './SwarmNetwork';
+import { ClosedSwarmsToggle, SwarmNetworkKey } from './SwarmNetwork';
 import { shownSwarms, useClosedSwarmsShown, useRoomViews, useSwarms } from './swarmApi';
-import { shortTitle } from './swarmNetworkMath';
 import { SwarmStack } from './SwarmStack';
-import roomStyles from './RoomMap.module.css';
-import ring from './SwarmNetwork.module.css';
 import styles from './RosterMap.module.css';
 
-/** What the cards in the side column need from the page. */
+/** What the cards on the right need from the page. */
 interface CardActions {
   onOpen: (convId: string) => void;
   onSetRead: (convId: string, read: boolean) => void;
@@ -83,267 +81,256 @@ interface CardActions {
   onClose: (convId: string) => void;
 }
 
-const CIRCLE_PAINT = { needs_input: 'circleNeeds', plan: 'circlePlan', working: 'circleWorking', silent: '' } as const;
-const DOT_PAINT = { needs_input: 'readyDot', plan: 'planDot', working: 'liveDot', silent: 'restDot' } as const;
+/** What the right side is showing: what needs her, or one thing she clicked. */
+type Detail =
+  | { kind: 'needs' }
+  | { kind: 'room'; room: string }
+  | { kind: 'project'; id: string }
+  | { kind: 'swarm'; id: number };
 
-/** One session as a ring and its name; tap to open it. */
-function MapRingButton({ item, onOpen, live }: { item: MapRing; onOpen: (convId: string) => void; live?: SessionMeta }) {
-  const state = stateOf(live, item.state);
+const TILE_PAINT = { needs_input: 'tileNeeds', plan: 'tilePlan', working: 'tileWorking', silent: '' } as const;
+
+/** The dot on a session's line, the same colours its card would wear. */
+const DOT_OF: Record<CardState, string> = {
+  error: 'errorDot',
+  running: 'liveDot',
+  asking: 'readyDot',
+  plan: 'planDot',
+  unread: 'readyDot',
+  recent: 'recentDot',
+  rest: 'restDot',
+};
+
+/** Sentence-ish numbers for a heading: only the ones with something to say. */
+function censusWords(place: MapRoom, opened: Record<string, string>): { open: number; needing: number; rest: string } {
+  const { open, needing, running, done } = roomCensus(place);
+  // A closing report she hasn't read still says so, though its card is a click away.
+  const unread = unreadDone(place.done, opened);
+  const doneWords = done > 0 ? `${done} done${unread > 0 ? ` (${unread} unread)` : ''}` : '';
+  const rest = [running > 0 ? `${running} running` : '', doneWords].filter(Boolean).join(' · ');
+  return { open, needing, rest };
+}
+
+/** One session on the overview: its dot and its name. Clicking opens it. */
+function SessionLine({
+  ring,
+  meta,
+  openedAt,
+  onOpen,
+}: {
+  ring: MapRing;
+  meta: SessionMeta | undefined;
+  openedAt: string | undefined;
+  onOpen: (convId: string) => void;
+}) {
+  const state: CardState = meta ? cardState(meta, openedAt) : 'rest';
   return (
     <button
       type="button"
-      className={[roomStyles.agent, ring[`state_${state}`]].join(' ')}
-      onClick={() => onOpen(item.conv)}
-      {...agentPointerProps(item.conv)}
-      title={item.summary ? `${item.title} — ${item.summary}` : item.title}
+      className={styles.line}
+      onClick={() => onOpen(ring.conv)}
+      {...agentPointerProps(ring.conv)}
+      title={ring.summary ? `${ring.title} — ${ring.summary}` : ring.title}
     >
-      <Ring state={state} />
-      <span className={roomStyles.agentName}>{shortTitle(item.title)}</span>
+      <span className={laneStyles[DOT_OF[state]]} aria-hidden="true" />
+      <span className={styles.lineTitle}>{ring.title}</span>
     </button>
   );
 }
 
-/** One swarm as a circle: its name and counts over its network. The name and the
- * circle's empty space read the swarm in the side column; a ring opens a session
- * and a line opens its messages, as on the swarm's own page. */
-function MapCircle({
-  view,
-  selected,
+function SessionLines({
+  rings,
   rosterById,
+  opened,
   onOpen,
-  onSelect,
-  dimmed,
 }: {
-  view: SwarmView;
-  selected: boolean;
+  rings: MapRing[];
   rosterById: Map<string, SessionMeta>;
+  opened: Record<string, string>;
   onOpen: (convId: string) => void;
-  onSelect: (swarmId: number) => void;
-  dimmed?: ReadonlySet<string>;
 }) {
-  const { swarm, counts } = view;
-  const paint = swarmPaint(view);
+  if (rings.length === 0) return null;
   return (
-    <div className={[styles.swarm, selected ? styles.swarmSelected : ''].filter(Boolean).join(' ')}>
-      <button type="button" className={styles.swarmName} onClick={() => onSelect(swarm.id)} title={`Read ${swarm.name}`}>
-        <span className={laneStyles[DOT_PAINT[paint]]} aria-hidden="true" />
-        <span className={styles.swarmNameText}>{swarm.name}</span>
-      </button>
-      <div className={styles.swarmCounts}>
-        {counts.needs_input > 0 ? <span className={styles.needing}>{counts.needs_input} need{counts.needs_input === 1 ? 's' : ''} you</span> : null}
-        {view.plans > 0 ? <span className={styles.working}>{view.plans} plan{view.plans === 1 ? '' : 's'}</span> : null}
-        {counts.working > 0 ? <span className={styles.working}>{counts.working} working</span> : null}
-        <span>{view.members.length} {view.members.length === 1 ? 'session' : 'sessions'}</span>
-      </div>
-      {/* Only empty space selects: anything drawn inside answers for itself. A
-          sheet opened from a line isn't inside this box in the page, only in
-          React's tree, which is what the contains check rules out. */}
-      <div
-        className={[styles.circle, CIRCLE_PAINT[paint] ? styles[CIRCLE_PAINT[paint]] : ''].filter(Boolean).join(' ')}
-        onClick={(event) => {
-          const target = event.target as Element;
-          if (!event.currentTarget.contains(target) || target.closest('button')) return;
-          if (target.tagName === 'line' || target.tagName === 'polygon') return;
-          onSelect(swarm.id);
-        }}
-      >
-        <SwarmNetwork
-          swarm={swarm}
-          onOpen={onOpen}
-          helperWorking={!!(swarm.helper_conv && rosterById.get(swarm.helper_conv)?.running)}
-          round
-          dimmed={dimmed}
-        />
-      </div>
+    <div className={styles.lines}>
+      {rings.map((ring) => (
+        <SessionLine key={ring.conv} ring={ring} meta={rosterById.get(ring.conv)} openedAt={opened[ring.conv]} onOpen={onOpen} />
+      ))}
     </div>
   );
 }
 
-/** The agents in these swarms a filter doesn't match, to draw stepped back. */
-function dimmedIn(views: SwarmView[], matches: ((conv: string) => boolean) | null): ReadonlySet<string> | undefined {
-  if (!matches) return undefined;
-  return new Set(views.flatMap((view) => view.swarm.members.map((m) => m.conv)).filter((conv) => !matches(conv)));
+/** A swarm in miniature: its members as dots round a centre dot, so it still
+ * reads as a circle of agents without any of the lines and numbers. */
+function MiniSwarm({ view }: { view: SwarmView }) {
+  const { members } = view;
+  const radius = 17;
+  return (
+    <svg width="48" height="48" viewBox="-24 -24 48 48" className={styles.mini} aria-hidden="true">
+      <circle r={radius} className={styles.miniRing} />
+      <circle r="3.5" className={styles.miniCentre} />
+      {members.map((member, i) => {
+        const angle = (i / members.length) * 2 * Math.PI - Math.PI / 2;
+        return (
+          <circle
+            key={member.conv}
+            cx={radius * Math.cos(angle)}
+            cy={radius * Math.sin(angle)}
+            r="3.5"
+            className={styles[member.plan ? 'miniPlan' : `mini_${member.state}`]}
+          />
+        );
+      })}
+    </svg>
+  );
 }
 
-function Circles({
+/** One swarm on the overview: what it is and how many need her. Clicking reads
+ * it on the right. */
+function SwarmTile({ view, selected, onSelect }: { view: SwarmView; selected: boolean; onSelect: () => void }) {
+  const paint = swarmPaint(view);
+  const { needs_input: needing, working } = view.counts;
+  return (
+    <button
+      type="button"
+      className={[styles.tile, TILE_PAINT[paint] ? styles[TILE_PAINT[paint]] : '', selected ? styles.selected : '']
+        .filter(Boolean)
+        .join(' ')}
+      aria-pressed={selected}
+      onClick={onSelect}
+      title={`Read ${view.swarm.name}`}
+    >
+      <MiniSwarm view={view} />
+      <span className={styles.tileWords}>
+        <span className={styles.tileName}>{view.swarm.name}</span>
+        <span className={styles.numbers}>
+          {needing > 0 ? <span className={styles.needing}>{needing} need{needing === 1 ? 's' : ''} you</span> : null}
+          {working > 0 ? <span className={styles.working}>{working} running</span> : null}
+          <span>{view.members.length} {view.members.length === 1 ? 'session' : 'sessions'}</span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function SwarmTiles({
   views,
-  selected,
-  rosterById,
-  onOpen,
-  onSelect,
-  matches,
+  detail,
+  onDetail,
 }: {
   views: SwarmView[];
-  selected: number | null;
-  rosterById: Map<string, SessionMeta>;
-  onOpen: (convId: string) => void;
-  onSelect: (swarmId: number) => void;
-  matches: ((conv: string) => boolean) | null;
+  detail: Detail;
+  onDetail: (next: Detail) => void;
 }) {
   if (views.length === 0) return null;
-  const dimmed = dimmedIn(views, matches);
   return (
-    <div className={styles.circles}>
+    <div className={styles.tiles}>
       {views.map((view) => (
-        <MapCircle
+        <SwarmTile
           key={view.swarm.id}
           view={view}
-          selected={selected === view.swarm.id}
-          rosterById={rosterById}
-          onOpen={onOpen}
-          onSelect={onSelect}
-          dimmed={dimmed}
+          selected={detail.kind === 'swarm' && detail.id === view.swarm.id}
+          onSelect={() => onDetail({ kind: 'swarm', id: view.swarm.id })}
         />
       ))}
     </div>
   );
 }
 
-function Rings({
-  heading,
-  items,
-  rosterById,
-  onOpen,
-}: {
-  heading: string;
-  items: MapRing[];
-  rosterById: Map<string, SessionMeta>;
-  onOpen: (convId: string) => void;
-}) {
-  if (items.length === 0) return null;
-  return (
-    <>
-      <h4 className={roomStyles.soloHead}>{heading}</h4>
-      <div className={roomStyles.solos}>
-        {items.map((item) => (
-          <MapRingButton key={item.conv} item={item} live={rosterById.get(item.conv)} onOpen={onOpen} />
-        ))}
-      </div>
-    </>
-  );
-}
-
-/** How many in these swarms and rings need her, for a title line. */
-function needingIn(views: SwarmView[], rings: MapRing[]): number {
-  return (
-    views.reduce((total, view) => total + view.counts.needs_input, 0) +
-    rings.filter((item) => item.state === 'needs_input').length
-  );
-}
-
-/** One project room as a box: its helper's dot, its circles and rings, and the
- * way to its own page. Shut or open as she left it, in the same memory as the
- * column's box. */
+/** One project room on the overview: a box with its name and numbers, holding
+ * its tiles and lines. Clicking the name reads it on the right. */
 function ProjectBox({
   box,
-  selected,
+  detail,
   rosterById,
+  opened,
   onOpen,
-  onSelect,
-  matches,
+  onDetail,
 }: {
   box: MapProject;
-  selected: number | null;
+  detail: Detail;
   rosterById: Map<string, SessionMeta>;
+  opened: Record<string, string>;
   onOpen: (convId: string) => void;
-  onSelect: (swarmId: number) => void;
-  matches: ((conv: string) => boolean) | null;
+  onDetail: (next: Detail) => void;
 }) {
-  const { project, swarms, solos } = box;
-  const needing = needingIn(swarms, solos);
-  const helperMeta = project.helper_conv ? rosterById.get(project.helper_conv) : undefined;
-  const lastMove = project.moves.find((move) => !move.undone_at);
-  const helperState = stateOf(helperMeta, 'silent');
+  const needing =
+    box.swarms.reduce((total, view) => total + view.counts.needs_input, 0) +
+    box.solos.filter((ring) => ring.state === 'needs_input').length;
+  const selected = detail.kind === 'project' && detail.id === box.project.id;
   return (
-    <CollapsibleCard
-      cardKey={`project-room-${project.id}`}
-      title={`${project.name} — project room`}
-      defaultOpen
-      note={needing > 0 ? `${needing} need${needing === 1 ? 's' : ''} you` : undefined}
-      classes={{ note: roomStyles.titleNote }}
-    >
-      <div className={roomStyles.map}>
-        {project.helper_conv ? (
-          <div className={styles.helperRow}>
-            <button
-              type="button"
-              className={[roomStyles.agent, roomStyles.roomHelper, ring[`state_${helperState}`]].join(' ')}
-              onClick={() => onOpen(project.helper_conv!)}
-              {...agentPointerProps(project.helper_conv)}
-              title="The project helper — tap to open its chat"
-            >
-              <Ring state={helperState} big />
-              <span className={roomStyles.agentName}>Project helper</span>
-            </button>
-            {lastMove ? <p className={styles.helperMove}>Last move: {moveLine(lastMove)}</p> : null}
-          </div>
-        ) : null}
-        <Circles views={swarms} selected={selected} rosterById={rosterById} onOpen={onOpen} onSelect={onSelect} matches={matches} />
-        <Rings heading="Working alone" items={solos} rosterById={rosterById} onOpen={onOpen} />
-        <Link to="/observatory/project/$projectId" params={{ projectId: project.id }} className={roomStyles.projectLink}>
-          Open the {project.name} page
-        </Link>
-      </div>
-    </CollapsibleCard>
+    <div className={[styles.box, selected ? styles.selected : ''].filter(Boolean).join(' ')}>
+      <button type="button" className={styles.boxHead} aria-pressed={selected} onClick={() => onDetail({ kind: 'project', id: box.project.id })}>
+        <span className={styles.boxName}>{box.project.name}</span>
+        {needing > 0 ? <span className={styles.needing}>{needing} need{needing === 1 ? 's' : ''} you</span> : null}
+        <span className={styles.chevron} aria-hidden="true">&rsaquo;</span>
+      </button>
+      <SwarmTiles views={box.swarms} detail={detail} onDetail={onDetail} />
+      <SessionLines rings={box.solos} rosterById={rosterById} opened={opened} onOpen={onOpen} />
+    </div>
   );
 }
 
-/** One room on the map: its heading and '+', its boxes, circles and rings. The
- * heading keeps the room's census, so shutting it can't hide a question. */
-function MapRoomSection({
+/** One room on the overview. Its heading is the glance: how many are open, how
+ * many need her, how many run. Clicking it reads the room on the right. */
+function RoomSection({
   place,
+  whole,
   heading,
-  selected,
+  detail,
   rosterById,
+  opened,
   filtering,
-  matches,
   onOpen,
   onNew,
-  onSelect,
+  onDetail,
 }: {
   place: MapRoom;
+  /** The room before any filter: its heading's numbers stay the room's own. */
+  whole: MapRoom;
   heading: string;
-  selected: number | null;
+  detail: Detail;
   rosterById: Map<string, SessionMeta>;
+  opened: Record<string, string>;
   filtering: boolean;
-  matches: ((conv: string) => boolean) | null;
   onOpen: (convId: string) => void;
   onNew: () => void;
-  onSelect: (swarmId: number) => void;
+  onDetail: (next: Detail) => void;
 }) {
-  const [open, toggle] = useLaneOpen(`map:${place.room}`);
-  const projectViews = place.projects.flatMap((box) => box.swarms);
-  const projectRings = place.projects.flatMap((box) => box.solos);
-  const needing = needingIn([...place.swarms, ...projectViews], [...place.solos, ...place.others, ...projectRings]);
-  const empty = place.swarms.length + place.projects.length + place.solos.length + place.others.length === 0;
+  const { open, needing, rest } = censusWords(whole, opened);
+  const selected = detail.kind === 'room' && detail.room === place.room;
+  const rings = [...place.solos, ...place.others];
+  const empty = place.swarms.length + place.projects.length + rings.length === 0;
   return (
     <section className={styles.room} aria-label={heading}>
-      <LaneHead heading={heading} open={open} onToggle={toggle} wanting={needing > 0} onNew={onNew}>
-        {needing > 0 ? <span className={laneStyles.waitCount}>{needing} need{needing === 1 ? 's' : ''} you</span> : null}
-      </LaneHead>
-      {open ? (
-        <div className={styles.roomBody}>
-          {place.projects.map((box) => (
-            <ProjectBox
-              key={box.project.id}
-              box={box}
-              selected={selected}
-              rosterById={rosterById}
-              onOpen={onOpen}
-              onSelect={onSelect}
-              matches={matches}
-            />
-          ))}
-          <Circles views={place.swarms} selected={selected} rosterById={rosterById} onOpen={onOpen} onSelect={onSelect} matches={matches} />
-          <Rings heading="Working alone" items={place.solos} rosterById={rosterById} onOpen={onOpen} />
-          <Rings heading="Other sessions" items={place.others} rosterById={rosterById} onOpen={onOpen} />
-          {empty ? (
-            <p className={roomStyles.note}>
-              {filtering ? 'Nothing in this room matches those filters.' : 'Nothing here yet — tap + beside the heading to start one.'}
-            </p>
-          ) : null}
-          {filtering ? null : <ClosedSwarmsToggle closedCount={place.closedCount} />}
-        </div>
+      <div className={styles.roomHead}>
+        <button
+          type="button"
+          className={[styles.roomButton, selected ? styles.selected : ''].filter(Boolean).join(' ')}
+          aria-pressed={selected}
+          onClick={() => onDetail({ kind: 'room', room: place.room })}
+          title={`Read everything in ${heading}`}
+        >
+          <h2 className={styles.roomName}>{heading}</h2>
+          <span className={styles.numbers}>
+            <span>{open} open</span>
+            {needing > 0 ? <span className={styles.needing}>{needing} need{needing === 1 ? 's' : ''} you</span> : null}
+            {rest ? <span>{rest}</span> : null}
+          </span>
+          <span className={styles.chevron} aria-hidden="true">&rsaquo;</span>
+        </button>
+        <button type="button" className={styles.roomNew} onClick={onNew} title={`New session in ${heading}`} aria-label={`New session in ${heading}`}>
+          +
+        </button>
+      </div>
+      {place.projects.map((box) => (
+        <ProjectBox key={box.project.id} box={box} detail={detail} rosterById={rosterById} opened={opened} onOpen={onOpen} onDetail={onDetail} />
+      ))}
+      <SwarmTiles views={place.swarms} detail={detail} onDetail={onDetail} />
+      <SessionLines rings={rings} rosterById={rosterById} opened={opened} onOpen={onOpen} />
+      {empty ? (
+        <p className={styles.note}>
+          {filtering ? 'Nothing in this room matches those filters.' : 'Nothing open here. Tap + to start one.'}
+        </p>
       ) : null}
     </section>
   );
@@ -371,12 +358,39 @@ function ToReadRow({ meta, onOpen, onSetRead }: { meta: SessionMeta; onOpen: (co
   );
 }
 
-/** The side column's list: everything that wants her, in order, then the shut
- * Done drawers and Saved for later. */
-function SideList({
+/** Draw sessions as their full cards: a question, a command to approve, or the
+ * ordinary card. The same three a room draws (SessionLane.tsx). */
+function useCards(sessions: SessionMeta[], opened: Record<string, string>, terrain: TerrainData | undefined, actions: CardActions) {
+  const { onOpen, onSetRead, onRename, onChanged, onClose } = actions;
+  const rows = new Map(orchestraRows(sessions, terrain).map((row) => [row.id, row]));
+  const live = sessions.some((s) => s.running);
+  return (meta: SessionMeta) => {
+    const row = rows.get(meta.id);
+    if (!row) return null;
+    if (row.pendingApproval) return <ApprovalCard key={meta.id} row={row} onOpen={onOpen} onChanged={onChanged} />;
+    if (isAsking(meta)) {
+      return <AwaitingCard key={meta.id} row={row} planLine={planSummary(meta)} onOpen={onOpen} onChanged={onChanged} />;
+    }
+    return (
+      <SessionCard
+        key={meta.id}
+        row={row}
+        meta={meta}
+        openedAt={opened[meta.id]}
+        live={live}
+        onOpen={onOpen}
+        onSetRead={onSetRead}
+        onRename={onRename}
+        onClose={onClose}
+        onChanged={onChanged}
+      />
+    );
+  };
+}
+
+/** What the right side opens on: everything that wants her, in the room's order. */
+function NeedsYou({
   sessions,
-  places,
-  headingOf,
   saved,
   opened,
   helpers,
@@ -386,8 +400,6 @@ function SideList({
   actions,
 }: {
   sessions: SessionMeta[];
-  places: MapRoom[];
-  headingOf: (room: string) => string;
   saved: SessionMeta[];
   opened: Record<string, string>;
   helpers: ReadonlySet<string>;
@@ -396,77 +408,74 @@ function SideList({
   terrain: TerrainData | undefined;
   actions: CardActions;
 }) {
-  const { onOpen, onSetRead, onRename, onChanged, onClose } = actions;
   const groups = sideGroups(sessions, opened, helpers, matchesMeta);
-  const doneSessions = places.flatMap((place) => place.done);
-  const rows = new Map(
-    orchestraRows([...groups.asking, ...groups.plans, ...groups.errors, ...groups.rest, ...doneSessions], terrain).map((row) => [row.id, row]),
-  );
-  const anyRunning = sessions.some((s) => s.running);
-  const card = (meta: SessionMeta) => {
-    const row = rows.get(meta.id);
-    return row ? (
-      <SessionCard
-        key={meta.id}
-        row={row}
-        meta={meta}
-        openedAt={opened[meta.id]}
-        live={anyRunning}
-        onOpen={onOpen}
-        onSetRead={onSetRead}
-        onRename={onRename}
-        onClose={onClose}
-        onChanged={onChanged}
-      />
-    ) : null;
-  };
+  const card = useCards([...groups.asking, ...groups.plans, ...groups.errors, ...groups.rest], opened, terrain, actions);
   const nothing =
     groups.asking.length + groups.plans.length + groups.errors.length + groups.toRead.length + groups.rest.length === 0;
   return (
     <>
       <SudoRequests />
       <FileRequests />
-      {groups.asking.length > 0 ? (
-        <div className={styles.group}>
-          {groups.asking.map((meta) => {
-            const row = rows.get(meta.id);
-            if (!row) return null;
-            return row.pendingApproval ? (
-              <ApprovalCard key={meta.id} row={row} onOpen={onOpen} onChanged={onChanged} />
-            ) : (
-              <AwaitingCard key={meta.id} row={row} planLine={planSummary(meta)} onOpen={onOpen} onChanged={onChanged} />
-            );
-          })}
-        </div>
-      ) : null}
+      {groups.asking.length > 0 ? <div className={styles.group}>{groups.asking.map(card)}</div> : null}
       {groups.plans.length > 0 ? <div className={styles.group}>{groups.plans.map(card)}</div> : null}
       {groups.errors.length > 0 ? <div className={styles.group}>{groups.errors.map(card)}</div> : null}
       {groups.toRead.length > 0 ? (
         <div className={styles.group}>
-          <h4 className={styles.groupHead}>To read</h4>
+          <h3 className={styles.groupHead}>To read</h3>
           {groups.toRead.map((meta) => (
-            <ToReadRow key={meta.id} meta={meta} onOpen={onOpen} onSetRead={onSetRead} />
+            <ToReadRow key={meta.id} meta={meta} onOpen={actions.onOpen} onSetRead={actions.onSetRead} />
           ))}
         </div>
       ) : null}
       {groups.rest.length > 0 ? <div className={styles.group}>{groups.rest.map(card)}</div> : null}
       {nothing ? (
-        <p className={styles.sideNote}>{filtering ? 'No sessions match those filters.' : 'Nothing is waiting on you.'}</p>
+        <p className={styles.note}>{filtering ? 'No sessions match those filters.' : 'Nothing is waiting on you.'}</p>
       ) : null}
-      {places.map((place) =>
-        place.done.length > 0 ? (
-          <DoneDrawer
-            key={place.room}
-            laneKey={place.room}
-            count={place.done.length}
-            unread={unreadDone(place.done, opened)}
-            roomName={headingOf(place.room)}
-          >
-            {place.done.map(card)}
-          </DoneDrawer>
-        ) : null,
+      {filtering ? null : <SavedLane sessions={saved} onOpen={actions.onOpen} onChanged={actions.onChanged} />}
+    </>
+  );
+}
+
+/** A room's whole story on the right: its sessions as cards, what's closing, the
+ * swarms it has closed, and the way back through its past. */
+function RoomDetail({
+  place,
+  heading,
+  rosterById,
+  opened,
+  terrain,
+  actions,
+}: {
+  place: MapRoom;
+  heading: string;
+  rosterById: Map<string, SessionMeta>;
+  opened: Record<string, string>;
+  terrain: TerrainData | undefined;
+  actions: CardActions;
+}) {
+  const navigate = useNavigate();
+  const metas = [...place.solos, ...place.others].flatMap((ring) => rosterById.get(ring.conv) ?? []);
+  const ordered = orderRoom(metas.map((meta) => ({ item: meta, ...sessionPlace(meta, opened[meta.id]) })));
+  const card = useCards([...ordered, ...place.done], opened, terrain, actions);
+  return (
+    <>
+      <h3 className={styles.detailName}>{heading}</h3>
+      {ordered.length > 0 ? <div className={styles.group}>{ordered.map(card)}</div> : (
+        <p className={styles.note}>Every open session here is in a swarm or a project room.</p>
       )}
-      {filtering ? null : <SavedLane sessions={saved} onOpen={onOpen} onChanged={onChanged} />}
+      {place.done.length > 0 ? (
+        <DoneDrawer laneKey={place.room} count={place.done.length} unread={unreadDone(place.done, opened)}>
+          {place.done.map(card)}
+        </DoneDrawer>
+      ) : null}
+      <ClosedSwarmsToggle closedCount={place.closedCount} />
+      <button
+        type="button"
+        className={styles.pastLink}
+        onClick={() => void navigate({ to: '/observatory/archive', search: { lane: place.room } })}
+      >
+        Past sessions in {heading} &rarr;
+      </button>
     </>
   );
 }
@@ -474,7 +483,6 @@ function SideList({
 export function RosterMap({
   size,
   band,
-  title,
   controls,
   doors,
   rooms,
@@ -488,18 +496,16 @@ export function RosterMap({
   onNew,
   ...actions
 }: CardActions & {
-  /** 'wide' has room for the side column; 'strip' shows its one-line stand-in. */
+  /** 'wide' has room for both sides; 'strip' shows a one-line stand-in for the right. */
   size: 'wide' | 'strip';
   band: ReactNode;
-  /** The row with the title, the search box, the Keeper's door, the meter. */
-  title: ReactNode;
-  /** The row with the '+', the filters and the sort. */
+  /** The row with the '+', the filters, the sort, search, Keeper and meter. */
   controls: ReactNode;
   /** The slim doors for the foot. */
   doors: ReactNode;
-  /** The rooms, in the order the map draws them. */
+  /** The rooms, in the order to draw them. */
   rooms: RoomInfo[];
-  /** roomRoster's list: the sessions the map places. */
+  /** roomRoster's list: the sessions the overview places. */
   roomable: SessionMeta[];
   rosterById: Map<string, SessionMeta>;
   saved: SessionMeta[];
@@ -509,7 +515,6 @@ export function RosterMap({
   stray: string | null;
   onNew: (room: string) => void;
 }) {
-  const navigate = useNavigate();
   const { onOpen, onChanged } = actions;
   const { data: allSwarms } = useSwarms();
   const showClosed = useClosedSwarmsShown();
@@ -519,7 +524,7 @@ export function RosterMap({
   const views = shownSwarms(swarms, showClosed).map((s) => swarmView(s, rosterById, opened));
   const helpers = helperConvs(swarms, roomViews);
 
-  // What the pressed filters let through: one test, read by the map and the list.
+  // What the pressed filters let through: one test, read by both sides.
   const filtering = filters.length > 0;
   const matchesMeta = filtering ? (meta: SessionMeta) => matchesAny(meta, opened[meta.id], filters) : null;
   const matchesConv = matchesMeta
@@ -533,32 +538,70 @@ export function RosterMap({
   const places = matchesConv ? narrowPlaces(everywhere, matchesConv) : everywhere;
   const headingOf = (room: string) => rooms.find((candidate) => candidate.id === room)?.name ?? room;
 
-  // The side column shows either the list or one swarm, chosen by tapping its
-  // circle. A swarm that has gone from the page drops back to the list. On a
-  // narrower map the column is only there while she has it open.
-  const [selected, setSelected] = useState<number | null>(null);
+  // What the right side shows. On a narrower panel it only shows while she has it
+  // open, in place of the overview. Something clicked that's since gone from the
+  // page drops back to what needs her.
+  const [detail, setDetail] = useState<Detail>({ kind: 'needs' });
   const [listOpen, setListOpen] = useState(false);
-  const selectedView = views.find((view) => view.swarm.id === selected) ?? null;
-  const selectSwarm = (swarmId: number) => {
-    setSelected(swarmId);
+  const showDetail = (next: Detail) => {
+    setDetail(next);
     setListOpen(true);
   };
-  const sideShowing = size === 'wide' || listOpen;
+  const swarmDetail = detail.kind === 'swarm' ? (views.find((view) => view.swarm.id === detail.id) ?? null) : null;
+  const projectDetail =
+    detail.kind === 'project'
+      ? (everywhere.flatMap((place) => place.projects).find((box) => box.project.id === detail.id) ?? null)
+      : null;
+  const roomDetail = detail.kind === 'room' ? (everywhere.find((place) => place.room === detail.room) ?? null) : null;
+  const onDetailPage = swarmDetail !== null || projectDetail !== null || roomDetail !== null;
 
-  const side = (
-    <div className={styles.side}>
-      {selectedView ? (
+  const needsGroups = sideGroups(roomable, opened, helpers, null);
+  const rightShowing = size === 'wide' || listOpen;
+
+  const right = (
+    <div className={styles.right}>
+      {onDetailPage ? (
+        <button type="button" className={styles.back} onClick={() => setDetail({ kind: 'needs' })}>
+          &larr; What needs you
+        </button>
+      ) : null}
+      {swarmDetail ? (
+        <div className={styles.swarmDetail}>
+          <SwarmStack view={swarmDetail} rosterById={rosterById} onOpen={onOpen} onChanged={onChanged} />
+          <SwarmNetworkKey />
+        </div>
+      ) : projectDetail ? (
         <>
-          <button type="button" className={styles.back} onClick={() => setSelected(null)}>
-            &larr; Everything waiting
-          </button>
-          <SwarmStack view={selectedView} rosterById={rosterById} onOpen={onOpen} onChanged={onChanged} hideBubble />
+          <h3 className={styles.detailName}>{projectDetail.project.name}</h3>
+          <div className={styles.projectBody}>
+            <MapBody
+              helperConv={projectDetail.project.helper_conv}
+              helperLabel="Project helper"
+              moves={projectDetail.project.moves}
+              solos={projectDetail.project.solos}
+              swarms={projectDetail.swarms}
+              rosterById={rosterById}
+              onOpen={onOpen}
+              onChanged={onChanged}
+              emptySwarms={`No swarms in ${projectDetail.project.name} right now.`}
+            />
+          </div>
+          <Link to="/observatory/project/$projectId" params={{ projectId: projectDetail.project.id }} className={styles.pastLink}>
+            Open the {projectDetail.project.name} page &rarr;
+          </Link>
         </>
+      ) : roomDetail ? (
+        <RoomDetail
+          place={roomDetail}
+          heading={headingOf(roomDetail.room)}
+          rosterById={rosterById}
+          opened={opened}
+          terrain={terrain}
+          actions={actions}
+        />
       ) : (
-        <SideList
+        <NeedsYou
           sessions={roomable}
-          places={places}
-          headingOf={headingOf}
           saved={saved}
           opened={opened}
           helpers={helpers}
@@ -574,47 +617,36 @@ export function RosterMap({
   return (
     <div className={styles.page}>
       {band}
-      {title}
       {controls}
       {size === 'strip' ? (
         <button type="button" className={styles.strip} aria-expanded={listOpen} onClick={() => setListOpen((was) => !was)}>
-          <span className={styles.stripLine}>{stripLine(sideGroups(roomable, opened, helpers, null))}</span>
-          <span aria-hidden="true">{listOpen ? 'Back to the map' : 'Open the list'}</span>
+          <span className={styles.stripLine}>{stripLine(needsGroups)}</span>
+          <span aria-hidden="true">{listOpen ? 'Back to the overview' : 'Open the list'}</span>
         </button>
       ) : null}
       <div className={[styles.main, size === 'wide' ? styles.mainWide : ''].filter(Boolean).join(' ')}>
-        {/* The map stays mounted behind the list, so coming back finds it where it was. */}
-        <div className={styles.map} style={size === 'strip' && listOpen ? { display: 'none' } : undefined}>
-          {places.map((place) => (
-            <MapRoomSection
+        {/* The overview stays mounted behind the detail, so coming back finds it where it was. */}
+        <div className={styles.overview} style={size === 'strip' && listOpen ? { display: 'none' } : undefined}>
+          {places.map((place, i) => (
+            <RoomSection
               key={place.room}
               place={place}
+              whole={everywhere[i]}
               heading={headingOf(place.room)}
-              selected={selected}
+              detail={detail}
               rosterById={rosterById}
+              opened={opened}
               filtering={filtering}
-              matches={matchesConv}
               onOpen={onOpen}
               onNew={() => onNew(place.room)}
-              onSelect={selectSwarm}
+              onDetail={showDetail}
             />
           ))}
-          {views.length > 0 ? <SwarmNetworkKey /> : null}
         </div>
-        {sideShowing ? side : null}
+        {rightShowing ? right : null}
       </div>
       <nav className={styles.foot} aria-label="Other rooms">
         {doors}
-        {rooms.map((room) => (
-          <button
-            key={room.id}
-            type="button"
-            className={styles.pastLink}
-            onClick={() => void navigate({ to: '/observatory/archive', search: { lane: room.id } })}
-          >
-            Past sessions in {room.name}
-          </button>
-        ))}
       </nav>
     </div>
   );

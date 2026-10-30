@@ -127,7 +127,6 @@ export function SwarmNetwork({
   helperWorking = false,
   round = false,
   frozenMessages,
-  dimmed,
 }: {
   swarm: Pick<Swarm, 'id' | 'members' | 'links' | 'continues' | 'helper_conv' | 'helper_links'>;
   onOpen: (conv: string) => void;
@@ -140,8 +139,6 @@ export function SwarmNetwork({
    * opens into these and the server is never asked. The frozen demo
    * (SwarmDemoPage.tsx) passes them; a helper's end is the word 'helper'. */
   frozenMessages?: LineMessage[];
-  /** Agents to draw stepped back, because a filter on the map doesn't match them. */
-  dimmed?: ReadonlySet<string>;
 }) {
   // Leave retired members out when the switch is on. Their lines move onto
   // the live session that took over from them (withoutRetired), so a
@@ -169,8 +166,7 @@ export function SwarmNetwork({
     talk: layout.talk, helperThreads: threads, continues: layout.continues, helperConv: swarm.helper_conv,
   });
   const dimLine = (key: string) => (spotlight !== null && !spotlight.lines.has(key) ? styles.dimmed : undefined);
-  const dimAgent = (conv: string) =>
-    (spotlight !== null && !spotlight.agents.has(conv)) || dimmed?.has(conv) ? styles.dimmed : '';
+  const dimAgent = (conv: string) => (spotlight !== null && !spotlight.agents.has(conv) ? styles.dimmed : '');
   // Open a line into its messages. Each end is named by every session it
   // stands for: with retired agents hidden, a ring also carries the lines of
   // the sessions it took over from (standIns), and the list has to match the

@@ -39,8 +39,6 @@ import { convIdOf, pathOf, sectionForUrl } from './sections';
  *
  * Pure functions over the layout tree, same contract as layoutTree.ts: no
  * React, no DOM, testable without rendering (conversationRouting.test.ts).
- * The reading-room panel is ignored throughout — when one exists the
- * workspace defers to its own legacy conversation seam (PaneStack).
  *
  * Touches: Workspace.tsx (registers the window-level catcher and applies
  * these actions), sections.ts (what a url means), panelIntents.ts (tiles no
@@ -73,11 +71,6 @@ function isObservatoryUrl(url: string): boolean {
   return sectionForUrl(url)?.id === 'observatory';
 }
 
-/** The panels that can hold a conversation — everything but the reading room. */
-function routablePanels(layout: LayoutNode): PanelNode[] {
-  return listPanels(layout).filter((p) => p.kind !== 'pane');
-}
-
 function urlOf(panel: PanelNode, primaryHref: string): string {
   return panel.kind === 'primary' ? primaryHref : (panel.url ?? '');
 }
@@ -89,7 +82,7 @@ function urlOf(panel: PanelNode, primaryHref: string): string {
  * code window) stays quiet and lets another window catch.
  */
 export function windowAcceptsConversations(layout: LayoutNode, primaryHref: string): boolean {
-  for (const p of routablePanels(layout)) {
+  for (const p of listPanels(layout)) {
     if (isObservatoryUrl(urlOf(p, primaryHref))) return true;
     if ((p.tabs ?? []).some((t) => isObservatoryUrl(t.url))) return true;
   }
@@ -107,7 +100,7 @@ export function routeConversation(
   primaryHref: string,
   hidden: ReadonlySet<string> = new Set(),
 ): ConvAction | null {
-  const panels = routablePanels(layout);
+  const panels = listPanels(layout);
   if (panels.length === 0) return null;
   const url = conversationUrl(convId);
   const showing = (p: PanelNode) => urlOf(p, primaryHref);

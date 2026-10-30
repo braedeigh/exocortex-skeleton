@@ -53,7 +53,7 @@ export function routeActivity(
   convId: string,
   primaryHref: string,
 ): ActivityAction | null {
-  const panels = listPanels(layout).filter((p) => p.kind !== 'pane');
+  const panels = listPanels(layout);
   if (panels.length === 0) return null;
   const url = activityUrl(convId);
 

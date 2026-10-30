@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { SessionMeta } from './api';
-import { helperConvs, narrowPlaces, placeRoster, sideGroups, stripLine, type MapRoom } from './mapPlaces';
+import { helperConvs, narrowPlaces, placeRoster, roomCensus, sideGroups, stripLine, type MapRoom } from './mapPlaces';
 import { swarmView } from './roomOrder';
 import { matchesAny, type RosterFilter } from './sessionFilters';
 import type { RoomView, Swarm } from './swarmApi';
@@ -133,6 +133,28 @@ describe('every session has one home', () => {
     expect(coding.done.map((m) => m.id)).toEqual(['done-solo', 'done-member', 'handed-on']);
     expect(personal.solos.map((r) => r.conv)).toEqual(['alone-personal']);
     expect(coding.closedCount).toBe(1);
+  });
+});
+
+describe('what a room says at a glance', () => {
+  it('a swarm that needs her floats above one that is only working', () => {
+    const sessions = [session('busy', { running: true }), session('asking', { awaiting_input: 'q' })];
+    const swarms = [swarm(1, ['busy']), swarm(2, ['asking'])];
+    const byId = new Map(sessions.map((s) => [s.id, s]));
+    const [room] = placeRoster({
+      rooms: ['coding'],
+      stray: 'coding',
+      sessions,
+      views: swarms.map((s) => swarmView(s, byId, {}, NOW)),
+      swarms,
+      roomViews: new Map(),
+    });
+    expect(room.swarms.map((v) => v.swarm.id)).toEqual([2, 1]);
+  });
+
+  it('counts every open session in the room, boxes included', () => {
+    const [coding] = scene().rooms;
+    expect(roomCensus(coding)).toEqual({ open: 8, needing: 2, running: 1, done: 3 });
   });
 });
 

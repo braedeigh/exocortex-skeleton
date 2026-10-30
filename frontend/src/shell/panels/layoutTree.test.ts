@@ -4,6 +4,7 @@ import {
   canClosePanel,
   closePanel,
   findPanel,
+  dropReadingRoom,
   fullScreenPlan,
   isLayoutNode,
   isWhollyHidden,
@@ -24,13 +25,13 @@ const panel = (id: string, kind: PanelNode['kind'] = 'route', url?: string): Pan
   ...(url ? { url } : {}),
 });
 
-/** The default arrangement: the reading room beside the routed content. */
+/** A plain two-up: a route panel beside the routed content. */
 const twoUp = (): LayoutNode => ({
   type: 'split',
   id: 's1',
   dir: 'row',
   sizes: [50, 50],
-  children: [panel('p-pane', 'pane'), panel('p-main', 'primary')],
+  children: [panel('p-pane'), panel('p-main', 'primary')],
 });
 
 describe('reading the tree', () => {
@@ -158,12 +159,8 @@ describe('closing either side, the primary included', () => {
     expect((closePanel(tree, 'p') as PanelNode).setId).toBe('work');
   });
 
-  it('the last panel has no close, and a primary beside only a reading room stays', () => {
+  it('the last panel has no close', () => {
     expect(canClosePanel(panel('p', 'primary'), 'p')).toBe(false);
-    const legacy = twoUp(); // the reading room beside the primary
-    expect(canClosePanel(legacy, 'p-main')).toBe(false);
-    expect(closePanel(legacy, 'p-main')).toBe(legacy);
-    expect(canClosePanel(legacy, 'p-pane')).toBe(true);
     expect(canClosePanel(withTabs(), 'right')).toBe(true);
   });
 });
@@ -336,5 +333,36 @@ describe('automatic full screen', () => {
   it('a boundary across hidden panels moves the two it stands between', () => {
     const tree = resizeSplit(arranged(), 's1', 0, 5, 2) as Extract<LayoutNode, { type: 'split' }>;
     expect(tree.sizes).toEqual([55, 25, 20]);
+  });
+});
+
+describe('the retired reading room in a saved layout', () => {
+  const room = { type: 'panel', id: 'rr', kind: 'pane' };
+  const main = panel('main', 'primary');
+  const code = panel('code', 'route', '/code');
+
+  it('collapses a split left with one child into that child', () => {
+    const saved = { type: 'split', id: 's', dir: 'row', sizes: [50, 50], children: [room, main] };
+    expect(dropReadingRoom(saved)).toEqual(main);
+  });
+
+  it('keeps the rest of a deeper arrangement, sharing out the space', () => {
+    const saved = {
+      type: 'split',
+      id: 's',
+      dir: 'row',
+      sizes: [50, 50],
+      children: [{ type: 'split', id: 't', dir: 'col', sizes: [20, 40, 40], children: [room, code, main] }, panel('map', 'route', '/terrain')],
+    };
+    const tree = dropReadingRoom(saved) as Extract<LayoutNode, { type: 'split' }>;
+    expect(isLayoutNode(tree)).toBe(true);
+    const left = tree.children[0] as Extract<LayoutNode, { type: 'split' }>;
+    expect(left.children).toEqual([code, main]);
+    expect(left.sizes).toEqual([50, 50]);
+  });
+
+  it('leaves a layout without one untouched', () => {
+    const saved = twoUp();
+    expect(dropReadingRoom(saved)).toBe(saved);
   });
 });

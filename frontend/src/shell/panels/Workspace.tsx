@@ -9,7 +9,6 @@ import { appTabSets, sectionsOf } from './tabSets';
 import { useTabSets } from './useTabSets';
 import { AppContext, appOfSet } from '../apps';
 import { isStandalone } from '../standalone';
-import { usePaneStack } from './PaneStack';
 import {
   canClosePanel,
   closePanel,
@@ -43,7 +42,7 @@ import styles from './Workspace.module.css';
  * than one is open, down to the last; an open tab drags from one panel's row
  * to another's.
  *
- * THE KINDS OF PANEL, and why there's more than one:
+ * THE TWO KINDS OF PANEL, and why there's more than one:
  *
  * - A ROUTE panel is any page in the app running on its own private address
  *   bar (RoutePanel.tsx). This is the ordinary kind, and the one that lets the
@@ -54,10 +53,6 @@ import styles from './Workspace.module.css';
  *   bar is pointed at that panel's page first, so reload and a pasted link keep
  *   working in what's left. The app's popups (sudo, approvals, file edits) are
  *   at window level (routes/__root.tsx), so they don't depend on any panel.
- * - The READING ROOM panel is the old left box — Observatory / session /
- *   Terminal behind one switcher (PaneStack.tsx). It's no longer in the default
- *   arrangement: it bundles a terminal she doesn't use and is the one panel
- *   that can't be opened twice. Kept because saved layouts may still hold one.
  *
  * WHAT'S PER PANEL vs PER WINDOW vs SHARED. The arrangement and which tab set
  * each panel wears are per WINDOW (panelStore.ts) — that's what lets two
@@ -68,7 +63,7 @@ import styles from './Workspace.module.css';
  * others stay mounted and hidden, and the arrangement itself doesn't change
  * (layoutTree.fullScreenPlan). A panel comes back beside the map when something
  * lands in it or she splits one off, and goes again when she closes it. Not for
- * the Journal's list, the desktop app or a saved reading room.
+ * the Journal's list or the desktop app.
  *
  * Touches: layoutTree.ts (the operations), PanelTree.tsx (draws it),
  * panelStore.ts (remembers it), TabBar.tsx (each header), SplitLayout.tsx
@@ -86,17 +81,9 @@ export function Workspace({ children }: { children: ReactNode }) {
   const setsRef = useRef([...appTabSets(), ...sets]);
   setsRef.current = [...appTabSets(), ...sets];
 
-  // The reading room is only wired up when a saved layout still has one. Its
-  // hooks always run (hooks can't be conditional), but everything they
-  // register is gated on this, so with no such panel the features that push
-  // work at it fall back to navigating.
-  const paneOpen = useMemo(() => listPanels(layout).some((p) => p.kind === 'pane'), [layout]);
-  const pane = usePaneStack(paneOpen);
-
   // Which panels step aside for the Observatory right now. A panel can be the
   // home only if its session list shows every room (rosterView in
-  // sessionFilters.ts), which leaves out the Journal's list. The reading room
-  // catches conversations for itself, so hiding it would lose them.
+  // sessionFilters.ts), which leaves out the Journal's list.
   const { off: fullScreenOff, setOff: setFullScreenOff, beside, bringForward, forget } = useFullScreenState();
   const fullScreen = useMemo(
     () =>
@@ -105,12 +92,12 @@ export function Workspace({ children }: { children: ReactNode }) {
         off: fullScreenOff,
         beside,
         eligible: (panel) => {
-          if (isStandalone() || paneOpen || panel.kind === 'pane') return false;
+          if (isStandalone()) return false;
           const app = appOfSet(panel.setId ?? (panel.kind === 'primary' ? 'life' : 'work'));
           return app === null || app.rooms === null;
         },
       }),
-    [layout, href, fullScreenOff, beside, paneOpen],
+    [layout, href, fullScreenOff, beside],
   );
 
   // A panel split off from a header comes up beside whatever she's looking at.
@@ -236,8 +223,7 @@ export function Workspace({ children }: { children: ReactNode }) {
      The catcher registers only when the window has observatory presence at
      all — a pure watching window (terrain + flow, no observatory panel or
      tab) stays quiet and the bus carries conversations to a window that
-     qualifies. And when a saved layout still holds the legacy reading room,
-     that pane keeps its own conversation seam (PaneStack) and this defers.
+     qualifies.
 
      Prompt: "it will check if it's already an open pane in the window, and if
      not, it opens another pane … it should open a new pane if there is no
@@ -261,7 +247,7 @@ export function Workspace({ children }: { children: ReactNode }) {
 
   const accepts = useMemo(() => windowAcceptsConversations(layout, href), [layout, href]);
   useEffect(() => {
-    if (paneOpen || !accepts) return;
+    if (!accepts) return;
     const { unregister } = registerIntentTarget(['conversation'], (intent) => {
       if (intent.kind !== 'conversation') return;
       const { layout: tree, href: primaryHref, hidden } = latest.current;
@@ -308,7 +294,7 @@ export function Workspace({ children }: { children: ReactNode }) {
       flashPanel(panelId);
     });
     return unregister;
-  }, [paneOpen, accepts, navigate, onPick, rememberArrival, setLayout, flashPanel, bringForward]);
+  }, [accepts, navigate, onPick, rememberArrival, setLayout, flashPanel, bringForward]);
 
   /* WHERE A SESSION'S ACTIVITY OPENS: beside the session, as its own pane.
      The session toolbar's "activity" button sends the request; the rule is
@@ -373,7 +359,7 @@ export function Workspace({ children }: { children: ReactNode }) {
       const { layout: tree, href: primaryHref } = latest.current;
       const from = findPanel(tree, fromId);
       const to = findPanel(tree, toId);
-      if (!from || !to || to.kind === 'pane' || fromId === toId) return;
+      if (!from || !to || fromId === toId) return;
       const showing = (p: PanelNode) => (p.kind === 'primary' ? primaryHref : (p.url ?? ''));
       const landing =
         showing(from) === url ? (neighbourAfterClose(from.tabs ?? [], url) ?? fallbackAfterClose(url)) : null;
@@ -396,8 +382,6 @@ export function Workspace({ children }: { children: ReactNode }) {
             {children}
           </>
         );
-      } else if (panel.kind === 'pane') {
-        body = pane.body;
       } else {
         body = (
           // A tile that caught something (a code file) comes into sight, or the
@@ -418,27 +402,23 @@ export function Workspace({ children }: { children: ReactNode }) {
           {flashId === panel.id ? <div className={styles.flashRing} aria-hidden="true" /> : null}
         </div>
       );
-      if (panel.kind === 'pane') return host;
       // Hand the panel's app down: a panel wearing an app's set IS that app
       // (shell/apps.ts), so its session list and doors are that app's. A
       // panel wearing one of her own sets belongs to no app (null).
       const setId = panel.setId ?? (panel.kind === 'primary' ? 'life' : 'work');
       return <AppContext.Provider value={appOfSet(setId)}>{host}</AppContext.Provider>;
     },
-    [children, pane.body, onPanelUrlChanged, flashId, bringForward],
+    [children, onPanelUrlChanged, flashId, bringForward],
   );
 
   /**
-   * Every panel's header is its tab bar — except the reading room, which
-   * brings its own three-way switcher instead (it isn't route-backed, so
-   * section tabs would have nothing to point at).
+   * Every panel's header is its tab bar.
    *
    * The primary panel's bar drives the real router; a route panel's just moves
    * that panel's own address, which is the same move its picker used to make.
    */
   const renderHeaderLeft = useCallback(
     (panel: PanelNode) => {
-      if (panel.kind === 'pane') return pane.header;
       const isPrimary = panel.kind === 'primary';
       return (
         <TabBar
@@ -455,7 +435,7 @@ export function Workspace({ children }: { children: ReactNode }) {
         />
       );
     },
-    [pane.header, href, tabDrag, onSetId, onOpenTabs, navigatePanel, onMoveTab],
+    [href, tabDrag, onSetId, onOpenTabs, navigatePanel, onMoveTab],
   );
 
   return (

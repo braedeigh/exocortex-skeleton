@@ -38,13 +38,11 @@
  *   and the back button ride on. It CAN be closed — another
  *   panel is promoted to take the job over first (closePanel below), so there
  *   is never none.
- * - 'pane'    — the reading room stack: Observatory / the open session /
- *   Terminal, with its own switcher and its own back. This is the old left box.
  * - 'route'   — any other page in the app, running on its own private router
  *   so it can sit at a different URL than the primary panel. This is the kind
  *   that lets the terrain map and a code file be on screen at the same time.
  */
-export type PanelKind = 'primary' | 'pane' | 'route';
+export type PanelKind = 'primary' | 'route';
 
 export interface PanelNode {
   type: 'panel';
@@ -223,8 +221,7 @@ export function splitPanel(
  * (panelStore.ts refuses a saved layout without). So before it goes, the heir
  * (heirOf) becomes the primary: same id, same tab set, same open tabs, and
  * its own `url` dropped, since the address bar says where a primary is.
- * Workspace.tsx points the address bar at the heir's page first. With no
- * route panel to promote — only reading-room panels left — the primary stays.
+ * Workspace.tsx points the address bar at the heir's page first.
  *
  * Prompt: "then i need to be able to close the right side of the split screen
  * ... maybe if i have more than 1 split screen open, i would be able to close
@@ -434,6 +431,30 @@ export function normalizeSizes(sizes: number[]): number[] {
 }
 
 /**
+ * Take the retired reading-room panel out of a stored layout, so a saved
+ * arrangement that still holds one keeps everything else. Works on the raw
+ * stored value, before it's known to be a tree: a split left with one child
+ * becomes that child, and its siblings share out the freed space.
+ *
+ * Her call: "the reading room shouldn't exist at all and is archaic".
+ */
+export function dropReadingRoom(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value;
+  const node = value as Record<string, unknown>;
+  if (node.type !== 'split' || !Array.isArray(node.children) || !Array.isArray(node.sizes)) return value;
+  const sizes = node.sizes as number[];
+  const kept: { child: unknown; size: number }[] = [];
+  (node.children as unknown[]).forEach((child, i) => {
+    const isRoom = !!child && typeof child === 'object' && (child as { kind?: unknown }).kind === 'pane';
+    if (!isRoom) kept.push({ child: dropReadingRoom(child), size: sizes[i] });
+  });
+  if (kept.length === 0) return value;
+  if (kept.length === 1) return kept[0].child;
+  if (kept.length === node.children.length && kept.every((k, i) => k.child === (node.children as unknown[])[i])) return value;
+  return { ...node, children: kept.map((k) => k.child), sizes: normalizeSizes(kept.map((k) => k.size)) };
+}
+
+/**
  * Is this thing actually a layout tree? Used on the way out of storage, where
  * the value could be anything — an older format, a half-written string, a key
  * something else scribbled on. A layout that fails this is dropped for the
@@ -445,7 +466,7 @@ export function isLayoutNode(value: unknown): value is LayoutNode {
   const n = value as Record<string, unknown>;
   if (typeof n.id !== 'string') return false;
   if (n.type === 'panel') {
-    return n.kind === 'primary' || n.kind === 'pane' || n.kind === 'route';
+    return n.kind === 'primary' || n.kind === 'route';
   }
   if (n.type === 'split') {
     if (n.dir !== 'row' && n.dir !== 'col') return false;

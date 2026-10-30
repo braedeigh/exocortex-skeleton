@@ -18,7 +18,10 @@ import { dispatchIntent } from './panels/windowBus';
  * running behind a hidden surface is running invisibly, and the only way to
  * find it would be to guess which tab had something new in it.
  *
- * Touches: panels/windowBus.ts (routing), panels/PaneStack.tsx (the target),
+ * Nothing on the desktop catches these since the reading room's terminal went,
+ * so there this answers false; the phone shows the session on its own page.
+ *
+ * Touches: panels/windowBus.ts (routing),
  * ThreadsPage / ThreadJournalPage / ThreadPopover / SessionsCard (senders).
  */
 

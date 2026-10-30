@@ -181,18 +181,3 @@ describe('rule 5 — nowhere observatory: a new pane is born', () => {
     });
   });
 });
-
-describe('the reading room is not this rule s business', () => {
-  it('a pane panel is ignored even when it exists', () => {
-    const tree = row(
-      { type: 'panel', id: 'rr', kind: 'pane' },
-      panel({ id: 'p', kind: 'primary' }),
-    );
-    expect(routeConversation(tree, CONV, conversationUrl('other'))).toEqual({
-      kind: 'show',
-      panelId: 'p',
-      isPrimary: true,
-      url: CONV_URL,
-    });
-  });
-});

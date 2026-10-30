@@ -267,11 +267,8 @@ function roomIntro(lane: Lane): string {
  * only the owner's install has — Worktrees, Night crew, Helpers, Research,
  * Linear — answer no there. The notes pill goes the same way.
  *
- * DOCKED MODE (07-25): also the Sessions view of the desktop split's left
- * pane (shell/KeeperPane.tsx). `onOpenConversation` is the seam — opening a
- * card hands the id to the pane instead of routing the whole app.
  */
-export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convId: string) => void } = {}) {
+export function RosterPage() {
   const navigate = useNavigate();
   const { toasts, push, dismiss } = useToasts();
   // The roster itself: the shared roster query (api.ts useSessionRoster), live
@@ -317,10 +314,10 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
   const opensInPane = isDesktop && view.rooms === null && !isStandalone();
   // Which view this panel has room for, measured on the panel rather than the
   // window: with a session pane open the same screen has half the width. The
-  // docked pane, the Journal's list, the desktop app and phones keep the column.
+  // Journal's list, the desktop app and phones keep the column.
   const [pageRef, pageWidth] = useShownWidth();
   const mapSize: 'wide' | 'strip' | null =
-    !opensInPane || onOpenConversation
+    !opensInPane
       ? null
       : pageWidth >= MAP_WIDE_PX
         ? 'wide'
@@ -461,15 +458,11 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
     });
   };
 
-  // Open a session: in the docked pane's own seam, else in a pane on the right
+  // Open a session: in a pane on the right
   // of this page (shell/panels/conversationRouting.ts), else by moving this page,
   // which is what a phone does because nothing there catches it. The Journal's
   // list and the desktop app keep moving the page.
   const open = (convId: string) => {
-    if (onOpenConversation) {
-      onOpenConversation(convId);
-      return;
-    }
     if (opensInPane && openConversationInPane(convId)) return;
     void navigate(sessionLocation(convId));
   };
@@ -612,21 +605,16 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         <RosterMap
           size={mapSize}
           band={helperBands}
-          title={
-            <div className={styles.mapTitleRow}>
-              <h1 className={styles.title}>Observatory</h1>
-              <ChatFinder onOpen={open} dropdown />
-              {keeperDoor}
-              <div className={styles.mapMeter}>
-                <MemoryMeter />
-              </div>
-            </div>
-          }
           controls={
             <div className={styles.mapControls}>
               {newButton}
               {filterButtons}
               {sortButton}
+              <ChatFinder onOpen={open} dropdown />
+              {keeperDoor}
+              <div className={styles.mapMeter}>
+                <MemoryMeter />
+              </div>
             </div>
           }
           doors={
@@ -657,15 +645,8 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         />
       ) : (
       <div
-        className={[styles.layout, onOpenConversation ? '' : styles.layoutRoomy]
-          .filter(Boolean)
-          .join(' ')}
+        className={[styles.layout, styles.layoutRoomy].join(' ')}
       >
-        {/* Two columns: the roster, and a lane of its own on the right for the
-            rail. .layoutRoomy widens that lane into the empty margin a full-width
-            screen has either side of the 640px roster — it's off in the desktop
-            split's docked pane, where the roster fills the pane and every pixel
-            the lane took would come off the cards. */}
         <div className={styles.inner}>
           {/* The room helper first of all, at every width (RoomHelperBand.tsx). */}
           {helperBands}
@@ -842,12 +823,7 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         onSave={onEdit}
       />
 
-      {/* The same floating dev-notes / ideas pill every other page has — now
-          in the docked pane too, since that's where this page is most often
-          read and the notes are about the page in front of her.
-          Docked, it tucks into the PANE's bottom-right corner rather than the
-          viewport's — that one already holds the other pane's pill, and a
-          second there would land on top of it.
+      {/* The same floating dev-notes / ideas pill every other page has.
           It files under 'terminal' — the same list the 📝 button on every
           session shows (shell/TermNotesPanel) — so the Observatory has one set
           of notes whichever button she reaches for.
@@ -861,7 +837,6 @@ export function RosterPage({ onOpenConversation }: { onOpenConversation?: (convI
         <NotesPill
           tab="terminal"
           onError={push}
-          anchor={onOpenConversation ? 'splitPane' : 'viewport'}
         />
       )}
     </div>
