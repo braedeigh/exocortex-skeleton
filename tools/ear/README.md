@@ -79,9 +79,12 @@ Talk with whatever pauses you like; they don't cut the entry. It ends one of
 two ways:
 
 - **You say "send it"** (or "that's it", "save it", "done" on its own). The
-  entry is sent, the light goes magenta while the exocortex thinks, then
-  green, and it says a sentence or two back about what you said. The ear is
-  deaf while it talks, so its own voice never ends up in your journal.
+  entry is sent to the Keeper's open session, the light goes magenta while
+  the Keeper thinks, then green, and the Keeper's reply is spoken. You can
+  keep talking while it thinks. The reply is kept in the journal as the
+  Keeper's card under yours. The ear is deaf while it talks, so its own voice
+  never ends up in your journal. If the Keeper isn't awake or is mid-turn,
+  the ear says so and the entry is still saved.
 - **A minute goes by.** The entry is saved without a word and the light goes
   amber. `--draft-timeout 90` changes the minute; `--close-phrase "that'll do"`
   adds a phrase of your own.
@@ -99,6 +102,7 @@ resume. Useful for calls and visitors.
 ## Commands
 
 A line starting with "hey exo" (Whisper also hears "hey echo", "okay X.O.")
-is sent as a command and recorded with the tag `exo-command` too. Today the server
-only acknowledges them; wiring commands to actions is the next step, in
-`routes/ear.py` `_answer_command`.
+is sent as a command and recorded with the tag `exo-command` too. Commands go
+to the ear bot, which today only acknowledges them; the router that sends
+them on (trigger words first, a model for the rest) is the next step, in
+`routes/ear.py` `_route` and `_answer_command`.

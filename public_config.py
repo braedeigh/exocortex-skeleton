@@ -261,6 +261,7 @@ _SHELL_PATHS = (
     # secret checked inside the route. Its GET companion /api/ear/setup is
     # NOT here — only the logged-in owner may read the secret.
     "/api/ear/heard",
+    "/api/ear/reply",
     # The terrain-mirror door (routes/terrain_mirror.py): the private box
     # POSTs its freshly built map here every few seconds, with no session
     # cookie, authenticated by a shared secret checked inside the route. Only

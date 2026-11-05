@@ -11,9 +11,9 @@ microphone; it transcribes locally and sends only text. This module touches
                            checks the shared secret itself (same pattern as
                            routes/push.py's hook door)
 
-Two doors:
+Three doors:
   POST /api/ear/heard   {secret, text, kind, closed_by, heard_at, device}
-                        -> {ok, id, reply}
+                        -> {ok, id, reply} or {ok, id, pending: {conv, offset}}
   GET  /api/ear/setup   (logged in) the url and secret to paste into the
                         listener — so setup is "open this page, copy two lines".
 
@@ -25,10 +25,26 @@ acknowledgement: commands are recorded, not acted on — the place for a real
 dispatcher is _answer_command below.
 
 An entry (kind note) says how it closed: `closed_by` "command" means the
-owner said "send it" and wants to hear something back, so _speak_back asks
-the model (llm.py) for a sentence or two and that reply is spoken by the
-listener and kept as an S card answering the entry; "silence" means a
+owner said "send it" and wants to hear something back; "silence" means a
 minute went by, so the entry is saved and nothing is said.
+
+Who answers is a routing choice (_route): a journal entry goes to the
+Keeper — the pinned Keeper session in the Observatory, the same one the
+Keeper chat talks to — as an off-the-record turn (the ear already minted the
+B card, so the capture hook must not mint a second). The Keeper's reply
+comes back through a third door the listener polls, because a Keeper turn
+takes longer than a request should wait:
+
+  POST /api/ear/reply   {secret, conv, offset, card, device}
+                        -> {done: false} | {done: true, reply}
+
+When it lands, the reply is kept as a K card answering the entry, and the
+listener speaks it. A "hey exo" command goes to the ear bot instead, which
+today only acknowledges; the trigger-word and model router it should become
+is in the build log. Owner's words: "I want keeper to be responsible for
+journaling. So keeper is who responds in a session when I'm journaling. I
+will need commands for other things. Maybe an ear bot or something that
+decides where to route messages both with LLM and other trigger words."
 """
 from __future__ import annotations
 
@@ -40,8 +56,9 @@ from datetime import datetime
 
 from flask import request, jsonify
 
+import json
+
 import cardstore
-import llm
 import store
 from tools.stream import stream
 
@@ -100,38 +117,97 @@ def _answer_command(text: str) -> str:
     return "Got it."
 
 
-# What the listener says after an entry sent on purpose. Kept generic — the
-# entry is the only thing the model sees — so the reply is a listener's, not a
-# Keeper's; shaping it into a persona is a later, owner-led step.
-SPEAK_BACK_PROMPT = """Someone just finished speaking a journal entry aloud to the system that \
-keeps their journal, and asked for it to be sent. Say one or two short, warm, plain \
-sentences back, as a listener who heard it: reflect one thing they said, in your own \
-words. No advice, no questions, no praise, no emoji, no preamble, nothing in quotes. \
-Reply with the sentences only.
-
-The entry:
-
-{entry}
-"""
+def _route(kind: str, closed_by) -> str:
+    """Where an utterance goes. A journal entry (a note) belongs to the
+    Keeper; a "hey exo" command belongs to the ear bot. Trigger words and a
+    model-based classifier for commands are the ear bot's next step; today
+    this is the whole table."""
+    return "earbot" if kind == "command" else "keeper"
 
 
-def _speak_back(text: str) -> str:
-    """The sentence or two the listener speaks after "send it". If the model
-    can't answer (signed out, slow, down), the entry is still saved and she
-    hears that much — the loop must always close out loud."""
+def _keeper_conversation():
+    """The pinned Keeper session — the one true diary door, found the way
+    scripts/keeper_rollover.py finds it: the open, pinned conversation whose
+    bot is the keeper, newest first if there is somehow more than one."""
+    index = store.read("bot_chats/index", {})
+    candidates = [(cid, meta) for cid, meta in index.items()
+                  if isinstance(meta, dict) and meta.get("bot") == "keeper"
+                  and meta.get("pinned") and not meta.get("archived")]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: c[1].get("last_at", ""), reverse=True)
+    return candidates[0][0]
+
+
+# How a spoken entry is handed to the Keeper. The Keeper has its own context
+# and memory; this only says the channel is voice, so the reply is sized for
+# the ear.
+SPOKEN_FRAME = (
+    "[Spoken aloud through the ear. Your reply will be read out loud: answer in "
+    "one to three short plain sentences, no lists, no markdown.]\n\n{entry}"
+)
+
+
+def _ask_keeper(text: str):
+    """Start the Keeper's turn on an entry. Returns ("pending", {conv, offset})
+    when the turn is away — the listener polls /api/ear/reply for the words —
+    or ("reply", sentence) when the Keeper can't take it right now, so the
+    loop still closes out loud."""
+    conv_id = _keeper_conversation()
+    if not conv_id:
+        return "reply", "Saved. The Keeper isn't awake right now."
+    from routes import observatory
+    result = observatory.begin_turn(conv_id, SPOKEN_FRAME.format(entry=text), record=False)
+    if not result.get("ok"):
+        if (result.get("body") or {}).get("busy"):
+            return "reply", "Saved. The Keeper is busy right now."
+        return "reply", "Saved. The Keeper couldn't be reached."
+    return "pending", {"conv": conv_id, "offset": int(result.get("start_offset") or 0)}
+
+
+def _result_after(log_path, offset: int):
+    """The turn's final text, read from the conversation log past the byte
+    where the turn began; None if no result line has been written yet."""
     try:
-        reply = llm.ask(SPEAK_BACK_PROMPT.format(entry=text), tier="fast", timeout=45).strip()
-    except llm.LLMError:
-        reply = ""
-    return reply or "Saved."
+        with open(log_path, "r", encoding="utf-8") as fh:
+            fh.seek(max(0, int(offset)))
+            tail = fh.read()
+    except OSError:
+        return None
+    text = None
+    for line in tail.splitlines():
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "result":
+            text = str(event.get("result") or "")
+    return text
+
+
+def _keeper_reply(conv_id: str, offset: int):
+    """None while the Keeper is still on it; its reply once the turn has
+    ended (empty if the turn died without one)."""
+    from routes import observatory
+    entry = store.read("bot_chats/index", {}).get(conv_id)
+    if not isinstance(entry, dict):
+        return ""
+    text = _result_after(observatory._chats_dir() / f"{conv_id}.jsonl", offset)
+    if text is not None:
+        return text.strip()
+    if observatory._effective_running(conv_id, entry):
+        return None
+    return ""
 
 
 def _record_reply(reply: str, answering: str, tags: list) -> None:
-    """Keep what was spoken back as an S card answering the entry, so the
+    """Keep what the Keeper said back as a K card answering the entry, so the
     exchange is on the record the way it was heard. Best-effort: a failure
-    here must not undo the entry's own save."""
+    here must not lose the reply on its way to being spoken."""
     try:
-        cid = stream.record(who="S", body=reply, reply_to=answering, tags=tags)
+        cid = stream.record(who="K", body=reply, reply_to=answering, tags=tags)
         _echo_mirror(cid)
     except Exception:
         pass
@@ -168,14 +244,34 @@ def register(app):
             return jsonify({"error": str(exc)}), 400
         _echo_mirror(cid)
         closed_by = data.get("closed_by") if data.get("closed_by") in ("command", "silence") else None
-        if kind == "command":
-            reply = _answer_command(text)
+        answer = {"ok": True, "id": cid, "kind": kind, "closed_by": closed_by, "reply": ""}
+        if _route(kind, closed_by) == "earbot":
+            answer["reply"] = _answer_command(text)
         elif closed_by == "command":
-            reply = _speak_back(text)
-            _record_reply(reply, answering=cid, tags=tags)
-        else:
-            reply = ""
-        return jsonify({"ok": True, "id": cid, "kind": kind, "closed_by": closed_by, "reply": reply})
+            how, what = _ask_keeper(text)
+            if how == "pending":
+                answer["pending"] = {**what, "card": cid}
+            else:
+                answer["reply"] = what
+        return jsonify(answer)
+
+    @app.route("/api/ear/reply", methods=["POST"])
+    def ear_reply():
+        # The listener asks, every couple of seconds, whether the Keeper has
+        # answered the entry it sent. Same secret as the heard door.
+        data = request.get_json(silent=True) or {}
+        if not hmac.compare_digest(_secret(), str(data.get("secret") or "")):
+            return jsonify({"error": "forbidden"}), 403
+        conv_id = str(data.get("conv") or "")
+        card = str(data.get("card") or "")
+        if not conv_id:
+            return jsonify({"error": "conv required"}), 400
+        reply = _keeper_reply(conv_id, data.get("offset") or 0)
+        if reply is None:
+            return jsonify({"done": False})
+        if reply and card:
+            _record_reply(reply, answering=card, tags=["voice", _device_tag(data.get("device"))])
+        return jsonify({"done": True, "reply": reply})
 
     @app.route("/api/ear/setup")
     def ear_setup():

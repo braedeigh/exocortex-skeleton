@@ -11,7 +11,9 @@ Three things that can silently break, each proven the way it's used:
     answers a command;
   - the draft holds an entry across pauses and closes it two ways: "send it"
     (a reply is spoken) or a minute of quiet (saved without a word);
-  - the server speaks back only to an entry sent on purpose;
+  - an entry sent on purpose goes to the pinned Keeper session off the
+    record, the Keeper's reply comes back through the polled reply door and
+    is kept as a K card under the entry; a silent save asks nobody;
   - the LIFX light's packets read back as what was sent;
   - a transcript the server couldn't take is spooled and replayed, in order.
 No microphone, no Whisper: frames are synthetic, the network is a fake.
@@ -25,7 +27,6 @@ from flask import Flask
 
 import store
 from routes import ear as ear_route
-import llm
 from tools.ear import draft as drafting
 from tools.ear import ear as ear_tool
 from tools.ear import lifx_light, segmenter, wake
@@ -160,39 +161,91 @@ def test_the_device_name_is_made_safe_for_a_tag(client):
     assert stream.read_card(resp.get_json()["id"]).tags == ["voice", "via:bradie-s-mac-kitchen"]
 
 
-def test_an_entry_sent_on_purpose_gets_words_back_kept_as_an_answer_card(client, monkeypatch):
-    asked = []
-    monkeypatch.setattr(llm, "ask", lambda prompt, **kw: asked.append(prompt) or "  It sounds like the kitchen was kind today.  ")
+def _pin_keeper(conv_id="2026-03-04.030000"):
+    (store.DATA_DIR / "bot_chats").mkdir(parents=True, exist_ok=True)
+    store.write("bot_chats/index", {conv_id: {"bot": "keeper", "pinned": True, "last_at": "2026-03-04T09:00:00",
+                                              "running": False}})
+    return conv_id
+
+
+def test_an_entry_sent_on_purpose_goes_to_the_keeper_off_the_record(client, monkeypatch):
+    from routes import observatory
+    conv_id = _pin_keeper()
+    started = []
+    monkeypatch.setattr(observatory, "begin_turn",
+                        lambda cid, text, record=True, **kw: started.append((cid, text, record)) or {"ok": True, "start_offset": 1234})
     resp = client.post("/api/ear/heard", json={
         "secret": ear_route._secret(), "text": "the bread finally rose", "kind": "note",
         "closed_by": "command", "device": "kitchen-mac",
     })
     body = resp.get_json()
-    assert body["reply"] == "It sounds like the kitchen was kind today."
-    assert "the bread finally rose" in asked[0]
-    cards = {c.id: c for c in stream.load_all_cards()}
-    answer = next(c for c in cards.values() if c.who == "S")
-    assert answer.reply_to == body["id"] and answer.body == body["reply"]
+    assert body["pending"] == {"conv": conv_id, "offset": 1234, "card": body["id"]}
+    assert body["reply"] == ""
+    (cid, text, record), = started
+    assert cid == conv_id and record is False, "the ear minted the B card; the turn must not mint another"
+    assert text.endswith("the bread finally rose") and "read out loud" in text
+
+
+def test_the_keepers_reply_is_fetched_once_the_turn_ends_and_kept_under_the_entry(client, tmp_path, monkeypatch):
+    from routes import observatory
+    conv_id = _pin_keeper()
+    chats = tmp_path / "chats"; chats.mkdir()
+    monkeypatch.setattr(observatory, "_chats_dir", lambda: chats)
+    log = chats / f"{conv_id}.jsonl"
+    log.write_text('{"type": "result", "result": "an older reply"}\n')
+    offset = log.stat().st_size
+    entry = client.post("/api/ear/heard", json={"secret": ear_route._secret(), "text": "the bread rose"}).get_json()
+
+    # still thinking: no result past the offset, and the turn is running
+    monkeypatch.setattr(observatory, "_effective_running", lambda cid, meta: True)
+    poll = {"secret": ear_route._secret(), "conv": conv_id, "offset": offset, "card": entry["id"], "device": "kitchen-mac"}
+    assert client.post("/api/ear/reply", json=poll).get_json() == {"done": False}
+
+    with log.open("a") as fh:
+        fh.write('{"type": "assistant", "text": ""}\n{"type": "result", "result": " The kitchen was kind today. "}\n')
+    body = client.post("/api/ear/reply", json=poll).get_json()
+    assert body == {"done": True, "reply": "The kitchen was kind today."}
+    answer = next(c for c in stream.load_all_cards() if c.who == "K")
+    assert answer.reply_to == entry["id"] and answer.body == "The kitchen was kind today."
     assert answer.tags == ["voice", "via:kitchen-mac"]
 
 
-def test_an_entry_closed_by_silence_gets_no_words_back(client, monkeypatch):
-    monkeypatch.setattr(llm, "ask", lambda *a, **kw: pytest.fail("the model must not be asked"))
-    resp = client.post("/api/ear/heard", json={
-        "secret": ear_route._secret(), "text": "remember the lease", "kind": "note", "closed_by": "silence",
-    })
-    assert resp.get_json()["reply"] == ""
+def test_a_turn_that_died_without_a_reply_ends_the_wait(client, tmp_path, monkeypatch):
+    from routes import observatory
+    conv_id = _pin_keeper()
+    chats = tmp_path / "chats"; chats.mkdir()
+    monkeypatch.setattr(observatory, "_chats_dir", lambda: chats)
+    monkeypatch.setattr(observatory, "_effective_running", lambda cid, meta: False)
+    body = client.post("/api/ear/reply", json={"secret": ear_route._secret(), "conv": conv_id, "offset": 0, "card": "x"}).get_json()
+    assert body == {"done": True, "reply": ""}
+    assert stream.load_all_cards() == []
+
+
+@pytest.mark.parametrize("setup, sentence", [
+    ("none", "isn't awake"),
+    ("busy", "is busy"),
+])
+def test_when_the_keeper_cannot_take_it_she_still_hears_that_it_saved(client, monkeypatch, setup, sentence):
+    from routes import observatory
+    if setup == "busy":
+        _pin_keeper()
+        monkeypatch.setattr(observatory, "begin_turn",
+                            lambda *a, **kw: {"ok": False, "status": 409, "body": {"busy": True}})
+    body = client.post("/api/ear/heard", json={
+        "secret": ear_route._secret(), "text": "a thought", "kind": "note", "closed_by": "command",
+    }).get_json()
+    assert "pending" not in body and body["reply"].startswith("Saved.") and sentence in body["reply"]
     assert [c.who for c in stream.load_all_cards()] == ["B"]
 
 
-def test_when_the_model_cannot_answer_she_still_hears_that_it_saved(client, monkeypatch):
-    def down(*a, **kw):
-        raise llm.LLMError("signed out")
-    monkeypatch.setattr(llm, "ask", down)
+def test_an_entry_closed_by_silence_asks_nobody(client, monkeypatch):
+    from routes import observatory
+    _pin_keeper()
+    monkeypatch.setattr(observatory, "begin_turn", lambda *a, **kw: pytest.fail("the Keeper must not be asked"))
     resp = client.post("/api/ear/heard", json={
-        "secret": ear_route._secret(), "text": "a thought", "kind": "note", "closed_by": "command",
+        "secret": ear_route._secret(), "text": "remember the lease", "kind": "note", "closed_by": "silence",
     })
-    assert resp.get_json()["reply"] == "Saved."
+    assert resp.get_json()["reply"] == "" and "pending" not in resp.get_json()
 
 
 def test_empty_text_is_refused_unless_it_is_a_bare_wake_word(client):
@@ -372,6 +425,24 @@ def test_an_entry_sent_on_purpose_is_spoken_back_and_the_ear_goes_deaf_meanwhile
     ear.say.alive = False
     assert not ear.is_speaking()
     assert json.loads((ear.heard_log).read_text())["closed_by"] == "command"
+
+
+def test_while_the_keeper_thinks_the_ear_keeps_asking_then_speaks_the_reply(ear):
+    answers = iter([None, {"done": False}, {"done": True, "reply": "The kitchen was kind today."}])
+    polled = []
+    ear.sender.poll_reply = lambda pending, device: polled.append((pending, device)) or next(answers)
+    clock = iter(range(0, 1000, 2))
+    ear.await_reply({"conv": "c", "offset": 5, "card": "k"}, sleep=lambda s: None, clock=lambda: next(clock))
+    assert len(polled) == 3 and polled[0] == ({"conv": "c", "offset": 5, "card": "k"}, "kitchen-mac")
+    assert ear.say.said == ["The kitchen was kind today."]
+    assert ear.light.state == "sent"
+
+
+def test_if_the_keeper_takes_too_long_the_ear_says_so_and_moves_on(ear):
+    ear.sender.poll_reply = lambda pending, device: {"done": False}
+    clock = iter(range(0, 100000, 50))
+    ear.await_reply({"conv": "c", "offset": 5, "card": "k"}, sleep=lambda s: None, clock=lambda: next(clock))
+    assert ear.say.said == ["The Keeper is still thinking. The answer will be in the journal."]
 
 
 def test_an_entry_closed_by_silence_is_saved_quietly_with_its_own_colour(ear):

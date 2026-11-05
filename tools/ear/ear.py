@@ -48,6 +48,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -147,6 +148,7 @@ class Sender:
 
     def __init__(self, url: str, secret: str, home: pathlib.Path, timeout: float = 8.0):
         self.url = url.rstrip("/") + "/api/ear/heard"
+        self.reply_url = url.rstrip("/") + "/api/ear/reply"
         self.secret = secret
         self.spool = home / "spool.jsonl"
         self.timeout = timeout
@@ -160,6 +162,11 @@ class Sender:
         if reply is None:
             self._spool(payload)
         return reply
+
+    def poll_reply(self, pending: dict, device: str) -> dict | None:
+        """Ask once whether the Keeper has answered: {done: False} or
+        {done: True, reply}; None when the server can't be reached."""
+        return self._post({**pending, "device": device}, url=self.reply_url)
 
     def replay(self) -> int:
         """Push spooled payloads through, stopping at the first failure so
@@ -184,10 +191,10 @@ class Sender:
         with self.spool.open("a") as fh:
             fh.write(json.dumps(kept) + "\n")
 
-    def _post(self, payload: dict, timeout: float | None = None) -> dict | None:
+    def _post(self, payload: dict, timeout: float | None = None, url: str | None = None) -> dict | None:
         body = json.dumps({**payload, "secret": self.secret}).encode()
         req = urllib.request.Request(
-            self.url, data=body, headers={"Content-Type": "application/json"}, method="POST",
+            url or self.url, data=body, headers={"Content-Type": "application/json"}, method="POST",
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
@@ -254,6 +261,8 @@ class Ear:
     Built once in listen(); handle_utterance / tick are the loop's two calls."""
 
     REPLY_TIMEOUT = 60.0      # a reply means a model call on the server
+    KEEPER_WAIT = 150.0       # how long to wait for the Keeper before giving up out loud
+    POLL_SECONDS = 2.0
 
     def __init__(self, args, home: pathlib.Path):
         self.args = args
@@ -340,6 +349,10 @@ class Ear:
             entry["sent"] = bool(reply and reply.get("ok"))
             if not entry["sent"]:
                 self.light.set("offline")
+            elif reply.get("pending"):
+                # The Keeper has it and is thinking; the words come later.
+                # Waited for off the loop, so she can keep talking meanwhile.
+                threading.Thread(target=self.await_reply, args=(reply["pending"],), daemon=True).start()
             elif closed.closed_by == "command":
                 self.light.set("sent")
                 self.speak(reply.get("reply") or "Saved.")
@@ -350,6 +363,24 @@ class Ear:
             if closed.closed_by == "command":
                 self.speak("Got it.")
         self._write_log(entry)
+
+    def await_reply(self, pending: dict, sleep=time.sleep, clock=time.monotonic):
+        """Poll the reply door until the Keeper has answered, then speak it.
+        Gives up out loud after KEEPER_WAIT so the loop always closes; the
+        reply still lands in the journal when it comes."""
+        self.light.set("thinking")
+        deadline = clock() + self.KEEPER_WAIT
+        while clock() < deadline:
+            sleep(self.POLL_SECONDS)
+            answer = self.sender.poll_reply(pending, self.args.device_name)
+            if answer is None:
+                continue                 # unreachable for a moment; keep asking
+            if answer.get("done"):
+                self.light.set("sent")
+                self.speak(answer.get("reply") or "Saved.")
+                return
+        self.light.set("sent")
+        self.speak("The Keeper is still thinking. The answer will be in the journal.")
 
     def speak(self, text: str):
         if self.args.speak:
@@ -414,9 +445,12 @@ def listen(args):
                 cutter.flush()
                 continue
             # Deaf while talking: the reply would otherwise come straight
-            # back in as her next utterance.
+            # back in as her next utterance. Whatever she was mid-way through
+            # when the voice began is closed and kept, not dropped.
             if ear.is_speaking():
-                cutter.flush()
+                segment = cutter.flush()
+                if segment is not None:
+                    ear.handle_segment(segment, now)
                 continue
             ear.tick(now)
             segment = cutter.feed(frame)
