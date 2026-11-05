@@ -7,6 +7,8 @@ Runs on the listening machine (a Mac, in the first install), NOT on the server:
 nothing in the Flask app imports this. It touches
 
   segmenter.py   decides when speech starts and stops (pure Python, tested)
+  draft.py       holds utterances until the entry is done: "send it" or a
+                 minute of quiet (pure, tested)
   wake.py        tells a "hey exo" command from a plain thought (pure, tested)
   routes/ear.py  the server door it POSTs to — /api/ear/heard, shared secret
 
@@ -17,9 +19,14 @@ and keeps three files of its own under ~/.local/share/exo-ear/:
   paused         touch this file to stop recording, remove it to resume
 
 Flow, in one loop: microphone frames -> Segmenter -> an utterance -> Whisper
-(faster-whisper, on this machine; no audio leaves it) -> wake.parse -> POST.
-A light hook (--light) runs a shell command on every state change so a bulb,
-a menu-bar icon, or a Shortcut can show "listening / hearing / heard / sent".
+(faster-whisper, on this machine; no audio leaves it) -> wake.parse. A
+"hey exo" command is sent at once and its reply spoken. Anything else joins
+the Draft (draft.py): pauses don't end an entry; "send it" does, and the
+exocortex answers out loud; a minute of silence does too, quietly. The ear
+is deaf while it speaks, so it never transcribes its own voice. A light hook
+(--light) runs a shell command on every state change so a bulb, a menu-bar
+icon, or a Shortcut can show listening / hearing / drafting / thinking /
+sent / saved / offline / paused.
 
 Run `ear.py --dry-run` first: it listens and prints transcripts without a
 server, which is the whole first test. README.md has the install.
@@ -47,6 +54,7 @@ import urllib.request
 from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import draft as drafting  # noqa: E402
 import segmenter as seg   # noqa: E402
 import wake               # noqa: E402
 
@@ -78,9 +86,9 @@ class Light:
     {state} in it, run detached on every change and never waited on — a Hue
     bulb, `shortcuts run "Exo {state}"`, anything. With no template it only
     prints, which is the dry-run light."""
-    STATES = ("listening", "hearing", "heard", "sent", "offline", "paused")
+    STATES = ("listening", "hearing", "drafting", "heard", "thinking", "sent", "saved", "offline", "paused")
 
-    HOLD_SECONDS = {"heard": 0.0, "sent": 1.5, "offline": 3.0}
+    HOLD_SECONDS = {"sent": 2.0, "saved": 3.0, "offline": 3.0}
 
     def __init__(self, template: str | None):
         self.template = template
@@ -112,15 +120,21 @@ class Light:
 # Sending: the server door, with a spool for when it's unreachable.
 # ---------------------------------------------------------------------------
 
-def build_payload(heard: wake.Heard, heard_at: datetime, device: str, secret: str) -> dict:
-    """What one utterance looks like on the wire to /api/ear/heard."""
-    return {
+def build_payload(heard: wake.Heard, heard_at: datetime, device: str, secret: str,
+                  closed_by: str | None = None) -> dict:
+    """What one entry or command looks like on the wire to /api/ear/heard.
+    `closed_by` ("command" or "silence") says how an entry ended; the server
+    only speaks back to one closed by command."""
+    payload = {
         "secret": secret,
         "text": heard.text,
         "kind": heard.kind,
         "heard_at": heard_at.isoformat(timespec="seconds"),
         "device": device,
     }
+    if closed_by:
+        payload["closed_by"] = closed_by
+    return payload
 
 
 class Sender:
@@ -137,11 +151,12 @@ class Sender:
         self.spool = home / "spool.jsonl"
         self.timeout = timeout
 
-    def send(self, payload: dict) -> dict | None:
+    def send(self, payload: dict, timeout: float | None = None) -> dict | None:
         """Returns the server's reply, or None when it couldn't be reached
-        (the payload is then spooled)."""
+        (the payload is then spooled). An entry that expects words back
+        waits longer: the server is asking a model."""
         self.replay()
-        reply = self._post(payload)
+        reply = self._post(payload, timeout)
         if reply is None:
             self._spool(payload)
         return reply
@@ -169,13 +184,13 @@ class Sender:
         with self.spool.open("a") as fh:
             fh.write(json.dumps(kept) + "\n")
 
-    def _post(self, payload: dict) -> dict | None:
+    def _post(self, payload: dict, timeout: float | None = None) -> dict | None:
         body = json.dumps({**payload, "secret": self.secret}).encode()
         req = urllib.request.Request(
             self.url, data=body, headers={"Content-Type": "application/json"}, method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
                 return json.loads(resp.read().decode() or "{}")
         except urllib.error.HTTPError as exc:
             # The server answered and refused: a wrong secret or an empty
@@ -224,23 +239,144 @@ def _clock() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
 
-def _say(text: str):
-    """Speak a short reply, on machines that have `say` (macOS)."""
-    if shutil.which("say"):
-        subprocess.Popen(["say", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def _say(text: str, voice: str | None = None):
+    """Speak a reply, on machines that have `say` (macOS). Returns the
+    running process so the loop can stay deaf until it ends, or None."""
+    if not shutil.which("say"):
+        return None
+    command = ["say"] + (["-v", voice] if voice else []) + [text]
+    return subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+class Ear:
+    """Everything one utterance passes through after the microphone: the
+    transcriber, the draft, the sender, the light, the voice, the local log.
+    Built once in listen(); handle_utterance / tick are the loop's two calls."""
+
+    REPLY_TIMEOUT = 60.0      # a reply means a model call on the server
+
+    def __init__(self, args, home: pathlib.Path):
+        self.args = args
+        self.light = Light(args.light)
+        self.heard_log = home / "heard.jsonl"
+        self.transcriber = Transcriber(args.model, args.language)
+        self.sender = None if args.dry_run else Sender(args.url, args.secret, home)
+        self.draft = drafting.Draft(timeout_seconds=args.draft_timeout,
+                                    close_phrases=tuple(args.close_phrase) or drafting.DEFAULT_CLOSE_PHRASES)
+        self.speaking = None      # the `say` process while the ear is talking
+
+    # --- state the loop asks about ---------------------------------------
+
+    def is_speaking(self) -> bool:
+        if self.speaking is not None and self.speaking.poll() is None:
+            return True
+        self.speaking = None
+        return False
+
+    def idle_state(self) -> str:
+        return "drafting" if self.draft.pending else "listening"
+
+    def tick(self, now: float):
+        """Every frame: has silence closed the entry?"""
+        closed = self.draft.tick(now)
+        if closed:
+            self.send_entry(closed)
+
+    # --- one utterance -----------------------------------------------------
+
+    def handle_segment(self, segment, now: float):
+        self.light.set("heard")
+        text = self.transcriber.transcribe(segment.samples)
+        seconds = segment.ended_at - segment.started_at
+        if not worth_keeping(text):
+            print(f"[{_clock()}] ({seconds:.1f}s, nothing worth keeping{': ' + text if text else ''})", flush=True)
+            return
+        self.handle_utterance(text, now)
+
+    def handle_utterance(self, text: str, now: float):
+        heard = wake.parse(text)
+        if heard.kind == "command":
+            print(f"[{_clock()}] command: {heard.text}", flush=True)
+            self.send_command(heard)
+            return
+        closed = self.draft.feed(text, now)
+        if closed is None:
+            print(f"[{_clock()}] + {text}", flush=True)
+            return
+        if not closed.text:
+            print(f"[{_clock()}] (send it — but nothing is drafted)", flush=True)
+            self.speak("Nothing to send.")
+            return
+        self.send_entry(closed)
+
+    # --- sending -------------------------------------------------------------
+
+    def send_command(self, heard: wake.Heard):
+        """A "hey exo" command: sent at once, its reply spoken."""
+        entry = self._log_entry(heard, closed_by=None)
+        if self.sender:
+            reply = self.sender.send(build_payload(heard, datetime.now(), self.args.device_name, self.args.secret),
+                                     timeout=self.REPLY_TIMEOUT)
+            entry["sent"] = bool(reply and reply.get("ok"))
+            self.light.set("sent" if entry["sent"] else "offline")
+            if reply and reply.get("reply"):
+                self.speak(reply["reply"])
+        else:
+            self.speak("Got it.")
+        self._write_log(entry)
+
+    def send_entry(self, closed: drafting.Closed):
+        """A finished entry. Closed by command: wait for words and speak
+        them. Closed by silence: save it and show the saved colour only."""
+        heard = wake.Heard(kind="note", text=closed.text)
+        print(f"[{_clock()}] entry ({closed.closed_by}): {closed.text}", flush=True)
+        entry = self._log_entry(heard, closed_by=closed.closed_by)
+        if self.sender:
+            if closed.closed_by == "command":
+                self.light.set("thinking")
+            payload = build_payload(heard, datetime.now(), self.args.device_name, self.args.secret,
+                                    closed_by=closed.closed_by)
+            reply = self.sender.send(payload, timeout=self.REPLY_TIMEOUT if closed.closed_by == "command" else None)
+            entry["sent"] = bool(reply and reply.get("ok"))
+            if not entry["sent"]:
+                self.light.set("offline")
+            elif closed.closed_by == "command":
+                self.light.set("sent")
+                self.speak(reply.get("reply") or "Saved.")
+            else:
+                self.light.set("saved")
+        else:
+            self.light.set("sent" if closed.closed_by == "command" else "saved")
+            if closed.closed_by == "command":
+                self.speak("Got it.")
+        self._write_log(entry)
+
+    def speak(self, text: str):
+        if self.args.speak:
+            self.speaking = _say(text, self.args.voice)
+
+    # --- the local record ----------------------------------------------------
+
+    def _log_entry(self, heard: wake.Heard, closed_by: str | None) -> dict:
+        entry = {"heard_at": datetime.now().isoformat(timespec="seconds"), "kind": heard.kind,
+                 "text": heard.text, "sent": False}
+        if closed_by:
+            entry["closed_by"] = closed_by
+        return entry
+
+    def _write_log(self, entry: dict):
+        with self.heard_log.open("a") as fh:
+            fh.write(json.dumps(entry) + "\n")
 
 
 def listen(args):
     import sounddevice as sd
 
     home = state_dir()
-    light = Light(args.light)
-    heard_log = home / "heard.jsonl"
     paused_flag = home / "paused"
-    transcriber = Transcriber(args.model, args.language)
-    sender = None if args.dry_run else Sender(args.url, args.secret, home)
-    if sender:
-        replayed = sender.replay()
+    ear = Ear(args, home)
+    if ear.sender:
+        replayed = ear.sender.replay()
         if replayed:
             print(f"replayed {replayed} spooled transcript(s)", flush=True)
 
@@ -267,47 +403,28 @@ def listen(args):
             sample_rate=SAMPLE_RATE, frame_seconds=FRAME_SECONDS, threshold=threshold,
             end_silence_seconds=args.silence, max_seconds=args.max_seconds,
         )
-        light.set("listening")
-        print("listening. talk. (ctrl-c stops; touch", paused_flag, "to pause)", flush=True)
+        ear.light.set("listening")
+        print(f"listening. talk; pauses are fine; say \"send it\" to finish an entry, or wait "
+              f"{int(args.draft_timeout)}s and it saves quietly. (ctrl-c stops; touch {paused_flag} to pause)", flush=True)
         while True:
             frame = frames.get()
+            now = time.monotonic()
             if paused_flag.exists():
-                light.set("paused")
+                ear.light.set("paused")
                 cutter.flush()
                 continue
+            # Deaf while talking: the reply would otherwise come straight
+            # back in as her next utterance.
+            if ear.is_speaking():
+                cutter.flush()
+                continue
+            ear.tick(now)
             segment = cutter.feed(frame)
-            light.set("hearing" if cutter.listening else "listening")
+            ear.light.set("hearing" if cutter.listening else ear.idle_state())
             if segment is None:
                 continue
-            handle_segment(segment, transcriber, sender, light, heard_log, args)
-            light.set("listening")
-
-
-def handle_segment(segment, transcriber, sender, light, heard_log, args):
-    """One utterance, start to finish: transcribe, judge, log, send, answer."""
-    heard_at = datetime.now()
-    light.set("heard")
-    text = transcriber.transcribe(segment.samples)
-    seconds = segment.ended_at - segment.started_at
-    if not worth_keeping(text):
-        print(f"[{_clock()}] ({seconds:.1f}s, nothing worth keeping{': ' + text if text else ''})", flush=True)
-        return
-    heard = wake.parse(text)
-    print(f"[{_clock()}] {heard.kind}: {heard.text}", flush=True)
-
-    entry = {"heard_at": heard_at.isoformat(timespec="seconds"), "kind": heard.kind,
-             "text": heard.text, "seconds": round(seconds, 1), "sent": False}
-    if sender:
-        payload = build_payload(heard, heard_at, args.device_name, args.secret)
-        reply = sender.send(payload)
-        entry["sent"] = bool(reply and reply.get("ok"))
-        light.set("sent" if entry["sent"] else "offline")
-        if reply and reply.get("reply") and args.speak:
-            _say(reply["reply"])
-    elif heard.kind == "command" and args.speak:
-        _say("Got it.")
-    with heard_log.open("a") as fh:
-        fh.write(json.dumps(entry) + "\n")
+            ear.handle_segment(segment, time.monotonic())
+            ear.light.set(ear.idle_state())
 
 
 def main(argv=None):
@@ -328,6 +445,12 @@ def main(argv=None):
     parser.add_argument("--threshold", type=float, default=None, help="voice loudness gate (default: measured from the room)")
     parser.add_argument("--silence", type=float, default=1.2, help="seconds of quiet that end an utterance")
     parser.add_argument("--max-seconds", type=float, default=30.0, help="longest utterance before it is cut")
+    parser.add_argument("--draft-timeout", type=float, default=float(os.environ.get("EXO_EAR_DRAFT_TIMEOUT", 60)),
+                        help="seconds of quiet after which an entry is saved without a reply (default 60)")
+    parser.add_argument("--close-phrase", action="append", default=[],
+                        help="a phrase that ends an entry and asks for a reply (repeatable; default: send it, that's it, done…)")
+    parser.add_argument("--voice", default=os.environ.get("EXO_EAR_VOICE"),
+                        help="the macOS voice to speak with (`say -v '?'` lists them)")
     parser.add_argument("--no-speak", dest="speak", action="store_false", help="don't speak command replies aloud")
     parser.add_argument("--list-devices", action="store_true")
     args = parser.parse_args(argv)

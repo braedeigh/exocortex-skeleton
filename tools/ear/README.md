@@ -73,6 +73,24 @@ run; `--fresh` searches again if it moved.
 Any other light is the same idea: on a Mac with a HomeKit bulb, one
 Shortcut per state and `--light 'shortcuts run "Exo {state}"'`.
 
+## How an entry ends
+
+Talk with whatever pauses you like; they don't cut the entry. It ends one of
+two ways:
+
+- **You say "send it"** (or "that's it", "save it", "done" on its own). The
+  entry is sent, the light goes magenta while the exocortex thinks, then
+  green, and it says a sentence or two back about what you said. The ear is
+  deaf while it talks, so its own voice never ends up in your journal.
+- **A minute goes by.** The entry is saved without a word and the light goes
+  amber. `--draft-timeout 90` changes the minute; `--close-phrase "that'll do"`
+  adds a phrase of your own.
+
+The light is soft teal while an entry is open and waiting.
+
+`--voice Ava` picks the Mac voice it answers in (`say -v '?'` lists them;
+better ones download in System Settings under Accessibility, Spoken Content).
+
 ## Pausing
 
 `touch ~/.local/share/exo-ear/paused` stops recording; remove the file to

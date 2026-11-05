@@ -12,7 +12,8 @@ microphone; it transcribes locally and sends only text. This module touches
                            routes/push.py's hook door)
 
 Two doors:
-  POST /api/ear/heard   {secret, text, kind, heard_at, device} -> {ok, id, reply}
+  POST /api/ear/heard   {secret, text, kind, closed_by, heard_at, device}
+                        -> {ok, id, reply}
   GET  /api/ear/setup   (logged in) the url and secret to paste into the
                         listener — so setup is "open this page, copy two lines".
 
@@ -22,6 +23,12 @@ card reads differently from a typed one. A "hey exo …" command is also tagged
 `exo-command`, and gets a spoken reply. Today the reply is only an
 acknowledgement: commands are recorded, not acted on — the place for a real
 dispatcher is _answer_command below.
+
+An entry (kind note) says how it closed: `closed_by` "command" means the
+owner said "send it" and wants to hear something back, so _speak_back asks
+the model (llm.py) for a sentence or two and that reply is spoken by the
+listener and kept as an S card answering the entry; "silence" means a
+minute went by, so the entry is saved and nothing is said.
 """
 from __future__ import annotations
 
@@ -34,6 +41,7 @@ from datetime import datetime
 from flask import request, jsonify
 
 import cardstore
+import llm
 import store
 from tools.stream import stream
 
@@ -92,6 +100,43 @@ def _answer_command(text: str) -> str:
     return "Got it."
 
 
+# What the listener says after an entry sent on purpose. Kept generic — the
+# entry is the only thing the model sees — so the reply is a listener's, not a
+# Keeper's; shaping it into a persona is a later, owner-led step.
+SPEAK_BACK_PROMPT = """Someone just finished speaking a journal entry aloud to the system that \
+keeps their journal, and asked for it to be sent. Say one or two short, warm, plain \
+sentences back, as a listener who heard it: reflect one thing they said, in your own \
+words. No advice, no questions, no praise, no emoji, no preamble, nothing in quotes. \
+Reply with the sentences only.
+
+The entry:
+
+{entry}
+"""
+
+
+def _speak_back(text: str) -> str:
+    """The sentence or two the listener speaks after "send it". If the model
+    can't answer (signed out, slow, down), the entry is still saved and she
+    hears that much — the loop must always close out loud."""
+    try:
+        reply = llm.ask(SPEAK_BACK_PROMPT.format(entry=text), tier="fast", timeout=45).strip()
+    except llm.LLMError:
+        reply = ""
+    return reply or "Saved."
+
+
+def _record_reply(reply: str, answering: str, tags: list) -> None:
+    """Keep what was spoken back as an S card answering the entry, so the
+    exchange is on the record the way it was heard. Best-effort: a failure
+    here must not undo the entry's own save."""
+    try:
+        cid = stream.record(who="S", body=reply, reply_to=answering, tags=tags)
+        _echo_mirror(cid)
+    except Exception:
+        pass
+
+
 def _echo_mirror(cid: str):
     """Push the new card into the SQL mirror right away. Best-effort, like
     routes/cards.py: the mirror is derived, the hourly sync catches a miss,
@@ -122,8 +167,15 @@ def register(app):
         except stream.StreamError as exc:
             return jsonify({"error": str(exc)}), 400
         _echo_mirror(cid)
-        reply = _answer_command(text) if kind == "command" else ""
-        return jsonify({"ok": True, "id": cid, "kind": kind, "reply": reply})
+        closed_by = data.get("closed_by") if data.get("closed_by") in ("command", "silence") else None
+        if kind == "command":
+            reply = _answer_command(text)
+        elif closed_by == "command":
+            reply = _speak_back(text)
+            _record_reply(reply, answering=cid, tags=tags)
+        else:
+            reply = ""
+        return jsonify({"ok": True, "id": cid, "kind": kind, "closed_by": closed_by, "reply": reply})
 
     @app.route("/api/ear/setup")
     def ear_setup():

@@ -9,6 +9,9 @@ Three things that can silently break, each proven the way it's used:
   - the server door refuses the wrong secret, mints a B card marked with
     how it came in and from which device, on the day it was spoken, and
     answers a command;
+  - the draft holds an entry across pauses and closes it two ways: "send it"
+    (a reply is spoken) or a minute of quiet (saved without a word);
+  - the server speaks back only to an entry sent on purpose;
   - the LIFX light's packets read back as what was sent;
   - a transcript the server couldn't take is spooled and replayed, in order.
 No microphone, no Whisper: frames are synthetic, the network is a fake.
@@ -22,6 +25,8 @@ from flask import Flask
 
 import store
 from routes import ear as ear_route
+import llm
+from tools.ear import draft as drafting
 from tools.ear import ear as ear_tool
 from tools.ear import lifx_light, segmenter, wake
 from tools.stream import stream
@@ -155,6 +160,41 @@ def test_the_device_name_is_made_safe_for_a_tag(client):
     assert stream.read_card(resp.get_json()["id"]).tags == ["voice", "via:bradie-s-mac-kitchen"]
 
 
+def test_an_entry_sent_on_purpose_gets_words_back_kept_as_an_answer_card(client, monkeypatch):
+    asked = []
+    monkeypatch.setattr(llm, "ask", lambda prompt, **kw: asked.append(prompt) or "  It sounds like the kitchen was kind today.  ")
+    resp = client.post("/api/ear/heard", json={
+        "secret": ear_route._secret(), "text": "the bread finally rose", "kind": "note",
+        "closed_by": "command", "device": "kitchen-mac",
+    })
+    body = resp.get_json()
+    assert body["reply"] == "It sounds like the kitchen was kind today."
+    assert "the bread finally rose" in asked[0]
+    cards = {c.id: c for c in stream.load_all_cards()}
+    answer = next(c for c in cards.values() if c.who == "S")
+    assert answer.reply_to == body["id"] and answer.body == body["reply"]
+    assert answer.tags == ["voice", "via:kitchen-mac"]
+
+
+def test_an_entry_closed_by_silence_gets_no_words_back(client, monkeypatch):
+    monkeypatch.setattr(llm, "ask", lambda *a, **kw: pytest.fail("the model must not be asked"))
+    resp = client.post("/api/ear/heard", json={
+        "secret": ear_route._secret(), "text": "remember the lease", "kind": "note", "closed_by": "silence",
+    })
+    assert resp.get_json()["reply"] == ""
+    assert [c.who for c in stream.load_all_cards()] == ["B"]
+
+
+def test_when_the_model_cannot_answer_she_still_hears_that_it_saved(client, monkeypatch):
+    def down(*a, **kw):
+        raise llm.LLMError("signed out")
+    monkeypatch.setattr(llm, "ask", down)
+    resp = client.post("/api/ear/heard", json={
+        "secret": ear_route._secret(), "text": "a thought", "kind": "note", "closed_by": "command",
+    })
+    assert resp.get_json()["reply"] == "Saved."
+
+
 def test_empty_text_is_refused_unless_it_is_a_bare_wake_word(client):
     secret = ear_route._secret()
     assert client.post("/api/ear/heard", json={"secret": secret, "text": "  "}).status_code == 400
@@ -177,7 +217,7 @@ class FakeServer:
         self.online = False
         self.got = []
 
-    def post(self, payload):
+    def post(self, payload, timeout=None):
         if not self.online:
             return None
         self.got.append(payload["text"])
@@ -237,3 +277,118 @@ def test_lifx_remembers_the_chosen_bulb_so_later_calls_do_not_search(tmp_path, m
     assert lifx_light.choose_bulb("desk")["ip"] == "10.0.0.5"
     assert lifx_light.choose_bulb("Desk")["ip"] == "10.0.0.5"
     assert len(searches) == 2, "the second call for the same bulb read the cache"
+
+
+# ---- the draft: when is she done? ------------------------------------------
+
+def test_pauses_join_one_entry_and_send_it_closes_it_with_a_reply_wanted():
+    entry = drafting.Draft(timeout_seconds=60)
+    assert entry.feed("Today the bread finally rose.", now=10.0) is None
+    assert entry.feed("I think it was the warmer kitchen.", now=40.0) is None    # a 30 s pause
+    closed = entry.feed("Send it.", now=55.0)
+    assert closed.closed_by == "command"
+    assert closed.text == "Today the bread finally rose. I think it was the warmer kitchen."
+    assert not entry.pending
+
+
+def test_a_close_phrase_at_the_end_of_a_sentence_is_cut_off_the_entry():
+    entry = drafting.Draft()
+    closed = entry.feed("and that's about all for today, send it", now=1.0)
+    assert (closed.closed_by, closed.text) == ("command", "and that's about all for today")
+
+
+def test_a_lone_close_word_inside_a_sentence_does_not_close_the_entry():
+    entry = drafting.Draft()
+    assert entry.feed("and then I was done", now=1.0) is None
+    assert entry.pending and entry.text == "and then I was done"
+    assert entry.feed("Done.", now=2.0).closed_by == "command"
+
+
+def test_a_minute_of_quiet_saves_the_entry_without_asking_for_a_reply():
+    entry = drafting.Draft(timeout_seconds=60)
+    entry.feed("Remember to call about the lease.", now=100.0)
+    assert entry.tick(159.0) is None
+    closed = entry.tick(160.0)
+    assert (closed.closed_by, closed.text) == ("silence", "Remember to call about the lease.")
+    assert entry.tick(300.0) is None, "nothing pending, nothing to close"
+
+
+def test_send_it_with_nothing_drafted_closes_empty():
+    closed = drafting.Draft().feed("send it", now=1.0)
+    assert closed.closed_by == "command" and closed.text == ""
+
+
+# ---- the ear end to end, with fakes for the mic, whisper, server and voice --
+
+class FakeSender:
+    def __init__(self):
+        self.sent = []
+
+    def send(self, payload, timeout=None):
+        self.sent.append((payload, timeout))
+        return {"ok": True, "id": "x", "reply": "I heard the bread rose." if payload.get("closed_by") == "command"
+                or payload["kind"] == "command" else ""}
+
+
+class FakeSay:
+    def __init__(self):
+        self.said = []
+        self.alive = False
+
+    def __call__(self, text, voice=None):
+        self.said.append(text)
+        self.alive = True
+        return self
+
+    def poll(self):
+        return None if self.alive else 0
+
+
+@pytest.fixture
+def ear(tmp_path, monkeypatch):
+    monkeypatch.setattr(ear_tool, "Transcriber", lambda model, language: None)
+    say = FakeSay()
+    monkeypatch.setattr(ear_tool, "_say", say)
+    args = __import__("argparse").Namespace(
+        light=None, model="small", language="en", dry_run=False, url="https://exo", secret="s",
+        draft_timeout=60.0, close_phrase=[], device_name="kitchen-mac", speak=True, voice=None,
+    )
+    ear = ear_tool.Ear(args, tmp_path)
+    ear.sender = FakeSender()
+    ear.say = say
+    return ear
+
+
+def test_an_entry_sent_on_purpose_is_spoken_back_and_the_ear_goes_deaf_meanwhile(ear):
+    ear.handle_utterance("Today the bread finally rose.", now=10.0)
+    assert ear.sender.sent == [] and ear.light.state == None and ear.idle_state() == "drafting"
+    ear.handle_utterance("send it", now=20.0)
+    payload, timeout = ear.sender.sent[0]
+    assert payload["closed_by"] == "command" and payload["text"] == "Today the bread finally rose."
+    assert timeout == ear.REPLY_TIMEOUT, "a reply means a model call: wait for it"
+    assert ear.say.said == ["I heard the bread rose."]
+    assert ear.light.state == "sent"
+    assert ear.is_speaking(), "frames are dropped while the reply plays"
+    ear.say.alive = False
+    assert not ear.is_speaking()
+    assert json.loads((ear.heard_log).read_text())["closed_by"] == "command"
+
+
+def test_an_entry_closed_by_silence_is_saved_quietly_with_its_own_colour(ear):
+    ear.handle_utterance("Remember to call about the lease.", now=10.0)
+    ear.tick(69.0)
+    assert ear.sender.sent == []
+    ear.tick(70.0)
+    payload, timeout = ear.sender.sent[0]
+    assert payload["closed_by"] == "silence" and timeout is None
+    assert ear.say.said == [], "no voice after a silent save"
+    assert ear.light.state == "saved"
+
+
+def test_a_hey_exo_command_is_answered_at_once_without_touching_the_draft(ear):
+    ear.handle_utterance("First thought of the morning.", now=10.0)
+    ear.handle_utterance("Hey exo, what time is it", now=12.0)
+    payload, _ = ear.sender.sent[0]
+    assert payload["kind"] == "command" and payload["text"] == "what time is it"
+    assert ear.say.said == ["I heard the bread rose."]
+    assert ear.draft.pending and ear.draft.text == "First thought of the morning."

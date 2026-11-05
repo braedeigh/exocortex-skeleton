@@ -15,8 +15,10 @@ every later state change is one packet and no searching.
     lifx_light.py --list              show the bulbs on this network
     lifx_light.py --label Desk hearing  set that bulb to the "hearing" colour
 
-Colours: listening is a dim warm white, hearing is blue, heard (transcribing)
-is violet, sent is green, offline is red, paused turns the bulb off. Change
+Colours: listening is a dim warm white, hearing is blue, drafting (an entry
+open, waiting) is soft teal, heard (transcribing) is violet, thinking (waiting
+for the spoken reply) is magenta, sent is green, saved (quietly, after a
+minute's silence) is amber, offline is red, paused turns the bulb off. Change
 them in COLOURS.
 
 Prompt that produced this (technical part): "i want it to light up a light
@@ -46,12 +48,15 @@ SET_COLOR = 102          # LightSetColor: reserved u8, HSBK, duration u32
 
 # State -> (hue degrees, saturation 0..1, brightness 0..1, kelvin). None = off.
 COLOURS = {
-    "listening": (0, 0.0, 0.18, 2700),
-    "hearing":   (205, 0.75, 0.70, 3500),
-    "heard":     (280, 0.70, 0.60, 3500),
-    "sent":      (120, 0.80, 0.60, 3500),
-    "offline":   (0, 1.0, 0.60, 3500),
-    "paused":    None,
+    "listening": (0, 0.0, 0.18, 2700),      # dim warm white: nothing held
+    "hearing":   (205, 0.75, 0.70, 3500),   # blue: you're talking
+    "drafting":  (190, 0.45, 0.35, 3500),   # soft teal: an entry is open, waiting for more or "send it"
+    "heard":     (280, 0.70, 0.60, 3500),   # violet: transcribing
+    "thinking":  (300, 0.60, 0.55, 3500),   # magenta: sent, waiting for the spoken reply
+    "sent":      (120, 0.80, 0.60, 3500),   # green: sent and answered
+    "saved":     (40, 0.90, 0.50, 3500),    # amber: saved quietly after a minute's silence
+    "offline":   (0, 1.0, 0.60, 3500),      # red: the server couldn't be reached
+    "paused":    None,                      # off
 }
 FADE_MS = 300
 
