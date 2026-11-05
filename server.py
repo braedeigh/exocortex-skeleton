@@ -34,7 +34,7 @@ from routes import (
     branches, worktree_map, sudo, file_edit, research_room, linear_room,
     sqlab, sandbox, pond, tabsets, creek, research_claims, research_tables, food, coming_up,
     exposure, nutrition, georegions, recipe_nutrition, recipe_share,
-    token_burn, apps,
+    token_burn, apps, ear,
 )
 from routes.shell import VALID_TABS
 
@@ -1192,6 +1192,9 @@ photos.register(app)
 usage.register(app)
 # What the agents spent, added up — the Token burn page off the roster.
 token_burn.register(app)
+# The ear: a listener in the room sends what it heard, each utterance a
+# journal card in the owner's voice (routes/ear.py).
+ear.register(app)
 push.register(app)
 claude_auth.register(app)
 sqlab.register(app)

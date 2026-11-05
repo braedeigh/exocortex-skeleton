@@ -1,0 +1,5 @@
+# The ear's own dependencies — install these on the machine that listens (the Mac),
+# in a venv of its own. The exocortex server needs none of them.
+sounddevice>=0.4.6
+numpy>=1.24
+faster-whisper>=1.0

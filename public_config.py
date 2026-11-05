@@ -256,6 +256,11 @@ _SHELL_PATHS = (
     # hooks POST here from localhost with no session cookie, authenticated by
     # a shared secret checked inside the route itself instead.
     "/api/push/notify",
+    # The ear's door (routes/ear.py): the listening machine in the room POSTs
+    # each transcript here with no session cookie, authenticated by a shared
+    # secret checked inside the route. Its GET companion /api/ear/setup is
+    # NOT here — only the logged-in owner may read the secret.
+    "/api/ear/heard",
     # The terrain-mirror door (routes/terrain_mirror.py): the private box
     # POSTs its freshly built map here every few seconds, with no session
     # cookie, authenticated by a shared secret checked inside the route. Only

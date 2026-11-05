@@ -96,7 +96,8 @@
         "photos.py",
         "coming_up.py",
         "media.py",
-        "ideas.py"
+        "ideas.py",
+        "ear.py"
       ],
       "frontend": [
         "journal",
@@ -111,7 +112,8 @@
       "tools": [
         "stream",
         "thread",
-        "people"
+        "people",
+        "ear"
       ],
       "scripts": [
         "update_cards.py",
