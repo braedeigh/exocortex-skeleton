@@ -6,8 +6,10 @@ Three things that can silently break, each proven the way it's used:
     actually spoke (no clipping, no runaway monologue, no cough-triggers);
   - the wake-phrase parser tells "hey exo" commands from thoughts in the
     spellings Whisper really produces;
-  - the server door refuses the wrong secret, mints a B card tagged `ear`
-    on the day it was spoken, and answers a command;
+  - the server door refuses the wrong secret, mints a B card marked with
+    how it came in and from which device, on the day it was spoken, and
+    answers a command;
+  - the LIFX light's packets read back as what was sent;
   - a transcript the server couldn't take is spooled and replayed, in order.
 No microphone, no Whisper: frames are synthetic, the network is a fake.
 """
@@ -21,7 +23,7 @@ from flask import Flask
 import store
 from routes import ear as ear_route
 from tools.ear import ear as ear_tool
-from tools.ear import segmenter, wake
+from tools.ear import lifx_light, segmenter, wake
 from tools.stream import stream
 
 FRAME = int(16000 * 0.03)
@@ -132,7 +134,7 @@ def test_a_thought_becomes_a_journal_card_on_the_day_it_was_said(client):
     card = stream.read_card(body["id"])
     assert card.who == "B"
     assert card.body == "the bread needs a longer proof"
-    assert card.tags == ["ear"]
+    assert card.tags == ["voice", "via:kitchen-mac"]
     assert card.ts.startswith("2026-03-04 09:15")
     assert body["id"].startswith("2026-03-04.0915b")
 
@@ -143,7 +145,14 @@ def test_a_command_is_recorded_and_answered(client):
     })
     body = resp.get_json()
     assert body["kind"] == "command" and body["reply"]
-    assert stream.read_card(body["id"]).tags == ["ear", "exo-command"]
+    assert stream.read_card(body["id"]).tags == ["voice", "via:unknown", "exo-command"]
+
+
+def test_the_device_name_is_made_safe_for_a_tag(client):
+    resp = client.post("/api/ear/heard", json={
+        "secret": ear_route._secret(), "text": "hi", "device": "Bradie's Mac, [Kitchen]",
+    })
+    assert stream.read_card(resp.get_json()["id"]).tags == ["voice", "via:bradie-s-mac-kitchen"]
 
 
 def test_empty_text_is_refused_unless_it_is_a_bare_wake_word(client):
@@ -192,3 +201,39 @@ def test_offline_transcripts_are_spooled_and_replayed_in_order(tmp_path):
     assert sender.send(ear_tool.build_payload(heard, when, "mac", "s3cret"))["ok"]
     assert server.got == ["first", "second", "third"]
     assert not (tmp_path / "spool.jsonl").exists()
+
+
+# ---- the LIFX light ---------------------------------------------------------
+
+def test_lifx_packets_read_back_as_what_was_sent():
+    target = 0xD073D5001234
+    packet = lifx_light.build_packet(lifx_light.SET_COLOR, lifx_light.colour_payload(205, 0.75, 0.7, 3500),
+                                     target=target, source=99, sequence=7)
+    assert len(packet) == 36 + 13
+    parsed = lifx_light.parse_packet(packet)
+    assert (parsed["type"], parsed["target"], parsed["source"], parsed["sequence"]) == (102, target, 99, 7)
+    assert parsed["size"] == len(packet)
+    _reserved, hue, sat, bri, kelvin, fade = __import__("struct").unpack("<BHHHHI", parsed["payload"])
+    assert (round(hue / 65535 * 360), sat, bri, kelvin, fade) == (205, 49151, 45874, 3500, 300)
+
+
+def test_lifx_discovery_broadcast_is_tagged_for_every_bulb():
+    packet = lifx_light.build_packet(lifx_light.GET_SERVICE, tagged=True, response_wanted=True)
+    frame_flags = int.from_bytes(packet[2:4], "little")
+    assert frame_flags & 0xFFF == 1024 and frame_flags & (1 << 12) and frame_flags & (1 << 13)
+    assert packet[22] & 1, "a reply is asked for"
+    assert lifx_light.parse_label(b"Desk lamp\0\0\0" + b"\0" * 20) == "Desk lamp"
+    assert lifx_light.target_to_serial(0xD073D5001234) == "34:12:00:d5:73:d0"
+
+
+def test_lifx_remembers_the_chosen_bulb_so_later_calls_do_not_search(tmp_path, monkeypatch):
+    monkeypatch.setenv("EXO_EAR_HOME", str(tmp_path))
+    bulbs = [{"label": "Desk", "ip": "10.0.0.5", "target": 1, "serial": "01:00:00:00:00:00"},
+             {"label": "Hall", "ip": "10.0.0.6", "target": 2, "serial": "02:00:00:00:00:00"}]
+    searches = []
+    monkeypatch.setattr(lifx_light, "discover", lambda timeout=1.5: searches.append(1) or bulbs)
+    with pytest.raises(SystemExit):           # two bulbs, no label: must be told which
+        lifx_light.choose_bulb(None)
+    assert lifx_light.choose_bulb("desk")["ip"] == "10.0.0.5"
+    assert lifx_light.choose_bulb("Desk")["ip"] == "10.0.0.5"
+    assert len(searches) == 2, "the second call for the same bulb read the cache"

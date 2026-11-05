@@ -98,6 +98,16 @@ function formatReplyDate(date: string): string {
   return `${name} ${day}`;
 }
 
+/** "🎙 voice · kitchen-mac" for a card that arrived through a device, or null
+ * for an ordinary typed card. Reads the `via:<device>` and `voice` tags. */
+function sourceLabel(tags: readonly string[]): string | null {
+  const via = tags.find((t) => t.startsWith('via:'));
+  if (!via) return null;
+  const device = via.slice('via:'.length);
+  const how = tags.includes('voice') ? '\u{1F399}\uFE0F voice' : 'via';
+  return device ? `${how} \u00B7 ${device}` : how;
+}
+
 export function EntryCard({
   card,
   editing,
@@ -235,6 +245,15 @@ export function EntryCard({
           >
             &#10022; {sessionNames.get(card.session)}
           </button>
+        ) : null}
+        {/* How this card came in, when it wasn't typed: a `via:<device>` tag
+            names the machine that heard it and `voice` says it was spoken
+            (routes/ear.py mints both). A fact about the entry, not a link,
+            so it's quiet like the edited chip. */}
+        {sourceLabel(card.tags) ? (
+          <span className={styles.sourceChip} data-track="card-source-chip">
+            {sourceLabel(card.tags)}
+          </span>
         ) : null}
         <span className={styles.spacer} />
         {!editing && !readOnly ? (

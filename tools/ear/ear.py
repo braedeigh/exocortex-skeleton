@@ -80,13 +80,22 @@ class Light:
     prints, which is the dry-run light."""
     STATES = ("listening", "hearing", "heard", "sent", "offline", "paused")
 
+    HOLD_SECONDS = {"heard": 0.0, "sent": 1.5, "offline": 3.0}
+
     def __init__(self, template: str | None):
         self.template = template
         self.state = None
+        self._held_until = 0.0
 
     def set(self, state: str):
+        # A flash of green is no signal at all: "sent" and "offline" hold
+        # for a moment before "listening" may replace them. "hearing" always
+        # wins — she started talking again.
         if state == self.state:
             return
+        if state == "listening" and time.monotonic() < self._held_until:
+            return
+        self._held_until = time.monotonic() + self.HOLD_SECONDS.get(state, 0.0)
         self.state = state
         print(f"[{_clock()}] ◉ {state}", flush=True)
         if self.template:

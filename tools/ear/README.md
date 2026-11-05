@@ -43,7 +43,9 @@ export EXO_EAR_SECRET=…           # from that page
 ./venv/bin/python3 ear.py
 ```
 
-Each thought now lands on today's journal page, tagged `ear`. If the server
+Each thought now lands on today's journal page with a source chip,
+"🎙 voice · <machine>", from the tags `voice` and `via:<machine>` (the
+machine's name, or `--device-name` to choose one). If the server
 is asleep or unreachable the thought is kept in `~/.local/share/exo-ear/spool.jsonl`
 and sent the next time one gets through. Everything heard is also appended
 to `~/.local/share/exo-ear/heard.jsonl` on the listening machine.
@@ -52,13 +54,24 @@ to `~/.local/share/exo-ear/heard.jsonl` on the listening machine.
 
 `--light` takes a shell command run on every state change, with `{state}`
 replaced by one of `listening`, `hearing`, `heard`, `sent`, `offline`,
-`paused`. On a Mac with a HomeKit bulb, make a Shortcut per state and run:
+`paused`.
+
+**A LIFX bulb** works over the local network, no account. With the Mac on
+the same Wi-Fi as the bulbs:
 
 ```
-./venv/bin/python3 ear.py --light 'shortcuts run "Exo {state}"'
+./venv/bin/python3 lifx_light.py --list            # the bulbs and their names
+./venv/bin/python3 lifx_light.py --label "Desk" hearing   # try one colour
+./venv/bin/python3 ear.py --light './venv/bin/python3 lifx_light.py --label "Desk" {state}'
 ```
 
-(`hearing` is the one worth wiring first: it's the "I'm getting this" signal.)
+Dim warm white is listening, blue is hearing you, violet is transcribing,
+green is sent, red is offline, and paused turns it off. The colours are at
+the top of `lifx_light.py`. The bulb's address is remembered after the first
+run; `--fresh` searches again if it moved.
+
+Any other light is the same idea: on a Mac with a HomeKit bulb, one
+Shortcut per state and `--light 'shortcuts run "Exo {state}"'`.
 
 ## Pausing
 
@@ -68,6 +81,6 @@ resume. Useful for calls and visitors.
 ## Commands
 
 A line starting with "hey exo" (Whisper also hears "hey echo", "okay X.O.")
-is sent as a command and recorded with the tag `exo-command`. Today the server
+is sent as a command and recorded with the tag `exo-command` too. Today the server
 only acknowledges them; wiring commands to actions is the next step, in
 `routes/ear.py` `_answer_command`.

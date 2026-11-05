@@ -16,8 +16,10 @@ Two doors:
   GET  /api/ear/setup   (logged in) the url and secret to paste into the
                         listener — so setup is "open this page, copy two lines".
 
-A plain thought is a card tagged `ear`. A "hey exo …" command is a card tagged
-`ear` and `exo-command`, and gets a spoken reply. Today the reply is only an
+Every card is tagged `voice` (how it came in) and `via:<device>` (which
+machine heard it) — the journal shows those two as a source chip, so a spoken
+card reads differently from a typed one. A "hey exo …" command is also tagged
+`exo-command`, and gets a spoken reply. Today the reply is only an
 acknowledgement: commands are recorded, not acted on — the place for a real
 dispatcher is _answer_command below.
 """
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import fcntl
 import hmac
+import re
 import secrets
 from datetime import datetime
 
@@ -72,6 +75,14 @@ def _parse_heard_at(raw) -> datetime:
     return datetime.now()
 
 
+def _device_tag(raw) -> str:
+    """`via:<device>` — the listening machine's name, made safe for a tag:
+    lower-case letters, digits and dashes only, so it can never carry a comma
+    or bracket into the card's front matter."""
+    name = re.sub(r"[^a-z0-9]+", "-", str(raw or "").lower()).strip("-")[:40]
+    return f"via:{name or 'unknown'}"
+
+
 def _answer_command(text: str) -> str:
     """What the ear says back after a "hey exo" command. Only an
     acknowledgement for now: the command is on the record and nothing runs.
@@ -104,7 +115,7 @@ def register(app):
         kind = "command" if data.get("kind") == "command" else "note"
         if not text and kind != "command":
             return jsonify({"error": "text required"}), 400
-        tags = ["ear"] + (["exo-command"] if kind == "command" else [])
+        tags = ["voice", _device_tag(data.get("device"))] + (["exo-command"] if kind == "command" else [])
         body = text or "(hey exo, then nothing)"
         try:
             cid = stream.record(who="B", body=body, tags=tags, ts=_parse_heard_at(data.get("heard_at")))

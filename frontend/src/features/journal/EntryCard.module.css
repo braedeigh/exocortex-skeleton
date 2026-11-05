@@ -316,3 +316,19 @@
   border-radius: 3px;
   padding: 0 1px;
 }
+
+/* "🎙 voice · kitchen-mac" — the card came in through a device, not typing.
+   Same quiet shape as the edited chip: a fact about the entry, not a link. */
+.sourceChip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  padding: var(--space-1) var(--space-2);
+  min-height: 28px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
