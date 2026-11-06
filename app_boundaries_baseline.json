@@ -42,6 +42,7 @@
     "import fdcdb.py -> commonsdb.py",
     "import foodstore.py -> hazardstore.py",
     "import hazardstore.py -> foodstore.py",
+    "import routes/ear.py -> routes/observatory.py",
     "import routes/kitchen/receipts.py -> routes/helpers.py",
     "import routes/kitchen/receipts.py -> routes/money.py",
     "import routes/kitchen/recipes.py -> routes/helpers.py",
