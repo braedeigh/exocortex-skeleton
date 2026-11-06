@@ -156,9 +156,9 @@ def test_a_command_is_recorded_and_answered(client):
 
 def test_the_device_name_is_made_safe_for_a_tag(client):
     resp = client.post("/api/ear/heard", json={
-        "secret": ear_route._secret(), "text": "hi", "device": "Bradie's Mac, [Kitchen]",
+        "secret": ear_route._secret(), "text": "hi", "device": "Owner's Mac, [Kitchen]",
     })
-    assert stream.read_card(resp.get_json()["id"]).tags == ["voice", "via:bradie-s-mac-kitchen"]
+    assert stream.read_card(resp.get_json()["id"]).tags == ["voice", "via:owner-s-mac-kitchen"]
 
 
 def _pin_keeper(conv_id="2026-03-04.030000"):
