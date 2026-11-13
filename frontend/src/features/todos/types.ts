@@ -130,6 +130,8 @@ export interface ReminderDef {
   times?: TimeOfDay[] | null;
   private?: boolean;
   due_text?: string | null;
+  /** "HH:MM" — on a due day, push to the phone at this time if still unlogged. */
+  push_at?: string | null;
   snoozed_until?: string | null;
 }
 

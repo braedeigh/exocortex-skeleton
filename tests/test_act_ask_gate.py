@@ -62,6 +62,9 @@ ACT_COMMANDS = [
     # backticks and pipes that no piped/echoed form could get past _UNSAFE_META.
     "python3 tulku/_system/stream.py record --who K --kind context --body-file /tmp/ctx.md",
     "python3 tools/stream/stream.py record --who K --ts \"2026-09-17 03:10:00\" --body-file .keeper/ctx.md",
+    # the Keeper logging a dose she reported in chat, and undoing one
+    "python3 /opt/exocortex/skeleton/scripts/log_activity.py estradiol --date 2026-11-12",
+    "python3 /opt/exocortex/skeleton/scripts/log_activity.py estradiol --date 2026-11-12 --remove",
 ]
 
 
@@ -117,6 +120,8 @@ ASK_COMMANDS = [
     # recipe is documented at the _ALLOW entry.
     "python3 tools/stream/stream.py validate 2>&1 | tail -5",
     "python3 tools/stream/stream.py record --who K < body.md",
+    "python3 scripts/log_activity.py estradiol > /tmp/out",
+    "python3 scripts/my_log_activity.py estradiol",
     # empty / unknown
     "", "   ", "someunknownbinary --flag",
 ]

@@ -99,6 +99,11 @@ _ALLOW = [
         # context card, re-render a day, or validate the pool at close. Allow the
         # reversible verbs; keep the destructive ones asking."
         r"^\S*python3? (?:\S*/)?stream\.py (record|render|validate|--help)\b",
+        # The Keeper's door into the reminder log (scripts/log_activity.py):
+        # one {"date", "type"} row per call, refused for unknown types and
+        # future dates, and always undoable with --remove — reversible, so
+        # it acts. Without it the Keeper can't log a dose she reports in chat.
+        r"^\S*python3? \S*scripts/log_activity\.py\b",
     )
 ]
 

@@ -9,4 +9,4 @@ export type Reminder = { id: string, label: string,
  * `kind` on the Rust side because `type` is a keyword; the JSON key is
  * still `"type"`.
  */
-type: string, emoji?: string | null, color?: string | null, schedule?: string | null, every_days?: number | null, overdue_days?: number | null, weekdays: Array<string>, mode?: string | null, companion?: string | null, times: Array<string>, private: boolean, due_text?: string | null, shape?: string | null, snoozed_until?: string | null, };
+type: string, emoji?: string | null, color?: string | null, schedule?: string | null, every_days?: number | null, overdue_days?: number | null, weekdays: Array<string>, mode?: string | null, companion?: string | null, times: Array<string>, private: boolean, due_text?: string | null, push_at?: string | null, shape?: string | null, snoozed_until?: string | null, };

@@ -24,6 +24,8 @@ export interface ReminderDraft {
   times: TimeOfDay[];
   private: boolean;
   due_text: string;
+  /** "HH:MM" phone-push time, or '' for tile only. */
+  push_at: string;
 }
 
 /** Seed the draft from live data (reminderManagerPanelHtml's seeding). */
@@ -44,6 +46,7 @@ export function seedDrafts(reminders: ReminderDef[] | null | undefined): Reminde
     times: Array.isArray(r.times) ? r.times.slice() : [],
     private: !!r.private,
     due_text: r.due_text || '',
+    push_at: r.push_at || '',
   }));
 }
 
@@ -65,6 +68,7 @@ export function newDraft(): ReminderDraft {
     times: [],
     private: false,
     due_text: '',
+    push_at: '',
   };
 }
 
@@ -105,6 +109,8 @@ export interface CoercedReminder {
   times: TimeOfDay[];
   private: boolean;
   due_text: string;
+  /** "HH:MM" phone-push time, or '' for tile only. */
+  push_at: string;
 }
 
 /** saveReminders' row coercion: blank labels dropped, numbers defaulted to 1,
@@ -128,5 +134,6 @@ export function coerceDraftsForSave(drafts: ReminderDraft[]): CoercedReminder[] 
       times: Array.isArray(r.times) ? r.times : [],
       private: !!r.private,
       due_text: (r.due_text || '').trim(),
+      push_at: (r.push_at || '').trim(),
     }));
 }

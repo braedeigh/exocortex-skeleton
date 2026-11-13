@@ -235,6 +235,28 @@ export function ReminderManagerPanel({ reminders, onSave, onCancel }: ReminderMa
                 </div>
               ) : null}
 
+              {/* Phone push: on a day this is due and still unlogged, one
+                  notification at this time (scripts/todo_push_dispatcher.py).
+                  Empty = tile only. */}
+              {!isTrack ? (
+                <div className={styles.optionRow}>
+                  <span>push to phone at</span>
+                  <input
+                    type="time"
+                    className={`${styles.input} ${styles.pushTimeInput}`}
+                    value={r.push_at}
+                    onChange={(e) => patch(i, { push_at: e.target.value })}
+                  />
+                  {r.push_at ? (
+                    <button type="button" className={styles.clearPush} onClick={() => patch(i, { push_at: '' })}>
+                      no push
+                    </button>
+                  ) : (
+                    <span className={styles.faint}>(no push)</span>
+                  )}
+                </div>
+              ) : null}
+
               <div className={styles.optionRow}>
                 <span>after logging, also ask about</span>
                 <select

@@ -71,6 +71,19 @@ def _coerce_times(value):
     return [t for t in VALID_TIMES if t in out]
 
 
+def _coerce_push_at(value):
+    """A phone-push time, "HH:MM" 24-hour, or "" for no push. Anything that
+    isn't a real clock time is dropped rather than guessed at."""
+    s = str(value or "").strip()
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})", s)
+    if not m:
+        return ""
+    h, mi = int(m.group(1)), int(m.group(2))
+    if h > 23 or mi > 59:
+        return ""
+    return f"{h:02d}:{mi:02d}"
+
+
 def _coerce_reminder(raw):
     """Sanitize one reminder dict into the stored shape."""
     if not isinstance(raw, dict):
@@ -117,6 +130,10 @@ def _coerce_reminder(raw):
         "times": _coerce_times(raw.get("times")),
         "private": bool(raw.get("private")),
         "due_text": str(raw.get("due_text", "")).strip()[:60],
+        # Optional phone push: on a day the reminder is due, the minute cron
+        # (scripts/todo_push_dispatcher.py) sends one notification at this
+        # time if it still hasn't been logged. "" = tile only, no push.
+        "push_at": _coerce_push_at(raw.get("push_at")),
     }
     # "Kick the can": a snoozed reminder keeps its schedule but doesn't pop
     # until this date. Set via /api/reminders/snooze; preserved through the

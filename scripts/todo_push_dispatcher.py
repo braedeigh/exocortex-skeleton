@@ -35,6 +35,15 @@ Delivery goes through POST /api/push/notify (routes/push.py) with the
 hooks use. No new authentication, no new route. A reminder is NOT
 presence-suppressed: it arrives whether or not the app is open.
 
+Recurring reminders ride the same pass (added 2026-11-13). A reminder in
+reminders.json can carry `push_at` ("19:00"). On a day it is due — the same
+due test the To-Do tile uses (frontend/src/features/todos/reminderMath.ts) —
+and still unlogged at that time, it gets ONE push that day, landing on the
+to-dos where the tile is. Still unlogged tomorrow, it pushes again tomorrow;
+logged (by her tap, or by the Keeper via scripts/log_activity.py), it stops.
+Same grace rule, same state file, keyed "rem:<id>" so it can't collide with
+a to-do id. A reminder marked private never puts its name on the lock screen.
+
 Times are read as server-local. That's correct as long as the server's clock
 is set to the timezone she lives in; there is no per-user timezone anywhere
 in this app, and inventing one here would be the only place it existed.
@@ -43,7 +52,7 @@ import json
 import os
 import sys
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -145,19 +154,84 @@ def due_items(todos, now):
     return out
 
 
-def send_push(secret, item, due_at):
-    """POST one reminder through the hook door. Returns True when the server
-    says at least one device actually got it."""
-    text = (item.get("text") or "").strip()
-    if len(text) > _TEXT_TRUNCATE:
-        text = text[:_TEXT_TRUNCATE - 1] + "…"
-    body = {
-        "secret": secret,
-        "event": "reminder",
-        "title": f"⏰ {text}" if text else "⏰ Reminder",
-        "body": due_at.strftime("%-I:%M %p").lower(),
-        "url": TAP_URL,
-    }
+def _days_between(a_iso, b_iso):
+    a = datetime.strptime(a_iso, "%Y-%m-%d")
+    b = datetime.strptime(b_iso, "%Y-%m-%d")
+    return (b - a).days
+
+
+def reminder_is_due(rem, entries, today):
+    """Is this reminder due today? Mirrors computeReminderState's due test in
+    reminderMath.ts — kept deliberately identical, so a push never arrives
+    for a tile the To-Do page isn't showing as due."""
+    rtype = rem.get("type")
+    logged = sorted(e.get("date", "") for e in entries
+                    if isinstance(e, dict) and e.get("type") == rtype)
+    logged = [d for d in logged if d <= today]
+    if (rem.get("schedule") or "interval") == "weekly":
+        weekdays = rem.get("weekdays") or []
+        if not weekdays:
+            return False
+        base = datetime.strptime(today, "%Y-%m-%d")
+        last = None
+        for i in range(7):
+            d = base - timedelta(days=i)
+            if (d.isoweekday() % 7) in weekdays:  # 0 = Sunday, as in JS getDay()
+                last = d.strftime("%Y-%m-%d")
+                break
+        if last is None:
+            return False
+        return not any(d >= last for d in logged)
+    if not logged:
+        return True
+    every = rem.get("every_days") or 3
+    return _days_between(logged[-1], today) >= every
+
+
+def due_reminders(reminders, entries, now):
+    """Every reminder that wants a push at `now`, as (reminder, push_datetime)
+    pairs: has an id and a push_at, isn't silent (track mode) or snoozed, is
+    due today, and its push time has arrived."""
+    today = now.strftime("%Y-%m-%d")
+    out = []
+    for rem in (reminders or {}).get("reminders", []):
+        if not isinstance(rem, dict) or not rem.get("id") or not rem.get("type"):
+            continue
+        push_at = (rem.get("push_at") or "").strip()
+        if not push_at or rem.get("mode") == "track":
+            continue
+        snoozed = rem.get("snoozed_until")
+        if snoozed and snoozed > today:
+            continue
+        try:
+            at = datetime.strptime(f"{today} {push_at}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            continue
+        if at > now:
+            continue
+        if reminder_is_due(rem, entries, today):
+            out.append((rem, at))
+    return out
+
+
+def reminder_words(rem):
+    """(title, body) for a reminder push. A private reminder is hidden on the
+    public calendar, and a lock screen is about as public as it gets — so its
+    label never goes on one: just her own "when due, say" words, or a plain
+    "Reminder"."""
+    due_text = (rem.get("due_text") or "").strip()
+    if rem.get("private"):
+        return (f"⏰ {due_text}" if due_text else "⏰ Reminder"), ""
+    emoji = (rem.get("emoji") or "⏰").strip()
+    label = (rem.get("label") or "Reminder").strip()
+    return f"{emoji} {label}", due_text
+
+
+def post_reminder(secret, title, body_text):
+    """POST one reminder through the hook door. True when at least one device
+    actually got it."""
+    body = {"secret": secret, "event": "reminder", "title": title,
+            "body": body_text, "url": TAP_URL}
     req = urllib.request.Request(
         NOTIFY_URL,
         data=json.dumps(body).encode("utf-8"),
@@ -167,6 +241,16 @@ def send_push(secret, item, due_at):
     with urllib.request.urlopen(req, timeout=10) as resp:
         payload = json.loads(resp.read() or b"{}")
     return bool(payload.get("sent"))
+
+
+def send_push(secret, item, due_at):
+    """POST one reminder through the hook door. Returns True when the server
+    says at least one device actually got it."""
+    text = (item.get("text") or "").strip()
+    if len(text) > _TEXT_TRUNCATE:
+        text = text[:_TEXT_TRUNCATE - 1] + "…"
+    return post_reminder(secret, f"⏰ {text}" if text else "⏰ Reminder",
+                         due_at.strftime("%-I:%M %p").lower())
 
 
 def process_due(now=None):
@@ -187,7 +271,14 @@ def process_due(now=None):
         del fired[todo_id]
 
     todos = read_json("todos", {})
-    candidates = due_items(todos, now)
+    candidates = [(item["id"], item, due_at, None)
+                  for item, due_at in due_items(todos, now)]
+    reminders = read_json("reminders.json", {"reminders": []})
+    if any(isinstance(r, dict) and r.get("push_at")
+           for r in (reminders or {}).get("reminders", [])):
+        entries = read_json("activity_log.json", {"entries": []}).get("entries", [])
+        candidates += [("rem:" + rem["id"], None, at, reminder_words(rem))
+                       for rem, at in due_reminders(reminders, entries, now)]
     if not candidates:
         write_json(STATE_FILE, state)
         return state
@@ -200,8 +291,7 @@ def process_due(now=None):
               "cannot authenticate to /api/push/notify", file=sys.stderr)
         return state
 
-    for item, due_at in candidates:
-        todo_id = item["id"]
+    for todo_id, item, due_at, words in candidates:
         if todo_id in fired:
             continue
         late_minutes = (now - due_at).total_seconds() / 60
@@ -210,7 +300,10 @@ def process_due(now=None):
                               "status": "missed"}
             continue
         try:
-            delivered = send_push(secret, item, due_at)
+            if words is not None:
+                delivered = post_reminder(secret, *words)
+            else:
+                delivered = send_push(secret, item, due_at)
         except Exception as e:
             # Left OUT of `fired`, so the next minute's run tries again —
             # a transient blip shouldn't cost her the reminder.
