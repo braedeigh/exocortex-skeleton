@@ -126,4 +126,9 @@ def main(argv=None, today=None):
 
 
 if __name__ == "__main__":
+    # Put this run on the runtime map (runtime_sensor.py): which of our
+    # files actually execute, and which call which. Inside __main__ so a
+    # test or another module importing this file doesn't start tracing.
+    import runtime_sensor
+    runtime_sensor.attach()
     sys.exit(main())
