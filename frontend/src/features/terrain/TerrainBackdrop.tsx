@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { subscribeTheme } from '../../theme';
-import { useTerrain, type TerrainData } from './api';
+import { useTerrain, useTerrainTableActivity, useTerrainTables, type TerrainData } from './api';
 import { collapseToPondTile, localDayISO } from './pondNodes';
 import { windowCoils } from './coilFolders';
+import { fileLastEdits, gridFolders } from './fileGrids';
+import { addTableNodes } from './tableNodes';
+import { useTypeColorsOn } from './typeColorPref';
 import {
   alternatingBreath,
   windowToHalfLife,
@@ -22,6 +25,19 @@ import styles from './TerrainBackdrop.module.css';
  * was failing. Landed so far: the map behind the conversation, and the
  * step-back view that hands it the screen (see `revealed` below). Still not
  * built: the glass, and the featured agent.
+ *
+ * THE SAME FURNITURE AS /terrain/files. The backdrop draws what the Files
+ * room draws, not an older sketch of it: every code folder's files sit in
+ * their dot grid (fileGrids.ts), the database's tables stand on the map as
+ * their own shapes with their red structure and yellow row-write outlines
+ * (tableNodes.ts), and the "Types" switch (typeColorPref.ts) — when she has it
+ * on in Terrain — paints the dots by file format here too. Each is handed to
+ * the engine the way TerrainPage.tsx hands it, once per payload, never per
+ * breath tick. Not carried over: anything that only shows under a hover or a
+ * tap (table-to-code ropes, the sheets), since a wallpaper takes no gestures.
+ * Prompt that produced it: "i want my background for my sessions behind the
+ * frosted agent sessions to match my terrain aesthetic with the file formats
+ * and tables and everything".
  *
  * It's the same engine /terrain uses (her call: the map should look like the
  * map), running in the engine's `ambient` mode — no gestures, and no labels
@@ -108,6 +124,14 @@ export function TerrainBackdrop({
   }, []);
 
   const { data } = useTerrain(anyRunning && onScreen, BACKDROP_TIER);
+  // The database's tables and when each last changed — the same two asks the
+  // Files room makes, sharing its cache, so a backdrop beside an open Terrain
+  // costs no extra request. Activity re-asks every ten seconds only while an
+  // agent is running and the page is on screen.
+  const { data: tables } = useTerrainTables(true);
+  const { data: tableActivity } = useTerrainTableActivity(true, anyRunning && onScreen);
+  // The Types switch, shared with every Terrain in any panel or tab.
+  const typeColors = useTypeColorsOn();
   useEffect(() => {
     if (data) setAnyRunning((data.sessions ?? []).some((s) => s.running));
   }, [data]);
@@ -133,11 +157,32 @@ export function TerrainBackdrop({
     () => (coiled ? collapseToPondTile(coiled.data, localDayISO()).data : undefined),
     [coiled],
   );
+  // Put the database's tables on the map, one body per table, after the pond
+  // collapse — the same step TerrainPage.tsx takes (addTableNodes).
+  const withTables = useMemo(
+    () => (collapsed ? addTableNodes(collapsed, tables, tableActivity) : undefined),
+    [collapsed, tables, tableActivity],
+  );
+
+  /**
+   * Every code folder's files as a grid, edited longest ago top-left — the
+   * Files room's layout (fileGrids.ts gridFolders). The grid needs node ids
+   * and parents, so it reads one throwaway build of the graph; the breath
+   * only ever changes heat, never which nodes exist, so this holds for the
+   * whole payload. Last-edit times come off the RAW payload, as on /terrain.
+   * A coil's dots stay on their spiral.
+   */
+  const grids = useMemo(() => {
+    if (!withTables || !data) return [];
+    const nodes = buildTerrainGraph(withTables, 0).nodes;
+    const coilDots = new Set((coiled?.coils ?? []).flatMap((coil) => coil.spiralIds));
+    return gridFolders(nodes, fileLastEdits(data), { skipIds: coilDots });
+  }, [withTables, data, coiled]);
 
   // The payload lives in a ref because the breath rebuilds the graph on its
   // own clock, outside React's render cycle.
   const dataRef = useRef<TerrainData | undefined>(undefined);
-  dataRef.current = collapsed;
+  dataRef.current = withTables;
   // The coil rides in a ref for the same reason the payload does: the breath
   // paints outside React's render cycle. No caption — the wallpaper's centre
   // isn't a control, so there's nothing for it to report.
@@ -180,6 +225,16 @@ export function TerrainBackdrop({
   useEffect(() => {
     engineRef.current?.setFocus(focusConv ?? null);
   }, [focusConv]);
+
+  // Hand the grids and the Types switch to the engine. Both effects sit after
+  // the lifecycle effect above, so the engine exists; setGrids lays out at
+  // once even if the graph lands after it (terrainCanvas.ts setGrids).
+  useEffect(() => {
+    engineRef.current?.setGrids(grids);
+  }, [grids]);
+  useEffect(() => {
+    engineRef.current?.setTypeColors(typeColors);
+  }, [typeColors]);
 
   // Captions follow the step-back view. Same shape as the focus effect above:
   // it runs after the lifecycle effect, so the engine is there to tell.
@@ -290,17 +345,18 @@ export function TerrainBackdrop({
     };
   }, []);
 
-  // Flashes compare the COLLAPSED payloads, so a new journal card advances
-  // the pond tile's newest touch and the square itself blinks.
+  // Flashes compare the COLLAPSED payloads (tables included), so a new
+  // journal card advances the pond tile's newest touch and the square itself
+  // blinks, and a table an agent just changed blinks the same way.
   const prevDataRef = useRef<TerrainData | null>(null);
   useEffect(() => {
-    if (!collapsed) return;
+    if (!withTables) return;
     const prev = prevDataRef.current;
-    prevDataRef.current = collapsed;
+    prevDataRef.current = withTables;
     if (!prev) return;
-    const changed = changedFileIds(prev, collapsed);
+    const changed = changedFileIds(prev, withTables);
     if (changed.size > 0) engineRef.current?.flash(changed);
-  }, [collapsed]);
+  }, [withTables]);
 
   return (
     <div ref={wrapRef} className={styles.backdrop} aria-hidden="true">
