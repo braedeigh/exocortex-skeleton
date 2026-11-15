@@ -241,33 +241,6 @@ function DoneNote({
   );
 }
 
-/** Waiting on her — orange: what the session is building, every open
- * question with its options to tap or a box to type in, and one Send that
- * answers into the session without opening it. On a long list the Send row
- * stays at the bottom of the screen until she reaches the end of the card, so
- * she can send with the first question still in view.
- *
- * The about line sits right under the title (the session's own words on what
- * it's building and where it stands, or its summary for a set filed before
- * sets carried one), so she can answer without opening the chat. Under it,
- * when the session named the journal card the work started from, her own
- * words from that card (OwnerWords.tsx). Each
- * question is a QuestionChoices; the card holds the answers and composes the
- * one numbered message Send sends (questionAnswers.ts). "Go with your
- * recommendations" takes the recommended option on every question that has
- * one and sends at once, off the record — it's a tap, not her words.
- *
- * The answer goes through the session's mailbox (sendToInbox), the same door
- * as typing into its chat while a turn runs: an idle session starts a turn
- * with it at once, a busy one gets it at its next step. Either way her words
- * are what clears the orange, server-side — so after a send the card just
- * says so and waits for the roster poll to take it away, rather than hiding
- * itself on a guess.
- *
- * [prompt: "on the front page, i want the orange sessions to have these
- * questions printed out with an input box beneath it that i can type directly
- * into to send into the session"] · [prompt: "similar to Claude planning mode
- * where I can click options it presents or else type in my response"] */
 /** Close a session from its orange question card, questions unanswered.
  * The card closes itself (closeConversation, then onChanged to refresh), the
  * way SaveLaterButton saves itself, so every place the card is drawn — a
@@ -322,6 +295,33 @@ function AwaitCloseButton({
   );
 }
 
+/** Waiting on her — orange: what the session is building, every open
+ * question with its options to tap or a box to type in, and one Send that
+ * answers into the session without opening it. On a long list the Send row
+ * stays at the bottom of the screen until she reaches the end of the card, so
+ * she can send with the first question still in view.
+ *
+ * The about line sits right under the title (the session's own words on what
+ * it's building and where it stands, or its summary for a set filed before
+ * sets carried one), so she can answer without opening the chat. Under it,
+ * when the session named the journal card the work started from, her own
+ * words from that card (OwnerWords.tsx). Each
+ * question is a QuestionChoices; the card holds the answers and composes the
+ * one numbered message Send sends (questionAnswers.ts). "Go with your
+ * recommendations" takes the recommended option on every question that has
+ * one and sends at once, off the record — it's a tap, not her words.
+ *
+ * The answer goes through the session's mailbox (sendToInbox), the same door
+ * as typing into its chat while a turn runs: an idle session starts a turn
+ * with it at once, a busy one gets it at its next step. Either way her words
+ * are what clears the orange, server-side — so after a send the card just
+ * says so and waits for the roster poll to take it away, rather than hiding
+ * itself on a guess.
+ *
+ * [prompt: "on the front page, i want the orange sessions to have these
+ * questions printed out with an input box beneath it that i can type directly
+ * into to send into the session"] · [prompt: "similar to Claude planning mode
+ * where I can click options it presents or else type in my response"] */
 export function AwaitingCard({
   row,
   planLine = null,
