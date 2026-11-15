@@ -3,7 +3,8 @@
  * component with its OWN state: ApprovalCard (a gated command needing her
  * Approve/Deny), AwaitingCard (a session waiting on her answer), and
  * SessionCard (everything else — idle, breathing, broken). AwaitingCard's
- * answers are tapped or typed per question in QuestionChoices.tsx, and her
+ * answers are tapped or typed per question in QuestionChoices.tsx, its ×
+ * closes the session without answering (AwaitCloseButton), and her
  * quoted words above them are OwnerWords.tsx. Her last message on a card is
  * folded by ClampedText.tsx. Until 08-03 all
  * three lived inline in SessionLane behind seven parallel per-row Record
@@ -24,6 +25,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { agentPointerProps } from '../../shell/panels/agentHoverBus';
 import { dispatchIntent } from '../../shell/panels/windowBus';
 import {
+  closeConversation,
   forkConversation,
   keepConversation,
   saveForLater,
@@ -266,6 +268,60 @@ function DoneNote({
  * questions printed out with an input box beneath it that i can type directly
  * into to send into the session"] · [prompt: "similar to Claude planning mode
  * where I can click options it presents or else type in my response"] */
+/** Close a session from its orange question card, questions unanswered.
+ * The card closes itself (closeConversation, then onChanged to refresh), the
+ * way SaveLaterButton saves itself, so every place the card is drawn — a
+ * room, a swarm, the map — gets it without threading a handler through.
+ * Arm-then-confirm like the ordinary card's ×: the first tap turns it into
+ * "Sure?", the second closes. Nothing is deleted; the transcript stays
+ * searchable, and opening it again shows the questions where they were.
+ *
+ * Prompt: "Make it possible to close sessions from my questions on my
+ * observatory if that makes sense" */
+function AwaitCloseButton({
+  convId,
+  title,
+  onChanged,
+}: {
+  convId: string;
+  title: string;
+  onChanged?: () => void;
+}) {
+  // 'armed' after the first tap, 'busy' while the close is out, or the failure text.
+  const [state, setState] = useState<'armed' | 'busy' | string | null>(null);
+  // A failed close re-arms, so the next tap is the retry's "Sure?".
+  const tap = () => {
+    if (state !== 'armed') {
+      setState('armed');
+      return;
+    }
+    setState('busy');
+    closeConversation(convId)
+      .then(() => {
+        setState(null);
+        onChanged?.();
+      })
+      .catch((err) => setState(err instanceof Error ? err.message : 'could not close it'));
+  };
+  const armed = state === 'armed';
+  // A refused close (the Keeper, a lost connection) says so on the button
+  // itself — a tooltip alone never shows on a phone — and a tap tries again.
+  const failed = state !== null && !armed && state !== 'busy';
+  return (
+    <button
+      type="button"
+      className={[styles.closeBtn, armed || failed ? styles.closeArmed : ''].filter(Boolean).join(' ')}
+      aria-label={failed ? `Couldn't close ${title}: ${state}` : `Close ${title} without answering`}
+      title={failed ? state : 'Close session without answering'}
+      disabled={state === 'busy'}
+      onClick={tap}
+      onBlur={() => armed && setState(null)}
+    >
+      {state === 'busy' ? '…' : armed ? 'Sure?' : failed ? "Couldn't close" : '×'}
+    </button>
+  );
+}
+
 export function AwaitingCard({
   row,
   planLine = null,
@@ -318,6 +374,10 @@ export function AwaitingCard({
         >
           open →
         </button>
+        {/* Not worth answering at all: close it from here. A turn still
+            running would be killed by a close, so the × waits it out, as
+            on the ordinary card. */}
+        {!row.running ? <AwaitCloseButton convId={row.id} title={row.title} onChanged={onChanged} /> : null}
       </div>
       <PlanLine summary={planLine} />
       {/* What it's building and where it stands — read before the questions. */}
