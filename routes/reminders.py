@@ -134,6 +134,10 @@ def _coerce_reminder(raw):
         # (scripts/todo_push_dispatcher.py) sends one notification at this
         # time if it still hasn't been logged. "" = tile only, no push.
         "push_at": _coerce_push_at(raw.get("push_at")),
+        # Tell the Keeper too: at push_at on a due day, a System message goes
+        # into the pinned Keeper chat (scripts/coming_up_dispatcher.py), and
+        # the Keeper's wake package lists it as due (comingup.format_block).
+        "tell_keeper": bool(raw.get("tell_keeper")),
     }
     # "Kick the can": a snoozed reminder keeps its schedule but doesn't pop
     # until this date. Set via /api/reminders/snooze; preserved through the

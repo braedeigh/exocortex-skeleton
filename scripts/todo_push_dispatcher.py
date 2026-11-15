@@ -35,8 +35,8 @@ Delivery goes through POST /api/push/notify (routes/push.py) with the
 hooks use. No new authentication, no new route. A reminder is NOT
 presence-suppressed: it arrives whether or not the app is open.
 
-Recurring reminders ride the same pass (added 2026-11-13). A reminder in
-reminders.json can carry `push_at` ("19:00"). On a day it is due — the same
+Recurring reminders ride the same pass. A reminder in reminders.json can
+carry `push_at` ("19:00"). On a day it is due — reminder_due.py, the same
 due test the To-Do tile uses (frontend/src/features/todos/reminderMath.ts) —
 and still unlogged at that time, it gets ONE push that day, landing on the
 to-dos where the tile is. Still unlogged tomorrow, it pushes again tomorrow;
@@ -52,7 +52,7 @@ import json
 import os
 import sys
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -66,6 +66,7 @@ try:
     import store  # noqa: E402  (repo's atomic JSON layer; stdlib-only itself)
 except Exception:
     store = None
+import reminder_due  # noqa: E402  (stdlib-only; the shared "is it due?" rule)
 
 if store is not None:
     DATA_DIR = store.DATA_DIR
@@ -154,64 +155,11 @@ def due_items(todos, now):
     return out
 
 
-def _days_between(a_iso, b_iso):
-    a = datetime.strptime(a_iso, "%Y-%m-%d")
-    b = datetime.strptime(b_iso, "%Y-%m-%d")
-    return (b - a).days
-
-
-def reminder_is_due(rem, entries, today):
-    """Is this reminder due today? Mirrors computeReminderState's due test in
-    reminderMath.ts — kept deliberately identical, so a push never arrives
-    for a tile the To-Do page isn't showing as due."""
-    rtype = rem.get("type")
-    logged = sorted(e.get("date", "") for e in entries
-                    if isinstance(e, dict) and e.get("type") == rtype)
-    logged = [d for d in logged if d <= today]
-    if (rem.get("schedule") or "interval") == "weekly":
-        weekdays = rem.get("weekdays") or []
-        if not weekdays:
-            return False
-        base = datetime.strptime(today, "%Y-%m-%d")
-        last = None
-        for i in range(7):
-            d = base - timedelta(days=i)
-            if (d.isoweekday() % 7) in weekdays:  # 0 = Sunday, as in JS getDay()
-                last = d.strftime("%Y-%m-%d")
-                break
-        if last is None:
-            return False
-        return not any(d >= last for d in logged)
-    if not logged:
-        return True
-    every = rem.get("every_days") or 3
-    return _days_between(logged[-1], today) >= every
-
-
 def due_reminders(reminders, entries, now):
     """Every reminder that wants a push at `now`, as (reminder, push_datetime)
-    pairs: has an id and a push_at, isn't silent (track mode) or snoozed, is
-    due today, and its push time has arrived."""
-    today = now.strftime("%Y-%m-%d")
-    out = []
-    for rem in (reminders or {}).get("reminders", []):
-        if not isinstance(rem, dict) or not rem.get("id") or not rem.get("type"):
-            continue
-        push_at = (rem.get("push_at") or "").strip()
-        if not push_at or rem.get("mode") == "track":
-            continue
-        snoozed = rem.get("snoozed_until")
-        if snoozed and snoozed > today:
-            continue
-        try:
-            at = datetime.strptime(f"{today} {push_at}", "%Y-%m-%d %H:%M")
-        except ValueError:
-            continue
-        if at > now:
-            continue
-        if reminder_is_due(rem, entries, today):
-            out.append((rem, at))
-    return out
+    pairs. The due rule is shared with the Keeper's reminder and wake package
+    (reminder_due.py), so the phone, the Keeper and the tile always agree."""
+    return reminder_due.due_at_time(reminders, entries, now)
 
 
 def reminder_words(rem):

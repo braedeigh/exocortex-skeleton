@@ -273,6 +273,20 @@ export function ReminderManagerPanel({ reminders, onSave, onCancel }: ReminderMa
                 </select>
               </div>
 
+              {/* Tell the Keeper: on a due day it's in the Keeper's wake list,
+                  and at the push time the app sends the Keeper a System
+                  message (scripts/coming_up_dispatcher.py). */}
+              {!isTrack ? (
+                <label className={styles.privacyRow}>
+                  <input
+                    type="checkbox"
+                    checked={r.tell_keeper}
+                    onChange={(e) => patch(i, { tell_keeper: e.target.checked })}
+                  />
+                  tell my Keeper when it's due{r.push_at ? '' : ' (it messages at the push time — set one above)'}
+                </label>
+              ) : null}
+
               <label className={styles.privacyRow}>
                 <input
                   type="checkbox"

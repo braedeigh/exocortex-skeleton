@@ -16,6 +16,9 @@ Two readers use it:
     own `time` (when the thing happens): a topic fires at its own time by
     default, an event only if it was given a reminder time.
 
+Recurring reminders with `tell_keeper` on that are due today head the block
+(reminder_due.py decides "due"), READ-ONLY too.
+
 To-dos with a `due_by` date are shown alongside, READ-ONLY: `todos.json`
 stays the one truth for tasks, and nothing here writes it.
 
@@ -293,8 +296,9 @@ def format_block(today=None, todos=None):
     """The Coming up section of the boot package, as markdown."""
     today = today or date.today()
     items, rows = upcoming(today, todos)
+    reminder_lines = _due_reminder_lines(today)
     lines = ["## Coming up", ""]
-    if not items and not rows:
+    if not items and not rows and not reminder_lines:
         lines.append("Nothing dated in the window.")
         return "\n".join(lines) + "\n"
     # One list, soonest first: events, topics and due to-dos interleaved by
@@ -316,8 +320,38 @@ def format_block(today=None, todos=None):
                         f"- **{label}** — To-do due: {r['title']} "
                         f"({when_text(r['date'], r['time'])}; to-do {r['todo_id']})"))
     entries.sort(key=lambda pair: pair[0])
+    # Recurring reminders due today head the list: they're about today.
+    lines.extend(reminder_lines)
     lines.extend(line for _, line in entries)
     return "\n".join(lines) + "\n"
+
+
+def _due_reminder_lines(today):
+    """Recurring reminders the owner asked the Keeper to be told about
+    (`tell_keeper`) that are due today, as Coming up lines — so a Keeper wakes
+    knowing, instead of having to remember. Same due rule as the tile and the
+    phone push (reminder_due.py). The app sends the Keeper its own System
+    message at the reminder's push time, so the line says not to nag first."""
+    import reminder_due
+    try:
+        reminders = store.read("reminders.json", {"reminders": []})
+        entries = store.read("activity_log.json", {"entries": []}).get("entries", [])
+    except Exception:
+        return []
+    today_iso = today.isoformat()
+    out = []
+    for r in reminder_due.due_today(reminders, entries, today_iso,
+                                    want=lambda r: r.get("tell_keeper")):
+        label = r.get("label") or r.get("type")
+        last = reminder_due.last_logged(r, entries, today_iso)
+        since = (f"last logged {datetime.strptime(last, '%Y-%m-%d'):%a %b %-d}"
+                 if last else "never logged")
+        when = (f"The app sends you a reminder about it at {r['push_at']}; until then, "
+                "only raise it if she brings it up." if r.get("push_at")
+                else "Mention it once when she's here.")
+        out.append(f"- **Today** — Due: {label} ({since}). {when} If she says "
+                   f"she's done it, log it (scripts/log_activity.py).")
+    return out
 
 
 # --- What's due now: the clock's view ----------------------------------------

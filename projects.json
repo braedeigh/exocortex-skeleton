@@ -157,7 +157,8 @@
       "what": "The life to-do list and what feeds it: priorities, reminders, day counters, triage, the Today tab.",
       "modules": [
         "todostore.py",
-        "todo_provenance.py"
+        "todo_provenance.py",
+        "reminder_due.py"
       ],
       "routes": [
         "todos.py",

@@ -49,7 +49,12 @@ Run by cron (the owner wires the crontab):
         EXOCORTEX_CLAUDE_BIN=... /opt/exocortex/skeleton/venv/bin/python3 \
         /opt/exocortex/skeleton/scripts/coming_up_dispatcher.py >> ...log 2>&1
 
-Touches: `comingup.py` (what's due, marking it), `routes/observatory.py`
+It also puts recurring reminders to the Keeper: one with `tell_keeper` on,
+due today and unlogged at its `push_at` time, gets one System message a day
+(process_reminders; the due rule is reminder_due.py, shared with the phone
+push).
+
+Touches: `comingup.py` (what's due, marking it), `reminder_due.py`, `routes/observatory.py`
 (queue_followup / drain_all_followups / drain_all_inbox /
 close_done_sessions / idle_check_sessions), `watches.py` (tick),
 `file_alerts.py` (tick), `scripts/keeper_rollover.py` (finding
@@ -69,12 +74,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import comingup                                  # noqa: E402
+import reminder_due                              # noqa: E402
 import store                                     # noqa: E402
 from routes import observatory as rr            # noqa: E402
 from scripts import keeper_rollover             # noqa: E402
 
 RUN_ID = "coming_up_dispatcher"
 GRACE_MINUTES = 120
+# Which reminders were already put to the Keeper today, keyed by reminder id.
+# Its own collection, like todo_push_state.json — scheduler bookkeeping stays
+# out of reminders.json.
+REMINDER_STATE = "reminder_keeper_state.json"
 
 
 def _log(msg):
@@ -111,6 +121,75 @@ def reminder_message(item):
     display = f"{what} ({when}){note}"
     journal = f"Reminder (set by {setter}): {what} ({when}){note}"
     return prompt, display, journal
+
+
+def reminder_keeper_message(reminder, last):
+    """The three texts a due reminder turns into for the Keeper: what the
+    model is told, what the chat shows, and the S card's body. The chat and
+    journal are private, so the label is used plainly here (the lock-screen
+    wording is the phone push's business)."""
+    label = (reminder.get("label") or reminder.get("type") or "A reminder").strip()
+    emoji = (reminder.get("emoji") or "⏰").strip()
+    since = (f"last logged {datetime.strptime(last, '%Y-%m-%d'):%a %b %-d}"
+             if last else "never logged")
+    display = f"{emoji} {label} is due ({since})"
+    prompt = (
+        "[System reminder — sent by the app, not by the owner and not by you. "
+        f"Set by the owner on a recurring reminder.] {label} is due today ({since}). "
+        "Remind the owner now, briefly and in your own words: one line, no "
+        "streaks, no counting missed days. If she says she's done it, log it "
+        "with scripts/log_activity.py as PROTOCOLS.md says. If she's not "
+        "here, say it anyway so it's waiting when she comes back."
+    )
+    journal = f"Reminder (set by you): {label} is due ({since})"
+    return prompt, display, journal
+
+
+def process_reminders(now=None):
+    """One pass over recurring reminders with tell_keeper on: at the reminder's
+    push_at on a day it's due (reminder_due.py — same rule as the phone push
+    and the tile), queue one System message to the pinned Keeper. Once a day;
+    still unlogged tomorrow, it goes again tomorrow. More than GRACE_MINUTES
+    late is marked missed, never sent."""
+    now = now or datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    out = {"fired": [], "missed": [], "waiting": []}
+    reminders = store.read("reminders.json", {"reminders": []})
+    if not any(isinstance(r, dict) and r.get("tell_keeper")
+               for r in reminders.get("reminders", [])):
+        return out
+    entries = store.read("activity_log.json", {"entries": []}).get("entries", [])
+    due = reminder_due.due_at_time(reminders, entries, now,
+                                   want=lambda r: r.get("tell_keeper"))
+    with store.mutate(REMINDER_STATE, {"told": {}}) as state:
+        told = state.setdefault("told", {})
+        # Yesterday's records are done; dropping them lets it go again today.
+        for rid in [k for k, v in told.items() if not isinstance(v, dict) or v.get("on") != today]:
+            del told[rid]
+        if not due:
+            return out
+        conv_id, _entry = keeper_rollover._find_pinned(store.read("bot_chats/index", {}))
+        for reminder, at in due:
+            rid = reminder["id"]
+            if rid in told:
+                continue
+            if (now - at).total_seconds() / 60 > GRACE_MINUTES:
+                told[rid] = {"on": today, "status": "missed"}
+                out["missed"].append(rid)
+                continue
+            if conv_id is None:
+                out["waiting"].append(rid)
+                continue
+            last = reminder_due.last_logged(reminder, entries, today)
+            prompt, display, journal = reminder_keeper_message(reminder, last)
+            # Marked before queueing, as with Coming up items: a crash between
+            # the two costs one message, never one every minute.
+            told[rid] = {"on": today, "status": "sent", "at": now.strftime("%H:%M")}
+            rr.queue_followup(conv_id, prompt, system={
+                "display": display, "journal": journal,
+                "source": "reminder", "item_id": rid})
+            out["fired"].append(rid)
+    return out
 
 
 def process_due(now=None):
@@ -255,6 +334,14 @@ def main():
     for key in ("fired", "missed", "waiting"):
         if result[key]:
             _log(f"{key}: {', '.join(result[key])}")
+    # Recurring reminders the owner asked the Keeper to be told about.
+    try:
+        told = process_reminders()
+        for key in ("fired", "missed", "waiting"):
+            if told[key]:
+                _log(f"reminders {key}: {', '.join(told[key])}")
+    except Exception as e:
+        _log(f"reminder pass failed: {e}")
     started = rr.drain_all_followups()
     if started:
         _log(f"safety net started {started} waiting follow-up(s)")

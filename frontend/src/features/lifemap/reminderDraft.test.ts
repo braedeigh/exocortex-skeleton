@@ -75,13 +75,13 @@ describe('coerceDraftsForSave', () => {
   });
 });
 
-describe('push_at round trip', () => {
-  it('survives seed → save, so saving the manager never erases a phone-push time', () => {
+describe('push_at + tell_keeper round trip', () => {
+  it('survives seed → save, so saving the manager never erases a push time or the Keeper switch', () => {
     const live = [
-      { id: 'r1', type: 'estradiol', label: 'Estradiol', push_at: '19:00' },
+      { id: 'r1', type: 'estradiol', label: 'Estradiol', push_at: '19:00', tell_keeper: true },
       { id: 'r2', type: 'wash-hair', label: 'Hair wash' },
     ] as ReminderDef[];
     const rows = coerceDraftsForSave(seedDrafts(live));
-    expect(rows.map((r) => r.push_at)).toEqual(['19:00', '']);
+    expect(rows.map((r) => [r.push_at, r.tell_keeper])).toEqual([['19:00', true], ['', false]]);
   });
 });

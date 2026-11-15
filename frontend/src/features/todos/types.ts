@@ -132,6 +132,8 @@ export interface ReminderDef {
   due_text?: string | null;
   /** "HH:MM" — on a due day, push to the phone at this time if still unlogged. */
   push_at?: string | null;
+  /** Also tell the Keeper: listed as due in its wake, and a System message at push_at. */
+  tell_keeper?: boolean;
   snoozed_until?: string | null;
 }
 

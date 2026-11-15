@@ -142,3 +142,53 @@ def client(data_dir):
 def test_save_keeps_a_real_push_time_and_drops_anything_else(client, given, kept):
     client.post("/api/reminders/save", json={"reminders": [{"label": "Estradiol", "push_at": given}]})
     assert store.read("reminders.json")["reminders"][0]["push_at"] == kept
+
+
+# --- the Keeper is told, by the app (not from its own memory) ----------------
+
+@pytest.fixture
+def keeper(data_dir, monkeypatch):
+    """A pinned Keeper chat; queue_followup is recorded, not run."""
+    from routes import observatory
+    sent = []
+    monkeypatch.setattr(observatory, "queue_followup",
+                        lambda conv_id, text, **kw: sent.append((conv_id, text, kw)) or "sent")
+    observatory._chats_dir()
+    with store.mutate("bot_chats/index", {}) as index:
+        index["k1"] = {"bot": "keeper", "pinned": True, "last_at": "2026-11-12T03:00:00"}
+    return sent
+
+
+def test_keeper_gets_one_system_message_a_day_while_the_shot_is_due(keeper):
+    from scripts import coming_up_dispatcher as cud
+    _setup({**ESTRADIOL, "tell_keeper": True}, ["2026-11-07"])
+    cud.process_reminders(datetime(2026, 11, 12, 18, 59))
+    assert keeper == []
+    cud.process_reminders(datetime(2026, 11, 12, 19, 0))
+    cud.process_reminders(datetime(2026, 11, 12, 19, 1))
+    (conv_id, prompt, kw), = keeper
+    assert conv_id == "k1"
+    assert "Estradiol is due" in kw["system"]["display"]
+    assert "last logged Sat Nov 7" in kw["system"]["journal"]
+    cud.process_reminders(datetime(2026, 11, 13, 19, 0))
+    assert len(keeper) == 2  # unlogged next day → once more
+    log_activity.main(["estradiol"], today=datetime(2026, 11, 14, 10, 0))
+    cud.process_reminders(datetime(2026, 11, 14, 19, 0))
+    assert len(keeper) == 2  # logged → quiet
+
+
+def test_keeper_is_not_told_about_reminders_without_the_switch(keeper):
+    from scripts import coming_up_dispatcher as cud
+    _setup(ESTRADIOL, ["2026-11-07"])  # tell_keeper off
+    cud.process_reminders(datetime(2026, 11, 12, 19, 0))
+    assert keeper == []
+
+
+def test_keeper_wakes_with_the_due_shot_in_coming_up(data_dir):
+    import comingup
+    from datetime import date
+    _setup({**ESTRADIOL, "tell_keeper": True}, ["2026-11-07"])
+    block = comingup.format_block(date(2026, 11, 12), todos={})
+    assert "Due: Estradiol (last logged Sat Nov 7)" in block
+    assert "19:00" in block
+    assert "Estradiol" not in comingup.format_block(date(2026, 11, 10), todos={})  # not due yet
