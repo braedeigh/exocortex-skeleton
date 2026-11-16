@@ -33,7 +33,7 @@ def test_ask_returns_the_cli_reply_and_sends_the_prompt_on_stdin(claude_home, mo
     monkeypatch.setattr(llm.subprocess, "run", _fake_run(" hello \n", seen=seen))
     assert llm.ask("say hi") == "hello"
     argv, kwargs = seen[0]
-    assert argv[1:] == ["-p", "--model", "claude-haiku-4-5"] and kwargs["input"] == "say hi"
+    assert argv[1:] == ["-p", "--model", "claude-haiku-5-5"] and kwargs["input"] == "say hi"
 
 
 def test_ask_maps_the_strong_tier_to_a_bigger_model(claude_home, monkeypatch):

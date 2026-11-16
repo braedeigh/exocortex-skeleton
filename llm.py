@@ -53,7 +53,7 @@ class ClaudeCode:
     name = "claude"
     # Tiers, not model ids, are what callers ask for — so a caller never has to
     # know one provider's model names.
-    MODELS = {"fast": "claude-haiku-4-5", "strong": "claude-sonnet-5"}
+    MODELS = {"fast": "claude-haiku-5-5", "strong": "claude-sonnet-5"}
 
     def _binary(self):
         # Find the CLI: an explicit override, the installer's default spot, then PATH.
