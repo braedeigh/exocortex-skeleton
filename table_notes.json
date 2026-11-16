@@ -694,7 +694,8 @@
           "loaded": "cards were handed over, or (for a person with a fact sheet) just the sheet, with no card ids",
           "nothing new": "every card about them was already on the session's record, and they have no fact sheet",
           "no cards": "the journal has no cards about them, and they have no fact sheet",
-          "no room": "the pack was full; it loads on the next mention"
+          "no room": "the pack was full; it loads on the next mention",
+          "judged out": "her word fit more than one person and the name-judge picked another; nothing loaded, and naming them clearly later still loads them"
         }
       },
       "cards": {

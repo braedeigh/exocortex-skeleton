@@ -411,3 +411,11 @@ MENTION_CONTEXT_ROOMS = tuple(
     room.strip() for room in os.environ.get("EXOCORTEX_MENTION_CONTEXT_ROOMS", "personal").split(",")
     if room.strip())
 MENTION_CONTEXT_CARDS = int(os.environ.get("EXOCORTEX_MENTION_CONTEXT_CARDS", "20"))
+
+# Names two people share (tools/mention_context.py): when a word in her message
+# fits more than one person, a small model is asked which one she means, from
+# the conversation and the newest entries about each. MENTION_JUDGE=0 skips it
+# and every person the word fits loads, as before.
+# Prompt: "a small model is called when a name fits more than one person and
+# judges from context who is meant"
+MENTION_JUDGE = os.environ.get("EXOCORTEX_MENTION_JUDGE", "1") != "0"

@@ -43,13 +43,27 @@ those names the text match is dropped and only tagged cards count, so their
 cards from today load a day late. A common-word name also has to be written
 capitalised in the middle of a sentence before it counts as a mention at all.
 
+**Names two people share.** When one word in her message fits more than one
+person (two people files that both answer to the same first name), the app
+doesn't load both blindly. It asks a small model (Haiku, through `llm.py`, given
+at most `JUDGE_SECONDS`, 8) which one she means. The model sees her message, the
+last few turns of the conversation (read from the session's transcript file),
+and for each candidate their newest fact sheet, the date of their newest card
+and their two newest cards. If it names one person, only that person loads, with
+a line saying who was judged and where the other one's file is; the other is not
+put on the session's record, so naming them clearly later still loads them. If it
+can't tell, times out, fails or answers with anything else, both load with a line
+saying the app couldn't tell. A person named in full ("Sam Okafor") settles it
+without asking. Threads are never judged, and `MENTION_JUDGE=0` skips the judge.
+
 **Once per session.** Which names have loaded is on the same record
 (`bot_chats/mention_context/<session>.json` in the data folder).
 
 **The tracker.** Each load is also written to the `context_loads` table: the
 name, the word in her message that set it off, the cards handed over, how many
-were left out. `scripts/context_loads.py` reads it back beside the replies. A
-message she sent off the record leaves no row there and no trace on the
+were left out. A person the judge ruled out gets a row too, outcome "judged out",
+so the decision can be read back. `scripts/context_loads.py` reads it back beside
+the replies. A message she sent off the record leaves no row there and no trace on the
 session's record.
 
 **Where the names come from.** The database has no table of people or aliases,
@@ -78,6 +92,8 @@ pulls up the last month of data or the last 20 messages about them. This comes
 from the database and is injected and the keeper will know this can happen.
 Same for threads that are auto tagging." / "load more context that doesn't
 overlap" / "a tracker to measure when a thread is loaded and to what response"
+/ "a small model is called when a name fits more than one person and judges from
+context who is meant, from when each was mentioned last and recent entries"
 """
 import json
 import os
@@ -102,6 +118,8 @@ OUTPUT_BUDGET = 9000
 # The least room worth giving one person or thread. A name that would get less
 # than this waits for its next mention instead.
 SMALLEST_SHARE = 1200
+# The most time the name-judge may take; past it the answer is "unclear".
+JUDGE_SECONDS = 8
 # How long a single card may run, tried longest first until the pack fits.
 CARD_LENGTHS = (1500, 800, 400, 240, 160)
 
@@ -455,11 +473,13 @@ PACK_HEADER = (
 )
 
 
-def build_pack(mentions, conn, record=None):
+def build_pack(mentions, conn, record=None, notes=()):
     """The text to inject for these mentions, and what happened to each.
 
     `mentions` is [(entry, matched_word)]; `record` is the session's record,
-    which the cards handed over are added to as the pack is built.
+    which the cards handed over are added to as the pack is built. `notes` is
+    [(keys, line)]: a line about a shared name, printed above the first section
+    whose key is in `keys`; it counts toward the budget.
 
     Returns (text, loaded, results). `loaded` is one summary dict per section
     written. `results` is one dict per mention for the tracker and the record:
@@ -467,7 +487,7 @@ def build_pack(mentions, conn, record=None):
     'loaded', 'nothing new', 'no cards' or 'no room'. A person with a fact
     sheet and no new cards is 'loaded' with no card ids."""
     record = record if record is not None else {"names": set(), "cards": set(), "texts": set()}
-    sections, loaded, results = [], [], []
+    sections, loaded, results, used_notes = [], [], [], set()
     room = OUTPUT_BUDGET - len(PACK_HEADER) - 200
     for position, (entry, matched) in enumerate(mentions):
         result = {"entry": entry, "matched": matched, "card_ids": [], "bodies": []}
@@ -480,14 +500,20 @@ def build_pack(mentions, conn, record=None):
         if not cards and not sheet:
             result["outcome"] = "nothing new" if result["skipped"] else "no cards"
             continue
-        # Share what's left evenly among the names still to come.
+        # Share what's left evenly among the names still to come. A shared-name
+        # line for this section comes out of its share.
+        pending = [index for index, (keys, _) in enumerate(notes)
+                   if entry["key"] in keys and index not in used_notes]
+        lead = "".join(notes[index][1] + "\n" for index in pending)
         share = room // max(1, len(mentions) - position)
-        rendered = (render_section(entry, cards, max(share, SMALLEST_SHARE), sheet)
+        rendered = (render_section(entry, cards, max(share, SMALLEST_SHARE) - len(lead), sheet)
                     if room >= SMALLEST_SHARE else None)
         if rendered is None:
             result["outcome"] = "no room"
             continue
         text, shown = rendered
+        text = lead + text
+        used_notes.update(pending)
         sections.append(text)
         room -= len(text) + 2
         result.update(outcome="loaded", card_ids=[card["id"] for card in shown],
@@ -538,6 +564,181 @@ def _note_in_chat(conversation_id, loaded):
         os.write(descriptor, data)
     finally:
         os.close(descriptor)
+
+
+# --- Names two people share --------------------------------------------------
+
+def shared_name_groups(mentions):
+    """The people in `mentions` that a single word in her message fits more
+    than once, as groups of [(entry, matched_word)], each with two or more.
+    Two people are in one group when they were matched by the same word
+    (any case) or when one's matched word is among the other's terms. Threads
+    are never grouped. This is a union-find: each person starts alone and
+    groups merge as shared words are found."""
+    people = [(entry, matched) for entry, matched in mentions if entry["kind"] == "person"]
+    parent = list(range(len(people)))
+
+    def root(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for first in range(len(people)):
+        for second in range(first + 1, len(people)):
+            entry_a, word_a = people[first]
+            entry_b, word_b = people[second]
+            terms_a = {term.lower() for term in entry_a["terms"]}
+            terms_b = {term.lower() for term in entry_b["terms"]}
+            if (word_a.lower() == word_b.lower() or word_a.lower() in terms_b
+                    or word_b.lower() in terms_a):
+                parent[root(second)] = root(first)
+    groups = {}
+    for index, pair in enumerate(people):
+        groups.setdefault(root(index), []).append(pair)
+    return [group for group in groups.values() if len(group) > 1]
+
+
+def named_in_full(text, group):
+    """The one person in a group whose longer name appears in her message
+    ("Sam Okafor" where the group's shared word is "Sam"), or None. The longest
+    term of each person found in the text is compared; a person wins only by
+    being strictly longer than every other member's."""
+    best = []
+    for entry, _ in group:
+        found = [match.group(0) for term in entry["terms"]
+                 for match in [_term_pattern([term]).search(text)] if match]
+        best.append(max(found, key=len) if found else "")
+    lengths = [len(word) for word in best]
+    if lengths.count(max(lengths)) == 1:
+        return group[lengths.index(max(lengths))][0]
+    return None
+
+
+def _conversation_tail(transcript_path, turns=6, length=400):
+    """The last few things said in the session, as `Her: …` / `Agent: …` lines,
+    read from the tail of Claude Code's transcript file. Tool calls are
+    skipped; a missing or unreadable file gives nothing."""
+    try:
+        with open(transcript_path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - 200_000))
+            lines = handle.read().decode("utf-8", "replace").splitlines()
+    except (OSError, TypeError, ValueError):
+        return []
+    said = []
+    for line in lines:
+        try:
+            record = json.loads(line)
+            role = record.get("type")
+            content = record["message"]["content"]
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+        if role not in ("user", "assistant"):
+            continue
+        if isinstance(content, list):
+            content = " ".join(block.get("text", "") for block in content
+                               if isinstance(block, dict) and block.get("type") == "text")
+        content = " ".join(str(content or "").split())
+        if content and not content.startswith(SYNTHETIC_PREFIXES):
+            said.append(("Her: " if role == "user" else "Agent: ")
+                        + (content if len(content) <= length else content[:length] + "…"))
+    return said[-turns:]
+
+
+def _judge_prompt(text, tail, group, conn):
+    """The whole question for the judge, kept to a few thousand characters."""
+    parts = ["One word in the owner's message fits more than one person in her journal. "
+             "Decide from the context below which one she means.", "",
+             "Her message:", text[:1000], ""]
+    if tail:
+        parts += ["The last turns of the conversation:"] + tail + [""]
+    for entry, _ in group:
+        parts.append(f"Candidate `{entry['slug']}` — {entry['name']} (file {entry['file']})")
+        sheet = newest_sheet(conn, entry)
+        if sheet:
+            parts.append(f"  Fact sheet, written {(sheet[0] or '')[:10]}: {sheet[1].strip()[:600]}")
+        newest = []
+        for row, _tagged in matching_cards(conn, entry):
+            newest.append(row)
+            if len(newest) == 2:
+                break
+        if newest:
+            parts.append(f"  Newest card: {(newest[0]['ts'] or newest[0]['id'])[:10]}")
+            parts += [f"  - {(row['ts'] or row['id'])[:10]}: {_one_line(row['body'], 200)}"
+                      for row in newest]
+        else:
+            parts.append("  No cards about them.")
+        parts.append("")
+    # Cards can sit under the wrong person (the nightly tagger mixes up people
+    # who share a name), so the judge is told to weigh the sheets and the
+    # conversation above them.
+    parts.append("A card listed under a person may have been tagged to the wrong one; weigh"
+                 " the fact sheets and the conversation above the cards.")
+    slugs = ", ".join(f"`{entry['slug']}`" for entry, _ in group)
+    parts.append(f"Answer with exactly one of these words and nothing else: {slugs}, or "
+                 "`unclear` if the context doesn't settle it.")
+    return "\n".join(parts)
+
+
+def judge_name(hook_input, text, group, conn):
+    """Which person in a group she means: their slug, or None for unclear.
+
+    This is the name-judge: one call to a small model through the app's model
+    seam (`llm.ask`, tier "fast", at most JUDGE_SECONDS). Any failure and any
+    reply that isn't exactly one candidate's slug counts as unclear."""
+    try:
+        import llm
+        tail = _conversation_tail((hook_input.get("transcript_path") or "").strip())
+        reply = llm.ask(_judge_prompt(text, tail, group, conn), tier="fast",
+                        timeout=JUDGE_SECONDS)
+        answer = reply.strip().strip("`'\".").strip().lower()
+        for entry, _ in group:
+            if answer == entry["slug"].lower():
+                return entry["slug"]
+    except Exception:
+        pass
+    return None
+
+
+def _joined(names):
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def decide_shared_names(hook_input, text, groups, have, conn):
+    """Settle each shared-name group. Returns (dropped, notes): `dropped` is
+    [(entry, matched)] for people ruled out (not loaded, not put on the record);
+    `notes` is [(keys, line)] for build_pack. A group with nobody left to load
+    is skipped without asking."""
+    dropped, notes = [], []
+    for group in groups:
+        survivors = [(entry, matched) for entry, matched in group if entry["key"] not in have]
+        if not survivors:
+            continue
+        shared_word = group[0][1]
+        # Name each person by their file too: two people files can carry the
+        # very same name ("Jess" and "Jess"), and only the file tells them apart.
+        def label(entry):
+            return f"{entry['name']} ({entry['file']})"
+        names = ", ".join(label(entry) for entry, _ in sorted(group, key=lambda pair: pair[0]["slug"]))
+        head = f'"{shared_word}" fits more than one person ({names}); '
+        picked = named_in_full(text, group)
+        how = f"she named {label(picked)} in full." if picked else None
+        if picked is None:
+            slug = judge_name(hook_input, text, group, conn)
+            picked = next((entry for entry, _ in group if entry["slug"] == slug), None)
+            how = f"judged from the conversation as {label(picked)}." if picked else None
+        if picked is None:
+            notes.append(({entry["key"] for entry, _ in survivors},
+                          head + "the app couldn't tell which from the conversation, so each one is"
+                                 " below — work out which from context or ask."))
+            continue
+        others = [entry for entry, _ in group if entry is not picked]
+        files = " or ".join(label(other) for other in others)
+        notes.append(({picked["key"]}, head + how + f" If that's wrong, it's {files}."))
+        dropped += [(entry, matched) for entry, matched in survivors if entry is not picked]
+    return dropped, notes
 
 
 # --- The hook itself ---------------------------------------------------------
@@ -596,13 +797,21 @@ def run(hook_input, terminal=False):
     record = (loadrecord.read(session_key) if private
               else loadrecord.add(session_key, texts=messages))
     have = record["names"] | preloaded
-    mentions = [(entry, matched) for entry, matched in find_mentions(text, load_names())
-                if entry["key"] not in have]
+    everyone = find_mentions(text, load_names())
+    mentions = [(entry, matched) for entry, matched in everyone if entry["key"] not in have]
     if not mentions:
         return None
 
     with closing(_read_only_connection()) as conn:
-        pack, loaded, results = build_pack(mentions, conn, record)
+        # Names two people share: grouped before the already-loaded names are
+        # removed, so the judge sees every candidate.
+        dropped, notes = [], []
+        if app_config.MENTION_JUDGE:
+            dropped, notes = decide_shared_names(
+                hook_input, text, shared_name_groups(everyone), have, conn)
+        ruled_out = {entry["key"] for entry, _ in dropped}
+        mentions = [pair for pair in mentions if pair[0]["key"] not in ruled_out]
+        pack, loaded, results = build_pack(mentions, conn, record, notes)
     # Names with nothing to hand over are remembered too, so they aren't
     # looked up again on every later mention. Names that didn't fit are not.
     settled = [result for result in results if result["outcome"] != "no room"]
@@ -611,6 +820,8 @@ def run(hook_input, terminal=False):
                    cards=[card_id for result in settled for card_id in result["card_ids"]],
                    texts=[body for result in settled for body in result["bodies"]])
     if not private:
+        for entry, matched in dropped:
+            loadrecord.log(session_key, "mention", "judged out", entry=entry, matched=matched)
         for result in results:
             loadrecord.log(session_key, "mention", result["outcome"], entry=result["entry"],
                            matched=result["matched"], card_ids=result["card_ids"],

@@ -50,6 +50,17 @@ def add_card(conn, card_id, body, who="B", tags=()):
         conn.execute("INSERT INTO card_tags (card_id, tag) VALUES (?, ?)", (card_id, tag))
 
 
+@pytest.fixture(autouse=True)
+def no_real_model(monkeypatch):
+    """No test here may reach a real model: the name-judge's call fails (so it
+    says "unclear") unless a test stands in for it."""
+    import llm
+
+    def refuse(*args, **kwargs):
+        raise llm.LLMError("no model in tests")
+    monkeypatch.setattr(llm, "ask", refuse)
+
+
 @pytest.fixture
 def vault(data_dir, tmp_path, monkeypatch):
     content = tmp_path / "content"
@@ -435,3 +446,95 @@ def test_the_pack_with_a_sheet_still_stays_under_the_limit(vault, monkeypatch):
     assert len(json.dumps(reply)) < 3500
     assert "Who: Robin Vale, her landlord" in pack and "Last contact: 2026-03-22" in pack
     assert "…" in pack
+
+
+# --- Names two people share: the name-judge ------------------------------------
+
+def _sheet(first_line):
+    return first_line + "\nPronouns: they\nTied to: a made-up street\nNow: fine\nLast contact: 2026-03-21"
+
+
+@pytest.fixture
+def two_sams(vault):
+    """Two made-up people who answer to "Sam", each with a tagged card and a sheet."""
+    import personsheets
+    (vault / "people" / "sam.md").write_text("# Sam\n\nA made-up neighbour.\n")
+    (vault / "people" / "sam-okafor.md").write_text("# Sam Okafor\n\nA made-up dentist.\n")
+    conn = sqlstore.open_db()
+    add_card(conn, "2026-03-20.1000b", "fixed the fence with the neighbour", tags=["sam"])
+    add_card(conn, "2026-03-21.1000b", "no cavities at the check-up", tags=["sam-okafor"])
+    conn.commit()
+    conn.close()
+    personsheets.add("sam", "cricket:person-sheet", _sheet("Who: Sam, the neighbour"),
+                     written_at="2026-03-10T03:00:00")
+    personsheets.add("sam-okafor", "cricket:person-sheet", _sheet("Who: Sam Okafor, the dentist"),
+                     written_at="2026-03-10T03:00:00")
+    return vault
+
+
+@pytest.fixture
+def judge(monkeypatch):
+    """Stands in for the model: `judge.reply` is what it says (or an exception
+    to raise); `judge.prompts` is what it was asked."""
+    import llm
+
+    class Judge:
+        reply = "unclear"
+        prompts = []
+
+    def ask(prompt, *, tier="fast", timeout=180):
+        Judge.prompts.append((prompt, tier, timeout))
+        if isinstance(Judge.reply, Exception):
+            raise Judge.reply
+        return Judge.reply
+
+    Judge.prompts = []
+    monkeypatch.setattr(llm, "ask", ask)
+    return Judge
+
+
+def test_the_judge_picks_one_person_and_only_theirs_load(two_sams, judge, tmp_path):
+    judge.reply = "sam-okafor"
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "How was the check-up?"}]}}) + "\n")
+    pack = pack_of(send("Sam says hello", transcript_path=str(transcript)))
+    assert "no cavities" in pack and "Who: Sam Okafor, the dentist" in pack
+    assert "fixed the fence" not in pack and "Who: Sam, the neighbour" not in pack
+    assert ('"Sam" fits more than one person (Sam (people/sam.md), Sam Okafor'
+            ' (people/sam-okafor.md)); judged from the conversation as Sam Okafor'
+            ' (people/sam-okafor.md). If that\'s wrong, it\'s Sam (people/sam.md).') in pack
+    (prompt, tier, timeout), = judge.prompts
+    assert (tier, timeout, mention_context.JUDGE_SECONDS) == ("fast", 8, 8)
+    assert "Sam says hello" in prompt and "How was the check-up?" in prompt
+    assert "Who: Sam, the neighbour" in prompt and "Who: Sam Okafor, the dentist" in prompt
+    assert sorted((row[0], row[2]) for row in loads()) == [("sam", "judged out"), ("sam-okafor", "loaded")]
+
+
+@pytest.mark.parametrize("answer", ["unclear", "sam and sam-okafor", RuntimeError("timed out")])
+def test_when_the_judge_cannot_tell_both_load_with_a_line_saying_so(two_sams, judge, answer):
+    judge.reply = answer
+    pack = pack_of(send("Sam says hello"))
+    assert "fixed the fence" in pack and "no cavities" in pack
+    assert "the app couldn't tell which from the conversation, so each one is below" in pack
+    assert [row[2] for row in loads()] == ["loaded", "loaded"]
+
+
+def test_a_name_nobody_shares_never_calls_the_judge(two_sams, judge):
+    assert "Robin Vale" in pack_of(send("Robin called"))
+    assert judge.prompts == []
+
+
+def test_the_person_judged_out_still_loads_when_named_in_full_later(two_sams, judge):
+    judge.reply = "sam"
+    send("Sam says hello")
+    pack = pack_of(send("I mean Sam Okafor, the dentist"))
+    assert "no cavities" in pack and "fixed the fence" not in pack
+    assert len(judge.prompts) == 1      # the full name settled it without asking
+
+
+def test_with_the_switch_off_there_is_no_judge_and_both_load(two_sams, judge, monkeypatch):
+    monkeypatch.setattr(config, "MENTION_JUDGE", False)
+    pack = pack_of(send("Sam says hello"))
+    assert "fixed the fence" in pack and "no cavities" in pack and "fits more than one" not in pack
+    assert judge.prompts == []
