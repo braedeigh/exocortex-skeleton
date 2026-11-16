@@ -40,6 +40,10 @@ job file and write a report file.
 - A tag is never removed here. Each removal is put in the approval queue as a
   `card_untag` item for the owner to approve or deny (`routes/pending.py`
   applies it). Each card-and-tag pair is proposed once, ever.
+- Removals found some other way (a review of the people files, say) wait in
+  `thread_tending/untag_backlog.json` and are put in the approval queue a few
+  a night, after the night's own and under the same nightly cap, so the queue
+  never floods. One whose card has lost the tag already is dropped.
 - What has been judged is remembered in `thread_tending/state.json` in the
   data folder: a "judged through" date per thread and per risky name, so a
   card is examined once and not again every night of the week.
@@ -523,6 +527,49 @@ def propose_untags(removals, state):
     return staged, held
 
 
+def read_untag_backlog():
+    """The removals waiting their turn, oldest first: [{card_id, tag, reason, card_text}]."""
+    try:
+        backlog = json.loads((_work_dir() / "untag_backlog.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return backlog if isinstance(backlog, list) else []
+
+
+def write_untag_backlog(backlog):
+    _work_dir().mkdir(parents=True, exist_ok=True)
+    path = _work_dir() / "untag_backlog.json"
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(backlog, indent=1), encoding="utf-8")
+    temporary.replace(path)
+
+
+def queue_untags(removals):
+    """Add removals to the backlog, each card-and-tag pair once. Returns how
+    many were new."""
+    backlog = read_untag_backlog()
+    have = {f"{item['card_id']}|{item['tag']}" for item in backlog}
+    fresh = [item for item in removals if f"{item['card_id']}|{item['tag']}" not in have]
+    write_untag_backlog(backlog + fresh)
+    return len(fresh)
+
+
+def drain_untag_backlog(removals, cards, state):
+    """Tonight's removals with the waiting backlog after them, and the backlog
+    as it should be saved once tonight's proposals are made.
+
+    A waiting removal whose card no longer carries the tag, or that was
+    already put to the owner, is dropped from the backlog. The rest go after
+    the night's own removals, so propose_untags's nightly cap decides how
+    many go out tonight; whatever is not staged stays waiting."""
+    tags_by_card = {card["id"]: set(card["tags"]) for card in cards}
+    already = set(state["untag_proposed"])
+    waiting = [item for item in read_untag_backlog()
+               if item.get("tag") in tags_by_card.get(item.get("card_id"), set())
+               and f"{item['card_id']}|{item['tag']}" not in already]
+    return removals + waiting, waiting
+
+
 def apply_thread_reports(jobs, reports, kept_claims, state, target, apply):
     """Turn the thread sessions' reports into writes: tags added, at most one
     fact per thread, and a list of removals to propose. A session can only act
@@ -913,7 +960,13 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
     if not only_thread:
         summaries += save_status_summaries(changed, status_reports, statuses, state, apply)
     removals = removals + people_removals + main_removals(main_report, cards, target, people, risky)
+    # The backlog waits behind the night's own removals, under the same cap.
+    removals, waiting = drain_untag_backlog(removals, cards, state)
     staged, held = propose_untags(removals, state) if apply else ([], removals)
+    if apply:
+        proposed = set(state["untag_proposed"])
+        write_untag_backlog([item for item in waiting
+                             if f"{item['card_id']}|{item['tag']}" not in proposed])
     hints = save_hints(main_report, cards, target, apply)
     if apply:
         save_state(state)

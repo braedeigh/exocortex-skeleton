@@ -321,3 +321,23 @@ def test_person_sheets_off_runs_no_sheet_session(vault, monkeypatch):
     seen = {}
     outcome = night(ANSWERS, seen)
     assert sheet_sessions(seen) == [] and outcome["sheets"] == []
+
+
+def test_a_backlog_of_removals_goes_out_a_few_a_night_behind_the_nights_own(vault, monkeypatch):
+    monkeypatch.setattr(tending, "MAX_UNTAG_PROPOSALS", 3)
+    for minute in range(40, 45):
+        mint(vault, f"2026-03-09.09{minute}b", "met a different Sam at the market", tags=["sam"])
+    tending.queue_untags([{"card_id": f"2026-03-09.09{minute}b", "tag": "sam",
+                           "reason": "a different Sam", "card_text": "met a different Sam"}
+                          for minute in range(40, 45)]
+                         + [{"card_id": "2026-03-08.0900b", "tag": "knee", "reason": "never tagged",
+                             "card_text": "planted the beans"}])
+    night(ANSWERS)
+    asked = [p["payload"]["card_id"] for p in store.read("pending_changes", {"pending": []})["pending"]]
+    # The night's own two removals go first; one backlog item fills the cap of three.
+    assert asked[:2] == ["2026-03-10.0910b", "2026-03-10.0920b"] and asked[2:] == ["2026-03-09.0940b"]
+    # A backlog item whose card never carried the tag is dropped; the rest keep waiting.
+    waiting = [item["card_id"] for item in tending.read_untag_backlog()]
+    assert waiting == [f"2026-03-09.09{minute}b" for minute in range(41, 45)]
+    night(ANSWERS, target=date(2026, 3, 11))
+    assert [item["card_id"] for item in tending.read_untag_backlog()] == ["2026-03-09.0944b"]
