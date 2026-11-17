@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""scripts/backfill_tags.py — mirrors the five pre-existing tagging dialects
-into the one universal `tags` table (schema v12; see docs/tags-architecture.md,
-the design of record this script implements verbatim).
+"""scripts/backfill_tags.py — mirrors the pre-existing tagging dialects into
+the one universal `tags` table (schema v12; see docs/tags-architecture.md, the
+design of record this script implements).
 
 WHAT THIS DOES, in plain terms: before the `tags` table existed, "what is this
-tagged with" was answered five different ways in five different places —
-`card_tags` (free strings on journal cards), `todo_fronts` (life-domain tags on
-to-dos), the `research` collection's own `topics[].fronts` / `entries[].topics`,
-each Thread file's `fronts:`/`people:` frontmatter, and (new) a rules file that
-tags files by path prefix. This script reads all five and INSERTs a mirror row
-into `tags` for each fact found — never touching the originals, never deleting
-anything, safe to run again and again.
+tagged with" was answered in several different places — `todo_fronts`
+(life-domain tags on to-dos), the `research` collection's own
+`topics[].fronts` / `entries[].topics`, each Thread file's `fronts:`/`people:`
+frontmatter, and a rules file that tags files by path prefix. This script
+reads those four and INSERTs a mirror row into `tags` for each fact found —
+never touching the originals, safe to run again and again.
+
+**Journal cards are not mirrored any more.** Their labels live in exo.db's
+`card_labels` (docs/journal-database.md), which every reader queries directly;
+a second copy here was a second place to drift. Each run deletes any
+`card:` rows this script once derived (`source='derived'` only — the first
+run after the change removes them, later runs find none).
 
 Idempotent: every row is `INSERT OR IGNORE ... source='derived'`, so re-running
 after she edits a thread's fronts, adds a card tag, or edits tag_rules.json
@@ -21,13 +26,8 @@ INSERT OR IGNORE, not a bug; a future `--rebuild` (delete-then-reinsert
 practice. `--dry-run` computes and prints the same per-source candidate counts
 without opening a write transaction.
 
-The five sources, subject families, and namespaces (straight out of the doc):
-  1. card_tags        -> card:<id>          ns = person|thread|front|topic,
-                         classified the way routes/pond.py's rail already
-                         classifies a tag: a people/<tag>.md file makes it a
-                         person, a Threads/<tag>.md file makes it a thread, a
-                         fronts.json id makes it a front, anything else is a
-                         topic nobody's filed.
+The sources, subject families, and namespaces (numbered as in the doc;
+source 1, journal cards, is retired — see above):
   2. todo_fronts       -> todo:<id>          ns = front
   3. research (SQL)    -> topic:<id> ns=front (a topic's own fronts:);
                           entry:<id> ns=topic (each topic on the entry);
@@ -46,8 +46,8 @@ The five sources, subject families, and namespaces (straight out of the doc):
 Every ns/tag is slug-validated with the exact rule routes/tags.py's write door
 enforces (`_clean_slug`: lowercase, then `^[a-z0-9][a-z0-9\\-_.]*$`) — a value
 that fails is skipped and counted, never allowed to crash the run, and every
-skip is printed at the end so a bad tag_rules.json entry or a stray card_tags
-string is visible rather than silently dropped.
+skip is printed at the end so a bad tag_rules.json entry is visible rather
+than silently dropped.
 
 Paths are resolved the same way every other script in this repo does: import
 store (EXOCORTEX_DATA_DIR / EXOCORTEX_CONTENT_DIR), never a hardcoded /opt
@@ -77,50 +77,9 @@ if str(SKELETON) not in sys.path:
 
 import sqlstore                                              # noqa: E402
 import store                                                  # noqa: E402
-from routes.entities import PEOPLE_DIR, _parse_frontmatter    # noqa: E402
+from routes.entities import _parse_frontmatter                # noqa: E402
 from routes.threads import THREADS_DIR                        # noqa: E402
 from routes.tags import _clean_slug                           # noqa: E402
-
-
-# --- shared vault lookups (mirror pond.py's _taxonomy, existence-only) -------
-
-def _people_slugs():
-    """Every people/<slug>.md stem — same source pond.py's taxonomy reads,
-    just the set of ids rather than the full parsed Person dicts (we only
-    need "does this file exist" here)."""
-    d = store.CONTENT_DIR / PEOPLE_DIR
-    return {p.stem for p in d.glob("*.md")} if d.exists() else set()
-
-
-def _thread_slugs():
-    """Every Threads/<slug>.md stem — same idea as _people_slugs()."""
-    d = store.CONTENT_DIR / THREADS_DIR
-    return {p.stem for p in d.glob("*.md")} if d.exists() else set()
-
-
-def _front_ids():
-    """The front vocabulary's own ids (fronts.json — a plain file, not the
-    SQL `fronts` table todo_fronts' FK uses, which can carry retired ids like
-    'admin'/'work'/'life' that were never real fronts)."""
-    fronts = store.read("fronts.json", {"fronts": []}).get("fronts") or []
-    return {f["id"] for f in fronts if f.get("id")}
-
-
-def _classify_card_tag(tag, people, threads, fronts):
-    """One card_tags string -> its ns, in the order the task spec gives:
-    person, then thread, then front, else topic. (routes/pond.py's own
-    _classify checks thread before person and has no front branch at all —
-    this mirrors the SPIRIT of that classification, extended with the third
-    rule the tags-architecture doc explicitly calls for, since a card tag
-    like 'exocortex' or 'health' is a real fronts.json id that pond.py's rail
-    would otherwise mislabel 'topic'.)"""
-    if tag in people:
-        return "person"
-    if tag in threads:
-        return "thread"
-    if tag in fronts:
-        return "front"
-    return "topic"
 
 
 def _list_field(meta, key):
@@ -154,16 +113,6 @@ class Collector:
 
 
 # --- the five sources ---------------------------------------------------------
-
-def gather_card_tags(conn):
-    """1. card_tags -> card:<id>, ns classified per _classify_card_tag."""
-    c = Collector("card_tags")
-    people, threads, fronts = _people_slugs(), _thread_slugs(), _front_ids()
-    for card_id, tag in conn.execute("SELECT card_id, tag FROM card_tags"):
-        ns = _classify_card_tag(tag, people, threads, fronts)
-        c.add(f"card:{card_id}", ns, tag)
-    return c
-
 
 def gather_todo_fronts(conn):
     """2. todo_fronts -> todo:<id>, ns=front."""
@@ -258,7 +207,6 @@ def run(dry_run):
     conn = sqlstore.open_db()
     try:
         collectors = [
-            gather_card_tags(conn),
             gather_todo_fronts(conn),
             gather_research(),
             gather_threads(),
@@ -285,6 +233,11 @@ def run(dry_run):
         sqlstore.begin_immediate(conn)
         inserted_by_source = {}
         try:
+            # Drop the retired journal-card copies (only rows this script made).
+            dropped = conn.execute(
+                "DELETE FROM tags WHERE subject LIKE 'card:%' AND source = 'derived'").rowcount
+            if dropped:
+                print(f"\nremoved {dropped} retired card: row(s) (card labels live in card_labels)")
             for c in collectors:
                 n = 0
                 for subject, ns, tag in sorted(c.rows):
