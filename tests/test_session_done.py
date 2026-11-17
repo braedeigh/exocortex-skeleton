@@ -197,6 +197,19 @@ def test_idle_check_skips_sessions_that_cannot_or_need_not_be_asked(conv, queued
     assert observatory.idle_check_sessions(_a_day_later()) == []
 
 
+def test_idle_check_never_wakes_a_personal_room_session(conv, queued):
+    # A Personal-room session is a conversation she returns to, not a job:
+    # however long it sits, the idle check leaves it open — while a session
+    # in another room, just as quiet, is still asked.
+    with store.mutate("bot_chats/index", {}) as index:
+        index["2026-09-27.130000"] = dict(index[CONV], title="coding", lane="coding")
+        index[CONV]["lane"] = "personal"
+    week_later = datetime.now() + timedelta(days=7)
+    assert observatory.idle_check_sessions(week_later) == ["2026-09-27.130000"]
+    assert observatory.idle_check_sessions(week_later + timedelta(days=7)) == []
+    assert _entry().get("idle_check_at") is None
+
+
 def test_idle_check_wakes_only_a_few_per_tick_oldest_first(conv, queued):
     with store.mutate("bot_chats/index", {}) as index:
         for n in range(4):

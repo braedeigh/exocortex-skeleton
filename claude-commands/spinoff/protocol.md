@@ -64,7 +64,7 @@ told "go".** Your first message in the chat was the brief. In order:
    If what you delivered is something for the owner to react to — research,
    a comparison, a plan, a review, anything that ends in options — do NOT
    run it either: that reply is where the conversation starts. End your turn
-   and leave the session open; the one-day idle check closes it.
+   and leave the session open; the one-day idle check closes it (not in the Personal room, which is never idle-checked).
    Only when you built or fixed something, are unsure of nothing, and nothing
    waits on the owner, end by running
    `scripts/session_done.py "<what was finished>"` so the session closes

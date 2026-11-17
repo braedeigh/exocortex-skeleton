@@ -17,4 +17,4 @@ written: 2026-10-02
 
 A session that finished its job calls scripts/session_done.py. It is refused when a question, an approval or a detached job still waits. The card then counts down two hours with a Keep open button, and the minute tick closes it.
 
-A session that is quiet for a day gets one idle check message. It asks the session to close itself or to say what is left. The owner can also close a session, keep it open, or save it for later.
+A session that is quiet for a day gets one idle check message — except in the Personal room, where sessions are never idle-checked. It asks the session to close itself or to say what is left. The owner can also close a session, keep it open, or save it for later.

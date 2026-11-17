@@ -2927,10 +2927,18 @@ def close_done_sessions(now=None):
 #
 # Prompt: "1 day i think it will check itself and see if it should still be
 # running and if not close itself"
+#
+# Personal-room sessions are never idle-checked (IDLE_CHECK_EXEMPT_LANES):
+# they're conversations she comes back to on her own time, not jobs that
+# finish, so a day of quiet doesn't mean they're over. They still close when
+# she closes them or when the session itself runs session_done.py.
+# Prompt: "i want the personal sessions to not have a 24 hour checker that
+# closes them automatically"
 
 IDLE_CHECK_HOURS = 24
 IDLE_CHECKS_PER_TICK = 2
 IDLE_CHECK_SOURCE = "idle-check"
+IDLE_CHECK_EXEMPT_LANES = ("personal",)
 
 
 _IDLE_FACTS_MAX_SESSIONS = 8
@@ -3019,6 +3027,9 @@ def idle_check_sessions(now=None):
     index = store.read("bot_chats/index", {})
     for conv_id, entry in index.items():
         if not isinstance(entry, dict) or entry.get("archived") or entry.get("done_at"):
+            continue
+        # Skip the rooms whose sessions are never idle-checked (Personal).
+        if _conv_lane(entry) in IDLE_CHECK_EXEMPT_LANES:
             continue
         last_seen = str(entry.get("last_at") or entry.get("started") or "")
         try:
