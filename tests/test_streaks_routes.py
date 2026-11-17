@@ -136,27 +136,28 @@ def test_habit_rename_rewrites_streak_links(client, data_dir):
     assert read_streaks()[0]["habit_key"] == "evening|Nicotine patch"
 
 
-def test_notes_endpoint_serves_tagged_pool_cards(client, data_dir, tmp_path, monkeypatch):
-    monkeypatch.setattr(store, "CONTENT_DIR", tmp_path)
-    pool = tmp_path / "_system" / "data" / "cards"
-    pool.mkdir(parents=True)
-    fresh_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    pool.joinpath("2026-07-20.1901b.md").write_text(
-        f"---\nid: 2026-07-20.1901b\nwho: B\nts: {fresh_ts}\nreply_to: null\n"
-        "tags: [counter-on-peptides]\nkind: line\nrefs: []\n---\nlast dose today\n")
-    pool.joinpath("2026-07-01.0900b.md").write_text(
-        "---\nid: 2026-07-01.0900b\nwho: B\nts: 2026-07-01 09:00:00\nreply_to: null\n"
-        "tags: [counter-on-peptides]\nkind: line\nrefs: []\n---\nolder note\n")
-    pool.joinpath("2026-07-20.1902k.md").write_text(
-        f"---\nid: 2026-07-20.1902k\nwho: K\nts: {fresh_ts}\nreply_to: null\n"
-        "tags: [counter-on-peptides]\nkind: line\nrefs: []\n---\nkeeper commentary\n")
+def test_notes_endpoint_serves_her_labelled_cards(client, data_dir):
+    import sqlstore
+    from tests.journal_seed import journaldb, seed_card
+
+    fresh = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlstore.open_db()
+    seed_card(conn, "2026-07-20.1901b", "last dose today", tags=["counter-on-peptides"],
+              saved_at=fresh)
+    seed_card(conn, "2026-07-01.0900b", "older note", tags=["counter-on-peptides"])
+    seed_card(conn, "2026-07-20.1902k", "keeper commentary", who="K",
+              tags=["counter-on-peptides"], saved_at=fresh)
+    seed_card(conn, "2026-07-02.0900b", "label taken off", tags=["counter-on-peptides"])
+    journaldb.remove_label(conn, "2026-07-02.0900b", "counter-on-peptides", "owner")
+    conn.commit()
+    conn.close()
     seed_raw([{"label": "on peptides", "since": days_ago(9)}])
     slug = read_streaks() and streaks.load_streaks("all")[0]["slug"]
 
     r = client.get(f"/api/streaks/{slug}/notes")
     assert r.status_code == 200
     notes = r.get_json()["notes"]
-    # keeper card excluded; ascending by ts; 24h edit window honored
+    # keeper card and taken-off label excluded; ascending by time; 24h window from saving
     assert [n["body"] for n in notes] == ["older note", "last dose today"]
     assert notes[0]["editable"] is False and notes[1]["editable"] is True
 

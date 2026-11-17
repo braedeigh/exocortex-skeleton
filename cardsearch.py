@@ -6,9 +6,10 @@ where the words hit. It searches the cards, the small one-thing-said files the
 journal is built from, so a hit is one moment, with a time and a speaker.
 
 **How.** SQLite's built-in word index (FTS5), table `cards_fts`, built in
-sqlstore.py's v23 rung and kept up to date by triggers on the `cards` table.
-That table is cardstore.py's mirror of the card files, so this module never
-reads the files for searching, only to notice brand-new ones (see catch_up).
+sqlstore.py's v23 rung and kept up to date by triggers on the `cards` table —
+the journal itself (since 2026-11-16 a card is a row there, written by the
+journal engine; see docs/journal-database.md). A card is findable the moment
+it's saved: there is no copy to wait for.
 
 **What you can type** (the same rules as the Research search, via
 textsearch.parse_query):
@@ -25,18 +26,15 @@ Prompt: "i want a manual search tool to be able to search through my journal
 ... i imagine i would have at first just a plain search word feature but later
 do semantic vectoring"
 
-Touches: `sqlstore.py` (the index + connection), `cardstore.py` (mirrors new
-cards before a search), `textsearch.py` (query parsing),
+Touches: `sqlstore.py` (the index + connection), `journalcards.py` (each
+hit's tags, read from the journal's labels), `textsearch.py` (query parsing),
 `routes/journal_search.py` (the HTTP door).
 """
 import sqlite3
 
-import cardstore
+import journalcards
 import sqlstore
 import textsearch
-
-# Past this many unmirrored cards, one full pool walk beats one-at-a-time.
-_CATCH_UP_ONE_BY_ONE_MAX = 50
 
 # Markers FTS5 wraps around each hit inside an excerpt. Control characters,
 # so they can't collide with anything she writes; split out again below.
@@ -80,32 +78,6 @@ def to_fts_query(q):
     return query
 
 
-def catch_up():
-    """Mirror any card that's on disk but not in the database yet.
-
-    The mirror refreshes hourly, and instantly for edits made in the journal
-    page. A line captured mid-conversation lands on disk between those, and
-    without this a search right after saying something wouldn't find it.
-    Listing file names is cheap; only the new ones get parsed.
-    """
-    pool = cardstore.pool_dir()
-    if not pool.exists():
-        return 0
-    on_disk = {p.stem for p in pool.glob("*.md")}
-    conn = sqlstore.open_db()
-    try:
-        mirrored = {r[0] for r in conn.execute("SELECT id FROM cards")}
-    finally:
-        conn.close()
-    new = on_disk - mirrored
-    if len(new) > _CATCH_UP_ONE_BY_ONE_MAX:
-        cardstore.sync()
-    else:
-        for cid in new:
-            cardstore.sync_one(cid)
-    return len(new)
-
-
 def _split_snippet(marked):
     """FTS5's marked excerpt -> [{"text", "hit"}] pieces, so the page can bold
     the hits without ever treating journal text as HTML."""
@@ -132,7 +104,7 @@ def search(q, who=None, date_from=None, date_to=None, sort="relevance",
     """Search the journal. Returns {"total", "hits": [...]}.
 
     `who` is "B" or "K" (the owner or the Keeper); dates are inclusive
-    YYYY-MM-DD bounds. Cards deleted or missing from disk are never returned.
+    YYYY-MM-DD bounds. Deleted cards are never returned.
     Each hit: {"id", "day", "ts", "who", "kind", "tags", "snippet",
     "marked_body"}: snippet is a short excerpt as _split_snippet pieces;
     marked_body is the card's whole text with each hit wrapped in
@@ -145,7 +117,7 @@ def search(q, who=None, date_from=None, date_to=None, sort="relevance",
         raise ValueError("nothing to search for")
 
     # Build the filters: the word match, plus whichever optional limits apply.
-    where = ["cards_fts MATCH ?", "c.deleted_at IS NULL", "c.missing_since IS NULL"]
+    where = ["cards_fts MATCH ?", "c.deleted_at IS NULL"]
     params = [fts_query]
     if who:
         where.append("c.who = ?")
@@ -159,9 +131,9 @@ def search(q, who=None, date_from=None, date_to=None, sort="relevance",
     where_sql = " AND ".join(where)
     order_sql = {
         # bm25 is FTS5's relevance score: lower is better.
-        "relevance": "bm25(cards_fts), c.ts DESC",
-        "newest": "c.ts DESC",
-        "oldest": "c.ts ASC",
+        "relevance": "bm25(cards_fts), c.said_at DESC",
+        "newest": "c.said_at DESC",
+        "oldest": "c.said_at ASC",
     }[sort]
 
     conn = sqlstore.open_db()
@@ -171,7 +143,7 @@ def search(q, who=None, date_from=None, date_to=None, sort="relevance",
             f" WHERE {where_sql}", params,
         ).fetchone()[0]
         rows = conn.execute(
-            "SELECT c.id, c.day, c.ts, c.who, c.kind,"
+            "SELECT c.id, c.day, c.said_at, c.who, c.kind,"
             f"  snippet(cards_fts, 1, ?, ?, '…', {_SNIPPET_WORDS}),"
             # The whole text too, with every hit wrapped in the same markers,
             # so the journal can show the full card with its matches lit.
@@ -180,15 +152,9 @@ def search(q, who=None, date_from=None, date_to=None, sort="relevance",
             f" WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
             [_HIT_START, _HIT_END, _HIT_START, _HIT_END, *params, limit, offset],
         ).fetchall()
-        # Fetch the tags for just the cards on this page, in one query.
-        tags = {}
-        ids = [r[0] for r in rows]
-        if ids:
-            for card_id, tag in conn.execute(
-                "SELECT card_id, tag FROM card_tags WHERE card_id IN"
-                f" ({','.join('?' * len(ids))}) ORDER BY tag", ids,
-            ):
-                tags.setdefault(card_id, []).append(tag)
+        # The tags of just the cards on this page: live labels only (a label
+        # taken off doesn't show), plus the capture facts (voice, via:<device>).
+        tags = journalcards.tags_for(conn, [r[0] for r in rows])
     except sqlite3.OperationalError as exc:
         # Quoting should make every query valid; if FTS5 still refuses one,
         # say so as a bad query rather than a crash. Anything else (a locked

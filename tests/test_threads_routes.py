@@ -11,15 +11,22 @@ mid -> leaf, topic-a -> topic-b, plus a broken/retired thread) shared
 with the Rust `thread` binary's own tests. They exercise the new frontmatter
 fields (fronts/parents/kind/status/distilled), retired filtering, the derived
 tree, backlinks, and the per-thread card inbox.
+
+The journal cards those pages show are rows in exo.db (docs/journal-database.md).
+The shared fixture still keeps its five cards as old-style card files (the Rust
+`thread` binary's tests read them too); the `vault` fixture loads them into this
+test's database, and a test adds more with `_card(...)`.
 """
 import shutil
-from datetime import datetime as _RealDatetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+import sqlstore
 import store
 from routes import threads
+from tests.journal_seed import journaldb, seed_card, seed_card_files
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "threads"
 
@@ -161,8 +168,18 @@ def test_talk_unknown_thread_is_404(client, talk_env):
 
 # --- threads-architecture §8 steps 2-3: fronts/parents/kind/tree/inbox -------
 
+def _card(card_id, body, **fields):
+    """Put one journal card into this test's database (see journal_seed.seed_card)."""
+    conn = sqlstore.open_db()
+    try:
+        seed_card(conn, card_id, body, **fields)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @pytest.fixture
-def vault(tmp_path, monkeypatch):
+def vault(tmp_path, monkeypatch, data_dir):
     """Copy the shared threads fixture content tree into tmp_path and point
     store.CONTENT_DIR at it, so these tests read real DAG-shaped fixtures
     (topic-b/topic-a/root-mid-leaf/broken) instead of one inline file.
@@ -171,6 +188,12 @@ def vault(tmp_path, monkeypatch):
     content = tmp_path / "content"
     shutil.copytree(FIXTURES_ROOT / "content", content)
     monkeypatch.setattr(store, "CONTENT_DIR", content)
+    conn = sqlstore.open_db()
+    try:
+        seed_card_files(conn, content / "_system" / "data" / "cards")
+        conn.commit()
+    finally:
+        conn.close()
     return content
 
 
@@ -386,17 +409,7 @@ def test_inbox_no_watermark_includes_all_tagged_cards(vault, vault_client):
     # root-thread has no distilled: date yet. Add a card tagged root-thread,
     # dated well before "today", to confirm it's still returned — the
     # watermark-less branch means no date filtering at all.
-    cards_dir = vault / "_system" / "data" / "cards"
-    (cards_dir / "2020-01-01.0000a.md").write_text(
-        "---\n"
-        "id: 2020-01-01.0000a\n"
-        "who: B\n"
-        "ts: 2020-01-01 00:00:00\n"
-        "tags: [root-thread]\n"
-        "kind: line\n"
-        "---\n"
-        "An old card, included because root-thread has no watermark yet.\n"
-    )
+    _card('2020-01-01.0000a', 'An old card, included because root-thread has no watermark yet.', tags=['root-thread'])
     data = vault_client.get("/api/thread/root-thread/inbox").get_json()
     assert [c["id"] for c in data["cards"]] == ["2020-01-01.0000a"]
     assert data["distilled"] is None
@@ -405,6 +418,42 @@ def test_inbox_no_watermark_includes_all_tagged_cards(vault, vault_client):
 def test_inbox_unknown_slug_is_404(vault_client):
     resp = vault_client.get("/api/thread/nope-at-all/inbox")
     assert resp.status_code == 404
+
+
+def test_inbox_ranks_about_before_touches_before_unjudged(vault, vault_client):
+    # root-thread has no watermark, so every labelled card is in its inbox.
+    _card("2026-07-21.0900b", "Unjudged.", tags=["root-thread"])
+    _card("2026-07-22.0900b", "It comes up.", tags=["root-thread"], weights={"root-thread": "touches"})
+    _card("2026-07-23.0900b", "Mainly this.", tags=["root-thread"], weights={"root-thread": "about"})
+    _card("2026-07-24.0900b", "Also mainly this.", tags=["root-thread"], weights={"root-thread": "about"})
+    data = vault_client.get("/api/thread/root-thread/inbox").get_json()
+    assert [(c["id"], c["weight"]) for c in data["cards"]] == [
+        ("2026-07-23.0900b", "about"), ("2026-07-24.0900b", "about"),
+        ("2026-07-22.0900b", "touches"), ("2026-07-21.0900b", None)]
+
+
+def test_label_taken_off_drops_the_card_from_inbox_and_journal(vault, vault_client):
+    # The row stays (it's the memory that stops an agent re-adding it), but
+    # a marked-off label no longer puts the card on the thread.
+    _card("2026-07-21.0900b", "Not really about this.", tags=["root-thread"])
+    conn = sqlstore.open_db()
+    try:
+        assert journaldb.remove_label(
+            conn, "2026-07-21.0900b", "root-thread", "owner", "wrong thread") == "removed"
+        conn.commit()
+    finally:
+        conn.close()
+    inbox = vault_client.get("/api/thread/root-thread/inbox").get_json()
+    journal = vault_client.get("/api/thread/root-thread/journal").get_json()
+    assert inbox["cards"] == []
+    assert "2026-07-21.0900b" not in [e.get("id") for e in journal["entries"]]
+
+
+def test_deleted_card_never_appears(vault, vault_client):
+    _card("2026-07-21.0900b", "Deleted inside its window.", tags=["root-thread"],
+          deleted_at="2026-07-21 09:30:00")
+    inbox = vault_client.get("/api/thread/root-thread/inbox").get_json()
+    assert inbox["cards"] == []
 
 
 # --- GET /api/thread/<slug>/journal ------------------------------------------
@@ -505,17 +554,7 @@ def test_journal_day_row_sorts_before_same_day_card(vault):
         "A statement from before cards were tracked.\n"
         "→ `2025-01-01.0000a`\n"
     )
-    cards_dir = vault / "_system" / "data" / "cards"
-    (cards_dir / "2025-01-01.0900a.md").write_text(
-        "---\n"
-        "id: 2025-01-01.0900a\n"
-        "who: B\n"
-        "ts: 2025-01-01 09:00:00\n"
-        "tags: [old-thread]\n"
-        "kind: line\n"
-        "---\n"
-        "A same-day card, tagged directly.\n"
-    )
+    _card('2025-01-01.0900a', 'A same-day card, tagged directly.', tags=['old-thread'])
     from flask import Flask
     app = Flask(__name__)
     app.config.update(TESTING=True)
@@ -537,17 +576,7 @@ def test_journal_unknown_slug_is_404(vault_client):
 def test_journal_includes_card_that_only_mentions_an_alias(vault):
     # Neither tagged `topic-a` nor cited by any fact-card — found purely
     # because its text mentions the "TA" alias as a standalone word.
-    cards_dir = vault / "_system" / "data" / "cards"
-    (cards_dir / "2026-07-20.0900a.md").write_text(
-        "---\n"
-        "id: 2026-07-20.0900a\n"
-        "who: B\n"
-        "ts: 2026-07-20 09:00:00\n"
-        "tags: []\n"
-        "kind: line\n"
-        "---\n"
-        "Thinking about it again, definitely TA came up today.\n"
-    )
+    _card('2026-07-20.0900a', 'Thinking about it again, definitely TA came up today.')
     from flask import Flask
     app = Flask(__name__)
     app.config.update(TESTING=True)
@@ -560,17 +589,7 @@ def test_journal_includes_card_that_only_mentions_an_alias(vault):
 def test_journal_excludes_alias_matching_only_as_a_substring(vault):
     # "TA" appears inside "STAT" — not a word-boundary match, so this card
     # must NOT join topic-a's journal.
-    cards_dir = vault / "_system" / "data" / "cards"
-    (cards_dir / "2026-07-20.0900a.md").write_text(
-        "---\n"
-        "id: 2026-07-20.0900a\n"
-        "who: B\n"
-        "ts: 2026-07-20 09:00:00\n"
-        "tags: []\n"
-        "kind: line\n"
-        "---\n"
-        "Ran the STAT check after lunch.\n"
-    )
+    _card('2026-07-20.0900a', 'Ran the STAT check after lunch.')
     from flask import Flask
     app = Flask(__name__)
     app.config.update(TESTING=True)
@@ -590,27 +609,8 @@ def test_journal_thread_payload_echoes_aliases(vault_client):
 def test_journal_excludes_keeper_authored_cards(vault):
     # Her call (2026-07-20): a thread's journal is her record — a `who: K`
     # card never appears, whether it arrived tagged, by mention, or cited.
-    cards_dir = vault / "_system" / "data" / "cards"
-    (cards_dir / "2026-07-20.0900k.md").write_text(
-        "---\n"
-        "id: 2026-07-20.0900k\n"
-        "who: K\n"
-        "ts: 2026-07-20 09:00:00\n"
-        "tags: [topic-a]\n"
-        "kind: line\n"
-        "---\n"
-        "Keeper commentary about her TA day.\n"
-    )
-    (cards_dir / "2026-07-20.0905b.md").write_text(
-        "---\n"
-        "id: 2026-07-20.0905b\n"
-        "who: B\n"
-        "ts: 2026-07-20 09:05:00\n"
-        "tags: [topic-a]\n"
-        "kind: line\n"
-        "---\n"
-        "My own words about the TA day.\n"
-    )
+    _card('2026-07-20.0900k', 'Keeper commentary about her TA day.', who='K', tags=['topic-a'])
+    _card('2026-07-20.0905b', 'My own words about the TA day.', tags=['topic-a'])
     from flask import Flask
     app = Flask(__name__)
     app.config.update(TESTING=True)
@@ -641,17 +641,7 @@ def test_journal_cited_keeper_card_yields_no_entry_and_no_day_row(vault):
         "A cited keeper observation.\n"
         "→ `2026-07-19.2100k`\n"
     )
-    cards_dir = vault / "_system" / "data" / "cards"
-    (cards_dir / "2026-07-19.2100k.md").write_text(
-        "---\n"
-        "id: 2026-07-19.2100k\n"
-        "who: K\n"
-        "ts: 2026-07-19 21:00:00\n"
-        "tags: []\n"
-        "kind: line\n"
-        "---\n"
-        "A keeper note that got cited.\n"
-    )
+    _card('2026-07-19.2100k', 'A keeper note that got cited.', who='K')
     from flask import Flask
     app = Flask(__name__)
     app.config.update(TESTING=True)
@@ -736,17 +726,7 @@ def test_journal_day_excerpt_empty_when_day_has_pool_cards(vault, vault_client):
     )
     # An unrelated (untagged, unmentioning) pool card dated the same day is
     # enough to disqualify the day from excerpting — "regardless of tags".
-    cards_dir = vault / "_system" / "data" / "cards"
-    (cards_dir / "2026-08-03.0900a.md").write_text(
-        "---\n"
-        "id: 2026-08-03.0900a\n"
-        "who: B\n"
-        "ts: 2026-08-03 09:00:00\n"
-        "tags: []\n"
-        "kind: line\n"
-        "---\n"
-        "Something entirely unrelated.\n"
-    )
+    _card('2026-08-03.0900a', 'Something entirely unrelated.')
     data = vault_client.get(f"/api/thread/{slug}/journal").get_json()
     day = next(e for e in data["entries"] if e["kind"] == "day" and e["date"] == "2026-08-03")
     assert day["excerpts"] == []
@@ -775,91 +755,44 @@ def test_journal_day_excerpt_short_blob_has_no_ellipses(vault, vault_client):
     assert "Petrichor" in excerpt
 
 
-# --- card entries carry `reply_to` and rolling-24h `editable` ---------------
-# The thread page lets her edit/delete a card minted in the last 24 hours in
-# place, and append a reply note to an older one instead — both server-
-# computed (never trust the client's Date), so these pin the cutoff math
-# down against a frozen clock.
+# --- card entries carry `reply_to`, the 24-hour `editable`, and `weight` -----
+# The thread page lets her edit/delete a card for 24 hours after it was SAVED
+# (the database's own lock clock), and add a note to an older one instead.
+# Server-computed, never from the client's Date.
 
-class _FrozenDatetime(_RealDatetime):
-    """A datetime subclass whose .now() is pinned — patched onto
-    routes.threads.datetime itself so strptime etc. still behave normally,
-    only "now" is fixed for a deterministic 24h-window test."""
-
-    _frozen = _RealDatetime(2026, 7, 20, 12, 0, 0)
-
-    @classmethod
-    def now(cls, tz=None):
-        return cls._frozen
+def _ago(**delta):
+    return (datetime.now() - timedelta(**delta)).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def test_journal_card_within_rolling_24h_is_editable(vault, vault_client, monkeypatch):
-    monkeypatch.setattr(threads, "datetime", _FrozenDatetime)
-    cards_dir = vault / "_system" / "data" / "cards"
-    (cards_dir / "2026-07-20.1100b.md").write_text(
-        "---\n"
-        "id: 2026-07-20.1100b\n"
-        "who: B\n"
-        "ts: 2026-07-20 12:00:00\n"
-        "tags: [topic-b]\n"
-        "kind: line\n"
-        "---\n"
-        "Fresh note, minted right now.\n"
-    )
-    data = vault_client.get("/api/thread/topic-b/journal").get_json()
-    card = next(e for e in data["entries"] if e.get("id") == "2026-07-20.1100b")
+def _entry(data, card_id):
+    return next(e for e in data["entries"] if e.get("id") == card_id)
+
+
+def test_journal_card_saved_within_24h_is_editable_with_its_lock_time(vault, vault_client):
+    saved = _ago(hours=1)
+    _card("2026-07-20.1100b", "Fresh note.", tags=["topic-b"], saved_at=saved)
+    card = _entry(vault_client.get("/api/thread/topic-b/journal").get_json(), "2026-07-20.1100b")
+    assert card["editable"] is True
+    assert card["locks_at"] == (datetime.strptime(saved, "%Y-%m-%d %H:%M:%S")
+                                + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def test_journal_card_saved_25h_ago_is_not_editable(vault, vault_client):
+    _card("2026-07-19.1100b", "A day-old note.", tags=["topic-b"], saved_at=_ago(hours=25))
+    card = _entry(vault_client.get("/api/thread/topic-b/journal").get_json(), "2026-07-19.1100b")
+    assert card["editable"] is False
+
+
+def test_journal_card_said_long_ago_but_saved_now_is_still_editable(vault, vault_client):
+    # A late arrival (a held card, a voice listener that was offline) gets its
+    # full day: the window runs from when the row was written.
+    _card("2026-01-02.0900b", "Arrived late.", tags=["topic-b"], saved_at=_ago(minutes=5))
+    card = _entry(vault_client.get("/api/thread/topic-b/journal").get_json(), "2026-01-02.0900b")
     assert card["editable"] is True
 
 
-def test_journal_card_25h_old_is_not_editable(vault, vault_client, monkeypatch):
-    monkeypatch.setattr(threads, "datetime", _FrozenDatetime)
-    cards_dir = vault / "_system" / "data" / "cards"
-    (cards_dir / "2026-07-19.1100b.md").write_text(
-        "---\n"
-        "id: 2026-07-19.1100b\n"
-        "who: B\n"
-        "ts: 2026-07-19 11:00:00\n"
-        "tags: [topic-b]\n"
-        "kind: line\n"
-        "---\n"
-        "A day-old note, just past the rolling 24h window.\n"
-    )
-    data = vault_client.get("/api/thread/topic-b/journal").get_json()
-    card = next(e for e in data["entries"] if e.get("id") == "2026-07-19.1100b")
-    assert card["editable"] is False
-
-
-def test_journal_card_with_unparseable_ts_is_not_editable(vault, vault_client, monkeypatch):
-    monkeypatch.setattr(threads, "datetime", _FrozenDatetime)
-    cards_dir = vault / "_system" / "data" / "cards"
-    (cards_dir / "2026-07-20.1200c.md").write_text(
-        "---\n"
-        "id: 2026-07-20.1200c\n"
-        "who: B\n"
-        "ts: \n"
-        "tags: [topic-b]\n"
-        "kind: line\n"
-        "---\n"
-        "A card with no usable timestamp.\n"
-    )
-    data = vault_client.get("/api/thread/topic-b/journal").get_json()
-    card = next(e for e in data["entries"] if e.get("id") == "2026-07-20.1200c")
-    assert card["editable"] is False
-
-
 def test_journal_card_reply_to_round_trips(vault, vault_client):
-    cards_dir = vault / "_system" / "data" / "cards"
-    (cards_dir / "2026-07-20.0900b.md").write_text(
-        "---\n"
-        "id: 2026-07-20.0900b\n"
-        "who: B\n"
-        "ts: 2026-07-20 09:00:00\n"
-        "reply_to: 2026-07-14.1655c\n"
-        "tags: [topic-b]\n"
-        "kind: line\n"
-        "---\n"
-        "Following up on the earlier note.\n"
-    )
+    _card('2026-07-20.0900b', 'Following up on the earlier note.', tags=['topic-b'], reply_to='2026-07-14.1655c')
     data = vault_client.get("/api/thread/topic-b/journal").get_json()
     reply = next(e for e in data["entries"] if e.get("id") == "2026-07-20.0900b")
     assert reply["reply_to"] == "2026-07-14.1655c"

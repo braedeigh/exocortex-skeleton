@@ -1,7 +1,7 @@
 """Pending approval gate — the todo_done kind (routes/pending.py).
 
 The todos-closer cricket stages "this journal card closes to-do X" with a
-verbatim quote; Approve verifies the quote against the card ON DISK, then
+verbatim quote; Approve verifies the quote against the card in exo.db, then
 closes the item backdated to the card's moment with the card id as receipt.
 These tests pin the whole contract: the verification tripwire (a fabricated
 quote must never reach the record), the backdating, the receipt fields, and
@@ -24,23 +24,23 @@ CARD_BODY = "Desk is DONE. built the whole thing tonight, arms mounted and every
 
 
 def _mint_card(content_dir: Path, cid: str, body: str) -> None:
-    """Write one pool card in the real on-disk format (five-field header)."""
-    pool = content_dir / "_system" / "data" / "cards"
-    pool.mkdir(parents=True, exist_ok=True)
-    ts = f"{cid[:10]} {cid[11:13]}:{cid[13:15]}:07"
-    (pool / f"{cid}.md").write_text(
-        f"---\nid: {cid}\nwho: B\nts: {ts}\nreply_to: null\ntags: []\nkind: line\n---\n{body}\n",
-        encoding="utf-8",
-    )
+    """Put one journal card into the test database (exo.db), said at the id's
+    minute plus 7 seconds."""
+    import sqlstore
+    from tests.journal_seed import seed_card
+    conn = sqlstore.open_db()
+    try:
+        seed_card(conn, cid, body, said_at=f"{cid[:10]} {cid[11:13]}:{cid[13:15]}:07")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @pytest.fixture
-def vault(tmp_path, monkeypatch):
-    """Throwaway data + content dirs, one card on disk, one open to-do."""
-    data = tmp_path / "data"
+def vault(tmp_path, monkeypatch, data_dir):
+    """Throwaway data + content dirs, one card in the journal, one open to-do."""
+    data = data_dir
     content = tmp_path / "content"
-    data.mkdir()
-    monkeypatch.setattr(store, "DATA_DIR", data)
     monkeypatch.setattr(store, "CONTENT_DIR", content)
     _mint_card(content, CARD_ID, CARD_BODY)
     store.write("todos", {

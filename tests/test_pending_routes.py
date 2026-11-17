@@ -99,3 +99,33 @@ def test_profile_kind_leaves_the_queue_on_approval(client):
     ]})
     client.post("/api/pending/approve", json={"id": "p1"})
     assert store.read("pending_changes", {"pending": []})["pending"] == []
+
+
+# --- card_untag: approving a tag removal marks the label off, keeping the row ---
+
+def test_approving_card_untag_marks_the_label_off_as_hers(client, data_dir, monkeypatch):
+    """The real journal engine runs (a subprocess on this test's database).
+    The label row stays, marked removed by the owner — the memory that stops
+    an agent putting it back — and the card no longer wears it."""
+    import sqlstore
+    from tests.journal_seed import seed_card
+
+    monkeypatch.setattr(store, "CONTENT_DIR", data_dir / "content")
+    conn = sqlstore.open_db()
+    seed_card(conn, "2026-08-12.2142b", "Desk is done.", tags=["desk-build", "health"],
+              by="thread-tending")
+    conn.commit()
+    conn.close()
+    store.write(pending.PENDING_FILE, {"pending": [{
+        "id": "p1", "kind": "card_untag",
+        "payload": {"card_id": "2026-08-12.2142b", "tag": "health", "reason": "not about health"}}]})
+
+    assert client.post("/api/pending/approve", json={"id": "p1"}).get_json() == {"ok": True}
+
+    conn = sqlstore.open_db()
+    rows = conn.execute(
+        "SELECT l.slug, cl.removed_at IS NOT NULL, cl.removed_by FROM card_labels cl"
+        " JOIN labels l ON l.id = cl.label_id WHERE cl.card_id = ? ORDER BY l.slug",
+        ("2026-08-12.2142b",)).fetchall()
+    conn.close()
+    assert [tuple(r) for r in rows] == [("desk-build", 0, None), ("health", 1, "owner")]

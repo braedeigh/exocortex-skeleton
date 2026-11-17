@@ -149,12 +149,13 @@ def test_days_come_from_the_cards_with_ids_and_every_speaker_in_order(journal):
         "2026-09-24.1000b"]
 
 
-def test_a_card_written_since_the_last_sync_is_in_the_package(journal):
-    pool = journal / "_system" / "data" / "cards"
-    pool.mkdir(parents=True)
-    (pool / "2026-09-24.2350b.md").write_text(
-        "---\nid: 2026-09-24.2350b\nwho: B\nts: 2026-09-24 23:50:00\nreply_to: null\n"
-        "tags: []\nkind: line\nrefs: []\nsession: null\n---\nstill awake at midnight\n")
+def test_a_card_recorded_a_minute_ago_is_in_the_package(journal, monkeypatch):
+    # The journal engine writes the row the moment it's said; the boot reads
+    # the same table, so nothing has to sync in between.
+    from datetime import datetime
+    from tools.stream import stream
+    monkeypatch.setenv("TULKU_STREAM_ROOT", str(journal))
+    stream.record(who="B", body="still awake at midnight", ts=datetime(2026, 9, 24, 23, 50))
     assert "B [2350b]: still awake at midnight" in boot_context.build(date(2026, 9, 25))
 
 

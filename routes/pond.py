@@ -5,12 +5,13 @@ and the vault. This is the other thing entirely — the POND, where that data
 comes to rest. Every card the journal has ever minted, sitting at its own day
 and time, with the threads that run through them.
 
-Nothing here is new data. `cardstore.py` already mirrors the whole card pool
-(one markdown file per utterance, in the vault) into `exo.db` — table `cards`
-plus `card_tags` — and `scripts/update_cards.py` keeps it current hourly. What
-was missing was a way to ASK it anything: until now the only door onto that
-table was the general-purpose SQL console (routes/sqlab.py). These three
-endpoints are that door, shaped for one drawing.
+Nothing here is new data. The journal's cards ARE rows in `exo.db` (since
+2026-11-16; docs/journal-database.md): `cards` holds the words, and
+`card_labels` + `labels` say which threads, people and topics each card wears
+(live rows only — a label taken off keeps its row as history but draws
+nothing). What was missing was a way to ASK it anything: until now the only
+door onto those tables was the general-purpose SQL console (routes/sqlab.py).
+These endpoints are that door, shaped for one drawing.
 
     GET /api/pond/threads   tags ranked by SPAN — how many distinct days each
                             one touches, not how many cards it has. A thread
@@ -68,6 +69,7 @@ stored inside of them connected by lines, and you can scroll left or right over
 time and the threads bounce around in the entries" — plus the naming that made
 it click: the creek is the movement of data, the pond is where the data sits.
 """
+import json
 import re
 import sqlite3
 from contextlib import closing
@@ -76,6 +78,7 @@ from datetime import date
 from flask import jsonify, request
 
 import codestore
+import journalcards
 import store
 from routes.entities import PEOPLE_DIR, _parse_frontmatter
 from routes.threads import THREADS_DIR
@@ -134,10 +137,11 @@ MAX_WORKING = 6000
 # lane already draws as a card — so it must not also appear as a code change on
 # the right.
 #
-#   _system/data/cards/  the card pool itself: one markdown file per utterance,
-#                        which cardstore.py mirrors into the `cards` table this
-#                        very module reads. A write here IS a journal entry, by
-#                        definition.
+#   _system/data/cards/  the old card pool: one markdown file per utterance,
+#                        the journal's truth until 2026-11-16 (still in git
+#                        history, so still classified).
+#   data/journal/        the hourly text export of the journal's rows (one file
+#                        per day) — what a journal entry writes in git now.
 #   tulku-diary/         the day's written-up entry, the Keeper's end-of-day
 #                        work. Prose about her life, not code.
 #
@@ -145,7 +149,7 @@ MAX_WORKING = 6000
 # plenty that is genuinely built rather than written — data files, docs, deploy
 # config, spinoff briefs — and those are real work that belongs on the working
 # side. The test is what the file IS, not which repo it sits in.
-JOURNAL_PATHS = ("tulku/_system/data/cards/", "tulku/tulku-diary/")
+JOURNAL_PATHS = ("tulku/_system/data/cards/", "data/journal/", "tulku/tulku-diary/")
 
 
 def _is_journal_file(repo, path):
@@ -237,6 +241,13 @@ def _read_only_conn():
     conn.execute("PRAGMA query_only = ON")
     conn.row_factory = sqlite3.Row
     return conn
+
+
+# Every card's live labels as (card_id, tag) — a subquery the window queries
+# join against. Capture facts (voice, via:<device>) are not threads, so they
+# never reach the rail; the cards' own tag lists still carry them.
+_LIVE_TAGS = ("(SELECT cl.card_id AS card_id, l.slug AS tag FROM card_labels cl"
+              " JOIN labels l ON l.id = cl.label_id WHERE cl.removed_at IS NULL)")
 
 
 def _body(body):
@@ -343,7 +354,7 @@ def register(app):
                            COUNT(DISTINCT c.day)    AS days,
                            MIN(c.day)               AS first,
                            MAX(c.day)               AS last
-                      FROM card_tags t
+                      FROM {_LIVE_TAGS} t
                       JOIN cards c ON c.id = t.card_id
                      WHERE {where}
                   GROUP BY t.tag
@@ -355,7 +366,7 @@ def register(app):
             # their day-counts would double-count it.
             day_rows = conn.execute(
                 f"""SELECT DISTINCT t.tag AS tag, c.day AS day
-                      FROM card_tags t
+                      FROM {_LIVE_TAGS} t
                       JOIN cards c ON c.id = t.card_id
                      WHERE {where}""",
                 params,
@@ -407,7 +418,7 @@ def register(app):
 
         where, params = _window_sql(window)
         if tag:
-            where += " AND c.id IN (SELECT card_id FROM card_tags WHERE tag = ?)"
+            where += f" AND c.id IN (SELECT card_id FROM {_LIVE_TAGS} WHERE tag = ?)"
             params = params + [tag]
 
         with closing(_read_only_conn()) as conn:
@@ -423,16 +434,9 @@ def register(app):
             ).fetchall()
             truncated = len(rows) > MAX_CARDS
             rows = rows[:MAX_CARDS][::-1]
-            # Tags for exactly the cards being returned, in one query rather
-            # than one per card.
-            tags = {}
-            if rows:
-                marks = ",".join("?" * len(rows))
-                for r in conn.execute(
-                    f"SELECT card_id, tag FROM card_tags WHERE card_id IN ({marks})",
-                    [r["id"] for r in rows],
-                ):
-                    tags.setdefault(r["card_id"], []).append(r["tag"])
+            # Tags for exactly the cards being returned, a chunked query
+            # rather than one per card (journalcards.tags_for).
+            tags = journalcards.tags_for(conn, [r["id"] for r in rows])
 
         cards = [
             {
@@ -769,23 +773,21 @@ def register(app):
 
     @app.route("/api/pond/card/<card_id>")
     def pond_card(card_id):
-        """One card in full — the body, and the links it carries."""
+        """One card in full — the body, its tags, the card it answers, and
+        when it was saved. A deleted card still answers (with `deleted_at`
+        set), so a link to it never just breaks."""
         if not _CARD_ID_RE.match(card_id or ""):
             return jsonify({"error": "invalid card id"}), 400
         with closing(_read_only_conn()) as conn:
-            row = conn.execute(
-                """SELECT id, day, ts, who, kind, reply_to, session, refs, body,
-                          first_seen, last_seen, deleted_at
-                     FROM cards WHERE id = ?""",
-                (card_id,),
-            ).fetchone()
-            if row is None:
-                return jsonify({"error": "card not found"}), 404
-            tags = [
-                r["tag"] for r in conn.execute(
-                    "SELECT tag FROM card_tags WHERE card_id = ? ORDER BY tag", (card_id,)
-                )
-            ]
-        card = dict(row)
-        card["tags"] = tags
+            rows = journalcards.journaldb.fetch_cards(conn, "id = ?", (card_id,))
+        if not rows:
+            return jsonify({"error": "card not found"}), 404
+        row = rows[0]
+        card = {key: row[key] for key in (
+            "id", "day", "who", "kind", "reply_to", "session", "refs", "body", "tags",
+            "door", "device", "saved_at", "deleted_at", "edited")}
+        card["ts"] = row["said_at"]
+        card["tags"] = sorted(row["tags"])     # alphabetical, like /api/pond/cards
+        # refs go out as the JSON text they're stored as (the page's type is a string).
+        card["refs"] = json.dumps(row["refs"])
         return jsonify({"card": card})

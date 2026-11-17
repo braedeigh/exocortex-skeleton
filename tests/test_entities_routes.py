@@ -43,7 +43,7 @@ An old friend, sometimes called david-armenian for disambiguation.
 
 
 @pytest.fixture
-def vault(tmp_path, monkeypatch):
+def vault(tmp_path, monkeypatch, data_dir):
     monkeypatch.setattr(store, "CONTENT_DIR", tmp_path)
     (tmp_path / "people").mkdir()
     (tmp_path / "people" / "sage.md").write_text(SAGE)
@@ -59,16 +59,20 @@ def vault(tmp_path, monkeypatch):
         "B: quiet day, nothing much happened\n")   # card-cutover day, no named hit
     (tmp_path / "THREADS.md").write_text("Housing: moving out from Sage's place.\n")
 
-    # Card files (the cricket's per-message log): from CARDS_CUTOVER on, a card
-    # tagged with a person's slug counts even when its body doesn't name them —
+    # Journal cards (rows in exo.db): from CARDS_CUTOVER on, a card labelled
+    # with a person's slug counts even when its body doesn't name them —
     # unless the body DOES name them, in which case the journal-day scan above
-    # already caught it and the card must not double-count.
-    cards = tmp_path / "_system" / "data" / "cards"
-    cards.mkdir(parents=True)
-    (cards / "2026-07-06.aaa.md").write_text(
-        "---\ntags: [sage]\n---\nTalked about dinner plans.\n")      # unnamed -> +1
-    (cards / "2026-07-06.bbb.md").write_text(
-        "---\ntags: [sage]\n---\nSage stopped by after work.\n")    # named -> skip
+    # already caught it and the card must not double-count. A label that was
+    # taken off doesn't count at all.
+    import sqlstore
+    from tests.journal_seed import journaldb, seed_card
+    conn = sqlstore.open_db()
+    seed_card(conn, "2026-07-06.0900b", "Talked about dinner plans.", tags=["sage"])   # unnamed -> +1
+    seed_card(conn, "2026-07-06.1000b", "Sage stopped by after work.", tags=["sage"])  # named -> skip
+    seed_card(conn, "2026-07-07.0900b", "Fixed the sink.", tags=["sage"])              # taken off -> skip
+    journaldb.remove_label(conn, "2026-07-07.0900b", "sage", "owner")
+    conn.commit()
+    conn.close()
     return tmp_path
 
 
@@ -231,6 +235,24 @@ def test_mention_days_counts_unnamed_tagged_card_once_and_skips_named_card(vault
     # The journal file for this day has no hit; the unnamed card adds exactly 1
     # (the named card, which contains "Sage", is skipped so it isn't double-counted).
     assert by_date["2026-07-06"] == 1
+
+
+def test_mention_days_skips_a_card_whose_label_was_taken_off(vault):
+    days = {d["date"]: d["count"] for d in entities.mention_days(entities.people_index()["sage"])}
+    assert "2026-07-07" not in days
+
+
+def test_mention_days_finds_cards_by_the_people_file_stem(vault):
+    # David's file is people/david-armenian.md: his label is the file's stem,
+    # not the first-name key "david" the roster indexes him under.
+    import sqlstore
+    from tests.journal_seed import seed_card
+    conn = sqlstore.open_db()
+    seed_card(conn, "2026-07-08.0900b", "Coffee again.", tags=["david-armenian"])
+    conn.commit()
+    conn.close()
+    days = {d["date"]: d["count"] for d in entities.mention_days(entities.people_index()["david"])}
+    assert days["2026-07-08"] == 1
 
 
 def test_mention_days_ignores_tagged_cards_before_cutover(vault, monkeypatch):

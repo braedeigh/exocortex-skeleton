@@ -57,9 +57,10 @@ ENGINE = ROOT / "tools" / "stream"
 # `<content>/_system/<name>`; the real code stays with the app.
 ENGINE_PROGRAMS = ("stream.py", "keeper_capture.py", "reconcile_transcripts.py")
 
-# The folders a journal has. prepare() makes the missing ones.
+# The folders a journal has. prepare() makes the missing ones. (No card
+# folder: cards are rows in exo.db.)
 JOURNAL_FOLDERS = ("Journal/Daily", "Journal/Weekly", "keeper-diary", "context",
-                   "_system/data/cards", ".claude/commands")
+                   "_system", ".claude/commands")
 
 # The commands the Keeper's folder carries: wake and close.
 KEEPER_COMMANDS = ("journalstart.md", "endsession.md")
@@ -284,16 +285,32 @@ _GIT_ADDRESS = re.compile(r"^(https://|ssh://|git@[\w.-]+:)[^\s]+$")
 def can_import():
     """May a repository still be brought in as the journal? Only while the
     app's own journal is untouched: its folder is this app's, no Keeper has
-    ever been opened, setup hasn't been done, no card has been written, and
-    no import is running. After that an import would replace words someone
+    ever been opened, setup hasn't been done, no card has been written (in
+    the database), and no import is running. After that an import would replace words someone
     wrote, so it is refused."""
     if not owns_folder() or _import["state"] == "downloading" or setup_done():
         return False
     index = store.read("bot_chats/index", {}) or {}
     if any(isinstance(entry, dict) and entry.get("journal") is True for entry in index.values()):
         return False
-    cards = content_dir() / "_system" / "data" / "cards"
-    return not (cards.is_dir() and any(cards.iterdir()))
+    return not _journal_has_cards()
+
+
+def _journal_has_cards():
+    """True once any card has been written: a row in exo.db's `cards` table,
+    where the journal lives (docs/journal-database.md). An unreadable
+    database counts as written — refusing an import is the safe mistake."""
+    import sqlite3
+
+    import sqlstore
+    try:
+        conn = sqlstore.open_db()
+        try:
+            return conn.execute("SELECT 1 FROM cards LIMIT 1").fetchone() is not None
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return True
 
 
 def start_import(url=None, path=None):

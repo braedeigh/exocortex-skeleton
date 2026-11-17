@@ -49,8 +49,8 @@ so the skeleton works out of the box and carries nothing personal.
 It never crashes a wake: a missing file, an unreadable manifest, or any other
 fault becomes a plain note inside the output, not an error.
 
-Touches: `store.py` (DATA_DIR / CONTENT_DIR), `cardstore.py` and
-`pagestore.py` (the two database mirrors), `tools/stream/stream.py` (the day
+Touches: `store.py` (DATA_DIR / CONTENT_DIR), exo.db's journal tables
+(`cards`, `card_links`), `pagestore.py` (the journal pages' database mirror), `tools/stream/stream.py` (the day
 renderer), `comingup.py` (the Coming up block), `loadrecord.py` (through its
 caller), `claude-commands/journalstart.md` and `scripts/keeper_rollover.py`
 (its two callers), `tests/test_boot_context.py`.
@@ -228,29 +228,27 @@ def card_days(section, root, today):
     `min_days`. A day is laid out by the day-file renderer, so the context
     line, the Keeper's questions, system reminders and the to-do, streak and
     edit markers all stay in time order with the owner's lines."""
-    import cardstore
     import sqlstore
 
     budget = section.get("budget_chars") or DEFAULT_CARD_BUDGET
     least = section.get("min_days") or DEFAULT_MIN_DAYS
-    # Bring the table up to this minute: the hourly sync may be an hour behind.
-    cardstore.sync_fresh(root / "_system" / "data" / "cards")
+    # The cards table is the journal itself (every card is written there the
+    # moment it's said), so it is already up to this minute.
     conn = sqlstore.open_db()
     try:
         days = [row[0] for row in conn.execute(
             "SELECT DISTINCT day FROM cards WHERE deleted_at IS NULL"
-            " AND missing_since IS NULL AND day <= ? ORDER BY day DESC LIMIT ?",
+            " AND day <= ? ORDER BY day DESC LIMIT ?",
             (today.isoformat(), MOST_DAYS))]
         chosen, used = [], 0
         with _journal_engine(root) as stream:
             for day in days:
                 rows = conn.execute(
                     # reply_to lives in card_links now (an `answers` link).
-                    "SELECT id, who, ts, (SELECT to_card FROM card_links l WHERE"
+                    "SELECT id, who, said_at, (SELECT to_card FROM card_links l WHERE"
                     " l.from_card = cards.id AND l.kind = 'answers' LIMIT 1),"
                     " kind, refs, session, body FROM cards"
-                    " WHERE day = ? AND deleted_at IS NULL AND missing_since IS NULL"
-                    " AND ts IS NOT NULL", (day,)).fetchall()
+                    " WHERE day = ? AND deleted_at IS NULL", (day,)).fetchall()
                 day_cards = [stream.Card(
                     id=row[0], who=row[1], ts=row[2], reply_to=row[3],
                     kind=row[4] or "line", refs=json.loads(row[5] or "[]"),

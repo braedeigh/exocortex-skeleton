@@ -4,8 +4,8 @@ utterance becomes a journal card in the owner's own voice.
 The listener is tools/ear/ear.py, running on a separate machine with a
 microphone; it transcribes locally and sends only text. This module touches
 
-  tools/stream/stream.py   record() mints the card (who B = the owner's words)
-  cardstore.py             the SQL mirror of the card pool, echoed right away
+  tools/stream/stream.py   record() mints the card (who B = the owner's words) —
+                           a row in exo.db, so it's searchable the moment it lands
   public_config.py         /api/ear/heard is listed there so the session gate
                            lets a cookie-less machine in; this route then
                            checks the shared secret itself (same pattern as
@@ -58,7 +58,6 @@ from flask import request, jsonify
 
 import json
 
-import cardstore
 import store
 from tools.stream import stream
 
@@ -207,18 +206,7 @@ def _record_reply(reply: str, answering: str, tags: list) -> None:
     exchange is on the record the way it was heard. Best-effort: a failure
     here must not lose the reply on its way to being spoken."""
     try:
-        cid = stream.record(who="K", body=reply, reply_to=answering, tags=tags)
-        _echo_mirror(cid)
-    except Exception:
-        pass
-
-
-def _echo_mirror(cid: str):
-    """Push the new card into the SQL mirror right away. Best-effort, like
-    routes/cards.py: the mirror is derived, the hourly sync catches a miss,
-    and a mirror problem must never lose what was just said."""
-    try:
-        cardstore.sync_one(cid)
+        stream.record(who="K", body=reply, reply_to=answering, tags=tags)
     except Exception:
         pass
 
@@ -242,7 +230,6 @@ def register(app):
             cid = stream.record(who="B", body=body, tags=tags, ts=_parse_heard_at(data.get("heard_at")))
         except stream.StreamError as exc:
             return jsonify({"error": str(exc)}), 400
-        _echo_mirror(cid)
         closed_by = data.get("closed_by") if data.get("closed_by") in ("command", "silence") else None
         answer = {"ok": True, "id": cid, "kind": kind, "closed_by": closed_by, "reply": ""}
         if _route(kind, closed_by) == "earbot":

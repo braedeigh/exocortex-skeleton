@@ -17,8 +17,11 @@ This file stays as a pointer for anyone who finds the old cron line. It does
 nothing and exits 0.
 """
 import sys
+from pathlib import Path
 
 if __name__ == "__main__":
+    # The app folder on the import path, so runtime_sensor (one level up) loads.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     # On the runtime map like every standalone script (runtime_sensor.py), so
     # anything still calling this pointer shows up there.
     import runtime_sensor

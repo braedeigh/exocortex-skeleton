@@ -753,9 +753,9 @@ def _terrain_refresh_history(repos=None):
 # stub), and three days she had written on drew as bare water. A picture of the
 # journal that loses two thirds of it isn't a thumbnail, it's a different shape.
 #
-# So the counts come from the journal instead. `cards` in exo.db is cardstore's
-# one-way mirror of the pool — the same table routes/pond.py draws the real
-# pond from — and one GROUP-BY-shaped read over a month is cheap enough to ride
+# So the counts come from the journal instead. `cards` in exo.db IS the journal
+# (a card is a row there since 2026-11-16) — the same table routes/pond.py
+# draws the real pond from — and one GROUP-BY-shaped read over a month is cheap enough to ride
 # along with a payload that's already cached for five minutes. Sending one
 # timestamp per card (rather than a count) is what keeps the tile BREATHING:
 # terrainGraph runs those through the live heat lens, so each day's colour is
@@ -1416,6 +1416,7 @@ _FLOW_PLACE_RULES = (
     ("vault", "tulku/Journal/", "journal"),
     ("vault", "tulku/tulku-diary/", "journal"),
     ("vault", "tulku/_system/data/cards/", "journal"),
+    ("vault", "data/journal/", "journal"),        # the hourly text export of the journal's rows
     ("vault", "tulku/people/", "journal"),
     ("vault", "tulku/Health/", "journal"),
     ("vault", "tulku/Threads/", "threads"),

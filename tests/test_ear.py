@@ -115,7 +115,6 @@ def test_whisper_silence_signoffs_are_not_worth_keeping():
 @pytest.fixture
 def client(data_dir, tmp_path, monkeypatch):
     monkeypatch.setenv("TULKU_STREAM_ROOT", str(tmp_path / "stream"))
-    monkeypatch.setattr(ear_route.cardstore, "sync_one", lambda cid: None)
     app = Flask(__name__)
     app.config.update(TESTING=True)
     ear_route.register(app)

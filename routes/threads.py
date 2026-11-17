@@ -27,12 +27,15 @@ does (journal:<date> loads in-app, keeper:<path> opens the Files tab):
   - `people/ian.md`     vault file  -> keeper:<path>
   - `tulku/CLAUDE.md`   repo path   -> keeper:<path minus the tulku/ prefix>
 
-When this ever needs queries it can't do per-request, swap the parse for SQLite
-behind these same functions and nothing above the API changes. Until then, YAGNI.
+The thread FILES are parsed per request. The journal CARDS a thread's page and
+inbox show come out of exo.db (`journalcards.py`): a card belongs to a thread
+when it wears the thread's label in `card_labels` (a live row — one taken off
+doesn't count), and each card carries that label's `weight`, `about` (mainly
+this thread) or `touches` (it comes up), so the inbox can rank `about` first.
+See docs/journal-database.md.
 """
 import os
 import re
-from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import request, jsonify
@@ -77,11 +80,6 @@ _TOKEN = re.compile(r"`([^`]+)`")          # backtick-wrapped source tokens
 _ARROW = re.compile(r"\s*[→·]\s*")          # the "→"/"·" source markers
 _BULLET = re.compile(r"^\s*[-*]\s+")
 _WIKILINK = re.compile(r"\[\[([^\]]+)\]\]")  # [[slug]] cross-thread links
-
-# threads-architecture.md §8 step 2: cards live under <content>/_system/data/cards,
-# one file per card, tagged with the thread slugs they belong to. The inbox
-# derives from these — never stored on the thread itself.
-CARDS_SUBDIR = ("_system", "data", "cards")
 
 # --- Day-row excerpts: pre-card-pool journal blobs, mention-windowed --------
 # A bare-day row whose date predates the card pool has no card text to show —
@@ -212,13 +210,6 @@ def _vault():
 
 def _threads_dir():
     return _vault() / THREADS_DIR
-
-
-def _cards_dir():
-    d = _vault()
-    for part in CARDS_SUBDIR:
-        d = d / part
-    return d
 
 
 def _classify_source(tok):
@@ -436,45 +427,40 @@ def backlinks_for(slug):
     return out
 
 
-def _iter_cards():
-    """Every card under _system/data/cards, parsed into a routable dict."""
-    d = _cards_dir()
-    if not d.exists():
-        return
-    for p in sorted(d.glob("*.md")):
-        meta, body = _parse_frontmatter(p.read_text())
-        tags = meta.get("tags", [])
-        if isinstance(tags, str):
-            tags = [tags] if tags else []
-        # Same normalization as routes/cards.py's _card_dict: a missing/blank/
-        # literal-"null" frontmatter value all mean "no parent" -> None.
-        reply_to = meta.get("reply_to")
-        if reply_to in (None, "null", ""):
-            reply_to = None
+def _iter_cards(slug=None):
+    """Every live journal card in exo.db as a routable dict: id, ts, who,
+    text, tags (live labels), reply_to, saved_at, plus `weight` — how the
+    card wears the label `slug` ('about', 'touches', None when unjudged or
+    when it doesn't wear it). Read through journalcards.py, imported here so
+    the rest of this file (the thread files) needs no database."""
+    import journalcards
+    import sqlstore
+
+    conn = sqlstore.open_db()
+    try:
+        rows = journalcards.live_cards(conn)
+        weights = journalcards.labelled(conn, slug) if slug else {}
+    finally:
+        conn.close()
+    for row in rows:
         yield {
-            "id": meta.get("id") or p.stem,
-            "ts": meta.get("ts", ""),
-            "who": meta.get("who", ""),
-            "text": body.strip(),
-            "tags": [t.lower() for t in tags if t],
-            "reply_to": reply_to,
+            "id": row["id"],
+            "ts": row["said_at"] or "",
+            "who": row["who"],
+            "text": (row["body"] or "").strip(),
+            "tags": [t.lower() for t in row["tags"] if t],
+            "reply_to": row["reply_to"],
+            "saved_at": row["saved_at"],
+            "weight": weights.get(row["id"]),
         }
 
 
-def _card_editable(ts):
-    """True iff `ts` ("%Y-%m-%d %H:%M:%S") is well-formed and within the
-    rolling last 24 hours of the SERVER clock — never the client's Date,
-    per house convention. Empty/unparseable ts (or anything older than the
-    cutoff) is not editable. Plain string comparison is safe once both sides
-    share that exact zero-padded shape."""
-    if not ts:
-        return False
-    try:
-        datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        return False
-    cutoff = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
-    return ts >= cutoff
+def _edit_window(card):
+    """A card's 24-hour edit window as (editable, locks_at), from `saved_at`
+    — when the row was written, the clock the database's own lock uses —
+    never from when the words were said, and never from the client's clock."""
+    import journalcards
+    return journalcards.editable(card), journalcards.locks_at(card)
 
 
 def threads_tree(include_retired=False):
@@ -543,24 +529,27 @@ def register(app):
 
     @app.route("/api/thread/<slug>/inbox")
     def thread_inbox(slug):
-        """Cards tagged `<slug>` dated after the thread's `distilled:`
-        watermark (all tagged cards if it has none yet) — the thread's "not
-        yet absorbed" queue, computed per request, never stored."""
+        """Cards labelled `<slug>` dated after the thread's `distilled:`
+        watermark (all labelled cards if it has none yet) — the thread's "not
+        yet absorbed" queue, computed per request, never stored. Ranked
+        `about` first, then `touches`, then not-yet-judged, oldest first
+        inside each; every card carries its `weight`."""
         slug = (slug or "").strip().lower()
         t = threads_index().get(slug)
         if not t:
             return jsonify({"error": "not found", "slug": slug}), 404
         watermark = t.get("distilled")
         cards = []
-        for c in _iter_cards():
+        import journalcards
+        for c in _iter_cards(slug):
             if slug not in c["tags"]:
                 continue
             card_date = c["id"].split(".")[0]
             if watermark and not (card_date > watermark):
                 continue
             cards.append({"id": c["id"], "ts": c["ts"], "who": c["who"],
-                           "text": c["text"], "tags": c["tags"]})
-        cards.sort(key=lambda c: c["id"])
+                           "text": c["text"], "tags": c["tags"], "weight": c["weight"]})
+        cards.sort(key=lambda c: (journalcards.WEIGHT_RANK.get(c["weight"], 2), c["id"]))
         return jsonify({"cards": cards, "distilled": watermark})
 
     @app.route("/api/thread/<slug>/journal")
@@ -574,10 +563,12 @@ def register(app):
         matcher on the client), plus a day row for every bare-day citation.
         Keeper-authored cards (`who: K`) are excluded — the owner's call, 2026-07-20:
         a thread's journal is the owner's record, not the keeper's commentary. Each
-        card entry also carries `reply_to` (the parent card id or null) and
-        `editable` (true iff its ts is within the rolling last 24 hours —
-        see _card_editable), so the client can offer in-place edit/delete on
-        recent cards and a reply-note affordance on older ones.
+        card entry also carries `reply_to` (the parent card id or null),
+        `editable` + `locks_at` (its 24-hour window, from when it was saved —
+        see _edit_window), so the client can offer in-place edit/delete on
+        recent cards and a note on older ones, and `weight` (`about`,
+        `touches`, or null: how it wears this thread's label; null too for a
+        card that's here by mention or citation only).
         Ascending, day rows sorting before that day's cards. A day row for a
         date with no pool card at all also carries `excerpts`: bounded
         mention-windowed snippets pulled from that day's pre-card-pool blob
@@ -588,7 +579,7 @@ def register(app):
         if not t:
             return jsonify({"error": "not found", "slug": slug}), 404
 
-        pool = {c["id"]: c for c in _iter_cards()}
+        pool = {c["id"]: c for c in _iter_cards(slug)}
 
         cards = {}   # id -> pool card dict, insertion order = first-seen
         days = {}    # date -> label, first citing heading wins
@@ -631,10 +622,12 @@ def register(app):
             # never becomes an entry.
             if c["who"] == "K":
                 continue
+            editable, locks_at = _edit_window(c)
             entries.append({
                 "kind": "card", "id": cid, "date": cid.split(".")[0],
                 "ts": c["ts"], "who": c["who"], "text": c["text"],
-                "reply_to": c["reply_to"], "editable": _card_editable(c["ts"]),
+                "reply_to": c["reply_to"], "editable": editable,
+                "locks_at": locks_at, "weight": c["weight"],
             })
         # A day row's excerpts only make sense when the pool has NO card at
         # all for that date (tagged or not) — a date WITH pool cards is

@@ -2,40 +2,32 @@
 
 The behaviors that must not silently break: word endings fold ("bartending"
 finds "bartender"), quoted phrases keep their word order, -words exclude,
-the who/date filters narrow, deleted cards stay out, a card written to disk a
-moment ago is findable without waiting for the hourly mirror, and nothing she
-can type (stray quotes, colons, FTS keywords) turns into a server error.
+the who/date filters narrow, deleted cards stay out, a card saved a moment
+ago is findable at once, a label taken off doesn't show, and nothing she can
+type (stray quotes, colons, FTS keywords) turns into a server error.
 
-Pool files are written by hand in stream.py's exact shape, into an isolated
-vault + exo.db (the same setup as test_cardstore.py).
+Cards are rows in an isolated exo.db (tests/journal_seed.py), or written by
+the real journal engine where the test is about what it does.
 """
-import json
-
 import pytest
 from flask import Flask
 
 import cardsearch
-import cardstore
+import sqlstore
 import store
 from routes import journal_search
+from tests.journal_seed import journaldb, seed_card
 
 
 def _write_card(pool, cid, body, who="B", tags=()):
-    tag_line = f"tags: [{', '.join(tags)}]"
-    (pool / f"{cid}.md").write_text(
-        "---\n"
-        f"id: {cid}\n"
-        f"who: {who}\n"
-        f"ts: {cid[:10]} {cid[11:13]}:{cid[13:15]}:00\n"
-        "reply_to: null\n"
-        f"{tag_line}\n"
-        "kind: line\n"
-        "refs: []\n"
-        "session: null\n"
-        "---\n"
-        f"{body}\n",
-        encoding="utf-8",
-    )
+    """One card as a row in this test's database (`pool` is only the fixture
+    that set the database up)."""
+    conn = sqlstore.open_db()
+    try:
+        seed_card(conn, cid, body, who=who, tags=tags)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @pytest.fixture
@@ -120,18 +112,28 @@ def test_newest_sort_puts_latest_first(pool, client):
     assert _ids(client, q="bartending", sort="newest") == ["2026-09-20.1200b", "2026-09-01.1200b"]
 
 
-def test_a_card_just_written_to_disk_is_found(pool, client):
-    # Nothing has synced the mirror — the route's catch-up must pick it up.
-    _write_card(pool, "2026-09-24.1000b", "fresh line about Poached")
-    assert _ids(client, q="poached") == ["2026-09-24.1000b"]
-
-
 def _engine(pool, monkeypatch):
     """The journal engine, pointed at this test's vault (the card folder's
     grandparent's parent is the content root)."""
     from tools.stream import stream
     monkeypatch.setenv("TULKU_STREAM_ROOT", str(pool.parents[2]))
     return stream
+
+
+def test_a_card_recorded_a_moment_ago_is_found(pool, client, monkeypatch):
+    stream = _engine(pool, monkeypatch)
+    cid = stream.record(who="B", body="fresh line about Poached")
+    assert _ids(client, q="poached") == [cid]
+
+
+def test_a_label_taken_off_is_not_shown_on_the_hit(pool, client):
+    _write_card(pool, "2026-09-18.1746b", "Tate on Instagram", tags=["jobs", "health"])
+    conn = sqlstore.open_db()
+    journaldb.remove_label(conn, "2026-09-18.1746b", "health", "owner")
+    conn.commit()
+    conn.close()
+    hit = client.get("/api/journal/search?q=tate").get_json()["hits"][0]
+    assert hit["tags"] == ["jobs"]
 
 
 def test_deleted_card_is_not_found(pool, client, monkeypatch):

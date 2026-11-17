@@ -2,9 +2,9 @@
 
 Same shape as the other route tests: a minimal Flask app registering only the
 blueprint under test, against an isolated `data_dir`. The difference is the
-fixture — this one builds a throwaway `exo.db` with the two tables cardstore.py
-mirrors the card pool into, so the tests own their data end to end and never
-depend on a synced database being present.
+fixture — this one builds a throwaway `exo.db` with the journal's real tables
+(tools/stream/journaldb.py's own schema) plus the few working-lane tables, so
+the tests own their data end to end.
 
 The behaviour that matters most and is easiest to regress: threads rank by
 SPAN (distinct days touched), not by volume. A tag that fires forty times in
@@ -22,14 +22,6 @@ from routes import pond
 
 
 SCHEMA = """
-CREATE TABLE cards (
-  id TEXT PRIMARY KEY, day TEXT NOT NULL, ts TEXT, who TEXT NOT NULL DEFAULT 'B',
-  kind TEXT, reply_to TEXT, session TEXT, refs TEXT, body TEXT NOT NULL DEFAULT '',
-  first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, deleted_at TEXT,
-  missing_since TEXT);
-CREATE TABLE card_tags (
-  card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-  tag TEXT NOT NULL, PRIMARY KEY (card_id, tag));
 CREATE TABLE sessions (
   id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', bot TEXT, lane TEXT,
   started TEXT, last_at TEXT, is_keeper INTEGER NOT NULL DEFAULT 0);
@@ -59,18 +51,23 @@ CREATE TABLE commit_files (
 @pytest.fixture
 def pond_db(data_dir):
     """A throwaway exo.db, and a helper to put cards in it."""
-    conn = sqlite3.connect(data_dir / "exo.db")
-    conn.executescript(SCHEMA)
+    from tests.journal_seed import journaldb
 
-    def add(cid, day, ts="09:00", who="B", body="", tags=(), deleted=None):
-        conn.execute(
-            "INSERT INTO cards (id, day, ts, who, kind, body, first_seen,"
-            " last_seen, deleted_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (cid, day, ts, who, "note", body, day, day, deleted),
-        )
+    conn = sqlite3.connect(data_dir / "exo.db")
+    journaldb.create_schema(conn)
+    conn.executescript(SCHEMA)
+    context = journaldb.LabelContext(None, None)
+
+    def add(cid, day, ts="09:00", who="B", body="", tags=(), deleted=None, device=None):
+        said_at = f"{day} {ts}:00"
+        journaldb.insert_card(conn, id=cid, who=who, said_at=said_at, body=body,
+                              saved_at=said_at, deleted_at=deleted, device=device,
+                              deleted_by="test" if deleted else None)
         for t in tags:
-            conn.execute("INSERT INTO card_tags (card_id, tag) VALUES (?,?)", (cid, t))
+            journaldb.add_label(conn, cid, t, "test", context)
         conn.commit()
+
+    add.conn = conn
 
     yield add
     conn.close()
@@ -98,6 +95,28 @@ def test_threads_rank_by_days_touched_not_card_count(pond_db, client):
     assert [t["tag"] for t in threads] == ["slow", "busy"]
     assert threads[0]["days"] == 3 and threads[0]["cards"] == 3
     assert threads[1]["days"] == 1 and threads[1]["cards"] == 6
+
+
+def test_a_label_taken_off_draws_nothing(pond_db, client):
+    """The row stays as history, but neither the rail nor a card shows it."""
+    from tests.journal_seed import journaldb
+    pond_db("a", "2026-07-06", tags=["kept", "wrong"])
+    journaldb.remove_label(pond_db.conn, "a", "wrong", "owner")
+    pond_db.conn.commit()
+    rail = client.get("/api/pond/threads").get_json()["threads"]
+    cards = client.get("/api/pond/cards").get_json()["cards"]
+    assert [t["tag"] for t in rail] == ["kept"]
+    assert cards[0]["tags"] == ["kept"]
+    assert client.get("/api/pond/cards?tag=wrong").get_json()["cards"] == []
+
+
+def test_one_card_comes_back_whole(pond_db, client):
+    pond_db("2026-07-06.0900b", "2026-07-06", body="the whole text", tags=["t"],
+            device="phone")
+    card = client.get("/api/pond/card/2026-07-06.0900b").get_json()["card"]
+    assert (card["body"], card["ts"], card["tags"]) == (
+        "the whole text", "2026-07-06 09:00:00", ["t", "via:phone"])
+    assert client.get("/api/pond/card/2026-07-06.0901b").status_code == 404
 
 
 def test_threads_report_their_own_span(pond_db, client):

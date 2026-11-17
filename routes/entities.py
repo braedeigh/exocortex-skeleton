@@ -30,12 +30,11 @@ from flask import request, jsonify
 import store
 
 PEOPLE_DIR = "people"
-# The stream-cards cutover: from this date the journal is a pool of card files
-# tagged with person slugs (keeper in-session, endsession sweep, nightly cards
-# cricket). No cards exist before it — earlier days are plain markdown reachable
-# only by the named scan (journal + people + THREADS/WORRIES).
+# The stream-cards cutover: from this date the journal is cards (rows in exo.db
+# since 2026-11-16, docs/journal-database.md) labelled with person slugs. No
+# cards exist before it — earlier days are plain markdown reachable only by the
+# named scan (journal + people + THREADS/WORRIES).
 CARDS_CUTOVER = "2026-07-06"
-CARDS_GLOB = "_system/data/cards/*.md"
 
 # A "Referenced In" line, wikilinked or bare:
 #   - [[2026-05-10]] (note)   OR   - 2026-02-27 (note)
@@ -282,17 +281,44 @@ def _person_word_re(person):
     return re.compile(r"\b(" + "|".join(re.escape(t) for t in terms) + r")\b", re.IGNORECASE)
 
 
+def _labelled_cards(person):
+    """The live cards wearing this person's label, from exo.db. The label is
+    the stem of their people file (people/sam-okafor.md -> sam-okafor); the
+    first-name key is tried too, for cards labelled before stems were used.
+    Imported here so the rest of this file (the vault parsers) needs no
+    database."""
+    import journalcards
+    import sqlstore
+
+    stem = person["file"].rsplit("/", 1)[-1]
+    stem = stem[:-3] if stem.endswith(".md") else stem
+    slugs = list(dict.fromkeys([stem.lower(), person["id"]]))
+    conn = sqlstore.open_db()
+    try:
+        seen, out = set(), []
+        for slug in slugs:
+            for card in journalcards.cards_labelled(conn, slug):
+                if card["id"] not in seen:
+                    seen.add(card["id"])
+                    out.append(card)
+        return out
+    finally:
+        conn.close()
+
+
 def mention_days(person):
     """Day-by-day mention counts for one person, for the person-page timeline.
 
     Two sources, unioned:
       1. `Journal/Daily/*.md` — word-boundary hits of the name/aliases (same
          regex as find_mentions), one count per day.
-      2. Card files (CARDS_GLOB) from CARDS_CUTOVER on — the cricket tags cards
-         with the person's slug even when it doesn't name them. Each such card
-         adds 1, but only when the card body has NO name/alias hit itself (a
-         named card is already counted by the journal-day scan above; counting
-         it again here would double-count the same reference).
+      2. Journal cards from CARDS_CUTOVER on that wear the person's label
+         (`card_labels` in exo.db, live rows only; the label is their people
+         file's stem, or the first-name key for older tags) — the nightly
+         filing labels cards even when they don't name the person. Each such
+         card adds 1, but only when the card body has NO name/alias hit itself
+         (a named card is already counted by the journal-day scan above;
+         counting it again here would double-count the same reference).
     Structured `entries` dates (from the person's own file) are unioned in last
     at count 1 for any date not already present — a reference the cricket only
     recorded under an alias we don't know to search for.
@@ -317,22 +343,11 @@ def mention_days(person):
             if count:
                 days[date] = days.get(date, 0) + count
 
-        for p in base.glob(CARDS_GLOB):
-            m = _DATE_IN_NAME.search(p.name)
-            if not m:
-                continue
-            date = m.group(1)
+        for card in _labelled_cards(person):
+            date = card["day"]
             if date < CARDS_CUTOVER:
                 continue
-            try:
-                text = p.read_text()
-            except OSError:
-                continue
-            meta, card_body = _parse_frontmatter(text)
-            tags = [t.lower() for t in meta.get("tags", [])]
-            if person["id"] not in tags:
-                continue
-            if word.search(card_body):
+            if word.search(card["body"] or ""):
                 continue  # named — the journal-day scan above already caught it
             days[date] = days.get(date, 0) + 1
 

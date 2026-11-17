@@ -7,8 +7,8 @@ hook: it runs by itself on every message the owner sends, before the agent
 reads it. It looks in the message for the name (or a filed alias) of anyone in
 the vault's `people/` folder or any thread in `Threads/`. For each one it has
 not already loaded in this session, it reads her own journal cards about them
-out of the database (`exo.db`: `cards`, `card_tags`, `tags`, `cards_fts`) and
-prints them. Whatever a hook of this kind prints lands in the agent's context,
+out of the database (`exo.db`: `cards`, `card_labels`, `labels`, `cards_fts`)
+and prints them. Whatever a hook of this kind prints lands in the agent's context,
 so the agent starts its reply already holding the history, without searching.
 
 **How much.** The newest `MENTION_CONTEXT_CARDS` cards (20) about them that
@@ -32,9 +32,9 @@ make room; the cards are. A person with a sheet but nothing new to hand over
 still gets a section holding just the sheet, once. If the table isn't there,
 there is simply no sheet.
 
-**"About them"** means a card tagged with their slug, or a card whose text
-names them. Both, because tagging happens overnight: today's cards about
-someone are not tagged yet.
+**"About them"** means a card wearing their label (a live `card_labels` row —
+one taken off doesn't count), or a card whose text names them. Both, because
+labelling happens overnight: today's cards about someone are not labelled yet.
 
 **Names that can't be trusted as a bare word.** Some names are ordinary words
 (a person called Will, in a journal full of "I will"), and some are shared by
@@ -325,9 +325,8 @@ def matching_cards(conn, entry):
     (row, tagged): the row has id, ts and body; `tagged` is True when the card
     carries the slug, False when only its text names them.
 
-    A card counts when it is tagged with the slug (`card_tags`, or the
-    universal `tags` table under this kind's namespace) or when its text names
-    them. The word index finds text candidates quickly but folds word endings,
+    A card counts when it wears the slug's label (a live row in
+    `card_labels`) or when its text names them. The word index finds text candidates quickly but folds word endings,
     so each untagged candidate is checked again with the whole-word pattern.
     Only trusted terms are matched in text: a weak or shared name counts by
     tag alone. This is the one place that decides "about them"; the hook and
@@ -336,21 +335,17 @@ def matching_cards(conn, entry):
     text_terms = [term for term in entry["terms"] if term.lower() not in untrusted]
     pattern = _term_pattern(text_terms) if text_terms else None
 
-    tagged = {row[0] for row in conn.execute(
-        "SELECT card_id FROM card_tags WHERE tag = ?"
-        " UNION SELECT substr(subject, 6) FROM tags"
-        "  WHERE ns = ? AND tag = ? AND subject LIKE 'card:%'",
-        (entry["slug"], entry["kind"], entry["slug"]))}
+    labelled = ("SELECT cl.card_id FROM card_labels cl JOIN labels l ON l.id = cl.label_id"
+                " WHERE l.slug = ? AND cl.removed_at IS NULL")
+    tagged = {row[0] for row in conn.execute(labelled, (entry["slug"],))}
 
-    sql = ("SELECT c.id, c.ts, c.body FROM cards c"
+    sql = ("SELECT c.id, c.said_at AS ts, c.body FROM cards c"
            " WHERE c.who = 'B' AND c.deleted_at IS NULL"
-           " AND (c.id IN (SELECT card_id FROM card_tags WHERE tag = ?)"
-           "   OR c.id IN (SELECT substr(subject, 6) FROM tags"
-           "               WHERE ns = ? AND tag = ? AND subject LIKE 'card:%')"
+           f" AND (c.id IN ({labelled})"
            + ("   OR c.id IN (SELECT card_id FROM cards_fts WHERE cards_fts MATCH ?)"
               if text_terms else "") +
-           ") ORDER BY c.ts DESC, c.id DESC")
-    rows = conn.execute(sql, [entry["slug"], entry["kind"], entry["slug"]]
+           ") ORDER BY c.said_at DESC, c.id DESC")
+    rows = conn.execute(sql, [entry["slug"]]
                         + ([_fts_query(text_terms)] if text_terms else []))
     for row in rows:
         if row["id"] in tagged:
@@ -363,9 +358,8 @@ def cards_about(conn, entry, record=None):
     """Her newest cards about one person or thread that the session does not
     already have, oldest first, plus how many were left out as already had.
 
-    A card counts when it is tagged with the slug (`card_tags`, or the
-    universal `tags` table under this kind's namespace) or when its text names
-    them. The word index finds text candidates quickly but folds word endings,
+    A card counts when it wears the slug's label (a live row in
+    `card_labels`) or when its text names them. The word index finds text candidates quickly but folds word endings,
     so each untagged candidate is checked again with the whole-word pattern.
     Only trusted terms are matched in text: a weak or shared name counts by
     tag alone.

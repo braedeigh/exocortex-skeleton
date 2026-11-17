@@ -214,6 +214,17 @@ def test_a_thread_loads_by_name_or_alias_from_its_tagged_cards(vault):
     assert "Thread: The Move" in pack and "boxes everywhere" in pack
 
 
+def test_a_label_taken_off_no_longer_loads_the_card(vault):
+    from journal_seed import journaldb
+    conn = sqlstore.open_db()
+    add_card(conn, "2026-03-26.0900b", "packed the kitchen", tags=["the-move"])
+    journaldb.remove_label(conn, "2026-03-26.0900b", "the-move", "owner", "not the move")
+    conn.commit()
+    conn.close()
+    pack = pack_of(send("thinking about moving house"))
+    assert "boxes everywhere" in pack and "packed the kitchen" not in pack
+
+
 def test_only_her_own_words_can_trigger_a_load(vault):
     # A slash command, another agent's message, and the app's appended note
     # all name Robin; none of them is her.

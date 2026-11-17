@@ -322,8 +322,8 @@ def test_the_journal_works_from_an_empty_folder(client, standalone):
              "/api/devnotes/journal", "/api/data"]
     assert {door: client.get(door, headers=LOCAL).status_code for door in doors} == {
         door: 200 for door in doors}
-    # And the hourly job that copies cards into the database runs clean.
-    assert standalone_jobs.run_job(["scripts/update_cards.py"]) == 0
+    # The card went straight into the database: no hourly copy job exists.
+    assert not any("update_cards" in " ".join(job[2]) for job in standalone_jobs.JOBS)
 
 
 def test_waking_the_keeper_opens_one_journaling_session_that_starts_with_setup(

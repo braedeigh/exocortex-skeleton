@@ -76,6 +76,7 @@
       "what": "The Keeper and the journal: capture of every turn as cards, the day view, threads, people and the wiki built over them, search, photos and recordings. Plus media and the ideas page.",
       "modules": [
         "cardstore.py",
+        "journalcards.py",
         "cardsearch.py",
         "recap_summary.py",
         "comingup.py",

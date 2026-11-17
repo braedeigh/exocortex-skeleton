@@ -8,9 +8,9 @@ streaks.json: {"streaks": [{...}]}, one entry per counter:
     id           stable identity (back-filled for legacy label+since entries)
     slug         url/tag-safe name minted from the label; the counter's pool
                  tag is "counter-<slug>" (see notes_tag) — note cells are REAL
-                 journal cards carrying that tag, so they weave into the daily
-                 journal for free and inherit the thread surfaces' rolling
-                 24-hour edit window (routes/threads.py _card_editable)
+                 journal cards carrying that label (rows in exo.db, read through
+                 journalcards.py), so they weave into the daily journal for
+                 free and share the journal's 24-hour edit window
     status       "active" | "retired" (absent = active, back-filled)
     habit_key    optional "section|text" link to a habit (habit_log_key
                  convention); routes/habits.py's rename/move key-rewrite also
@@ -31,7 +31,6 @@ from datetime import datetime
 from flask import request, jsonify
 
 import store
-from routes.entities import _parse_frontmatter
 # Same fire-and-forget day re-render the to-do completion facts use — a retire/
 # un-retire changes what the journal engine weaves into that day.
 from routes.todos import _rerender_days
@@ -170,57 +169,24 @@ def rewrite_habit_links(old_key, new_key):
                 s["habit_key"] = new_key
 
 
-# --- note cells: pool cards tagged counter-<slug> ---------------------------
-
-_CARD_TS_FMT = "%Y-%m-%d %H:%M:%S"
-
-
-def _card_editable(ts):
-    """Rolling last-24-hours edit window, SERVER clock — same rule as
-    routes/threads.py's _card_editable (thread journal cells)."""
-    from datetime import timedelta
-    if not ts:
-        return False
-    try:
-        datetime.strptime(ts, _CARD_TS_FMT)
-    except ValueError:
-        return False
-    cutoff = (datetime.now() - timedelta(hours=24)).strftime(_CARD_TS_FMT)
-    return ts >= cutoff
-
-
-def _pool_dir():
-    return store.CONTENT_DIR.resolve() / "_system" / "data" / "cards"
-
+# --- note cells: journal cards labelled counter-<slug> ----------------------
 
 def _note_cards(tag):
-    """Every B-authored pool card carrying `tag`, ascending by ts. Keeper
-    cards are excluded — same call as the thread journal (her record, not the
-    keeper's commentary)."""
-    pool = _pool_dir()
-    out = []
-    if not pool.exists():
-        return out
-    for p in pool.glob("*.md"):
-        try:
-            text = p.read_text()
-        except OSError:
-            continue
-        meta, body = _parse_frontmatter(text)
-        tags = meta.get("tags", [])
-        if not isinstance(tags, list):
-            tags = [tags] if tags else []
-        if tag not in [str(t).lower() for t in tags]:
-            continue
-        if meta.get("who") == "K":
-            continue
-        ts = meta.get("ts", "")
-        out.append({
-            "id": meta.get("id") or p.stem,
-            "ts": ts,
-            "body": body.strip("\n"),
-            "editable": _card_editable(ts),
-        })
+    """Every one of her cards wearing the label `tag`, ascending by time,
+    each with whether it's still inside its 24 hours. Keeper cards are
+    excluded — same call as the thread journal (her record, not the
+    keeper's commentary). Read from exo.db through journalcards.py, imported
+    here so the rest of this file needs no database."""
+    import journalcards
+    import sqlstore
+
+    conn = sqlstore.open_db()
+    try:
+        rows = journalcards.cards_labelled(conn, tag, who="B")
+    finally:
+        conn.close()
+    out = [{"id": row["id"], "ts": row["said_at"], "body": (row["body"] or "").strip("\n"),
+            "editable": journalcards.editable(row)} for row in rows]
     out.sort(key=lambda c: (c["ts"], c["id"]))
     return out
 

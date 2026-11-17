@@ -1,7 +1,7 @@
 """GET /api/journal/search — the journal search box's door to cardsearch.py.
 
-Reads the query parameters, catches the mirror up on any freshly captured
-cards, runs the search, and answers with JSON. The searching itself (what the
+Reads the query parameters, runs the search over the journal's cards in
+exo.db, and answers with JSON. The searching itself (what the
 query syntax means, how hits are ranked) lives in cardsearch.py.
 
     ?q=      the words (required) — see cardsearch.py for the syntax
@@ -53,13 +53,6 @@ def register(app):
         sort = sort if sort in cardsearch.SORTS else "relevance"
         limit = _int_arg("limit", _DEFAULT_LIMIT, 1, _MAX_LIMIT)
         offset = _int_arg("offset", 0, 0, 1_000_000)
-
-        # Mirror just-captured cards first, so a line said a minute ago is
-        # findable. Best-effort: if the catch-up hiccups, search what's there.
-        try:
-            cardsearch.catch_up()
-        except Exception:
-            app.logger.exception("journal search: catch-up failed")
 
         try:
             result = cardsearch.search(

@@ -64,7 +64,7 @@ def _run_thread(args):
 # ── todo_done: close a to-do off a journal card, with the card as the receipt ─
 # The todos-closer cricket nominates "this card closes to-do X" with a verbatim
 # quote of her line; on Approve the handler below verifies the quote against the
-# actual card ON DISK before anything is written — a fabricated quote cannot
+# actual card in the journal (exo.db) before anything is written — a fabricated quote cannot
 # survive to the record. The close is backdated to the card's moment
 # (finished_on/finished_time), so the day view weaves it next to the entry
 # where she said it. Prompt distilled: "a feature that marks to-dos done for me
@@ -81,26 +81,24 @@ def _squash(text):
 
 
 def _read_card(card_id):
-    """Load one card from the stream pool (same path scheme as routes/cards.py).
-    Returns (day, 'HH:MM', body). Fails loudly on a bad id, a missing card, or
-    an unparseable file — the approval stays queued rather than half-applying."""
+    """Load one live journal card from exo.db (through journalcards.py).
+    Returns (day, 'HH:MM', body). Fails loudly on a bad id, or a card that
+    doesn't exist or was deleted — the approval stays queued rather than
+    half-applying."""
+    import journalcards
+    import sqlstore
+
     if not _CARD_ID_RE.match(card_id):
         raise RuntimeError(f"bad card id: {card_id!r}")
-    path = store.CONTENT_DIR.resolve() / "_system" / "data" / "cards" / f"{card_id}.md"
-    if not path.exists():
+    conn = sqlstore.open_db()
+    try:
+        card = journalcards.read(conn, card_id)
+    finally:
+        conn.close()
+    if card is None:
         raise RuntimeError(f"card not found: {card_id}")
-    text = path.read_text(encoding="utf-8")
-    # The card's ts (to the second) beats the id's minute; fall back to the id.
-    m = re.search(r"^ts:\s*(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})", text, re.MULTILINE)
-    if m:
-        day, hhmm = m.group(1), m.group(2)
-    else:
-        day, hhmm = card_id[:10], f"{card_id[11:13]}:{card_id[13:15]}"
-    # Body = everything after the closing frontmatter fence; if the fence isn't
-    # where we expect, check the quote against the whole file rather than fail.
-    parts = text.split("---", 2)
-    body = parts[2] if len(parts) == 3 else text
-    return day, hhmm, body
+    # The time it was said, to the minute: the moment a closed to-do is backdated to.
+    return card["day"], card["said_at"][11:16], card["body"]
 
 
 def _commit_todo_done(payload):
@@ -243,6 +241,33 @@ def _commit_card_untag(payload):
         capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "card_untag: untag failed")
+
+
+def _keep_card_tag(payload):
+    """Remember a turned-down tag removal by making the label hers.
+
+    Turning down "remove this tag?" says the tag belongs. The journal engine's
+    `tag --by owner` on an agent's label marks the agent's row off and puts
+    hers in its place, and an agent never questions or removes a label she
+    holds — so the same removal is never asked again. Best effort: the deny
+    itself has already happened, and a failure here only means it could be
+    asked once more."""
+    import sys
+
+    card_id = (payload.get("card_id") or "").strip()
+    tag = (payload.get("tag") or "").strip()
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{4}[a-z0-9]*", card_id) \
+            or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", tag):
+        return
+    stream_py = Path(__file__).resolve().parent.parent / "tools" / "stream" / "stream.py"
+    try:
+        subprocess.run(
+            [sys.executable, str(stream_py), "tag", card_id, tag, "--by", "owner",
+             "--reason", "kept: she turned down removing it from the approval queue"],
+            env={**os.environ, "TULKU_STREAM_ROOT": str(store.CONTENT_DIR)},
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def _card_sources(card):
@@ -407,5 +432,8 @@ def register(app):
         if not pid:
             return jsonify({"ok": False, "error": "missing id"}), 400
         with store.mutate(PENDING_FILE, dict(_EMPTY)) as data:
+            change = next((p for p in data["pending"] if p.get("id") == pid), None)
             data["pending"] = [p for p in data["pending"] if p.get("id") != pid]
+        if change and change.get("kind") == "card_untag":
+            _keep_card_tag(change.get("payload") or {})
         return jsonify({"ok": True})
