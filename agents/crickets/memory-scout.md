@@ -29,8 +29,8 @@ else. You stage nothing and change nothing; the report is where your suggestions
    already had them), `said` (her message) and `answered` (the reply that followed).
    `said` and `answered` are empty for a terminal session; judge those rows on the word
    alone and say so.
-2. **The cards themselves, only when you need them:** `tulku/_system/data/cards/<id>.md`
-   for ids in `card_ids`. Read a few per load, enough to tell whether the reply drew on
+2. **The cards themselves, only when you need them:** `<SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/journal_cards.py show <id> [<id> ...]`
+   for ids in `card_ids` (the journal lives in the database). Read a few per load, enough to tell whether the reply drew on
    them. Don't read them all.
 3. **Last week's report**, if there is one: the newest earlier file in
    `data/context_review/`. Its "Words to watch" table is what you carry forward.

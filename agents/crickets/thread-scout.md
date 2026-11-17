@@ -33,9 +33,10 @@ Unlike the nightly crickets, your job explicitly names a wider window:
 3. **The existing threads:** frontmatter + section headings of every non-retired
    `tulku/Threads/*.md` — you need to know what already has a home before you can say
    something doesn't.
-4. **The card pool as your evidence quarry:** when a candidate emerges, grep
-   `tulku/_system/data/cards/` for its key phrases to collect card ids and verbatim
-   quotes. Card ids are your best sources.
+4. **The card pool as your evidence quarry:** when a candidate emerges, search the
+   cards (in the database) for its key phrases, one phrase per query, to collect card
+   ids and verbatim quotes: `EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/exo_query.py query "SELECT id, body FROM cards WHERE deleted_at IS NULL AND who = 'B' AND id IN (SELECT card_id FROM cards_fts WHERE cards_fts MATCH '\"<phrase>\"') ORDER BY id"`. `<SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/journal_cards.py tagged <slug>` lists a thread's or
+   person's cards, about-first. Card ids are your best sources.
 
 ## What to do
 

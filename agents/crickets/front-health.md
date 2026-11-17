@@ -27,7 +27,7 @@ DIRS="--content-dir <VAULT_DIR>/tulku --data-dir <VAULT_DIR>/data"
 ## What to do
 
 1. Read `tulku/Journal/Daily/<TARGET>.md`, and list the day's cards
-   (`tulku/_system/data/cards/<TARGET>.*.md`) — card ids are your best sources.
+   (`<SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/journal_cards.py day <TARGET>` — the journal lives in the database) — card ids are your best sources.
 
 2. **Know what you own.** Read the frontmatter of `tulku/Threads/*.md`: you own a thread
    iff `fronts:` STARTS with `health` and `status:` isn't `retired`. Threads owned by
@@ -56,8 +56,8 @@ DIRS="--content-dir <VAULT_DIR>/tulku --data-dir <VAULT_DIR>/data"
 
 4. **Nominate (propose) — only on a real chorus.** Health material that keeps recurring
    but has no thread:
-   - **Threshold:** grep the card pool (`tulku/_system/data/cards/`) for the topic's
-     key phrases. You need **≥3 cards, on ≥2 distinct days, not all from one session**
+   - **Threshold:** search the cards for the topic's key phrases, one phrase per query:
+     `EXOCORTEX_DATA_DIR=<VAULT_DIR>/data <SKELETON_DIR>/venv/bin/python3 <SKELETON_DIR>/scripts/exo_query.py query "SELECT id, body FROM cards WHERE deleted_at IS NULL AND who = 'B' AND id IN (SELECT card_id FROM cards_fts WHERE cards_fts MATCH '\"<phrase>\"') ORDER BY id"`. You need **≥3 cards, on ≥2 distinct days, not all from one session**
      — and you must be able to name the thread in **one line**. Below that it's a
      passing mention: do nothing.
    - **Gate:** `$THREAD check-slug <slug> $DIRS` — proceed only on `free`. (`denied:*`
