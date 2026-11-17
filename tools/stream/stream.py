@@ -800,7 +800,7 @@ def _rerender_for(ts: str, tags: List[str]) -> None:
 def add_tags(cid: str, tags_to_add: List[str], by: str = "cli", run: Optional[str] = None,
              reason: Optional[str] = None, weight: Optional[str] = None) -> Card:
     """Put labels on a card. The returned card carries `outcomes`: for each
-    tag, 'added', 'already' or 'refused'."""
+    tag, 'added', 'already', 'kept' (the owner took over an agent's label) or 'refused'."""
     if weight not in (None, "about", "touches"):
         raise StreamError("--weight must be 'about' or 'touches'")
     outcomes = _change_labels(cid, lambda conn, slug, context: journaldb.add_label(

@@ -15,7 +15,12 @@ card you leave off a thread's list may never be looked at for that thread.
 ## What your job file holds
 
 - `cards`: every line the owner wrote on the target day, with the tags each already
-  carries. Tags were put there by the nightly tagger or at capture.
+  carries. Tags were put there at capture, by an earlier night, or by tonight's plain
+  name matching (a person whose name is written in the card). Those last ones are not
+  added yet: calling one wrong below stops it.
+- A card may have `note_on`: the older card it is a later note on (`id`, `ts`, `text`,
+  `tags`). Judge the note together with that card — "still true" means nothing
+  without what it is still true of — but the note is the card being judged.
 - `threads`: every live thread — `slug`, `name`, `charter` (the one line of scope a card
   is graded against; may be empty), `aliases`.
 - `people`: every person file — `slug`, `name`, `names` (the words that count as naming
@@ -28,7 +33,7 @@ card you leave off a thread's list may never be looked at for that thread.
    generous: you are choosing candidates, not making the final call. A card may go on
    several threads' lists. Use the charter where there is one; the name and aliases
    where there isn't. A card that is small talk goes on no list.
-2. **Wrong person tags.** For each person tag already on a card, ask whether the card
+2. **Wrong person tags.** For each person tag on a card, ask whether the card
    is really about that person. Report a tag as wrong only when you are sure: the word
    is being used as an ordinary word, or the card is plainly about somebody else.
    **Skip every person whose `has_own_check` is true** — a separate session handles

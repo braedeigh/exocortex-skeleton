@@ -18,6 +18,12 @@ journal, or the card pool. Everything you need is in the job file and the thread
 - `thread_file`: the path of the thread's own file. Read it.
 - `cards`: the candidate cards from `window_start` to `target`. Each has `id`, `ts`,
   `text`, and `tagged` (true when the card already carries this thread's tag).
+  A card may have `note_on`: the older card it is a later note on (`id`, `ts`, `text`,
+  `tags`). Judge the note together with that card — "still true" means nothing
+  without what it is still true of — but the note is the card being judged.
+  A note can land on a thread that has been quiet for months: that is how a quiet
+  thread wakes, and why the note is in your job even when its own words never name
+  the thread.
 - `history`: the thread's own older cards, from before `window_start` (`id`, `ts`,
   `text`, each cut short). They are already judged: do not put them in `belongs` or
   `does_not_belong`. They are there so your summary can cover the whole thread.
@@ -29,8 +35,9 @@ journal, or the card pool. Everything you need is in the job file and the thread
 
 1. **Read the thread file** so you know what the thread is and what it already holds.
 2. **Judge every card against this thread.**
-   - A card that is clearly about the thread goes in `belongs`. List it whether or not
-     it is already tagged.
+   - A card that is clearly about the thread goes in `belongs`, with one plain line
+     saying why — it is kept beside the tag, and the owner reads it when she asks "why
+     is this here?". List the card whether or not it is already tagged.
    - A card with `tagged: true` that is clearly *not* about the thread goes in
      `does_not_belong`, with one plain line saying why. This is a strong claim: the
      owner will be asked to remove the tag. A word that happens to match is the usual
@@ -60,9 +67,10 @@ journal, or the card pool. Everything you need is in the job file and the thread
    - Say what she said and did, and when. No verdicts about her in your own voice:
      not what it means, not what she should do, not what she is really feeling.
 6. **Is it being recorded properly?** Say `ok: false` and list the problems when you
-   see one: cards that belong were untagged, the file is missing something the cards
+   see one: the file is missing something the cards
    have said more than once, the file says something the cards now contradict, or the
-   charter is empty or no longer fits.
+   charter is empty or no longer fits. Never list "cards that belong are untagged":
+   cards arrive without thread tags by design, and adding them is your own job above.
 
 ## The report
 
@@ -70,7 +78,7 @@ Write this JSON, and nothing else, to `report_path`:
 
 ```json
 {
-  "belongs": ["<card id>", "..."],
+  "belongs": [{"card": "<card id>", "reason": "<one plain line>"}],
   "does_not_belong": [{"card": "<card id>", "reason": "<one plain line>"}],
   "facts": [{"section": "<date — heading>", "text": "<three lines at most>", "sources": ["<card id>"]}],
   "movement": [{"text": "<what moved>", "sources": ["<card id>"]}],

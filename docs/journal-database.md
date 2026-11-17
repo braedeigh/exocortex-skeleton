@@ -330,3 +330,52 @@ run; a lock the engine or trigger catches later is a 409 too. A missing card is 
 - Person page: it lists day-level mentions, not cards, so there is no card there to
   hang notes under. When it grows card rows, they can ask `/api/cards/meta`.
 
+
+## What the nightly filing built
+
+For anyone touching the nightly agents. Everything is in `scripts/thread_tending.py`
+(its top block walks the night step by step); the prompts are in the crickets folder
+(`agents/crickets/` here, the vault's `prompts/crickets/` on a live install).
+
+- **Who signs a label.** Session verdicts are filed `added_by = 'thread-tending'`;
+  a person found by plain name matching is filed `'people-cricket'`. `run` is the date
+  tended (`YYYY-MM-DD`), so `added_by` + `run` undoes one night. `reason` is the
+  session's sentence (`belongs` entries are now `{card, reason}`), or `names "<word>"`
+  for a plain match.
+- **People: plain code first.** Every name a person file lists is whole-word matched
+  on the day's cards (links ignored) unless `namerisk` calls it risky. For this caller
+  `namerisk.classify(..., untagged_counts=True)` also calls a common word risky when it
+  names someone never tagged — a new "Will" is not trusted on "will" until someone has
+  judged one. (`mention_context` keeps the old rule.) Risky names keep their own person
+  sessions. The main session sees every plain match as a tag and can stop it, so plain
+  code's blind spot ("Peter" for "Peter Thiel") has a reader. The 2 AM `cards` cricket
+  no longer tags at all: it validates, re-renders and flags.
+- **Nothing is written until every session has spoken.** Verdicts are gathered as
+  claims; the **overlap session** (`card-overlap.md`, replacing the old reconcile)
+  sees each card that will carry two or more weighable labels (thread, person, topic,
+  front — never `source`) with the new claims marked, may drop a new claim (never a
+  label already on), and picks the one `about`; the rest are `touches`. One label →
+  `about`, no session. A failed overlap session leaves every claim standing and those
+  cards unweighed (NULL). Labels already on get their weight in place
+  (`journaldb.set_weight`); an owner's label keeps a weight once it has one.
+  Old cards (before the first night of this) are not back-weighed: their weights stay
+  NULL until a night touches them.
+- **Never put back, never questioned.** A claim on a card where that label was ever
+  taken off is dropped before it is written (stricter than the engine, which refuses
+  only the owner's removals). A removal is proposed only for a live label an agent
+  added and not already in the queue.
+- **"Asked once, ever" lives in the label rows.** Approving a `card_untag` takes the
+  label off (`untag --by owner`). Turning one down now runs `tag --by owner`
+  (`routes/pending.py`), and `journaldb.add_label` by the owner on an agent's live
+  label marks the agent's row off and writes hers in its place (same weight) —
+  returns `kept`. Her label is never proposed again. `state.json`'s `untag_proposed`
+  list is gone: the first night after this moved it over once (a pair still on → hers;
+  a pair gone with no row → a row marked off by her, so nobody re-adds it). The
+  untag backlog file stays, as a waiting line only; what may still be asked comes
+  from the rows.
+- **Notes.** `load_cards` gives each card `note_on` (the older card's id, time, text,
+  tags) from `card_links` kind `note`; every session gets it beside the note. A note
+  whose older card carries a thread counts as activity for that thread, so a dormant
+  thread gets a session the night a note lands on it.
+- **Label status keeps step.** Each night every thread label takes its thread file's
+  status (`journaldb.set_label_status`).

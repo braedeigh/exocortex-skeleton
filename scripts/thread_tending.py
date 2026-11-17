@@ -2,48 +2,73 @@
 """Thread tending — the nightly check that journal cards are filed under the
 right threads and the right people, one isolated session per thread.
 
-**What this does, in plain English.** Every night, after the day's cards have
-been tagged, this script runs a small chain of agent sessions and then applies
-what they found. The script itself makes every write; the sessions only read a
-job file and write a report file.
+**What this does, in plain English.** Every night this script files the
+day's journal cards under the right threads and the right people. Plain code
+does what plain code can; a small chain of agent sessions does the rest. The
+script makes every write; the sessions only read a job file and write a
+report file. The design of record is `docs/journal-database.md` ("The nightly
+filing agents").
 
+0. **People by plain name matching.** Every name a person file lists that is
+   not risky is matched as a whole word on the day's cards. Risky names — a
+   name two people share, or one that is also an ordinary word, or a common
+   word naming someone never tagged yet (`namerisk.py` works out which) — are
+   left to their own sessions (step 3).
 1. **The main session** reads the day's cards beside the list of every thread
    and person. It says which threads the day touched, and which person tags
-   look wrong.
+   look wrong — tonight's name matches included, which then aren't added.
 2. **One thread session per active thread.** A thread is active when a card
    was tagged with it in the last seven days, or the main session says the day
-   touched it, or a card names it. Each session gets only its own thread and
-   that thread's candidate cards, so no other thread colours its judgment. It
-   says which cards belong, which tagged cards don't, what durable fact (if
-   any) the thread file is missing, and what moved.
-3. **One person session per risky name** — a name shared by two people, or a
-   name that is also an ordinary word (`namerisk.py` works out which). It says
-   which person, if any, each card is about.
-4. **The reconcile session** runs only when two or more thread sessions
-   claimed the same card. It sees those cards beside the claiming threads and
-   says which claims stand.
-5. **One status session per thread whose status changed** since the last
+   touched it, or a card names it, or a new card is a note on an older card
+   filed under it (that is how a quiet thread wakes). Each session gets only
+   its own thread and that thread's candidate cards, so no other thread
+   colours its judgment. It says which cards belong (each with a one-sentence
+   reason), which tagged cards don't, what durable fact (if any) the thread
+   file is missing, and what moved.
+3. **One person session per risky name.** It says which person, if any, each
+   card is about.
+4. **The overlap session** sees every card that has two or more labels after
+   tonight, with every label side by side, the new ones marked. It may drop a
+   new claim, and it picks the one label the card is `about`; the rest are
+   `touches`. A card with one label is `about` it without a session.
+5. **One person-sheet session per person who got newly tagged cards.** A
+   nightly refresh, capped at 10 a night. The session sees the person's
+   current fact sheet (if there is one) and the new cards, and reports no
+   change, or a new sheet with the cards it rests on. It runs after tonight's
+   tags are written, so they count.
+6. **One status session per thread whose status changed** since the last
    night: gone dormant, retired, or active again. Whatever changed it (the
    weekly housekeeper, an approval, a hand edit), the script notices by
    comparing each thread file's status with the one it remembered. The
    session reads the thread and writes its summary.
-6. **One person-sheet session per person who got newly tagged cards.** A
-   nightly refresh, capped at 10 a night. The session sees the person's
-   current fact sheet (if there is one) and the new cards, and reports no
-   change, or a new sheet with the cards it rests on. It runs after the
-   person sessions, so a tag they added tonight counts.
+
+A card that is a later note on an older card (a `note` row in `card_links`)
+goes to every session with the older card beside it (`note_on`), so the note
+is judged in its context.
 
 **What gets written, and through which door.**
-- A tag is added with the journal engine's own `tag` verb (`tools/stream/stream.py`).
+- Nothing is tagged until every session has spoken. Then each surviving claim
+  is added with the journal engine's own `tag` verb (`tools/stream/stream.py`)
+  as a row in `card_labels` that says who added it (`thread-tending`, or
+  `people-cricket` for a plain name match), which night (`run` = the date
+  tended, so one night can be undone at once), why (the session's sentence),
+  and its weight. Labels already on a card get their weight set in place.
+- A label once taken off a card is never put back here, and a label the owner
+  added is never questioned: the label rows are the memory.
 - A fact is added to a thread file with the `thread` tool's `add-card`, which
   refuses anything without a source.
 - A tag is never removed here. Each removal is put in the approval queue as a
   `card_untag` item for the owner to approve or deny (`routes/pending.py`
-  applies it). Each card-and-tag pair is proposed once, ever.
+  applies it). Asked once, ever, kept in the label rows: approving takes the
+  label off, and turning it down makes the label hers, which no agent
+  questions again. One already waiting in the queue is not asked twice.
 - Removals found some other way (a review of the people files, say) wait in
   `thread_tending/untag_backlog.json` and are put in the approval queue a few
   a night, after the night's own and under the same nightly cap, so the queue
-  never floods. One whose card has lost the tag already is dropped.
+  never floods. The file is only the waiting line: one whose label is gone or
+  is the owner's is dropped.
+- Each thread's label takes on its thread file's status (active, dormant,
+  retired) every night.
 - What has been judged is remembered in `thread_tending/state.json` in the
   data folder: a "judged through" date per thread and per risky name, so a
   card is examined once and not again every night of the week.
@@ -69,7 +94,8 @@ job file and write a report file.
 
 **Where the prompts are.** Each session is told to read one prompt file from
 the crickets folder (`thread-main.md`, `thread-helper.md`, `person-helper.md`,
-`thread-reconcile.md`, `thread-status.md`, `person-sheet.md`) and its job file. The sessions run one at a time.
+`card-overlap.md`, `thread-status.md`, `person-sheet.md`) and its job file.
+The sessions run one at a time.
 
 Usage:
     thread_tending.py                      tend for yesterday
@@ -95,6 +121,7 @@ import fcntl
 import importlib.util
 import json
 import os
+import re
 import secrets
 import sqlite3
 import subprocess
@@ -106,7 +133,11 @@ from pathlib import Path
 SKELETON = Path(__file__).resolve().parents[1]
 if str(SKELETON) not in sys.path:
     sys.path.insert(0, str(SKELETON))
+# The journal's table code (labels, weights) sits beside the engine.
+if str(SKELETON / "tools" / "stream") not in sys.path:
+    sys.path.insert(0, str(SKELETON / "tools" / "stream"))
 
+import journaldb  # noqa: E402
 import namerisk  # noqa: E402
 import personsheets  # noqa: E402
 import store  # noqa: E402
@@ -140,8 +171,19 @@ MAX_SHEET_SESSIONS = 10
 # The author recorded on a sheet a person-sheet session wrote.
 SHEET_AUTHOR = "cricket:person-sheet"
 # A thread alias shorter than this is not searched for in card text: two
-# letters match too many things.
+# letters match too many things. The same floor holds for a person's names
+# in the plain-code name matching.
 SHORTEST_ALIAS = 3
+# Who a label says added it (card_labels.added_by). The sessions' verdicts
+# are filed as the thread tending; a person found by plain name matching is
+# filed as the people cricket, whose job that used to be.
+TENDING_BY = "thread-tending"
+PEOPLE_BY = "people-cricket"
+# A web address or file path in a card, left out of name matching.
+LINK = re.compile(r"(?:https?://|/opt/|/home/)\S+")
+# Label kinds that say what a card is about, and so get a weight. A `source`
+# label (how a card came in) is never weighed.
+WEIGHED_KINDS = ("thread", "person", "topic", "front")
 
 
 # --- Reading the vault -------------------------------------------------------
@@ -156,15 +198,56 @@ def _stream():
     return module
 
 
+def _connect():
+    """The journal tables in exo.db, opened the way the engine opens them."""
+    return closing(journaldb.connect(journaldb.db_path(store.CONTENT_DIR), create=False))
+
+
 def load_cards():
-    """The owner's own lines from the card pool, oldest first, as plain dicts."""
+    """The owner's own lines from the card pool, oldest first, as plain dicts.
+
+    Besides its words and tags each card carries what the filing needs from
+    the label rows: `labels` ({slug: {kind, by, weight}} for its live labels),
+    `taken_off` (slugs once on this card and taken off — never put back by an
+    agent), and `note_on` (the older card it is a later note on, with that
+    card's text and tags, or None)."""
+    every = _stream().load_all_cards()
+    by_id = {card.id: card for card in every}
+    with _connect() as conn:
+        notes = dict(conn.execute(
+            "SELECT from_card, to_card FROM card_links WHERE kind = 'note' ORDER BY linked_at DESC"))
+        live, taken_off = {}, {}
+        for card_id, slug, kind, added_by, weight, removed_at in conn.execute(
+                "SELECT cl.card_id, l.slug, l.kind, cl.added_by, cl.weight, cl.removed_at"
+                " FROM card_labels cl JOIN labels l ON l.id = cl.label_id ORDER BY cl.id"):
+            if removed_at is None:
+                live.setdefault(card_id, {})[slug] = {"kind": kind, "by": added_by, "weight": weight}
+            else:
+                taken_off.setdefault(card_id, set()).add(slug)
     cards = []
-    for card in _stream().load_all_cards():
-        if card.who == "B" and card.kind == "line":
-            cards.append({"id": card.id, "day": card.id[:10], "ts": card.ts,
-                          "tags": list(card.tags), "body": card.body.strip()})
+    for card in every:
+        if card.who != "B" or card.kind != "line":
+            continue
+        older = by_id.get(notes.get(card.id))
+        cards.append({
+            "id": card.id, "day": card.id[:10], "ts": card.ts,
+            "tags": list(card.tags), "body": card.body.strip(),
+            "labels": live.get(card.id, {}),
+            # A label taken off and then kept by the owner has a live row too:
+            # only what is off now counts as taken off.
+            "taken_off": taken_off.get(card.id, set()) - set(live.get(card.id, {})),
+            "note_on": ({"id": older.id, "ts": older.ts, "text": older.body.strip(),
+                         "tags": list(older.tags)} if older else None),
+        })
     cards.sort(key=lambda card: (card["ts"], card["id"]))
     return cards
+
+
+def label_names():
+    """Every label's kind and name: {slug: {kind, name}}."""
+    with _connect() as conn:
+        return {slug: {"kind": kind, "name": name}
+                for slug, kind, name in conn.execute("SELECT slug, kind, name FROM labels")}
 
 
 def load_threads():
@@ -192,11 +275,13 @@ def thread_statuses():
 
 
 def risky_names(people, today):
-    """Each person's risky names, judged from the database's copy of the
-    cards. With no database only the shared names can be known."""
+    """Each person's risky names, judged from the cards in the database. A
+    common word that names someone never tagged counts as risky too, since
+    every name that isn't risky is tagged by plain matching. With no word
+    index only the shared names can be known."""
     try:
         with closing(sqlite3.connect(f"file:{store.DATA_DIR / 'exo.db'}?mode=ro", uri=True)) as conn:
-            return namerisk.classify(conn, people, today)
+            return namerisk.classify(conn, people, today, untagged_counts=True)
     except sqlite3.Error:
         shared = namerisk.shared_terms(people)
         return {person["slug"]: {"weak": [], "shared": [
@@ -213,17 +298,16 @@ def _work_dir():
 
 def load_state():
     """The memory between nights: `threads` and `names` map a slug or a name
-    to the last day it was judged through; `untag_proposed` lists every
-    card-and-tag removal already put to the owner; `statuses` maps a thread's
-    slug to the status its file had when last looked at; `sheets` maps a
-    person's slug to the last day their fact sheet was judged through."""
+    to the last day it was judged through; `statuses` maps a thread's slug
+    to the status its file had when last looked at; `sheets` maps a person's
+    slug to the last day their fact sheet was judged through. (Which tag
+    removals were already asked is kept in the label rows, not here.)"""
     try:
         state = json.loads((_work_dir() / "state.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         state = {}
     state.setdefault("threads", {})
     state.setdefault("names", {})
-    state.setdefault("untag_proposed", [])
     state.setdefault("statuses", {})
     state.setdefault("sheets", {})
     return state
@@ -235,6 +319,45 @@ def save_state(state):
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(state, indent=1, sort_keys=True), encoding="utf-8")
     temporary.replace(path)
+
+
+def retire_proposed_memory(state, cards_by_id, run):
+    """Move the old "removals already asked" list (state.json's
+    `untag_proposed`) into the label rows, once, then forget it.
+
+    Each pair on the list was put to the owner. One still waiting in the
+    queue is left to the queue. One whose label is still on was turned down:
+    it becomes her own label, the way a turn-down is remembered now. One
+    whose label is gone, with no row to say so, was approved before the
+    journal moved into the database: a row is added and marked off by her, so
+    no agent ever puts it back. Returns what was done, for the digest."""
+    done = []
+    queued = _queued_untags()
+    env = {**os.environ, "TULKU_STREAM_ROOT": str(store.CONTENT_DIR)}
+    for key in state.pop("untag_proposed", []):
+        card_id, _, tag = key.partition("|")
+        card = cards_by_id.get(card_id)
+        if key in queued or not card or not tag:
+            continue
+        if tag in card["labels"]:
+            if card["labels"][tag]["by"] == journaldb.OWNER:
+                continue
+            steps = [["tag", card_id, tag, "--by", journaldb.OWNER,
+                      "--reason", "kept: she turned down removing it from the approval queue"]]
+            what = "kept as hers"
+        elif tag not in card["taken_off"]:
+            steps = [["tag", card_id, tag, "--by", TENDING_BY, "--run", run,
+                      "--reason", "history: on this card before she approved removing it"],
+                     ["untag", card_id, tag, "--by", journaldb.OWNER,
+                      "--reason", "approved from the queue before the journal moved into the database"]]
+            what = "recorded as taken off by her"
+        else:
+            continue
+        for step in steps:
+            subprocess.run([sys.executable, str(STREAM_PY), *step], env=env,
+                           capture_output=True, text=True, timeout=60)
+        done.append({"card": card_id, "tag": tag, "what": what})
+    return done
 
 
 def window_start(target, judged_through):
@@ -257,8 +380,20 @@ def _in_days(cards, first, last):
     return [card for card in cards if first <= card["day"] <= last]
 
 
+def _with_note_context(entry, card):
+    """A card as a session sees it, with the older card it is a note on.
+
+    A note is judged with the card it points at: "still true" means nothing
+    without the thing it is still true of. Only the older card's id, time,
+    text and tags go along."""
+    if card.get("note_on"):
+        entry["note_on"] = card["note_on"]
+    return entry
+
+
 def _card_for_job(card, tagged):
-    return {"id": card["id"], "ts": card["ts"], "text": card["body"], "tagged": tagged}
+    return _with_note_context(
+        {"id": card["id"], "ts": card["ts"], "text": card["body"], "tagged": tagged}, card)
 
 
 def thread_history(cards, slug, before=None):
@@ -273,16 +408,21 @@ def thread_history(cards, slug, before=None):
              for card in kept], len(tagged) - len(kept))
 
 
-def main_job(target, cards, threads, people, risky):
+def main_job(target, cards, threads, people, risky, claims=None):
     """The main session's job: the day's cards beside every thread and person.
-    None when the day has no cards."""
+    A card's `tags` include the people tonight's name matching would add
+    (`claims`), so the main session can call those wrong too. None when the
+    day has no cards."""
     todays = _in_days(cards, target, target)
     if not todays:
         return None
+    claims = claims or {}
     return {
         "target": target.isoformat(),
-        "cards": [{"id": card["id"], "ts": card["ts"], "text": card["body"],
-                   "tags": card["tags"]} for card in todays],
+        "cards": [_with_note_context({"id": card["id"], "ts": card["ts"], "text": card["body"],
+                                      "tags": card["tags"] + [slug for slug in claims.get(card["id"]) or {}
+                                                              if slug not in card["tags"]]}, card)
+                  for card in todays],
         "threads": [{"slug": t["slug"], "name": t["name"], "charter": t["charter"],
                      "aliases": t["aliases"]} for t in threads],
         "people": [{"slug": p["slug"], "name": p["name"], "names": p["terms"],
@@ -295,8 +435,10 @@ def thread_jobs(target, cards, threads, state, main_report):
 
     Active means: a card tagged with the slug in the last WINDOW_DAYS days,
     or the main session says the day touched it, or a card in the unjudged
-    window names it. The job's cards are those three kinds together, from the
-    unjudged window only."""
+    window names it, or is a note on an older card filed under it. The job's
+    cards are those kinds together, from the unjudged window only. A note on
+    an old card is how a dormant thread wakes: the note is new, so the thread
+    gets a session even if nothing else touched it for months."""
     week = _in_days(cards, target - timedelta(days=WINDOW_DAYS - 1), target)
     found_by_main = (main_report or {}).get("threads") or {}
     todays_ids = {card["id"] for card in _in_days(cards, target, target)}
@@ -313,6 +455,7 @@ def thread_jobs(target, cards, threads, state, main_report):
         pattern = namerisk.whole_word(names) if names else None
         chosen = [card for card in unjudged
                   if slug in card["tags"] or card["id"] in from_main
+                  or slug in (card.get("note_on") or {}).get("tags", [])
                   or (pattern and pattern.search(card["body"]))]
         active = chosen or any(slug in card["tags"] for card in week)
         if not active:
@@ -379,8 +522,8 @@ def person_jobs(target, cards, people, risky, state):
             else:
                 named = namerisk.named_midsentence(card["body"], group["term"])
             if tagged or named:
-                chosen.append({"id": card["id"], "ts": card["ts"], "text": card["body"],
-                               "tagged_as": tagged})
+                chosen.append(_with_note_context({"id": card["id"], "ts": card["ts"],
+                                                  "text": card["body"], "tagged_as": tagged}, card))
         jobs.append({
             "state_key": state_key, "name": group["term"], "kind": kind,
             "target": target.isoformat(), "window_start": start.isoformat(),
@@ -429,22 +572,112 @@ def sheet_jobs(target, cards, people, state, newest=personsheets.newest):
     return jobs
 
 
-def contested(thread_reports, jobs):
-    """Cards that two or more thread sessions newly claimed, with the claiming
-    threads: [{id, text, claims: [{slug, name, charter}]}]."""
-    claims, text = {}, {}
-    for job in jobs:
-        report = thread_reports.get(job["slug"])
-        if not report:
+def name_matches(target, cards, people, risky):
+    """The people found by plain code: every card from `target` that names a
+    person by one of their trusted names, as claims {card_id: {slug: claim}}.
+
+    A trusted name is any of a person's names that `namerisk` did not call
+    weak (also an ordinary word) or shared (two people use it), at least
+    SHORTEST_ALIAS letters long, matched as a whole word in any case. Risky
+    names are left to their own person sessions. Links are not read (a name
+    inside a web address is not a mention). A card that already carries the
+    person, or had them taken off, gets no claim. Plain code can't tell
+    "Peter" from "Peter Thiel": the main session sees every match as a tag
+    and can stop it."""
+    claims = {}
+    for person in people:
+        slug = person["slug"]
+        risk = risky.get(slug) or {}
+        untrusted = {term.lower() for term in (risk.get("weak") or []) + (risk.get("shared") or [])}
+        terms = [term for term in person["terms"]
+                 if term.lower() not in untrusted and len(term) >= SHORTEST_ALIAS]
+        if not terms:
             continue
-        untagged = {card["id"]: card for card in job["cards"] if not card["tagged"]}
-        for card_id in report.get("belongs") or []:
-            if card_id in untagged:
-                claims.setdefault(card_id, []).append(
-                    {"slug": job["slug"], "name": job["name"], "charter": job["charter"]})
-                text[card_id] = untagged[card_id]["text"]
-    return [{"id": card_id, "text": text[card_id], "claims": claimed}
-            for card_id, claimed in sorted(claims.items()) if len(claimed) > 1]
+        pattern = namerisk.whole_word(terms)
+        for card in _in_days(cards, target, target):
+            if slug in card["tags"] or slug in card["taken_off"]:
+                continue
+            match = pattern.search(LINK.sub(" ", card["body"]))
+            if match:
+                claims.setdefault(card["id"], {})[slug] = {
+                    "kind": "person", "by": PEOPLE_BY, "reason": f'names "{match.group(0)}"'}
+    return claims
+
+
+def add_claim(claims, card, slug, kind, by, reason):
+    """Record one session's "this card belongs under this label", unless the
+    label is on already or was once taken off this card (never put back)."""
+    if slug in card["labels"] or slug in card["taken_off"]:
+        return False
+    claims.setdefault(card["id"], {}).setdefault(slug, {"kind": kind, "by": by, "reason": reason})
+    return True
+
+
+def overlap_plan(target, cards, claims, names, threads):
+    """Which cards need their labels weighed, and the job for those that
+    need a session.
+
+    A card needs weighing when it gets a new label tonight, or it is one of
+    the target day's cards and one of its labels has no weight yet. With one
+    label the label is `about` and no session is needed. With two or more,
+    the overlap session sees every label side by side, keeps or drops the new
+    ones, and picks the one the card is `about`. Returns (automatic weights
+    {card_id: {slug: weight}}, the session's cards)."""
+    charters = {thread["slug"]: thread["charter"] for thread in threads}
+    todays = {card["id"] for card in _in_days(cards, target, target)}
+    automatic, session_cards = {}, []
+    for card in cards:
+        new = claims.get(card["id"]) or {}
+        old = {slug: label for slug, label in card["labels"].items() if label["kind"] in WEIGHED_KINDS}
+        unweighed = any(label["weight"] is None for label in old.values())
+        if not new and not (card["id"] in todays and unweighed):
+            continue
+        slugs = list(old) + [slug for slug in new if slug not in old]
+        if len(slugs) == 1:
+            automatic[card["id"]] = {slugs[0]: "about"}
+            continue
+        labels = []
+        for slug in slugs:
+            claim, label = new.get(slug), old.get(slug)
+            kind = (claim or label)["kind"]
+            entry = {"slug": slug, "kind": kind,
+                     "name": (names.get(slug) or {}).get("name") or slug, "new": bool(claim)}
+            if kind == "thread":
+                entry["charter"] = charters.get(slug, "")
+            if claim:
+                entry["reason"] = claim["reason"]
+            else:
+                entry["weight"] = label["weight"]
+                entry["owner"] = label["by"] == journaldb.OWNER
+            labels.append(entry)
+        session_cards.append(_with_note_context(
+            {"id": card["id"], "ts": card["ts"], "text": card["body"], "labels": labels}, card))
+    return automatic, session_cards
+
+
+def apply_overlap(session_cards, verdict, claims, automatic):
+    """Turn the overlap session's verdict into weights, and drop the new
+    claims it turned down. Only a new claim can be dropped; a label already
+    on stays (taking one off is the owner's call, through the queue). With
+    no verdict (the session failed) every claim stands and a card with two or
+    more labels stays unweighed. Returns (weights {card_id: {slug: weight}},
+    dropped [{card, tag}])."""
+    weights, dropped = {card_id: dict(found) for card_id, found in automatic.items()}, []
+    for card in session_cards:
+        ruling = ((verdict or {}).get("cards") or {}).get(card["id"]) or {}
+        new = {label["slug"] for label in card["labels"] if label["new"]}
+        for slug in set(ruling.get("drop") or []) & new:
+            (claims.get(card["id"]) or {}).pop(slug, None)
+            dropped.append({"card": card["id"], "tag": slug})
+        still_claimed = claims.get(card["id"]) or {}
+        kept = [label["slug"] for label in card["labels"]
+                if not label["new"] or label["slug"] in still_claimed]
+        about = ruling.get("about")
+        if about not in kept:
+            about = kept[0] if len(kept) == 1 else None
+        if about:
+            weights[card["id"]] = {slug: "about" if slug == about else "touches" for slug in kept}
+    return weights, dropped
 
 
 # --- Running one session -----------------------------------------------------
@@ -481,13 +714,73 @@ def run_session(role, job, night_dir, name, crickets_dir, model, log):
 
 # --- Applying what the sessions found -----------------------------------------
 
-def add_tag(card_id, tag):
-    """Add one tag to one card through the journal engine's own `tag` verb."""
-    result = subprocess.run(
-        [sys.executable, str(STREAM_PY), "tag", card_id, tag],
-        env={**os.environ, "TULKU_STREAM_ROOT": str(store.CONTENT_DIR)},
-        capture_output=True, text=True, timeout=60)
-    return result.returncode == 0, (result.stderr or "").strip()
+def add_tag(card_id, tag, by, run, reason, weight=None):
+    """Put one label on one card through the journal engine's own `tag`
+    verb, signed with who added it, which night, why, and its weight. The
+    engine refuses (and says so) a label the owner took off this card."""
+    command = [sys.executable, str(STREAM_PY), "tag", card_id, tag, "--by", by, "--run", run,
+               "--reason", reason or "no reason given"]
+    if weight:
+        command += ["--weight", weight]
+    result = subprocess.run(command, env={**os.environ, "TULKU_STREAM_ROOT": str(store.CONTENT_DIR)},
+                            capture_output=True, text=True, timeout=60)
+    error = (result.stderr or "").strip()
+    return result.returncode == 0 and "refused:" not in error, error
+
+
+def write_weights(weights, claims):
+    """Set the weight of every label already on a card that the overlap
+    pass weighed (new labels get theirs as they are added). An owner's label
+    that already has a weight keeps it. Returns how many changed."""
+    changed = 0
+    with _connect() as conn:
+        journaldb.begin_immediate(conn)
+        try:
+            for card_id, found in weights.items():
+                for slug, weight in found.items():
+                    if slug in (claims.get(card_id) or {}):
+                        continue
+                    if journaldb.set_weight(conn, card_id, slug, weight, TENDING_BY) == "set":
+                        changed += 1
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    return changed
+
+
+def write_claims(claims, weights, run, apply):
+    """Add every claim that survived the night, each with its weight.
+    Returns [{card, tag, by, weight, ok, error}] for the digest."""
+    tagged = []
+    for card_id, found in sorted(claims.items()):
+        for slug, claim in found.items():
+            weight = (weights.get(card_id) or {}).get(slug)
+            ok, error = (add_tag(card_id, slug, claim["by"], run, claim["reason"], weight)
+                         if apply else (True, ""))
+            tagged.append({"card": card_id, "tag": slug, "by": claim["by"], "weight": weight,
+                           "ok": ok, "error": error})
+    return tagged
+
+
+def sync_label_statuses(statuses, apply):
+    """Bring each thread label's status (active, dormant, retired) in step
+    with its thread file. Returns the slugs that changed."""
+    if not apply:
+        return []
+    changed = []
+    with _connect() as conn:
+        journaldb.begin_immediate(conn)
+        try:
+            for slug, thread in sorted(statuses.items()):
+                if thread["status"] in threadsummaries.STATUSES and journaldb.set_label_status(
+                        conn, slug, thread["status"]):
+                    changed.append(slug)
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    return changed
 
 
 def add_fact(slug, fact):
@@ -502,15 +795,32 @@ def add_fact(slug, fact):
     return result.returncode == 0, (result.stderr or "").strip()
 
 
-def propose_untags(removals, state):
+def _queued_untags():
+    """Every card-and-tag removal waiting in the approval queue now."""
+    queue = store.read("pending_changes", {"pending": []}).get("pending") or []
+    return {f"{item['payload'].get('card_id')}|{item['payload'].get('tag')}"
+            for item in queue if item.get("kind") == "card_untag" and item.get("payload")}
+
+
+def removable(removal, cards_by_id):
+    """True when a removal may be put to the owner: the label is on the card
+    now, an agent put it there (hers are never questioned), and the same
+    removal is not already waiting in the queue.
+
+    This is the "asked once, ever" memory, kept in the label rows: an
+    approved removal takes the label off (nothing left to ask), and a
+    turned-down one makes the label hers (`routes/pending.py`)."""
+    label = ((cards_by_id.get(removal["card_id"]) or {}).get("labels") or {}).get(removal["tag"])
+    return bool(label) and label["by"] != journaldb.OWNER
+
+
+def propose_untags(removals, cards_by_id):
     """Put tag removals in the approval queue, at most MAX_UNTAG_PROPOSALS a
-    night and each card-and-tag pair once ever. Returns (staged, held): held
-    ones were over tonight's cap and will be proposed on a later night."""
-    already = set(state["untag_proposed"])
-    fresh, seen = [], set()
+    night. Returns (staged, held): held ones were over tonight's cap."""
+    queued, fresh, seen = _queued_untags(), [], set()
     for removal in removals:
         key = f"{removal['card_id']}|{removal['tag']}"
-        if key not in already and key not in seen:
+        if key not in queued and key not in seen and removable(removal, cards_by_id):
             seen.add(key)
             fresh.append(removal)
     staged, held = fresh[:MAX_UNTAG_PROPOSALS], fresh[MAX_UNTAG_PROPOSALS:]
@@ -523,7 +833,6 @@ def propose_untags(removals, state):
                     "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "payload": removal,
                 })
-        state["untag_proposed"] = sorted(already | {f"{r['card_id']}|{r['tag']}" for r in staged})
     return staged, held
 
 
@@ -554,41 +863,40 @@ def queue_untags(removals):
     return len(fresh)
 
 
-def drain_untag_backlog(removals, cards, state):
+def drain_untag_backlog(removals, cards_by_id):
     """Tonight's removals with the waiting backlog after them, and the backlog
     as it should be saved once tonight's proposals are made.
 
-    A waiting removal whose card no longer carries the tag, or that was
-    already put to the owner, is dropped from the backlog. The rest go after
-    the night's own removals, so propose_untags's nightly cap decides how
-    many go out tonight; whatever is not staged stays waiting."""
-    tags_by_card = {card["id"]: set(card["tags"]) for card in cards}
-    already = set(state["untag_proposed"])
+    The backlog is only a waiting line; what may still be asked is read from
+    the label rows. A waiting removal whose label is off the card, or is the
+    owner's, or is already in the queue, is dropped. The rest go after the
+    night's own removals, so propose_untags's nightly cap decides how many
+    go out tonight; whatever is not staged stays waiting."""
+    queued = _queued_untags()
     waiting = [item for item in read_untag_backlog()
-               if item.get("tag") in tags_by_card.get(item.get("card_id"), set())
-               and f"{item['card_id']}|{item['tag']}" not in already]
+               if removable(item, cards_by_id) and f"{item['card_id']}|{item['tag']}" not in queued]
     return removals + waiting, waiting
 
 
-def apply_thread_reports(jobs, reports, kept_claims, state, target, apply):
-    """Turn the thread sessions' reports into writes: tags added, at most one
-    fact per thread, and a list of removals to propose. A session can only act
-    on the cards in its own job, and only for its own thread. Returns
-    (tagged, facts, removals, movement) for the digest."""
-    tagged, facts, removals, movement = [], [], [], []
+def read_thread_reports(jobs, reports, cards_by_id, claims, state, target, apply):
+    """Read the thread sessions' reports: claims for the cards that belong,
+    at most one fact per thread (written now), and removals to propose. A
+    session can only act on the cards in its own job, and only for its own
+    thread. Returns (facts, removals, movement) for the digest."""
+    facts, removals, movement = [], [], []
     for job in jobs:
         slug, report = job["slug"], reports.get(job["slug"])
         if report is None:
             continue    # not judged: the same cards are looked at again tomorrow
         by_id = {card["id"]: card for card in job["cards"]}
-        for card_id in report.get("belongs") or []:
+        # A belonging card is an id, or {card, reason} with the session's one sentence.
+        for item in report.get("belongs") or []:
+            card_id = item.get("card") if isinstance(item, dict) else item
+            reason = str(item.get("reason") or "").strip() if isinstance(item, dict) else ""
             card = by_id.get(card_id)
-            if not card or card["tagged"]:
-                continue
-            if card_id in kept_claims and slug not in kept_claims[card_id]:
-                continue    # the reconcile session gave this card to another thread
-            ok, error = add_tag(card_id, slug) if apply else (True, "")
-            tagged.append({"card": card_id, "tag": slug, "ok": ok, "error": error})
+            if card and not card["tagged"] and card_id in cards_by_id:
+                add_claim(claims, cards_by_id[card_id], slug, "thread", TENDING_BY,
+                          reason or f"the {job['name']} session judged it belongs")
         for item in report.get("does_not_belong") or []:
             card = by_id.get((item or {}).get("card"))
             if card and card["tagged"]:
@@ -608,13 +916,13 @@ def apply_thread_reports(jobs, reports, kept_claims, state, target, apply):
                          "recording": report.get("recording") or {}})
         if apply:
             state["threads"][slug] = target.isoformat()
-    return tagged, facts, removals, movement
+    return facts, removals, movement
 
 
-def apply_person_reports(jobs, reports, state, target, apply):
-    """Turn the person sessions' verdicts into writes: the right person's tag
-    added, and any wrong tag from the group listed for removal."""
-    tagged, removals = [], []
+def read_person_reports(jobs, reports, cards_by_id, claims, state, target, apply):
+    """Read the person sessions' verdicts: a claim for the right person, and
+    any wrong tag from the group listed for removal. Returns removals."""
+    removals = []
     for job in jobs:
         report = reports.get(job["state_key"])
         if report is None:
@@ -629,16 +937,16 @@ def apply_person_reports(jobs, reports, state, target, apply):
                 continue
             person = verdict.get("person")
             reason = str(verdict.get("reason") or "").strip()
-            if person in group and person not in card["tagged_as"]:
-                ok, error = add_tag(card["id"], person) if apply else (True, "")
-                tagged.append({"card": card["id"], "tag": person, "ok": ok, "error": error})
+            if person in group and person not in card["tagged_as"] and card["id"] in cards_by_id:
+                add_claim(claims, cards_by_id[card["id"]], person, "person", TENDING_BY,
+                          reason or f'the "{job["name"]}" session judged it is this person')
             for wrong in card["tagged_as"]:
                 if wrong != person:
                     removals.append({"card_id": card["id"], "tag": wrong, "reason": reason,
                                      "card_text": card["text"][:400]})
         if apply:
             state["names"][job["state_key"]] = target.isoformat()
-    return tagged, removals
+    return removals
 
 
 def apply_sheet_reports(jobs, reports, state, target, apply):
@@ -751,21 +1059,27 @@ def _store_summary(slug, summary, based_on, status, apply):
     return done if row else None
 
 
-def main_removals(main_report, cards, target, people, risky):
-    """The person tags the main session called wrong, as removals to propose.
-    Only real person tags on the day's own cards count, and risky names are
-    left to their own session."""
+def main_people_verdicts(main_report, cards, target, people, risky, claims):
+    """The person tags the main session called wrong. A tag tonight's name
+    matching only proposed is simply not added; a real tag becomes a removal
+    to propose. Only person tags on the day's own cards count, and risky
+    names are left to their own session. Returns (removals, vetoed)."""
     todays = {card["id"]: card for card in _in_days(cards, target, target)}
     slugs = {person["slug"] for person in people} - set(risky)
-    removals = []
+    removals, vetoed = [], []
     for item in (main_report or {}).get("people_wrong") or []:
         card = todays.get((item or {}).get("card"))
         tag = (item or {}).get("tag")
-        if card and tag in slugs and tag in card["tags"]:
-            removals.append({"card_id": card["id"], "tag": tag,
-                             "reason": str(item.get("reason") or "").strip(),
+        if not card or tag not in slugs:
+            continue
+        reason = str(item.get("reason") or "").strip()
+        if tag in (claims.get(card["id"]) or {}):
+            claims[card["id"]].pop(tag)
+            vetoed.append({"card": card["id"], "tag": tag, "reason": reason})
+        elif tag in card["tags"]:
+            removals.append({"card_id": card["id"], "tag": tag, "reason": reason,
                              "card_text": card["body"][:400]})
-    return removals
+    return removals, vetoed
 
 
 def save_hints(main_report, cards, target, apply):
@@ -811,8 +1125,20 @@ def write_digest(night_dir, target, outcome):
             {"date": target.isoformat(), **entry}, indent=1), encoding="utf-8")
     lines.append("## What was written")
     for item in outcome["tagged"]:
-        lines.append(f"- tagged `{item['card']}` with `{item['tag']}`"
+        weight = f", {item['weight']}" if item.get("weight") else ""
+        lines.append(f"- tagged `{item['card']}` with `{item['tag']}` ({item['by']}{weight})"
                      + ("" if item["ok"] else f" — FAILED: {item['error']}"))
+    for item in outcome["dropped"]:
+        lines.append(f"- not tagged, the overlap pass turned it down: `{item['tag']}` on `{item['card']}`")
+    for item in outcome["vetoed"]:
+        lines.append(f"- not tagged, the main session said it isn't them: `{item['tag']}` on"
+                     f" `{item['card']}` — {item['reason']}")
+    if outcome["reweighed"]:
+        lines.append(f"- weighed {outcome['reweighed']} label(s) already on cards (about / touches)")
+    for slug in outcome["relabeled"]:
+        lines.append(f"- the `{slug}` label now has its thread file's status")
+    for item in outcome["retired"]:
+        lines.append(f"- from the old asked-once list: `{item['tag']}` on `{item['card']}` {item['what']}")
     for item in outcome["facts"]:
         lines.append(f"- fact added to `{item['slug']}`: {item['fact'].get('section')}"
                      + ("" if item["ok"] else f" — REFUSED: {item['error']}"))
@@ -847,10 +1173,17 @@ def sheets_enabled():
 
 def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=False,
          apply=True, only_thread=None, session=run_session, out=print):
-    """Run one night's tending for `target` and return what happened."""
+    """Run one night's tending for `target` and return what happened.
+
+    Nothing is written to a card until every session has spoken: the
+    sessions' verdicts are gathered as claims, the overlap pass weighs each
+    card's labels, and only then are the claims added, each with who, which
+    night, why and its weight."""
     cards, threads, people = load_cards(), load_threads(), namerisk.all_people()
+    cards_by_id = {card["id"]: card for card in cards}
     risky = risky_names(people, target + timedelta(days=1))
     state = load_state()
+    run = target.isoformat()
     night_dir = _work_dir() / target.isoformat()
 
     def log(message):
@@ -858,11 +1191,17 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
             with open(night_dir / "log.txt", "a", encoding="utf-8") as handle:
                 handle.write(f"{datetime.now():%H:%M:%S} {message}\n")
 
-    job = None if only_thread else main_job(target, cards, threads, people, risky)
+    # The people found by plain code: every trusted name on the day's cards.
+    claims = {} if only_thread else name_matches(target, cards, people, risky)
+    job = None if only_thread else main_job(target, cards, threads, people, risky, claims)
     if dry_run:
         plan_threads = thread_jobs(target, cards, threads, state, None)
         plan_people = person_jobs(target, cards, people, risky, state)
         out(f"target {target}: {len(job['cards']) if job else 0} card(s) for the main session")
+        out("people by plain name matching:")
+        for card_id, found in sorted(claims.items()):
+            for slug, claim in found.items():
+                out(f"  {card_id}  {slug:24s} {claim['reason']}")
         out("thread sessions (before the main session adds what it finds):")
         for item in plan_threads:
             out(f"  {item['slug']:32s} from {item['window_start']}  {len(item['cards'])} card(s)")
@@ -873,13 +1212,18 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
         out("person-sheet sessions:")
         for item in plan_sheets:
             out(f"  {item['slug']:32s} from {item['window_start']}  {len(item['cards'])} card(s)")
-        return {"threads": plan_threads, "people": plan_people, "sheets": plan_sheets}
+        return {"threads": plan_threads, "people": plan_people, "sheets": plan_sheets, "names": claims}
 
     night_dir.mkdir(parents=True, exist_ok=True)
+    retired = retire_proposed_memory(state, cards_by_id, run) if apply else []
+    if retired:
+        cards = load_cards()        # the old memory changed label rows: read them again
+        cards_by_id = {card["id"]: card for card in cards}
     failed = []
     main_report = session("thread-main", job, night_dir, "main", crickets_dir, main_model, log) if job else None
     if job and main_report is None:
         failed.append("main")
+    main_removals, vetoed = main_people_verdicts(main_report, cards, target, people, risky, claims)
 
     jobs = thread_jobs(target, cards, threads, state, main_report)
     if only_thread:
@@ -895,20 +1239,6 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
             failed.append(f"thread {item['slug']}")
         reports[item["slug"]] = report
 
-    # The reconcile session: only for cards two or more thread sessions claimed.
-    kept_claims = {}
-    disputes = contested(reports, jobs)
-    if disputes:
-        verdict = session("thread-reconcile", {"target": target.isoformat(), "cards": disputes},
-                          night_dir, "reconcile", crickets_dir, main_model, log)
-        if verdict is None:
-            failed.append("reconcile")      # every claim stands: a card may carry several tags
-        else:
-            for card in disputes:
-                keep = (verdict.get("keep") or {}).get(card["id"])
-                if isinstance(keep, list):
-                    kept_claims[card["id"]] = set(keep) & {claim["slug"] for claim in card["claims"]}
-
     people_jobs = [] if only_thread else person_jobs(target, cards, people, risky, state)
     people_reports = {}
     for item in people_jobs:
@@ -922,19 +1252,33 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
         else:
             people_reports[item["state_key"]] = report
 
-    tagged, facts, removals, movement = apply_thread_reports(
-        jobs, reports, kept_claims, state, target, apply)
-    people_tagged, people_removals = apply_person_reports(
-        people_jobs, people_reports, state, target, apply)
+    facts, removals, movement = read_thread_reports(
+        jobs, reports, cards_by_id, claims, state, target, apply)
+    removals += read_person_reports(people_jobs, people_reports, cards_by_id, claims, state, target, apply)
     summaries = save_summaries(jobs, reports, facts, apply)
+
+    # The overlap pass: one session sees every label on each card that has
+    # two or more, keeps or drops the new ones, and picks the one it is about.
+    automatic, overlap_cards = overlap_plan(target, cards, claims, label_names(), threads)
+    verdict = None
+    if overlap_cards:
+        verdict = session("card-overlap", {"target": target.isoformat(), "cards": overlap_cards},
+                          night_dir, "overlap", crickets_dir, main_model, log)
+        if verdict is None:
+            failed.append("overlap")        # every claim stands, unweighed
+    weights, dropped = apply_overlap(overlap_cards, verdict, claims, automatic)
+
+    # The writes: every surviving claim with its weight, then the weights of
+    # labels already on.
+    tagged = write_claims(claims, weights, run, apply)
+    reweighed = write_weights(weights, claims) if apply else 0
 
     # The person-sheet sessions: one per person with newly tagged cards. Tags
     # added tonight are folded into the in-memory cards first (only when they
     # were really written), so they count without re-reading the pool.
     if apply:
-        by_card = {card["id"]: card for card in cards}
-        for item in tagged + people_tagged:
-            card = by_card.get(item["card"])
+        for item in tagged:
+            card = cards_by_id.get(item["card"])
             if item["ok"] and card and item["tag"] not in card["tags"]:
                 card["tags"].append(item["tag"])
     sheet_plan = [] if only_thread or not sheets_enabled() else sheet_jobs(target, cards, people, state)
@@ -947,7 +1291,8 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
         sheet_reports[item["slug"]] = report
     sheets = apply_sheet_reports(sheet_plan, sheet_reports, state, target, apply)
 
-    # The status sessions: one per thread whose status changed since last night.
+    # The status sessions: one per thread whose status changed since last
+    # night. Each thread's label takes on its file's status too.
     statuses = thread_statuses()
     changed = [] if only_thread else status_jobs(target, cards, statuses, state)
     status_reports = {}
@@ -959,24 +1304,28 @@ def tend(target, crickets_dir, model="sonnet", main_model="sonnet", dry_run=Fals
         status_reports[item["slug"]] = report
     if not only_thread:
         summaries += save_status_summaries(changed, status_reports, statuses, state, apply)
-    removals = removals + people_removals + main_removals(main_report, cards, target, people, risky)
-    # The backlog waits behind the night's own removals, under the same cap.
-    removals, waiting = drain_untag_backlog(removals, cards, state)
-    staged, held = propose_untags(removals, state) if apply else ([], removals)
+    relabeled = sync_label_statuses(statuses, apply and not only_thread)
+
+    # The removals: the night's own first, then the backlog, under one cap.
+    removals, waiting = drain_untag_backlog(removals + main_removals, cards_by_id)
+    staged, held = propose_untags(removals, cards_by_id) if apply else ([], removals)
     if apply:
-        proposed = set(state["untag_proposed"])
+        asked = {f"{item['card_id']}|{item['tag']}" for item in staged}
         write_untag_backlog([item for item in waiting
-                             if f"{item['card_id']}|{item['tag']}" not in proposed])
+                             if f"{item['card_id']}|{item['tag']}" not in asked])
     hints = save_hints(main_report, cards, target, apply)
     if apply:
         save_state(state)
-    outcome = {"target": target.isoformat(), "tagged": tagged + people_tagged, "facts": facts,
+    outcome = {"target": target.isoformat(), "run": run, "tagged": tagged, "facts": facts,
                "staged": staged, "held": held, "movement": movement, "failed": failed,
-               "hints": hints, "summaries": summaries, "sheets": sheets, "applied": apply}
+               "hints": hints, "summaries": summaries, "sheets": sheets, "applied": apply,
+               "dropped": dropped, "vetoed": vetoed, "reweighed": reweighed,
+               "relabeled": relabeled, "retired": retired}
     write_digest(night_dir, target, outcome)
     (night_dir / "outcome.json").write_text(json.dumps(outcome, indent=1), encoding="utf-8")
     out(f"thread tending {target}: {len(jobs)} thread(s), {len(people_reports)} name(s),"
-        f" {len(outcome['tagged'])} tag(s), {len(facts)} fact(s), {len(staged)} removal(s) asked,"
+        f" {len(tagged)} tag(s), {reweighed} reweighed, {len(facts)} fact(s),"
+        f" {len(staged)} removal(s) asked,"
         f" {sum(1 for item in sheets if item['ok'] and item['changed'])} sheet(s),"
         f" {len(failed)} failed — {night_dir / 'digest.md'}")
     return outcome
@@ -988,7 +1337,7 @@ def main(argv=None):
     parser.add_argument("--crickets-dir", default=os.environ.get(
         "EXOCORTEX_CRICKETS_DIR", str(SKELETON / "agents" / "crickets")))
     parser.add_argument("--model", default="sonnet", help="model for the thread and person sessions")
-    parser.add_argument("--main-model", default="sonnet", help="model for the main and reconcile sessions")
+    parser.add_argument("--main-model", default="sonnet", help="model for the main and overlap sessions")
     parser.add_argument("--dry-run", action="store_true", help="print the plan; run and write nothing")
     parser.add_argument("--no-apply", action="store_true", help="run the sessions but apply nothing")
     parser.add_argument("--only-thread", help="run only this thread's session")
@@ -1013,4 +1362,8 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    # Put this run on the runtime map (runtime_sensor.py), same as the other
+    # standalone scripts.
+    import runtime_sensor
+    runtime_sensor.attach()
     sys.exit(main())

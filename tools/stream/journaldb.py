@@ -501,12 +501,28 @@ def label_id(conn, slug: str, context: LabelContext) -> int:
 def add_label(conn, card_id: str, slug: str, by: str, context: LabelContext,
               run: Optional[str] = None, reason: Optional[str] = None,
               weight: Optional[str] = None, added_at: Optional[str] = None) -> str:
-    """Put a label on a card. Returns 'added', 'already' (it's on), or
+    """Put a label on a card. Returns 'added', 'already' (it's on), 'kept'
+    (the owner put her hand on a label an agent added: it is hers now), or
     'refused' — the owner took this label off this card, and only the
     owner's own hand may put it back (rule 7 of the design)."""
     lid = label_id(conn, slug, context)
-    if conn.execute("SELECT 1 FROM card_labels WHERE card_id = ? AND label_id = ?"
-                    " AND removed_at IS NULL", (card_id, lid)).fetchone():
+    live = conn.execute("SELECT id, added_by, run, reason, weight FROM card_labels"
+                        " WHERE card_id = ? AND label_id = ? AND removed_at IS NULL",
+                        (card_id, lid)).fetchone()
+    # The owner keeping an agent's label makes it hers. The agent's row is
+    # marked off (it stays as history) and her own row takes its place with
+    # the same weight, so no agent can ever propose taking it off again. This
+    # is how a turned-down removal in the approval queue is remembered.
+    if live and by == OWNER and live[1] != OWNER:
+        stamp = added_at or now_text()
+        conn.execute("UPDATE card_labels SET removed_at = ?, removed_by = ?, removed_why = ?"
+                     " WHERE id = ?", (stamp, OWNER, "kept by the owner: now her own label", live[0]))
+        conn.execute(
+            "INSERT INTO card_labels (card_id, label_id, added_by, run, reason, weight, added_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (card_id, lid, OWNER, run, reason or live[3], weight or live[4], stamp))
+        return "kept"
+    if live:
         return "already"
     if by != OWNER and conn.execute(
             "SELECT 1 FROM card_labels WHERE card_id = ? AND label_id = ?"
@@ -534,6 +550,34 @@ def remove_label(conn, card_id: str, slug: str, by: str, why: Optional[str] = No
     conn.execute("UPDATE card_labels SET removed_at = ?, removed_by = ?, removed_why = ? WHERE id = ?",
                  (removed_at or now_text(), by, why, row[0]))
     return "removed"
+
+
+def set_weight(conn, card_id: str, slug: str, weight: str, by: str) -> str:
+    """Mark a live label `about` (the card is mainly this) or `touches` (it
+    comes up). Returns 'set', 'same', 'absent' (the label isn't on), or
+    'refused': an agent may fill in the weight of a label the owner added
+    while it is still unjudged, but never change one already set."""
+    if weight not in ("about", "touches"):
+        raise ValueError(f"weight must be 'about' or 'touches', not {weight!r}")
+    row = conn.execute(
+        "SELECT cl.id, cl.added_by, cl.weight FROM card_labels cl JOIN labels l ON l.id = cl.label_id"
+        " WHERE cl.card_id = ? AND l.slug = ? AND cl.removed_at IS NULL", (card_id, slug)).fetchone()
+    if row is None:
+        return "absent"
+    if row[2] == weight:
+        return "same"
+    if row[1] == OWNER and row[2] is not None and by != OWNER:
+        return "refused"
+    conn.execute("UPDATE card_labels SET weight = ? WHERE id = ?", (weight, row[0]))
+    return "set"
+
+
+def set_label_status(conn, slug: str, status: str) -> bool:
+    """Bring a label's status (active, dormant, retired) in step with its
+    thread file. True when it changed; a slug with no label is left alone."""
+    cursor = conn.execute("UPDATE labels SET status = ? WHERE slug = ? AND status != ?",
+                          (status, slug, status))
+    return cursor.rowcount > 0
 
 
 # --------------------------------------------------------------------------------

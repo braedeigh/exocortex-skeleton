@@ -14,11 +14,11 @@ names have one of those problems:
 
 Two callers use the answer. `tools/mention_context.py` stops loading cards on a
 bare text match for these names. `scripts/thread_tending.py` gives each of them
-its own nightly check.
+its own nightly check, and tags every other name by plain whole-word matching.
 
 It reads the people files through the app's own person parser
-(`routes/entities.py`) and the cards out of `exo.db` (`cards`, `card_tags`,
-`cards_fts`). It writes nothing.
+(`routes/entities.py`) and the cards out of `exo.db` (`cards`, `card_labels` +
+`labels` — live rows only — and `cards_fts`). It writes nothing.
 
 Prompt: "I want it to judge if people being threaded actually match that
 thread or if the organizer is making false conclusions. Like it tags this guy
@@ -96,7 +96,7 @@ def shared_terms(people):
     return {term for term, slugs in owners.items() if len(slugs) > 1}
 
 
-def _tagged_share(conn, slug, term, before):
+def _tagged_share(conn, slug, term, before, untagged_counts=False):
     """How many settled cards contain `term` as a whole word, and how many of
     those carry this person's tag. The word index narrows the search; each
     candidate is checked again with the whole-word pattern because the index
@@ -104,12 +104,18 @@ def _tagged_share(conn, slug, term, before):
 
     Only cards from the day of this person's first tag onward are counted.
     Before that day the tagger didn't know the person, so an untagged card
-    from then is not a verdict. A person never tagged gives (0, 0)."""
+    from then is not a verdict. A person never tagged gives (0, 0), unless
+    `untagged_counts`: then every card using the word counts and none is
+    tagged, so a word common in the journal comes out weak until the tagger
+    shows it is a name."""
+    # Her cards wearing this person's label now (live rows: a label taken off
+    # isn't a verdict that the card is about them).
     tagged = {row[0] for row in conn.execute(
-        "SELECT card_id FROM card_tags WHERE tag = ?", (slug,))}
-    if not tagged:
+        "SELECT cl.card_id FROM card_labels cl JOIN labels l ON l.id = cl.label_id"
+        " WHERE l.slug = ? AND cl.removed_at IS NULL", (slug,))}
+    if not tagged and not untagged_counts:
         return 0, 0
-    since = min(tagged)[:10]
+    since = min(tagged)[:10] if tagged else "0000-00-00"
     pattern = whole_word([term])
     query = '"' + term.replace('"', '""') + '"'
     rows = conn.execute(
@@ -121,9 +127,14 @@ def _tagged_share(conn, slug, term, before):
     return len(hits), sum(1 for card_id in hits if card_id in tagged)
 
 
-def classify(conn, people=None, today=None):
+def classify(conn, people=None, today=None, untagged_counts=False):
     """Each person's risky names: {slug: {"weak": [...], "shared": [...]}}.
-    People with neither are left out. `conn` is a connection to exo.db."""
+    People with neither are left out. `conn` is a connection to exo.db.
+
+    `untagged_counts`: a person never tagged has their common names called
+    weak too. The nightly plain-code name matching asks for this, because it
+    trusts every name that isn't risky — a new person called Will must not be
+    tagged on every "will" before anyone has judged one."""
     people = all_people() if people is None else people
     today = today or date.today()
     before = (today - timedelta(days=SETTLE_DAYS)).isoformat()
@@ -132,7 +143,7 @@ def classify(conn, people=None, today=None):
     for person in people:
         weak = []
         for term in person["terms"]:
-            hits, tagged = _tagged_share(conn, person["slug"], term, before)
+            hits, tagged = _tagged_share(conn, person["slug"], term, before, untagged_counts)
             if hits >= WEAK_MIN_HITS and tagged / hits < WEAK_MAX_TAGGED_SHARE:
                 weak.append(term)
         own_shared = [term for term in person["terms"] if term.lower() in shared]

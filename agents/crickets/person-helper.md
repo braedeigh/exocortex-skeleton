@@ -17,6 +17,9 @@ none of them.
   appear.
 - `cards`: the candidate cards, each with `id`, `ts`, `text`, and `tagged_as` (which of
   these people the card is tagged with now).
+- A card may have `note_on`: the older card it is a later note on (`id`, `ts`, `text`,
+  `tags`). Judge the note together with that card — "still true" means nothing
+  without what it is still true of — but the note is the card being judged.
 - `report_path`: where to write your report.
 
 ## What to do
