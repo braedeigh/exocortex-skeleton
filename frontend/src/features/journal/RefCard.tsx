@@ -1,3 +1,13 @@
+/**
+ * A "ref" card: the Keeper's annotation pointing at other days or vault files
+ * ("↳ ref"), shown as its words plus a chip per target — a date chip jumps to
+ * that journal day, a person chip opens the person popover (refTargets.ts
+ * sorts the targets). Inside its 24 hours it has a pencil for editing or
+ * deleting, like any card; after that it's read-only.
+ *
+ * Touches: `CardStream.tsx` (which lays it out among the entries),
+ * `refTargets.ts`, `markdown.ts` + `entityHighlight.ts`.
+ */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, IconButton, Sheet } from '../../ui';
 import type { EntityMatcher } from './entityHighlight';
@@ -86,7 +96,9 @@ export function RefCard({
       <div className={styles.meta}>
         <span className={styles.label}>&#8627; ref</span>
         <span className={styles.spacer} />
-        {!editing ? (
+        {/* Past its 24 hours a reference can't be changed (the server
+            refuses too), so the pencil goes. */}
+        {!editing && card.editable !== false ? (
           <IconButton aria-label="Edit reference" onClick={() => onEdit(card.id)} data-track="card-edit">
             &#9998;
           </IconButton>

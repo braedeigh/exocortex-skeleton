@@ -18,6 +18,8 @@ import {
   searchJournal,
   updateCard,
   addCard,
+  addNote,
+  getCardsMeta,
   deleteCard as deleteCardRequest,
   tagCard,
   untagCard,
@@ -266,7 +268,12 @@ export function useUpdateCard(date: string, onError: (message: string) => void) 
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; body: string }) => updateCard(vars.id, vars.body),
-    onError: (err) => onError(errorMessage(err, 'Save failed')),
+    onError: (err) => {
+      onError(errorMessage(err, 'Save failed'));
+      // A refusal usually means the card's 24 hours ran out while it was
+      // open: refetch so it shows as locked, with "+ note" in place of edit.
+      void queryClient.invalidateQueries({ queryKey: journalDayKey(date) });
+    },
     onSuccess: (_card, vars) => {
       void queryClient.invalidateQueries({ queryKey: journalDayKey(date) });
       // The save added a version to the entry's edit history.
@@ -287,22 +294,52 @@ export function useAddCard(date: string, onError: (message: string) => void) {
 }
 
 /**
+ * A later note on a card from the journal day page — a new card said now,
+ * on today's page, linked to the old one (routes/cards.py /api/cards/note).
+ * Refreshes the old card's day (its "N notes added later" row) and today's
+ * page (where the note itself lands).
+ */
+export function useAddNote(date: string, today: string | null, onError: (message: string) => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { on: string; body: string }) => addNote(vars.on, vars.body),
+    onError: (err) => onError(errorMessage(err, "Couldn't save the note")),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: journalDayKey(date) });
+      if (today && today !== date) void queryClient.invalidateQueries({ queryKey: journalDayKey(today) });
+    },
+  });
+}
+
+/** The edit window and later notes for the cards a page shows off their own
+ * day (routes/cards.py /api/cards/meta) — the thread page asks for its cards'.
+ * Idle until there are ids. */
+export function useCardsMeta(ids: string[]) {
+  return useQuery({
+    queryKey: ['journal', 'cardsMeta', ids],
+    queryFn: ({ signal }) => getCardsMeta(ids, signal),
+    enabled: ids.length > 0,
+  });
+}
+
+/**
  * Adds a card tagged with `slug` so it appears in that thread's journal
  * stream — the composer on /threads/$slug, and the per-card "+ note" mini-
- * composer (which passes `replyTo` so the new card mints as a reply to an
- * older, non-editable card instead of a bare top-level entry). Always
- * appends `--position bottom`. Invalidates both the thread journal (so the
- * new entry shows up here) and the day's journal bundle (the card also
- * lives on `today`'s page).
+ * composer, which passes `noteOn` so the new card is saved as a later note
+ * linked to that older, locked card. A plain entry appends to the bottom of
+ * today. Invalidates the thread journal (so the new entry shows up here), its
+ * cards' notes, and today's journal bundle (the card also lives on today's
+ * page).
  */
 export function useAddThreadEntry(slug: string, today: string | null, onError: (message: string) => void) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { body: string; replyTo?: string }) =>
-      addCard(today as string, 'bottom', vars.body, [slug], vars.replyTo),
+    mutationFn: (vars: { body: string; noteOn?: string }) =>
+      vars.noteOn ? addNote(vars.noteOn, vars.body, [slug]) : addCard(today as string, 'bottom', vars.body, [slug]),
     onError: (err) => onError(errorMessage(err, 'Add failed')),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['journal', 'threadJournal', slug] });
+      void queryClient.invalidateQueries({ queryKey: ['journal', 'cardsMeta'] });
       if (today) void queryClient.invalidateQueries({ queryKey: journalDayKey(today) });
     },
   });
@@ -319,7 +356,10 @@ export function useUpdateThreadEntry(slug: string, onError: (message: string) =>
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; body: string; date: string }) => updateCard(vars.id, vars.body),
-    onError: (err) => onError(errorMessage(err, 'Save failed')),
+    onError: (err) => {
+      onError(errorMessage(err, 'Save failed'));
+      void queryClient.invalidateQueries({ queryKey: ['journal', 'cardsMeta'] });
+    },
     onSuccess: (_data, vars) => {
       void queryClient.invalidateQueries({ queryKey: ['journal', 'threadJournal', slug] });
       void queryClient.invalidateQueries({ queryKey: journalDayKey(vars.date) });
@@ -333,7 +373,10 @@ export function useDeleteThreadEntry(slug: string, onError: (message: string) =>
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; date: string }) => deleteCardRequest(vars.id),
-    onError: (err) => onError(errorMessage(err, 'Delete failed')),
+    onError: (err) => {
+      onError(errorMessage(err, 'Delete failed'));
+      void queryClient.invalidateQueries({ queryKey: ['journal', 'cardsMeta'] });
+    },
     onSuccess: (_data, vars) => {
       void queryClient.invalidateQueries({ queryKey: ['journal', 'threadJournal', slug] });
       void queryClient.invalidateQueries({ queryKey: journalDayKey(vars.date) });
@@ -345,7 +388,12 @@ export function useDeleteCard(date: string, onError: (message: string) => void) 
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (vars: { id: string; wasLastCard: boolean }) => deleteCardRequest(vars.id),
-    onError: (err) => onError(errorMessage(err, 'Delete failed')),
+    onError: (err) => {
+      onError(errorMessage(err, 'Delete failed'));
+      // The card comes back (its 24 hours ran out, or the delete failed):
+      // refetch so it reappears as it really is.
+      void queryClient.invalidateQueries({ queryKey: journalDayKey(date) });
+    },
     onSuccess: (_data, vars) => {
       void queryClient.invalidateQueries({ queryKey: journalDayKey(date) });
       if (vars.wasLastCard) {

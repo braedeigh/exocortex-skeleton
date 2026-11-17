@@ -41,7 +41,7 @@ export interface Card {
    * parent card no longer exists on disk. Not present on add/update
    * responses — only the day GET enriches.
    */
-  reply_context?: { id: string; date: string; snippet: string } | null;
+  reply_context?: { id: string; date: string; snippet: string; link?: 'answers' | 'note' } | null;
   /**
    * The observatory conversation this card was highlighted out of (stream.py's
    * `session` frontmatter field), or null/absent for the vast majority of cards
@@ -56,6 +56,35 @@ export interface Card {
    * card's history (EditHistorySheet.tsx); the old text lives in the edit log.
    */
   edited?: string | null;
+  /**
+   * The 24-hour window (docs/journal-database.md rule 2): true while the card
+   * can still be edited or deleted — 24 hours from when it was saved, by the
+   * server's clock. Once false, the card only takes notes (and labels).
+   */
+  editable?: boolean;
+  /** When the window closes, "YYYY-MM-DD HH:MM:SS" — the "locks at …" line. */
+  locks_at?: string | null;
+  /** The card this one is a later note on (a `note` link), or null. When set,
+   * `reply_context` describes that card with `link: 'note'`. */
+  note_on?: string | null;
+  /** Day-view-only: notes added to this card later, oldest first — the
+   * "N notes added later" row under an old card. */
+  notes?: CardNote[];
+}
+
+/** One note added to a card later (routes/cards.py _notes_on). */
+export interface CardNote {
+  id: string;
+  /** The note's own day — where tapping it goes. */
+  date: string;
+  ts: string;
+  snippet: string;
+}
+
+/** POST /api/cards/meta — window + later notes for cards shown off their
+ * day page (the thread page). Ids that aren't live cards are absent. */
+export interface CardsMetaResponse {
+  cards: Record<string, { editable: boolean; locks_at: string | null; note_on: string | null; notes: CardNote[] }>;
 }
 
 export interface CardsResponse {

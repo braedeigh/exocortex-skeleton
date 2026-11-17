@@ -332,3 +332,58 @@
   border-radius: 999px;
   white-space: nowrap;
 }
+
+/* "+ note" on a locked card — sits where the pencil was, a quiet outlined
+   pill with a full tap target (the pencil's own size). */
+.noteButton {
+  min-height: var(--tap-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.noteButton:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* The window line: "Can be changed … until it locks at 11:15 PM tomorrow"
+   in the edit box, or "Locked — …" over a locked card's note box. Quiet,
+   but never below the 12px floor. */
+.lockNote {
+  margin: var(--space-2) 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  line-height: 1.4;
+}
+
+/* "N notes added later" under an old card, and the notes it opens to (each
+   one a reply-context chip that jumps to the note on its own day). */
+.laterNotes {
+  margin-top: var(--space-2);
+}
+
+.laterNotesToggle {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding: 0 var(--space-2);
+  margin-bottom: var(--space-1);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.laterNotesToggle:hover {
+  color: var(--accent);
+}

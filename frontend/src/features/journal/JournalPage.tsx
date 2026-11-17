@@ -40,6 +40,7 @@ import type { Card, SearchFilters } from './types';
 import { resolveDayMode } from './types';
 import {
   useAddCard,
+  useAddNote,
   useClearedTodos,
   useCardTags,
   useDeleteCard,
@@ -212,6 +213,8 @@ export function JournalPage() {
   const deleteCard = useDeleteCard(currentDate ?? '', push);
   const cardTags = useCardTags(currentDate ?? '', push);
   const addCard = useAddCard(currentDate ?? '', push);
+  // A later note on a locked card: saved today, so it refreshes both days.
+  const addNote = useAddNote(currentDate ?? '', serverDate ?? null, push);
   const saveBlobMutation = useSaveJournalBlob(currentDate ?? '', push);
 
   const UNDO_DELETE_MS = 5000;
@@ -514,6 +517,18 @@ export function JournalPage() {
                 retirements={dayQuery.data?.cards.retirements ?? []}
                 edits={dayQuery.data?.cards.edits ?? []}
                 onOpenEdited={openSearchDay}
+                today={serverDate ?? null}
+                noteSavingCardId={addNote.isPending ? (addNote.variables?.on ?? null) : null}
+                onAddNote={async (id, body) => {
+                  try {
+                    await addNote.mutateAsync({ on: id, body });
+                    setEditingCardId((cur) => (cur === id ? null : cur));
+                    push('Note added to today', { tone: 'info' });
+                    return true;
+                  } catch {
+                    return false;
+                  }
+                }}
                 addSaving={addCard.isPending}
                 onComposeSave={async (body) => {
                   try {

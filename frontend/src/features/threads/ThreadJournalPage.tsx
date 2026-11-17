@@ -9,9 +9,10 @@ import type { EntityMatcher } from '../journal/entityHighlight';
 import { buildEntityMatcher, highlightEntities } from '../journal/entityHighlight';
 import { mdToHtml } from '../journal/markdown';
 import { startThreadTalk, talkLabel, threadTalkOffered, type TalkState } from '../journal/threadTalk';
-import type { ThreadJournalCardEntry, ThreadJournalDayEntry, ThreadJournalEntry } from '../journal/types';
+import type { CardNote, ThreadJournalCardEntry, ThreadJournalDayEntry, ThreadJournalEntry } from '../journal/types';
 import {
   useAddThreadEntry,
+  useCardsMeta,
   useDeleteThreadEntry,
   usePeople,
   useServerDate,
@@ -192,10 +193,11 @@ interface EntryPartition {
 }
 
 /**
- * Nests card entries under the card their `reply_to` points at: "any card
- * whose reply_to matches another CARD entry's id in the list becomes a
- * child of that parent; everything else (including reply_to pointing
- * outside the list) stays top-level." The "+ note" affordance only ever
+ * Nests card entries under the card they point at — a later note's `note_on`
+ * (from /api/cards/meta) or an older reply's `reply_to`: "any card whose
+ * link matches another CARD entry's id in the list becomes a child of that
+ * parent; everything else (including a link pointing outside the list) stays
+ * top-level." The "+ note" affordance only ever
  * targets a top-level card (child notes can't themselves be replied to —
  * no note-on-note chains), so in practice a reply chain is exactly one
  * level deep. If hand-edited data ever produces a deeper chain anyway, this
@@ -203,7 +205,7 @@ interface EntryPartition {
  * guarded) and flattens the whole chain to one level under it, rather than
  * silently dropping the deeper notes.
  */
-function partitionCardEntries(entries: ThreadJournalEntry[]): EntryPartition {
+function partitionCardEntries(entries: ThreadJournalEntry[], noteOn: ReadonlyMap<string, string>): EntryPartition {
   const cardsById = new Map<string, ThreadJournalCardEntry>();
   for (const e of entries) {
     if (e.kind === 'card') cardsById.set(e.id, e);
@@ -214,7 +216,7 @@ function partitionCardEntries(entries: ThreadJournalEntry[]): EntryPartition {
     let cur = id;
     while (!seen.has(cur)) {
       seen.add(cur);
-      const parent = cardsById.get(cur)?.reply_to;
+      const parent = noteOn.get(cur) ?? cardsById.get(cur)?.reply_to;
       if (!parent || parent === cur || !cardsById.has(parent)) return cur;
       cur = parent;
     }
@@ -329,14 +331,37 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
     [entries, sortOrder],
   );
 
-  const { childIds, childrenByParent, cardsById } = useMemo(() => partitionCardEntries(entries), [entries]);
+  // Each card's edit window and later notes (routes/cards.py /api/cards/meta)
+  // — the window runs from when the card was saved, and a note links to its
+  // card by a `note` row the thread payload doesn't carry.
+  const cardIds = useMemo(
+    () => entries.flatMap((e) => (e.kind === 'card' ? [e.id] : [])).sort(),
+    [entries],
+  );
+  const { data: metaData } = useCardsMeta(cardIds);
+  const meta = metaData?.cards;
+  const noteOn = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const [id, m] of Object.entries(meta ?? {})) if (m.note_on) out.set(id, m.note_on);
+    return out;
+  }, [meta]);
+  /** Inside its 24 hours? The meta answer wins; the thread payload's own
+   * flag covers the moment before it arrives. */
+  function isEditable(entry: ThreadJournalCardEntry): boolean {
+    return meta?.[entry.id]?.editable ?? entry.editable;
+  }
+
+  const { childIds, childrenByParent, cardsById } = useMemo(
+    () => partitionCardEntries(entries, noteOn),
+    [entries, noteOn],
+  );
 
   const savingEntryId = updateEntry.isPending
     ? (updateEntry.variables?.id ?? null)
     : deleteEntry.isPending
       ? (deleteEntry.variables?.id ?? null)
       : null;
-  const addingNoteForId = addEntry.isPending ? (addEntry.variables?.replyTo ?? null) : null;
+  const addingNoteForId = addEntry.isPending ? (addEntry.variables?.noteOn ?? null) : null;
 
   function closeActive(id: string) {
     setActiveEntryId((cur) => (cur === id ? null : cur));
@@ -354,7 +379,7 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
 
   async function handleSaveNote(parentId: string, body: string): Promise<boolean> {
     try {
-      await addEntry.mutateAsync({ body, replyTo: parentId });
+      await addEntry.mutateAsync({ body, noteOn: parentId });
       closeActive(parentId);
       return true;
     } catch {
@@ -443,11 +468,16 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
                 .filter((e) => !(e.kind === 'card' && childIds.has(e.id)))
                 .flatMap((e) => {
                   if (e.kind === 'card') {
-                    const canEdit = e.editable && e.who === 'B';
+                    const canEdit = isEditable(e) && e.who === 'B';
+                    // Notes on this card that aren't in this thread's stream
+                    // (not tagged into it) — shown as "N notes added later".
+                    const outsideNotes = (meta?.[e.id]?.notes ?? []).filter((n) => !cardsById.has(n.id));
                     const nodes = [
                       <JournalCardEntry
                         key={`card-${e.id}`}
                         entry={e}
+                        canEdit={canEdit}
+                        laterNotes={outsideNotes}
                         serverYear={serverYear}
                         matcher={matcher}
                         mentionRegex={mentionRegex}
@@ -467,11 +497,12 @@ export function ThreadJournalPage({ slug }: ThreadJournalPageProps) {
                       />,
                     ];
                     for (const child of childrenByParent.get(e.id) ?? []) {
-                      const childCanEdit = child.editable && child.who === 'B';
+                      const childCanEdit = isEditable(child) && child.who === 'B';
                       nodes.push(
                         <ChildNoteEntry
                           key={`note-${child.id}`}
                           entry={child}
+                          canEdit={childCanEdit}
                           serverYear={serverYear}
                           matcher={matcher}
                           threadSlug={slug}
@@ -616,6 +647,10 @@ function ThreadComposer({ disabled, saving, talkState, onSave, onTalk }: ThreadC
 
 interface JournalCardEntryProps {
   entry: ThreadJournalCardEntry;
+  /** Inside its 24 hours and hers — edit in place; otherwise "+ note". */
+  canEdit: boolean;
+  /** Notes on this card that live outside this thread's stream. */
+  laterNotes: CardNote[];
   serverYear: string | null;
   matcher: EntityMatcher;
   mentionRegex: RegExp | null;
@@ -640,6 +675,8 @@ interface JournalCardEntryProps {
 
 function JournalCardEntry({
   entry,
+  canEdit,
+  laterNotes,
   serverYear,
   matcher,
   mentionRegex,
@@ -660,7 +697,7 @@ function JournalCardEntry({
   const [expanded, setExpanded] = useState(false);
   // Same three speaker looks as the journal's EntryCard (B / K / S).
   const whoClass = entry.who === 'K' ? styles.who_K : entry.who === 'S' ? styles.who_S : styles.who_B;
-  const canEdit = entry.editable && entry.who === 'B';
+  const [laterOpen, setLaterOpen] = useState(false);
 
   const { text: snippetText, clipped } = useMemo(
     () => clipToContextWindow(entry.text, mentionRegex),
@@ -707,9 +744,36 @@ function JournalCardEntry({
               {expanded ? 'Show less ▴' : 'Show full entry ▾'}
             </button>
           ) : null}
-          {/* Read-only (past the rolling 24h window) cards can't be edited in
-              place, but can still gather a note — a fresh reply card minted
-              today rather than a mutation of the old one. */}
+          {/* Notes added to this card that aren't in this thread — folded to
+              one line; each opens its own day. */}
+          {laterNotes.length > 0 ? (
+            <div className={styles.laterNotes}>
+              <button
+                type="button"
+                className={styles.laterNotesToggle}
+                onClick={() => setLaterOpen((open) => !open)}
+                aria-expanded={laterOpen}
+              >
+                {laterNotes.length} {laterNotes.length === 1 ? 'note' : 'notes'} added later &middot;{' '}
+                {formatDate(laterNotes[laterNotes.length - 1].date, serverYear)} {laterOpen ? '▴' : '▾'}
+              </button>
+              {laterOpen
+                ? laterNotes.map((note) => (
+                    <button
+                      key={note.id}
+                      type="button"
+                      className={styles.laterNote}
+                      onClick={() => onOpenDay(note.date)}
+                    >
+                      &#8618; {formatDate(note.date, serverYear)} &middot; &#8220;{note.snippet}&#8221;
+                    </button>
+                  ))
+                : null}
+            </div>
+          ) : null}
+          {/* Locked cards (past their 24 hours) can't be edited in place, but
+              can still gather a note — a fresh card saved today and linked to
+              the old one, rather than a change to it. */}
           {!canEdit ? (
             composingNote ? (
               <NoteComposer saving={addingNote} onCancel={onCancelNote} onSave={onSaveNote} />
@@ -810,10 +874,10 @@ interface NoteComposerProps {
   onSave: (body: string) => Promise<boolean>;
 }
 
-/** Inline mini-composer that unfolds under a non-editable card's "+ note"
- * button — an auto-grow textarea plus Cancel / Save note. Saving mints a
- * fresh reply card (kept editable for its own next-24h window) rather than
- * touching the old one. */
+/** Inline mini-composer that unfolds under a locked card's "+ note" button —
+ * an auto-grow textarea plus Cancel / Save note. Saving makes a fresh card
+ * linked to the old one as a note (editable for its own 24 hours) rather
+ * than touching the old one. */
 function NoteComposer({ saving, onCancel, onSave }: NoteComposerProps) {
   const [draft, setDraft] = useState('');
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -856,6 +920,7 @@ function NoteComposer({ saving, onCancel, onSave }: NoteComposerProps) {
 
 interface ChildNoteEntryProps {
   entry: ThreadJournalCardEntry;
+  canEdit: boolean;
   serverYear: string | null;
   matcher: EntityMatcher;
   threadSlug: string;
@@ -869,13 +934,14 @@ interface ChildNoteEntryProps {
 }
 
 /**
- * A reply card riding as a margin note under its parent — RefCard's visual
- * dialect (accent left border, no who-badge, a "↳ note" label) rather than
- * a full card frame. No long-entry clipping (notes are short by nature) and
- * no "+ note" of its own even when stale — replies don't chain.
+ * A note (or an older reply) riding under the card it's about — RefCard's
+ * visual dialect (accent left border, no who-badge, a "↳ note" label) rather
+ * than a full card frame. No long-entry clipping (notes are short by nature)
+ * and no "+ note" of its own even when locked — notes don't chain.
  */
 function ChildNoteEntry({
   entry,
+  canEdit,
   serverYear,
   matcher,
   threadSlug,
@@ -887,7 +953,6 @@ function ChildNoteEntry({
   onSaveEdit,
   onConfirmDelete,
 }: ChildNoteEntryProps) {
-  const canEdit = entry.editable && entry.who === 'B';
   const bodyHtml = useMemo(
     () => markSelfMentions(highlightEntities(mdToHtml(entry.text), matcher), threadSlug),
     [entry.text, matcher, threadSlug],

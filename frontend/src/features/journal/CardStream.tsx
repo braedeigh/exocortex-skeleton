@@ -48,8 +48,15 @@ export interface CardStreamProps {
   retirements?: StreakRetirement[];
   /** Edits made this day to entries from other days — woven as ✎ rows. */
   edits?: CardEdit[];
-  /** A ✎ row tapped: jump to the edited entry on its own day. */
+  /** A ✎ row tapped: jump to the edited entry on its own day. Also what a
+   * tapped "note added later" does — jump to that note on its own day. */
   onOpenEdited?: (date: string, cardId: string) => void;
+  /** The server's today — the lock line's "today" / "tomorrow". */
+  today?: string | null;
+  /** Save a later note on a locked card (passed through to entry cards). */
+  onAddNote?: (id: string, body: string) => Promise<boolean>;
+  /** The card whose note is saving right now, if any. */
+  noteSavingCardId?: string | null;
   addSaving: boolean;
   /** Resolves true on a successful save; the composer clears its draft on
    * success. New notes always append to the end of the day. */
@@ -187,6 +194,9 @@ export function CardStream({
   retirements = [],
   edits = [],
   onOpenEdited,
+  today,
+  onAddNote,
+  noteSavingCardId = null,
   addSaving,
   onComposeSave,
   onBottomActiveChange,
@@ -257,6 +267,10 @@ export function CardStream({
         onRemoveTag={onRemoveTag}
         sessionNames={sessionNames}
         onOpenSession={onOpenSession}
+        today={today}
+        onAddNote={onAddNote}
+        noteSaving={noteSavingCardId === card.id}
+        onOpenCard={onOpenEdited}
       />
     );
   }

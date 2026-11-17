@@ -11,6 +11,7 @@ import type {
   BacklinksResponse,
   Card,
   CardHistoryResponse,
+  CardsMetaResponse,
   CardsResponse,
   DevNotesResponse,
   JournalDay,
@@ -370,6 +371,21 @@ export function addCard(
 
 export function deleteCard(id: string): Promise<OkResponse> {
   return api.post('/api/cards/delete', { id });
+}
+
+/** POST /api/cards/note — a later note on a card (usually one past its 24
+ * hours): a new card said now, on today's page, linked to `on`. `tags` puts
+ * it in a thread too (the thread page's "+ note"). */
+export function addNote(on: string, body: string, tags?: string[]): Promise<Card> {
+  const payload: Record<string, unknown> = { on, body };
+  if (tags && tags.length > 0) payload.tags = tags;
+  return api.post('/api/cards/note', payload);
+}
+
+/** POST /api/cards/meta — the edit window and later notes for a list of
+ * card ids, for pages that show cards off their own day (the thread page). */
+export function getCardsMeta(ids: string[], signal?: AbortSignal): Promise<CardsMetaResponse> {
+  return api.post('/api/cards/meta', { ids }, signal);
 }
 
 export function getPeople(signal?: AbortSignal): Promise<PeopleResponse> {
