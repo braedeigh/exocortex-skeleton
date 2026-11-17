@@ -28,11 +28,18 @@ see the top of `tools/stream/stream.py`).
 ## The rules
 
 1. **The database is the truth for cards.** No card files after cutover.
-2. **A card can be edited or deleted for 24 hours after it was said, then
+   (The files are still *written*, from the rows, until every reader reads the
+   database — see "Compatibility files" below. They are never read back.)
+2. **A card can be edited or deleted for 24 hours after it was saved, then
    never.** One clock for everyone — the owner, the Keeper, agents, scripts.
    Enforced in SQLite by triggers, not just by the app: an UPDATE of the
-   card's words / speaker / time, or a DELETE, on a card older than 24 hours
-   raises an error. Edits inside the window overwrite in place (the raw
+   card's words / speaker / time, or a DELETE, on a card saved more than 24
+   hours ago raises an error. The clock runs from `saved_at` (when the row was
+   written), not `said_at`: a card that arrives late — a voice listener that was
+   offline, a held card drained hours later, a card added to an older day —
+   still gets its full day before it locks. (Changed from "said" during the
+   foundation build, at the brief author's correction; `saved_at` itself can
+   never be changed, or rewriting it would reopen the window.) Edits inside the window overwrite in place (the raw
    prompt also survives in the Claude transcripts); every edit also appends
    one before/after row to `card_edits`, because voice cards never pass
    through a transcript.
@@ -74,7 +81,7 @@ optional counter).
 | door | how it came in: `web`, `hook`, `reconciler`, `voice`, `keeper`, `system`, … |
 | device | which machine heard it (voice) |
 | session | conversation it came from |
-| saved_at | when the row was written — the 24-hour clock runs from `said_at` |
+| saved_at | when the row was written — the 24-hour clock runs from here; never changes. Migrated cards carry `said_at` here, so the old journal locks on schedule |
 | deleted_at | set by a delete inside the window (row kept, hidden) |
 
 Capture-time "how it came in" tags (`voice`, `via:<device>`, `exo-command`)
@@ -140,3 +147,144 @@ here. Don't leave two writable homes for card tags.
      `card_labels`; the about/touches pass; vault prompts updated.
    - **Journal UI** — the 24-hour edit/delete with "locks at …", "Add a
      note", the quote on a note, "N notes added later" under old cards.
+
+## Decisions made while building the foundation
+
+Recorded here because the sections above left them to the foundation session.
+
+- **Capture facts are columns, not labels.** `voice` → `door = 'voice'`;
+  `via:<device>` → `device`. `record` converts those two tags on the way in, so
+  routes/ear.py didn't change. `exo-command` is a label of kind `source`. The
+  `card_tags` view shows `voice` and `via:<device>` again, first, so the journal's
+  source chip keeps working. `door` values: `web` (the web app's send and the
+  journal page), `hook`, `reconciler`, `voice`, `cli` (default — the Keeper and
+  scripts). Migrated cards have `door` NULL (not recorded back then), except voice.
+- **`card_tags` is a read-only VIEW** over `card_labels` (live rows) + the two
+  capture facts. It is the only shape the old readers see; nothing can write it.
+  `card_labels` is the one writable home for card tags.
+- **The universal `tags` table keeps its `card:` rows as a derived, read-only
+  copy.** `scripts/backfill_tags.py` still mirrors them hourly (from the view)
+  because `tools/mention_context.py` reads them. Nothing writes `card:` rows by
+  hand (checked: all 4,909 were `derived`). The readers session repoints
+  mention_context at `card_labels`, then drops backfill source 1 and those rows.
+- **A slug names exactly one label** (`labels.slug` is UNIQUE), whatever its kind,
+  so the view can show it as the plain string the files carried. A new slug is
+  classified when first used, in the tags backfill's order: `people/<slug>.md` →
+  person, `Threads/<slug>.md` → thread (its `status:`), `Threads-Retired/` →
+  thread/retired, a fronts.json id → front, a capture tag → source, else topic.
+  A label's status is NOT kept in step with the thread file afterwards — that's
+  the nightly filing session's job.
+- **`card_labels.weight` is NULL until judged** (the about/touches pass sets it).
+  At most one live row per card+label (a partial unique index); marked-off rows
+  pile up beside it as history. Rule 7 is enforced in `journaldb.add_label` /
+  `remove_label`: `added_by = 'owner'` means her hand; an agent's re-add of a
+  label she removed comes back `refused`, as does an agent removing hers. The
+  journal page and the approval queue's "approve removal" pass `--by owner`.
+- **Two columns beyond the table above:** `deleted_by` (who deleted it — the old
+  deletion log recorded it) and `refs` (a ref card's targets, JSON). Plus two
+  computed, never-stored columns for old readers: `ts` (= said_at) and
+  `missing_since` (always NULL). `card_links` also has `by`.
+- **Ids are never reused**, even after a delete (the row stays).
+- **Append-only is enforced too:** triggers refuse UPDATE/DELETE on `card_edits`
+  and `card_links`, and DELETE on `card_labels`.
+- **The old mirror is renamed, not dropped:** `cards_v6_mirror`,
+  `card_tags_v6_mirror`. Nothing reads them; a later rung drops them once the
+  readers session is done.
+- **The app runs its own engine.** routes/cards.py used to run whatever
+  `stream.py` sat in the content folder (on the live vault, a shim forwarding to
+  the skeleton). It now runs `tools/stream/stream.py` directly with
+  `TULKU_STREAM_ROOT` set, because a freshly seeded install's copy can be older
+  than the app. **Open:** `content-scaffold/_system/` still ships stale full
+  copies of stream.py / keeper_capture.py / reconcile_transcripts.py for new
+  installs; they should become shims (logged in the build log).
+
+## What the foundation built
+
+For the readers, nightly-filing and journal-UI sessions. Everything here is live.
+
+**Where things are.**
+- `tools/stream/journaldb.py` — the schema (one definition, used by both the
+  engine and the ladder), the triggers, and the row operations: `insert_card`,
+  `add_label`, `remove_label`, `link`, `record_edit`, `fetch_cards` (rows with
+  `tags`, `reply_to`, `edited` filled in), `is_locked(saved_at)`, `locks_at`.
+  Standard library only.
+- `tools/stream/stream.py` — the engine; every card write goes through it.
+- `sqlstore.py` rung 61 — reshapes a database with the old mirror; a brand-new
+  database gets the tables at rung 6. `_card_fts_triggers` keeps the word index
+  (`cards_fts`) in step.
+- `cardstore.py` — compatibility only: `read(cid)` from the rows (old dict shape);
+  `sync()` / `sync_one()` / `sync_fresh()` / `rebuild()` only bring in cards that
+  exist solely as files (insert-only — never changes a row); `integrity()` is
+  always empty.
+- `scripts/journal_db_migrate.py` — the one-time move; `--verify-only` re-checks.
+- `tools/stream/journal_export.py` — the hourly text export and `load`.
+
+**Tables** (exact columns):
+- `cards(id, who, said_at, day, kind, body, refs, fingerprint, door, device,
+  session, saved_at, deleted_at, deleted_by)` + computed `ts`, `missing_since`.
+  Live cards: `WHERE deleted_at IS NULL`. Fingerprint =
+  sha256(`who\nsaid_at\nbody`).
+- `card_edits(id, card_id, edited_at, by, before, after)`
+- `card_links(from_card, to_card, kind ∈ note|answers, linked_at, by)`
+- `labels(id, kind ∈ thread|person|topic|front|source, slug UNIQUE, name,
+  status ∈ active|dormant|retired, file, created_at)`
+- `card_labels(id, card_id, label_id, added_by, run, reason, weight ∈
+  about|touches|NULL, added_at, removed_at, removed_by, removed_why)` — live rows:
+  `removed_at IS NULL`.
+- view `card_tags(card_id, tag)`.
+- Triggers: `cards_locked_update`, `cards_locked_delete`, `cards_saved_at_fixed`,
+  `card_edits_append_only_*`, `card_links_never_*`, `card_labels_never_delete`.
+
+**stream.py verbs** (CLI, and the same as functions):
+- `record --who B|K|S [--ts] [--tags a,b] [--reply-to ID] [--note-on ID]
+  [--door web|hook|reconciler|voice|cli] [--device D] [--by WHO] [--kind]
+  [--refs] [--session] [--body-file]` → echoes the id. `record(...,
+  note_on=, door=, device=, by=)`.
+- `tag ID TAG... [--by WHO] [--run RUN] [--reason "…"] [--weight about|touches]`
+  and `untag ID TAG... [--by WHO] [--reason "…"]`. Default `--by` is
+  `$STREAM_TAG_BY`, else `cli`. A refused change prints `refused: …` to stderr
+  and exits 0; the functions return the card with `.outcomes` per tag.
+- `link FROM TO --kind note|answers [--by]` → `link_cards()`.
+- `edit ID [--by]` / `delete ID [--by]` — refused with a pointer to `--note-on`
+  once the card is locked.
+- `drain` — move held cards in. `render --day|--view|--all`. `validate` —
+  fingerprints, well-formedness, links, cycles, held cards, view drift.
+- Readers: `read_card`, `card_exists`, `load_all_cards`, `load_day_cards`,
+  `load_month_cards`, `load_edit_log`, `held_cards`. `Card` gained `door`,
+  `device`, `saved_at`, `deleted_at`, `outcomes`.
+
+**Finding the database:** `TULKU_STREAM_DB` (tests) → `EXOCORTEX_DATA_DIR/exo.db`
+→ `<content root>/../data/exo.db`. Tests: `tools/stream/conftest.py` and
+`tests/conftest.py` give each test its own database; `tests/journal_seed.py`
+seeds a card through the real table code.
+
+**Holding file:** `CONTENT_DIR/_system/data/holding_cards.jsonl` (inside the vault,
+so held cards are in the hourly commit). Drained by the next successful
+`record` and every minute by the reconciler's cron. A held card's echoed id is
+provisional; it keeps its time, and is recognized by fingerprint so it never
+lands twice.
+
+**Compatibility files (the readers session retires these).** After every change,
+stream.py rewrites the card's old file `CONTENT_DIR/_system/data/cards/<id>.md`
+from the row (removes it on delete), and appends to `edited_cards.jsonl` on edit.
+These exist only for readers that still open files: routes/cards.py (the journal
+page — `_read_card`, `_day_cards`, `_load_edit_log`), routes/threads.py,
+routes/entities.py (`CARDS_GLOB`), routes/pending.py `_read_card`,
+routes/streaks.py, cardsearch.py (`pool_dir`), standalone_journal.py, and the
+vault prompts that grep the folder (crickets, `/thread`). When those read the
+database, set `STREAM_CARD_FILES=0` (or flip the default in
+`stream.card_files_enabled`), and a later session removes the folder (a tar of it
+from cutover is in `/var/tmp/`). `deleted_cards.jsonl` is no longer written.
+
+**Hourly export:** `personal/scripts/exo_db_dumps.py` calls
+`journal_export.export` before each backup commit: `personal/data/journal/days/
+<day>.jsonl` (a card per line, every column), `filing.sql` (labels, card_labels,
+card_links, card_edits), `schema.sql`. `exo_db_dumps.py --load` puts them back.
+
+**Retired:** `scripts/update_cards.py` (a pointer now; its cron line is gone) and
+the missing-card alarm — replaced by fingerprints + triggers + the holding file.
+
+**Not done here, by design:** the journal page still reads files (UI session);
+notes aren't yet quoted in the day view or the page (UI session); nightly filing
+still writes through `tag`/`untag` with the old flags only (nightly session).
+
