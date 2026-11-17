@@ -29,7 +29,8 @@ see the top of `tools/stream/stream.py`).
 
 1. **The database is the truth for cards.** No card files after cutover.
    (The files are still *written*, from the rows, until every reader reads the
-   database — see "Compatibility files" below. They are never read back.)
+   database — see "Compatibility files" below. They are never read back. The
+   owner confirmed 2026-11-17: keep writing them until the readers session is done.)
 2. **A card can be edited or deleted for 24 hours after it was saved, then
    never.** One clock for everyone — the owner, the Keeper, agents, scripts.
    Enforced in SQLite by triggers, not just by the app: an UPDATE of the
@@ -38,8 +39,9 @@ see the top of `tools/stream/stream.py`).
    written), not `said_at`: a card that arrives late — a voice listener that was
    offline, a held card drained hours later, a card added to an older day —
    still gets its full day before it locks. (Changed from "said" during the
-   foundation build, at the brief author's correction; `saved_at` itself can
-   never be changed, or rewriting it would reopen the window.) Edits inside the window overwrite in place (the raw
+   foundation build, at the brief author's correction, and confirmed by the
+   owner 2026-11-17; `saved_at` itself can never be changed, or rewriting it
+   would reopen the window.) Edits inside the window overwrite in place (the raw
    prompt also survives in the Claude transcripts); every edit also appends
    one before/after row to `card_edits`, because voice cards never pass
    through a transcript.
