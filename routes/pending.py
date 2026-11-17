@@ -243,33 +243,6 @@ def _commit_card_untag(payload):
         raise RuntimeError(result.stderr.strip() or "card_untag: untag failed")
 
 
-def _keep_card_tag(payload):
-    """Remember a turned-down tag removal by making the label hers.
-
-    Turning down "remove this tag?" says the tag belongs. The journal engine's
-    `tag --by owner` on an agent's label marks the agent's row off and puts
-    hers in its place, and an agent never questions or removes a label she
-    holds — so the same removal is never asked again. Best effort: the deny
-    itself has already happened, and a failure here only means it could be
-    asked once more."""
-    import sys
-
-    card_id = (payload.get("card_id") or "").strip()
-    tag = (payload.get("tag") or "").strip()
-    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{4}[a-z0-9]*", card_id) \
-            or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", tag):
-        return
-    stream_py = Path(__file__).resolve().parent.parent / "tools" / "stream" / "stream.py"
-    try:
-        subprocess.run(
-            [sys.executable, str(stream_py), "tag", card_id, tag, "--by", "owner",
-             "--reason", "kept: she turned down removing it from the approval queue"],
-            env={**os.environ, "TULKU_STREAM_ROOT": str(store.CONTENT_DIR)},
-            capture_output=True, text=True, timeout=60)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-
-
 def _card_sources(card):
     """A card's `source` may be a single string or a list — always give back
     a list, so the caller can pass one `--source` flag per entry."""
@@ -432,8 +405,5 @@ def register(app):
         if not pid:
             return jsonify({"ok": False, "error": "missing id"}), 400
         with store.mutate(PENDING_FILE, dict(_EMPTY)) as data:
-            change = next((p for p in data["pending"] if p.get("id") == pid), None)
             data["pending"] = [p for p in data["pending"] if p.get("id") != pid]
-        if change and change.get("kind") == "card_untag":
-            _keep_card_tag(change.get("payload") or {})
         return jsonify({"ok": True})

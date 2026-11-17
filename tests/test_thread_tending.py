@@ -446,7 +446,7 @@ def test_a_label_taken_off_a_card_is_never_put_back(vault):
     assert tags_of(vault, "2026-03-10.1000b") == [] and tags_of(vault, "2026-03-10.1010b") == []
 
 
-def test_the_owners_labels_are_never_questioned_and_a_turned_down_removal_makes_one_hers(vault):
+def test_the_owners_labels_are_never_questioned_and_a_removal_is_asked_once_whatever_she_says(vault):
     mint(vault, "2026-03-10.1000b", "the knee brace arrived", tags=["knee"], by="owner")
     night({**ANSWERS, "thread.knee": {"belongs": ["2026-03-10.0900b"], "does_not_belong": [
         {"card": "2026-03-10.0910b", "reason": "a rake is not a knee"},
@@ -458,8 +458,9 @@ def test_the_owners_labels_are_never_questioned_and_a_turned_down_removal_makes_
     pending.register(app)
     rake = next(p for p in queue if p["payload"]["card_id"] == "2026-03-10.0910b")
     assert app.test_client().post("/api/pending/deny", json={"id": rake["id"]}).get_json() == {"ok": True}
+    # Turning it down leaves the label as it was: still the agent's, still on.
     (row,) = label_rows("2026-03-10.0910b")
-    assert (row["slug"], row["added_by"], row["weight"]) == ("knee", "owner", "about")
+    assert (row["slug"], row["added_by"]) == ("knee", "migration")
     # Asked once, ever: the same removal waiting in the backlog is dropped, not asked again.
     tending.queue_untags([{**rake["payload"]}])
     night({}, target=date(2026, 3, 11))
@@ -467,6 +468,22 @@ def test_the_owners_labels_are_never_questioned_and_a_turned_down_removal_makes_
         (p["payload"]["card_id"], p["payload"]["tag"])
         for p in store.read("pending_changes", {"pending": []})["pending"]}
     assert tending.read_untag_backlog() == []
+
+
+def test_a_card_naming_two_people_is_checked_by_a_session_and_one_name_is_filed_as_is(vault):
+    (vault / "people" / "priya.md").write_text("# Priya\n\nA made-up friend.\n")
+    (vault / "people" / "peter.md").write_text("# Peter\n\nA made-up cousin.\n")
+    mint(vault, "2026-03-10.1000b", "priya and I argued about Peter Thiel")
+    mint(vault, "2026-03-10.1010b", "Peter fixed the sink")
+    seen = {}
+    outcome = night({**ANSWERS, "names": {"verdicts": [
+        {"card": "2026-03-10.1000b", "person": "peter", "keep": False, "reason": "Peter Thiel, not the cousin"},
+        {"card": "2026-03-10.1000b", "person": "priya", "keep": True, "reason": "she was there"}]}}, seen)
+    assert [c["id"] for c in seen["names"]["cards"]] == ["2026-03-10.1000b"]
+    assert {c["slug"] for c in seen["names"]["cards"][0]["candidates"]} == {"priya", "peter"}
+    assert tags_of(vault, "2026-03-10.1000b") == ["priya"]
+    assert tags_of(vault, "2026-03-10.1010b") == ["peter"]
+    assert [item["tag"] for item in outcome["name_dropped"]] == ["peter"]
 
 
 def test_a_note_on_an_old_card_is_judged_with_it_and_wakes_its_quiet_thread(vault):
@@ -483,21 +500,24 @@ def test_a_note_on_an_old_card_is_judged_with_it_and_wakes_its_quiet_thread(vaul
     assert label_status("beans") == "dormant"
 
 
-def test_the_old_asked_once_list_moves_into_the_label_rows(vault):
-    """Before the journal moved into the database, the removals already asked
-    were a list in state.json. A pair whose label is still on was turned
-    down: it becomes hers. A pair whose label is gone was approved: it gets a
-    row marked off by her, so nobody puts it back."""
-    take_off_later = "2026-03-08.0900b"
-    tending.save_state({"threads": {}, "names": {}, "statuses": {}, "sheets": {},
-                        "untag_proposed": ["2026-03-10.0910b|knee", f"{take_off_later}|knee"]})
-    outcome = night(ANSWERS)
-    assert [(row["slug"], row["added_by"]) for row in label_rows("2026-03-10.0910b")] == [("knee", "owner")]
-    (history,) = label_rows(take_off_later, include_removed=True)[1:]
-    assert (history["slug"], history["removed_by"]) == ("knee", "owner")
-    assert "untag_proposed" not in tending.load_state()
-    assert len(outcome["retired"]) == 2
-    # The kept one is not asked about, though the knee session still says it doesn't belong.
-    asked = {(p["payload"]["card_id"], p["payload"]["tag"])
-             for p in store.read("pending_changes", {"pending": []})["pending"]}
-    assert ("2026-03-10.0910b", "knee") not in asked
+def test_the_backfill_weighs_older_cards_once_and_retries_only_what_failed(vault):
+    """Labels on older cards get weights: one label is about by code, two or
+    more go to an overlap session. A batch that failed is the only thing a
+    second run looks at."""
+    mint(vault, "2026-03-09.0900b", "beds and knee both", tags=["garden", "knee"])
+    calls = []
+
+    def answer(role, job, night_dir, name, crickets_dir, model, log):
+        calls.append([card["id"] for card in job["cards"]])
+        return None if len(calls) == 1 else {"cards": {"2026-03-09.0900b": {"about": "knee"}}}
+
+    tending.backfill_weights(Path("/nowhere"), date(2026, 3, 10), session=answer, out=lambda _: None)
+    assert [row["weight"] for row in label_rows("2026-03-08.0900b")] == ["about"]
+    assert [row["weight"] for row in label_rows("2026-03-09.0900b")] == [None, None]
+    # Cards from the cutoff day on are left to the nightly run.
+    assert [row["weight"] for row in label_rows("2026-03-10.0910b")] == [None]
+    tending.backfill_weights(Path("/nowhere"), date(2026, 3, 10), session=answer, out=lambda _: None)
+    assert calls == [["2026-03-09.0900b"], ["2026-03-09.0900b"]]
+    assert {row["slug"]: row["weight"] for row in label_rows("2026-03-09.0900b")} == {
+        "garden": "touches", "knee": "about"}
+

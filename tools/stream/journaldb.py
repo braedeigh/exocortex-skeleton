@@ -501,28 +501,12 @@ def label_id(conn, slug: str, context: LabelContext) -> int:
 def add_label(conn, card_id: str, slug: str, by: str, context: LabelContext,
               run: Optional[str] = None, reason: Optional[str] = None,
               weight: Optional[str] = None, added_at: Optional[str] = None) -> str:
-    """Put a label on a card. Returns 'added', 'already' (it's on), 'kept'
-    (the owner put her hand on a label an agent added: it is hers now), or
+    """Put a label on a card. Returns 'added', 'already' (it's on), or
     'refused' — the owner took this label off this card, and only the
     owner's own hand may put it back (rule 7 of the design)."""
     lid = label_id(conn, slug, context)
-    live = conn.execute("SELECT id, added_by, run, reason, weight FROM card_labels"
-                        " WHERE card_id = ? AND label_id = ? AND removed_at IS NULL",
-                        (card_id, lid)).fetchone()
-    # The owner keeping an agent's label makes it hers. The agent's row is
-    # marked off (it stays as history) and her own row takes its place with
-    # the same weight, so no agent can ever propose taking it off again. This
-    # is how a turned-down removal in the approval queue is remembered.
-    if live and by == OWNER and live[1] != OWNER:
-        stamp = added_at or now_text()
-        conn.execute("UPDATE card_labels SET removed_at = ?, removed_by = ?, removed_why = ?"
-                     " WHERE id = ?", (stamp, OWNER, "kept by the owner: now her own label", live[0]))
-        conn.execute(
-            "INSERT INTO card_labels (card_id, label_id, added_by, run, reason, weight, added_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (card_id, lid, OWNER, run, reason or live[3], weight or live[4], stamp))
-        return "kept"
-    if live:
+    if conn.execute("SELECT 1 FROM card_labels WHERE card_id = ? AND label_id = ?"
+                    " AND removed_at IS NULL", (card_id, lid)).fetchone():
         return "already"
     if by != OWNER and conn.execute(
             "SELECT 1 FROM card_labels WHERE card_id = ? AND label_id = ?"

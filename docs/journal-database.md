@@ -393,8 +393,11 @@ For anyone touching the nightly agents. Everything is in `scripts/thread_tending
   `namerisk.classify(..., untagged_counts=True)` also calls a common word risky when it
   names someone never tagged — a new "Will" is not trusted on "will" until someone has
   judged one. (`mention_context` keeps the old rule.) Risky names keep their own person
-  sessions. The main session sees every plain match as a tag and can stop it, so plain
-  code's blind spot ("Peter" for "Peter Thiel") has a reader. The 2 AM `cards` cricket
+  sessions. A card where plain matching finds **two or more** people goes to one Sonnet
+  name-check session (`person-matches.md`) that reads the people files and drops the
+  wrong matches; one name on a card is filed by code (owner, 2026-11-17: "use the code
+  to do it but send off a sonnet if there's more than one to do the judgement"). The
+  main session still sees every surviving match as a tag and can stop it. The 2 AM `cards` cricket
   no longer tags at all: it validates, re-renders and flags.
 - **Nothing is written until every session has spoken.** Verdicts are gathered as
   claims; the **overlap session** (`card-overlap.md`, replacing the old reconcile)
@@ -404,21 +407,20 @@ For anyone touching the nightly agents. Everything is in `scripts/thread_tending
   `about`, no session. A failed overlap session leaves every claim standing and those
   cards unweighed (NULL). Labels already on get their weight in place
   (`journaldb.set_weight`); an owner's label keeps a weight once it has one.
-  Old cards (before the first night of this) are not back-weighed: their weights stay
-  NULL until a night touches them.
+  Older labels are weighed once by `thread_tending.py --backfill-weights` (owner,
+  2026-11-17): one label → `about` by code, two or more → overlap sessions in batches.
 - **Never put back, never questioned.** A claim on a card where that label was ever
   taken off is dropped before it is written (stricter than the engine, which refuses
   only the owner's removals). A removal is proposed only for a live label an agent
   added and not already in the queue.
-- **"Asked once, ever" lives in the label rows.** Approving a `card_untag` takes the
-  label off (`untag --by owner`). Turning one down now runs `tag --by owner`
-  (`routes/pending.py`), and `journaldb.add_label` by the owner on an agent's live
-  label marks the agent's row off and writes hers in its place (same weight) —
-  returns `kept`. Her label is never proposed again. `state.json`'s `untag_proposed`
-  list is gone: the first night after this moved it over once (a pair still on → hers;
-  a pair gone with no row → a row marked off by her, so nobody re-adds it). The
-  untag backlog file stays, as a waiting line only; what may still be asked comes
-  from the rows.
+- **"Asked once, ever" stays a list.** Every removal put to the owner is remembered
+  in `state.json`'s `untag_proposed` ("card|tag") and never asked again, whatever she
+  answered. Turning one down changes nothing on the card: the label stays the agent's
+  (owner, 2026-11-17: "just remember it was asked"; a first build made a turned-down
+  label hers, and was undone the same night — the 8 labels it had converted were put
+  back as the migration's, their history rows kept). The 3 removals she approved before
+  the move got a row marked off by her, so nothing re-adds them. The untag backlog
+  file is a waiting line; one already asked, gone, or hers is dropped.
 - **Notes.** `load_cards` gives each card `note_on` (the older card's id, time, text,
   tags) from `card_links` kind `note`; every session gets it beside the note. A note
   whose older card carries a thread counts as activity for that thread, so a dormant
