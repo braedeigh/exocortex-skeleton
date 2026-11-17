@@ -50,9 +50,6 @@ def mint(content, card_id, body, tags=(), by="migration", note_on=None):
             journaldb.add_label(conn, card_id, tag, by, context)
         if note_on:
             journaldb.link(conn, card_id, note_on, "note", by="test", linked_at=said)
-    # The engine's compatibility file, as every real write leaves one (for the
-    # readers that still open files; a no-op once those are retired).
-    tending._stream()._sync_card_file(card_id)
 
 
 def label_rows(card_id, include_removed=False):
