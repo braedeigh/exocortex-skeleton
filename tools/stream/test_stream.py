@@ -433,8 +433,8 @@ class EditHistoryTests(StreamTestCase):
     was made — the owner's rule: changes are marked on the date they happen."""
 
     def _log(self):
-        path = stream.edited_log_path()
-        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        # The edit history is card_edits, read back in the old log's shape.
+        return stream.load_edit_log()
 
     def test_edit_logs_the_text_before_and_after(self):
         cid = stream.record(who="B", body="first words", ts=datetime(2026, 7, 6, 9, 0, 0))
@@ -457,9 +457,9 @@ class EditHistoryTests(StreamTestCase):
         card = stream.read_card(cid)
         self.assertEqual((card.ts, card.edited), ("2026-07-06 09:00:00", "2026-09-24 16:05:00"))
 
-    def test_unedited_card_has_no_edited_line(self):
+    def test_unedited_card_has_no_edit_stamp(self):
         cid = stream.record(who="B", body="never touched", ts=datetime(2026, 7, 6, 9, 0, 0))
-        self.assertNotIn("edited:", stream.card_path(cid).read_text(encoding="utf-8"))
+        self.assertIsNone(stream.read_card(cid).edited)
 
     def test_saving_the_same_text_is_not_an_edit(self):
         cid = stream.record(who="B", body="same", ts=datetime(2026, 7, 6, 9, 0, 0))

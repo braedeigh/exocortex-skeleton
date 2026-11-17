@@ -321,8 +321,10 @@ def pool_lock():
     database already serializes its own writes; this lock also covers the
     compatibility card file written right after each commit, so two writers
     can't leave that file showing the older of their two changes."""
+    # The lock file sits in _system/data/, beside where the card folder was;
+    # only that folder is made, so a retired card folder isn't brought back.
     d = pool_dir()
-    d.mkdir(parents=True, exist_ok=True)
+    d.parent.mkdir(parents=True, exist_ok=True)
     with open(d.parent / "pool.lock", "w") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
         yield
@@ -374,15 +376,15 @@ def _is_lock_refusal(exc: Exception) -> bool:
 
 
 # --------------------------------------------------------------------------------
-# Compatibility card files. Until every reader reads the database (the
-# readers session of docs/journal-database.md), each card is ALSO written out
-# as the markdown file it used to be — derived from the row, after the commit,
-# never read back by the engine. STREAM_CARD_FILES=0 turns it off; the
-# readers session flips the default and a later session removes the folder.
+# Compatibility card files — off. Each card used to be ALSO written out as the
+# markdown file it once was, for readers that still opened files. Every reader
+# reads the database now (docs/journal-database.md, "What the readers built"),
+# so the writer is off unless STREAM_CARD_FILES=1 turns it back on (a test, or
+# a rescue). Never read back by the engine either way.
 # --------------------------------------------------------------------------------
 
 def card_files_enabled() -> bool:
-    return os.environ.get("STREAM_CARD_FILES", "1") != "0"
+    return os.environ.get("STREAM_CARD_FILES", "0") == "1"
 
 
 def write_card(card: Card) -> Path:
@@ -420,8 +422,8 @@ def _sync_card_file(cid: str) -> None:
 
 
 def _append_compat_edit_log(entry: dict) -> None:
-    """The edit history the journal page still reads from a file
-    (routes/cards.py). `card_edits` is the truth; this line is its echo."""
+    """The old file echo of an edit (`edited_cards.jsonl`), written only while
+    the compatibility files are on. `card_edits` is the truth."""
     if not card_files_enabled():
         return
     try:
@@ -783,9 +785,17 @@ def record(
 
 
 def _rerender_for(ts: str, tags: List[str]) -> None:
-    render_day(ts[:10])
-    render_month_index(ts[:7])
-    _render_manifests_for_tags(tags)
+    """Redraw the views a newly saved card shows in: its day, its month's
+    index, the manifests for its tags. Best-effort: the card is already in the
+    database, so a busy database here must not make the save look failed (a
+    caller told "failed" might save it again). A view that missed this redraw
+    is brought up to date by the next write to that day, or `render`."""
+    try:
+        render_day(ts[:10])
+        render_month_index(ts[:7])
+        _render_manifests_for_tags(tags)
+    except _DB_FAILURES:
+        pass
 
 
 # --------------------------------------------------------------------------------
@@ -800,7 +810,7 @@ def _rerender_for(ts: str, tags: List[str]) -> None:
 def add_tags(cid: str, tags_to_add: List[str], by: str = "cli", run: Optional[str] = None,
              reason: Optional[str] = None, weight: Optional[str] = None) -> Card:
     """Put labels on a card. The returned card carries `outcomes`: for each
-    tag, 'added', 'already', 'kept' (the owner took over an agent's label) or 'refused'."""
+    tag, 'added', 'already' or 'refused'."""
     if weight not in (None, "about", "touches"):
         raise StreamError("--weight must be 'about' or 'touches'")
     outcomes = _change_labels(cid, lambda conn, slug, context: journaldb.add_label(

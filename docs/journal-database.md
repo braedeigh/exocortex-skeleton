@@ -266,16 +266,17 @@ so held cards are in the hourly commit). Drained by the next successful
 provisional; it keeps its time, and is recognized by fingerprint so it never
 lands twice.
 
-**Compatibility files — unread, still written.** After every change, stream.py
-rewrites the card's old file `CONTENT_DIR/_system/data/cards/<id>.md` from the row
-(removes it on delete), and appends to `edited_cards.jsonl` on edit. Nothing reads
-them any more (see "What the readers built"). Whether the engine stops writing
-them (`stream.card_files_enabled()` defaulting to off) and the folder leaves the
-vault is waiting on the owner's answer to the foundation session's question; the
-switch is one line, plus `tools/stream/test_stream.py`'s few file assertions.
-Tars of the folder are in `/var/tmp/` (`journal-cards-before-db-*.tgz` from
-cutover, `journal-cards-unread-*.tgz` from when the last reader moved off).
-`deleted_cards.jsonl` is no longer written.
+**Compatibility files — retired.** stream.py used to rewrite each card's old file
+`CONTENT_DIR/_system/data/cards/<id>.md` from the row and append edits to
+`edited_cards.jsonl`, for readers that still opened files. Once every reader read
+the database (see "What the readers built"), `stream.card_files_enabled()` began
+defaulting to off (`STREAM_CARD_FILES=1` turns the writer back on, for a test or a
+rescue), and the folder and the edit log were removed from the vault (owner,
+2026-11-16: "Keep writing copies until the readers session is done"). Tars are in
+`/var/tmp/`: `journal-cards-before-db-*.tgz` (cutover),
+`journal-cards-retired-20261117-0048.tgz` (all 5,007 files at removal). The words
+are also in the vault's git history and the hourly export. `deleted_cards.jsonl` is
+no longer written either.
 
 **Hourly export:** `personal/scripts/exo_db_dumps.py` calls
 `journal_export.export` before each backup commit: `personal/data/journal/days/
@@ -291,7 +292,8 @@ were the UI session's — see the next section.
 
 ## What the readers built
 
-**Nothing reads the card files any more.** Every reader below asks exo.db.
+**Nothing reads the card files any more** — and they're gone (see "Compatibility
+files" above). Every reader below asks exo.db.
 
 - **`journalcards.py`** — the app side's one door for reading cards: `live_cards`
   (through `journaldb.fetch_cards`), `read`, `labelled(slug)` → `{card_id: weight}`,
@@ -325,6 +327,9 @@ were the UI session's — see the next section.
 - **The Rust `thread` tool** (`tools/thread/src/journal.rs`): card-id and bare-day
   sources, and `thread inbox`, read `<data-dir>/exo.db` read-only (rusqlite,
   bundled SQLite). A card that exists only as a file is not a source.
+- **Engine fix:** `stream.record` raised when the database was busy during the
+  view redraw after a save, though the card had landed — a caller told "failed"
+  could save it twice. The redraw after a save is best-effort now.
 - **Git history classification**: `data/journal/` (the hourly export) counts as
   journal writes on the pond and terrain, beside the old card-folder prefix.
 - **Left as is:** the `card_tags` view (handy in the SQL console; no app code reads
