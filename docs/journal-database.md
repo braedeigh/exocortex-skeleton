@@ -284,7 +284,49 @@ card_links, card_edits), `schema.sql`. `exo_db_dumps.py --load` puts them back.
 **Retired:** `scripts/update_cards.py` (a pointer now; its cron line is gone) and
 the missing-card alarm — replaced by fingerprints + triggers + the holding file.
 
-**Not done here, by design:** the journal page still reads files (UI session);
-notes aren't yet quoted in the day view or the page (UI session); nightly filing
-still writes through `tag`/`untag` with the old flags only (nightly session).
+**Not done here, by design:** nightly filing still writes through `tag`/`untag`
+with the old flags only (nightly session). The journal page's reads and notes
+were the UI session's — see the next section.
+
+## What the journal UI built
+
+**`routes/cards.py` reads exo.db** (no card files, no `edited_cards.jsonl`): day
+cards via `journaldb.fetch_cards`, history and the "✎ edited an entry from …" rows
+from `card_edits`. Its old `_echo_mirror` into the hourly mirror is gone.
+
+**Every card in the API carries its window:** `editable` (inside its 24 hours from
+`saved_at`, by the server's clock) and `locks_at`. Plus `note_on` (the card it's a
+note on, or null). The day GET adds `notes` — `[{id, date, ts, snippet}]`, live
+notes on this card, oldest first — and `reply_context` now covers notes too:
+`{id, date, snippet, link: 'note'|'answers'}` (a note wins if a card has both).
+
+**Refusals:** `update` / `delete` on a locked card answer **409** `{error, locked:
+true, locks_at}` with a sentence ("This entry locked at 7:34 AM on Jul 9, so it
+can't be edited any more. Add a note to it instead.") before the engine is even
+run; a lock the engine or trigger catches later is a 409 too. A missing card is a
+404. `tag` / `untag` work on any card — labels aren't under the 24-hour rule.
+
+**New endpoints:**
+- `POST /api/cards/note {on, body, tags?}` → `record --who B --door web --by owner
+  --note-on ON` (said now, so it lands on today's page). Returns the new card.
+- `POST /api/cards/meta {ids}` → `{cards: {id: {editable, locks_at, note_on,
+  notes}}}` for cards shown off their own day. The thread page uses it, so the
+  window and the note links don't depend on the thread route's payload.
+- `add` and `note` answer `{id, held: true}` when the card went to the holding
+  file instead of a full card.
+
+**What she sees** (`EntryCard.tsx`, `RefCard.tsx`, `ThreadJournalPage.tsx`):
+- Inside the window: the pencil, and in the edit box "Can be changed or deleted
+  until it locks at 8:47 PM tomorrow." After it: no pencil, no delete.
+- A locked entry shows "+ note" where the pencil was. It opens a note box (saved
+  today, linked as a `note`) beside the same tag editor, since labels don't lock.
+  A locked ref card is simply read-only.
+- A note wears "↪ Jul 14: '…'" (the reply chip, extended), tappable to the card.
+- An old card with notes shows "N notes added later · Nov 16", opening to the notes;
+  each jumps to its own day.
+- Thread page: "+ note" makes a real `note` link (tagged into the thread). Notes in
+  the thread nest under their card; notes outside it show as "N notes added
+  later". The edit window comes from `/api/cards/meta`.
+- Person page: it lists day-level mentions, not cards, so there is no card there to
+  hang notes under. When it grows card rows, they can ask `/api/cards/meta`.
 
