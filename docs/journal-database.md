@@ -162,11 +162,11 @@ Recorded here because the sections above left them to the foundation session.
 - **`card_tags` is a read-only VIEW** over `card_labels` (live rows) + the two
   capture facts. It is the only shape the old readers see; nothing can write it.
   `card_labels` is the one writable home for card tags.
-- **The universal `tags` table keeps its `card:` rows as a derived, read-only
-  copy.** `scripts/backfill_tags.py` still mirrors them hourly (from the view)
-  because `tools/mention_context.py` reads them. Nothing writes `card:` rows by
-  hand (checked: all 4,909 were `derived`). The readers session repoints
-  mention_context at `card_labels`, then drops backfill source 1 and those rows.
+- **The universal `tags` table no longer holds journal cards.** It used to keep
+  a derived `card:` copy of every card tag for `tools/mention_context.py`; the
+  readers session pointed the hook at `card_labels`, dropped backfill source 1,
+  and `scripts/backfill_tags.py` deleted the 4,909 derived `card:` rows (it
+  removes any that reappear, `source='derived'` only).
 - **A slug names exactly one label** (`labels.slug` is UNIQUE), whatever its kind,
   so the view can show it as the plain string the files carried. A new slug is
   classified when first used, in the tags backfill's order: `people/<slug>.md` →
@@ -264,17 +264,16 @@ so held cards are in the hourly commit). Drained by the next successful
 provisional; it keeps its time, and is recognized by fingerprint so it never
 lands twice.
 
-**Compatibility files (the readers session retires these).** After every change,
-stream.py rewrites the card's old file `CONTENT_DIR/_system/data/cards/<id>.md`
-from the row (removes it on delete), and appends to `edited_cards.jsonl` on edit.
-These exist only for readers that still open files: routes/cards.py (the journal
-page — `_read_card`, `_day_cards`, `_load_edit_log`), routes/threads.py,
-routes/entities.py (`CARDS_GLOB`), routes/pending.py `_read_card`,
-routes/streaks.py, cardsearch.py (`pool_dir`), standalone_journal.py, and the
-vault prompts that grep the folder (crickets, `/thread`). When those read the
-database, set `STREAM_CARD_FILES=0` (or flip the default in
-`stream.card_files_enabled`), and a later session removes the folder (a tar of it
-from cutover is in `/var/tmp/`). `deleted_cards.jsonl` is no longer written.
+**Compatibility files — unread, still written.** After every change, stream.py
+rewrites the card's old file `CONTENT_DIR/_system/data/cards/<id>.md` from the row
+(removes it on delete), and appends to `edited_cards.jsonl` on edit. Nothing reads
+them any more (see "What the readers built"). Whether the engine stops writing
+them (`stream.card_files_enabled()` defaulting to off) and the folder leaves the
+vault is waiting on the owner's answer to the foundation session's question; the
+switch is one line, plus `tools/stream/test_stream.py`'s few file assertions.
+Tars of the folder are in `/var/tmp/` (`journal-cards-before-db-*.tgz` from
+cutover, `journal-cards-unread-*.tgz` from when the last reader moved off).
+`deleted_cards.jsonl` is no longer written.
 
 **Hourly export:** `personal/scripts/exo_db_dumps.py` calls
 `journal_export.export` before each backup commit: `personal/data/journal/days/
@@ -287,6 +286,51 @@ the missing-card alarm — replaced by fingerprints + triggers + the holding fil
 **Not done here, by design:** nightly filing still writes through `tag`/`untag`
 with the old flags only (nightly session). The journal page's reads and notes
 were the UI session's — see the next section.
+
+## What the readers built
+
+**Nothing reads the card files any more.** Every reader below asks exo.db.
+
+- **`journalcards.py`** — the app side's one door for reading cards: `live_cards`
+  (through `journaldb.fetch_cards`), `read`, `labelled(slug)` → `{card_id: weight}`,
+  `cards_labelled(slug, who=, since=)` ranked `about` → `touches` → unjudged (oldest
+  first inside each), `tags_for(ids)` (capture facts first, then live labels),
+  `editable` / `locks_at` from `saved_at`. Live rows only, everywhere: a deleted card
+  or a label with `removed_at` set is never returned. Only history views (the
+  journal UI's) read marked-off label rows, and they query the table directly.
+- **`scripts/journal_cards.py`** — the agents' reader, replacing grep over the card
+  folder: `show ID…`, `day YYYY-MM-DD [--who]`, `tagged SLUG [--since] [--who]`,
+  `--json`. The Keeper's `STREAM.md` / `CLAUDE.md` / `PROTOCOLS.md`, the `/thread`
+  command, and the crickets (nightly session) point at it.
+- **Thread page** (`routes/threads.py`): journal and inbox from the rows. Each card
+  entry carries `weight` (how it wears this thread's label; null for a card that's
+  there by mention or citation), `editable` and `locks_at` (from `saved_at`). The
+  inbox ranks `about` first. The journal stays in time order — the page sorts it
+  client-side — so how `about`/`touches` shows there is the UI's call.
+- **Person page** (`routes/entities.py` `mention_days`): labelled cards counted by
+  the people file's stem (`people/sam-okafor.md` → `sam-okafor`), the first-name key
+  as a fallback. The page has no card list, so there is nothing to rank there yet.
+- **Streak notes** (`routes/streaks.py`), **approval queue** (`routes/pending.py`
+  `_read_card`; `card_untag` already marks the row off through `untag --by owner`,
+  now tested), **search** (`cardsearch.py`: no file catch-up — a card is findable
+  the moment it's saved), **pond** (`routes/pond.py`: live labels; capture facts
+  stay off the thread rail; `/api/pond/card/<id>` asked for old mirror columns and
+  500'd — fixed), **name risk** (`namerisk.py`), **mention hook**
+  (`tools/mention_context.py`: `card_labels` only), **boot package**
+  (`scripts/boot_context.py`: no file sync), **new installs**
+  (`standalone_journal.py`: a journal is started once `cards` has a row; no card
+  folder is made), **voice** (`routes/ear.py`: no mirror echo).
+- **The Rust `thread` tool** (`tools/thread/src/journal.rs`): card-id and bare-day
+  sources, and `thread inbox`, read `<data-dir>/exo.db` read-only (rusqlite,
+  bundled SQLite). A card that exists only as a file is not a source.
+- **Git history classification**: `data/journal/` (the hourly export) counts as
+  journal writes on the pond and terrain, beside the old card-folder prefix.
+- **Left as is:** the `card_tags` view (handy in the SQL console; no app code reads
+  it now), `cardstore.py` (compatibility: `read`, and `sync*`/`rebuild` that insert
+  any card existing only as a file — with no files, they find nothing), the
+  `cards_v6_mirror` tables (a later rung drops them).
+- **Fixed on the way:** the retired `scripts/update_cards.py` pointer exited 1 (it
+  couldn't import `runtime_sensor`), and a new install's hourly job list still ran it.
 
 ## What the journal UI built
 
