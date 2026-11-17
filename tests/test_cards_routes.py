@@ -96,6 +96,17 @@ def do_record(argv):
     print(cid)
 
 def do_retag(cid, tags, add):
+    # Drop `--by <who>` and the like: options, not tags.
+    plain = []
+    skip = False
+    for t in tags:
+        if skip:
+            skip = False
+        elif t.startswith("--"):
+            skip = True
+        else:
+            plain.append(t)
+    tags = plain
     path = POOL / f"{cid}.md"
     if not path.exists():
         raise SystemExit(f"no such card: {cid}")
@@ -143,6 +154,8 @@ def vault(tmp_path, monkeypatch):
     (pool / "2026-07-08.2114k.md").write_text(REF_CARD)
     (pool / "2026-07-08.0734b.md").write_text(LINE_CARD)
     (tmp_path / "_system" / "stream.py").write_text(FAKE_STREAM_PY)
+    # Every route in these tests talks to the stand-in engine above.
+    monkeypatch.setattr(cards, "_stream_py", lambda: tmp_path / "_system" / "stream.py")
     return tmp_path
 
 

@@ -112,11 +112,8 @@ def test_manifest_root_is_relative_to_the_data_dir(data_dir, tmp_path, monkeypat
 # --- Journal days from the cards in the database ------------------------------
 
 def _card(conn, card_id, body, who="B", kind="line"):
-    day = card_id[:10]
-    ts = f"{day} {card_id[11:13]}:{card_id[13:15]}:00"
-    conn.execute(
-        "INSERT INTO cards (id, day, ts, who, kind, body, first_seen, last_seen)"
-        " VALUES (?, ?, ?, ?, ?, ?, 'x', 'x')", (card_id, day, ts, who, kind, body))
+    from journal_seed import seed_card
+    seed_card(conn, card_id, body, who=who, kind=kind)
 
 
 @pytest.fixture

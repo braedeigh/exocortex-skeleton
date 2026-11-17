@@ -73,6 +73,7 @@
     "import scripts/estimate_organic.py -> hazardstore.py",
     "import scripts/estimate_organic.py -> runtime_sensor.py",
     "import scripts/keeper_rollover.py -> routes/observatory.py",
+    "import scripts/journal_db_migrate.py -> runtime_sensor.py",
     "import scripts/keeper_rollover.py -> runtime_sensor.py",
     "import scripts/make_photo_thumbs.py -> runtime_sensor.py",
     "import scripts/migrate_ecosystem_sql.py -> runtime_sensor.py",

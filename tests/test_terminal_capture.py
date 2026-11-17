@@ -109,7 +109,7 @@ def test_chat_send_with_enter_mints_one_card_and_notes_ui_capture(term_client):
 
     assert len(term_client._stream.calls) == 1
     args, stdin = term_client._stream.calls[0]
-    assert args == ("record", "--who", "B")
+    assert args == ("record", "--who", "B", "--door", "web")
     assert stdin == "hello journal"
 
     captured = _ui_captured(term_client)
@@ -229,7 +229,7 @@ def test_bare_enter_key_mints_pending_text(term_client):
 
     assert len(term_client._stream.calls) == 1
     args, stdin = term_client._stream.calls[0]
-    assert args == ("record", "--who", "B")
+    assert args == ("record", "--who", "B", "--door", "web")
     assert stdin == "typed before the enter key"
 
     # the Enter still reaches tmux
@@ -274,7 +274,7 @@ def test_thread_session_send_mints_tagged_card(term_client):
 
     assert len(term_client._stream.calls) == 1
     args, stdin = term_client._stream.calls[0]
-    assert args == ("record", "--who", "B", "--tags", "long-covid")
+    assert args == ("record", "--who", "B", "--door", "web", "--tags", "long-covid")
     assert stdin == "how's my chest today"
 
 
@@ -288,7 +288,7 @@ def test_thread_session_send_mints_untagged_when_slug_unresolved(term_client):
     assert resp.get_json()["journaled"] is True
 
     args, stdin = term_client._stream.calls[0]
-    assert args == ("record", "--who", "B")   # no --tags at all
+    assert args == ("record", "--who", "B", "--door", "web")   # no --tags at all
     assert stdin == "typed anyway"
 
 
@@ -304,7 +304,7 @@ def test_thread_session_retry_suffix_resolves_to_base_slug(term_client):
     assert resp.get_json()["journaled"] is True
 
     args, stdin = term_client._stream.calls[0]
-    assert args == ("record", "--who", "B", "--tags", "long-covid")
+    assert args == ("record", "--who", "B", "--door", "web", "--tags", "long-covid")
 
 
 def test_thread_session_bare_enter_key_mints_tagged_pending_text(term_client):
@@ -320,7 +320,7 @@ def test_thread_session_bare_enter_key_mints_tagged_pending_text(term_client):
     assert resp.get_json()["journaled"] is True
 
     args, stdin = term_client._stream.calls[0]
-    assert args == ("record", "--who", "B", "--tags", "long-covid")
+    assert args == ("record", "--who", "B", "--door", "web", "--tags", "long-covid")
     assert stdin == "typed before enter"
 
 

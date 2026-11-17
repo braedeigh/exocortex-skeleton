@@ -126,23 +126,27 @@ def test_a_card_just_written_to_disk_is_found(pool, client):
     assert _ids(client, q="poached") == ["2026-09-24.1000b"]
 
 
-def test_deleted_card_is_not_found(pool, client):
-    _write_card(pool, "2026-09-18.1746b", "bartending job")
-    cardstore.sync()
-    (pool / "2026-09-18.1746b.md").unlink()
-    (pool.parent / "deleted_cards.jsonl").write_text(
-        json.dumps({"id": "2026-09-18.1746b", "body": "bartending job",
-                    "deleted_at": "2026-09-24 10:00:00"}) + "\n")
-    cardstore.sync()
+def _engine(pool, monkeypatch):
+    """The journal engine, pointed at this test's vault (the card folder's
+    grandparent's parent is the content root)."""
+    from tools.stream import stream
+    monkeypatch.setenv("TULKU_STREAM_ROOT", str(pool.parents[2]))
+    return stream
+
+
+def test_deleted_card_is_not_found(pool, client, monkeypatch):
+    stream = _engine(pool, monkeypatch)
+    cid = stream.record(who="B", body="bartending job")
+    assert _ids(client, q="bartending") == [cid]
+    stream.delete_card(cid, by="test")
     assert _ids(client, q="bartending") == []
 
 
-def test_edited_card_is_found_by_its_new_words_only(pool, client):
-    _write_card(pool, "2026-09-18.1746b", "old words here")
-    cardstore.sync()
-    _write_card(pool, "2026-09-18.1746b", "new words about Poached")
-    cardstore.sync()
-    assert _ids(client, q="poached") == ["2026-09-18.1746b"]
+def test_edited_card_is_found_by_its_new_words_only(pool, client, monkeypatch):
+    stream = _engine(pool, monkeypatch)
+    cid = stream.record(who="B", body="old words here")
+    stream.edit_card(cid, "new words about Poached", by="test")
+    assert _ids(client, q="poached") == [cid]
     assert _ids(client, q="old") == []
 
 

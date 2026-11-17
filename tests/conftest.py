@@ -223,6 +223,15 @@ def data_dir(tmp_path, monkeypatch, request):
     import message_summaries
     monkeypatch.setattr(message_summaries, "_detach", lambda message_id: None)
     monkeypatch.setattr(store, "DATA_DIR", tmp_path)
+    # The journal engine (tools/stream/stream.py) is standard-library only and
+    # can't see store.DATA_DIR. In this process, its database lookup follows
+    # store.DATA_DIR live — so a test that moves DATA_DIR again still has the
+    # engine and the store on one database. The stream.py subprocesses that
+    # routes/cards.py starts get it by env instead.
+    from tools.stream import stream as journal_engine
+    monkeypatch.setattr(journal_engine.journaldb, "db_path",
+                        lambda content_root=None: pathlib.Path(store.DATA_DIR) / "exo.db")
+    monkeypatch.setenv("TULKU_STREAM_DB", str(tmp_path / "exo.db"))
     monkeypatch.setattr(store, "UPLOAD_DIR", tmp_path / "uploads")
     # The uploads archive is the one root where a leak would be silent AND
     # permanent: the sweep only ever moves files INTO it, so a test that

@@ -19,13 +19,8 @@ _spec.loader.exec_module(person_cards)
 
 
 def add_card(conn, card_id, body, who="B", tags=()):
-    day = card_id[:10]
-    ts = f"{day} {card_id[11:13]}:{card_id[13:15]}:00"
-    conn.execute(
-        "INSERT INTO cards (id, day, ts, who, kind, body, first_seen, last_seen)"
-        " VALUES (?, ?, ?, ?, 'line', ?, 'x', 'x')", (card_id, day, ts, who, body))
-    for tag in tags:
-        conn.execute("INSERT INTO card_tags (card_id, tag) VALUES (?, ?)", (card_id, tag))
+    from journal_seed import seed_card
+    seed_card(conn, card_id, body, who=who, tags=tags)
 
 
 def make_vault(data_dir, tmp_path, monkeypatch, people):

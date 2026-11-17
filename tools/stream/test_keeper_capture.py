@@ -26,6 +26,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import keeper_capture  # noqa: E402
+
+
+def _own_journal_db(case, folder):
+    """Give a test its own exo.db and data dir. The engine finds the database
+    through TULKU_STREAM_DB, then EXOCORTEX_DATA_DIR — and an agent session on
+    the live install carries EXOCORTEX_DATA_DIR pointing at the owner's real
+    data — so without this a test card could land in the live journal (and the
+    day views would read the live to-dos). Restored when the test ends."""
+    for name, value in (("TULKU_STREAM_DB", str(Path(folder) / "exo.db")),
+                        ("EXOCORTEX_DATA_DIR", str(Path(folder) / "data"))):
+        previous = os.environ.get(name)
+        case.addCleanup(lambda n=name, p=previous: os.environ.pop(n, None) if p is None
+                        else os.environ.__setitem__(n, p))
+        os.environ[name] = value
 import stream          # noqa: E402
 
 KEEPER_SENTINEL_LINE = (
@@ -295,6 +309,7 @@ class ThreadFileExistsTestCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._prev_root = os.environ.get("TULKU_STREAM_ROOT")
         os.environ["TULKU_STREAM_ROOT"] = self._tmp.name
+        _own_journal_db(self, self._tmp.name)
 
     def tearDown(self):
         if self._prev_root is None:
@@ -321,6 +336,7 @@ class MainMintTestCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._prev_root = os.environ.get("TULKU_STREAM_ROOT")
         os.environ["TULKU_STREAM_ROOT"] = self._tmp.name
+        _own_journal_db(self, self._tmp.name)
         self._prev_stdin = sys.stdin
 
     def tearDown(self):

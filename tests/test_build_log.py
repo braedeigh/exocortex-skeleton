@@ -127,12 +127,14 @@ def test_her_words_are_kept_verbatim_from_her_own_cards(data_dir, tmp_path, monk
     import cardstore
     import store
     monkeypatch.setattr(store, "CONTENT_DIR", tmp_path / "content")
-    pool = cardstore.pool_dir()
-    pool.mkdir(parents=True)
+    import sqlstore
+    from journal_seed import seed_card
     said = "I want an MCP for my app so people can record stuff maybe?\n\n  — *with* \"quotes\""
-    (pool / "2026-10-14.1630b.md").write_text(f"---\nts: 16:30\nwho: B\n---\n{said}\n")
-    (pool / "2026-10-14.1631k.md").write_text("---\nts: 16:31\nwho: K\n---\nThe Keeper's take.\n")
-    (pool / "2026-10-15.0900b.md").write_text("---\nts: 09:00\nwho: B\n---\nAnd a follow-up.\n")
+    conn = sqlstore.open_db()
+    seed_card(conn, "2026-10-14.1630b", said)
+    seed_card(conn, "2026-10-14.1631k", "The Keeper's take.", who="K")
+    seed_card(conn, "2026-10-15.0900b", "And a follow-up.")
+    conn.close()
 
     assert door.main(["add", "--title", "An MCP server", "--by", "keeper", "--status", "idea",
                       "--body", "The Keeper's summary.", "--card", "2026-10-14.1630b"]) == 0

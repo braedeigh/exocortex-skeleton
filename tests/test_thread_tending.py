@@ -40,6 +40,9 @@ def mint(content, card_id, body, tags=()):
     (pool / f"{card_id}.md").write_text(
         f"---\nid: {card_id}\nwho: B\nts: {ts}\nreply_to: null\ntags: [{', '.join(tags)}]\n"
         f"kind: line\n---\n{body}\n", encoding="utf-8")
+    # The journal is rows in exo.db now: bring the file in as the row.
+    import cardstore
+    cardstore.sync_one(card_id)
 
 
 def tags_of(content, card_id):
@@ -57,6 +60,7 @@ def vault(data_dir, tmp_path, monkeypatch):
     monkeypatch.setattr(store, "DATA_DIR", data)
     monkeypatch.setattr(store, "CONTENT_DIR", content)
     monkeypatch.setenv("TULKU_STREAM_ROOT", str(content))
+    monkeypatch.setenv("TULKU_STREAM_DB", str(data / "exo.db"))   # for stream.py subprocesses
     (content / "Threads" / "garden.md").write_text(thread_file("Garden", "the vegetable beds"))
     (content / "Threads" / "knee.md").write_text(thread_file("Knee", "the sore knee"))
     (content / "people" / "sam.md").write_text("# Sam\n\nA made-up neighbour.\n")

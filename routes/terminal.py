@@ -607,7 +607,9 @@ def _capture_journal(body, typed, tags=None, who="B", session=None, reply_to=Non
     here, a live hook minting the same text later is the fallback we want --
     marking it "already captured" would make that fallback dedup itself away.
     """
-    args = ["record", "--who", who]
+    # `--door web`: the card came in through the web app (the journal's
+    # record of how each card arrived — see docs/journal-database.md).
+    args = ["record", "--who", who, "--door", "web"]
     if tags:
         args += ["--tags", tags]
     if session:

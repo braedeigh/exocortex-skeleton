@@ -1,10 +1,12 @@
-"""cardstore — the card-pool mirror and its integrity alarm.
+"""cardstore — the compatibility layer over the journal's rows, and the import
+of card files into them.
 
-The behaviors that must not silently break: pool files become queryable rows
-(tags included), edits flow through on resync, a deletion WITH a cast is
-recorded as deliberate, a disappearance WITHOUT one is flagged missing (the
-alarm), and a card that reappears is alive again. Pool files are built by
-hand in the exact rigid shape stream.py writes.
+Since the journal moved into exo.db (docs/journal-database.md), the rows are
+the truth and cardstore only reads them, or brings in a card that exists only
+as a file. What must not silently break: a file's card arrives whole (words,
+speaker, tags as labels, reply as a link), the import never changes a row that
+already exists, read() returns the old dict shape, and a deleted card stays
+hidden. Card files are built by hand in the exact shape stream.py writes.
 """
 import json
 
@@ -51,158 +53,56 @@ def _rows(sql, *args):
         conn.close()
 
 
-def test_sync_mirrors_cards_with_tags_and_day(pool):
-    _write_card(pool, "2026-08-02.0808b", body="morning", tags=("ezra", "plans"))
-    _write_card(pool, "2026-08-03.1200k", body="a question", who="K")
 
+
+def test_a_file_only_card_arrives_whole(pool):
+    _write_card(pool, "2026-08-01.0900k", "how was the walk?", who="K")
+    (pool / "2026-08-01.0901b.md").write_text(
+        "---\nid: 2026-08-01.0901b\nwho: B\nts: 2026-08-01 09:01:00\n"
+        "reply_to: 2026-08-01.0900k\ntags: [ezra, walks]\nkind: line\nrefs: []\n"
+        "session: conv-7\n---\nlong, and good\n", encoding="utf-8")
     result = cardstore.sync()
+    assert (result["new"], result["cards"], result["missing"]) == (2, 2, [])
 
-    assert result["cards"] == 2 and result["new"] == 2 and result["missing"] == []
-    rows = _rows("SELECT id, day, who, body FROM cards ORDER BY id")
-    assert rows[0] == ("2026-08-02.0808b", "2026-08-02", "B", "morning")
-    assert rows[1] == ("2026-08-03.1200k", "2026-08-03", "K", "a question")
-    tagged = _rows("SELECT card_id FROM card_tags WHERE tag = ?", "ezra")
-    assert tagged == [("2026-08-02.0808b",)]
+    card = cardstore.read("2026-08-01.0901b")
+    assert card == {"id": "2026-08-01.0901b", "day": "2026-08-01", "ts": "2026-08-01 09:01:00",
+                    "who": "B", "kind": "line", "reply_to": "2026-08-01.0900k",
+                    "session": "conv-7", "refs": "[]", "tags": ["ezra", "walks"],
+                    "body": "long, and good"}
+    assert _rows("SELECT added_by FROM card_labels") == [("migration",), ("migration",)]
+    # Saved when it was said, so an old card arrives already locked.
+    assert _rows("SELECT saved_at FROM cards WHERE id = '2026-08-01.0901b'") == [("2026-08-01 09:01:00",)]
 
 
-def test_system_cards_reach_sql_as_S(pool):
-    # A card id ending in `s` used to fail the id pattern and be skipped by
-    # the sync without a word — a speaker silently missing from exo.db.
-    _write_card(pool, "2026-10-16.1800s", body="Reminder (set by you): Permafest", who="S")
+def test_the_import_never_changes_a_row_that_exists(pool):
+    _write_card(pool, "2026-08-01.0900b", "the words as said", tags=["walks"])
     cardstore.sync()
-    assert _rows("SELECT id, who FROM cards") == [("2026-10-16.1800s", "S")]
+    _write_card(pool, "2026-08-01.0900b", "a file edited behind the engine's back", tags=["other"])
+    assert cardstore.sync()["new"] == 0
+    assert cardstore.read("2026-08-01.0900b")["body"] == "the words as said"
+    assert cardstore.read("2026-08-01.0900b")["tags"] == ["walks"]
 
 
-def test_edit_flows_through_on_resync(pool):
-    _write_card(pool, "2026-08-02.0808b", body="before")
-    cardstore.sync()
-    _write_card(pool, "2026-08-02.0808b", body="after", tags=("late-tag",))
-
-    cardstore.sync()
-
-    rows = _rows("SELECT body FROM cards WHERE id = ?", "2026-08-02.0808b")
-    assert rows == [("after",)]
-    assert _rows("SELECT tag FROM card_tags") == [("late-tag",)]
-
-
-def test_deletion_with_cast_is_deliberate_not_missing(pool):
-    _write_card(pool, "2026-08-02.0808b", body="kept words")
-    cardstore.sync()
-    (pool / "2026-08-02.0808b.md").unlink()
-    cardstore.deleted_log_path().write_text(json.dumps({
-        "deleted_at": "2026-08-02 21:00:00", "by": "K",
-        "id": "2026-08-02.0808b", "who": "B", "ts": "2026-08-02 08:08:00",
-        "kind": "line", "reply_to": None, "tags": [], "refs": [],
-        "session": None, "body": "kept words",
-    }) + "\n", encoding="utf-8")
-
-    result = cardstore.sync()
-
-    assert result["missing"] == [] and result["deleted"] == 1
-    rows = _rows("SELECT deleted_at, missing_since, body FROM cards WHERE id = ?",
-                 "2026-08-02.0808b")
-    assert rows == [("2026-08-02 21:00:00", None, "kept words")]
-
-
-def test_vanished_without_cast_raises_the_alarm(pool):
-    _write_card(pool, "2026-08-02.2007b", body="the lost turn")
-    cardstore.sync()
-    (pool / "2026-08-02.2007b.md").unlink()
-
-    result = cardstore.sync()
-
-    assert result["missing"] == ["2026-08-02.2007b"]
-    rows = _rows("SELECT missing_since, body FROM cards WHERE id = ?",
-                 "2026-08-02.2007b")
-    assert rows[0][0] is not None          # flagged, and the row keeps the body
-    assert rows[0][1] == "the lost turn"
-
-
-def test_reappeared_card_is_alive_again(pool):
-    _write_card(pool, "2026-08-02.2007b", body="back")
-    cardstore.sync()
-    (pool / "2026-08-02.2007b.md").unlink()
-    cardstore.sync()
-    _write_card(pool, "2026-08-02.2007b", body="back")
-
-    result = cardstore.sync()
-
-    assert result["missing"] == []
-    rows = _rows("SELECT deleted_at, missing_since FROM cards WHERE id = ?",
-                 "2026-08-02.2007b")
-    assert rows == [(None, None)]
-
-
-def test_rebuild_keeps_deleted_cards_via_the_cast(pool):
-    _write_card(pool, "2026-08-02.0808b", body="alive")
-    cardstore.deleted_log_path().write_text(json.dumps({
-        "deleted_at": "2026-08-01 12:00:00", "by": "K",
-        "id": "2026-08-01.0900b", "body": "was deleted", "tags": [],
-    }) + "\n", encoding="utf-8")
-
-    result = cardstore.rebuild()
-
-    assert result["cards"] == 1
-    rows = _rows("SELECT id, deleted_at, body FROM cards WHERE id = ?",
-                 "2026-08-01.0900b")
-    assert rows == [("2026-08-01.0900b", "2026-08-01 12:00:00", "was deleted")]
+def test_read_brings_in_a_card_written_a_moment_ago(pool):
+    _write_card(pool, "2026-08-02.1000s", "Coming up: dentist at 3", who="S")
+    assert cardstore.read("2026-08-02.1000s")["who"] == "S"
+    assert cardstore.read("2026-08-02.9999b") is None
 
 
 def test_non_card_files_are_skipped(pool):
-    _write_card(pool, "2026-08-02.0808b")
-    (pool / "README.md").write_text("not a card", encoding="utf-8")
-    (pool / "2026-08-02.0808b.md.bak").write_text("also not", encoding="utf-8")
-
-    result = cardstore.sync()
-
-    assert result["cards"] == 1
+    _write_card(pool, "2026-08-01.0900b")
+    (pool / "notes.md").write_text("not a card")
+    (pool / "2026-08-01.0901b.md").write_text("no frontmatter at all")
+    assert cardstore.sync()["new"] == 1
+    assert cardstore.integrity() == []
 
 
-def test_sync_one_refreshes_a_single_card_without_walking_the_pool(pool):
-    _write_card(pool, "2026-08-02.0808b", body="first", tags=("ezra",))
-    _write_card(pool, "2026-08-02.0900b", body="untouched")
+def test_a_deleted_card_stays_hidden_and_is_never_brought_back(pool, monkeypatch):
+    from tools.stream import stream
+    monkeypatch.setenv("TULKU_STREAM_ROOT", str(store.CONTENT_DIR))
+    cid = stream.record(who="B", body="said, then taken back")
+    stream.delete_card(cid, by="test")
+    _write_card(pool, cid, "said, then taken back")   # a stale file left behind
     cardstore.sync()
-    _write_card(pool, "2026-08-02.0808b", body="retagged", tags=("plans",))
-    (pool / "2026-08-02.0900b.md").unlink()  # sync_one must NOT flag this
-
-    cardstore.sync_one("2026-08-02.0808b")
-
-    assert _rows("SELECT body FROM cards WHERE id = ?", "2026-08-02.0808b") == [("retagged",)]
-    assert _rows("SELECT tag FROM card_tags") == [("plans",)]
-    # The other card's absence is the hourly sync's business, not sync_one's.
-    assert _rows("SELECT missing_since FROM cards WHERE id = ?", "2026-08-02.0900b") == [(None,)]
-
-
-def test_sync_one_marks_a_cast_deletion_deleted(pool):
-    _write_card(pool, "2026-08-02.0808b", body="going")
-    cardstore.sync()
-    (pool / "2026-08-02.0808b.md").unlink()
-    cardstore.deleted_log_path().write_text(json.dumps({
-        "deleted_at": "2026-08-02 21:00:00", "by": "cards-route",
-        "id": "2026-08-02.0808b", "body": "going", "tags": [],
-    }) + "\n", encoding="utf-8")
-
-    cardstore.sync_one("2026-08-02.0808b")
-
-    assert _rows("SELECT deleted_at, missing_since FROM cards WHERE id = ?",
-                 "2026-08-02.0808b") == [("2026-08-02 21:00:00", None)]
-
-
-def test_sync_fresh_copies_new_and_changed_cards_and_raises_no_alarm(pool):
-    _write_card(pool, "2026-08-02.0808b", body="morning")
-    _write_card(pool, "2026-08-02.0900b", body="later")
-    cardstore.sync()
-    # One card is edited, one is new, one vanishes with no deletion cast.
-    _write_card(pool, "2026-08-02.0808b", body="morning, edited")
-    import os, time
-    os.utime(pool / "2026-08-02.0808b.md", (time.time() + 5, time.time() + 5))
-    _write_card(pool, "2026-08-02.1000b", body="brand new")
-    (pool / "2026-08-02.0900b.md").unlink()
-
-    assert cardstore.sync_fresh() == 2
-
-    rows = dict(_rows("SELECT id, body FROM cards WHERE missing_since IS NULL"))
-    assert rows["2026-08-02.0808b"] == "morning, edited" and rows["2026-08-02.1000b"] == "brand new"
-    # The vanished card is left for the hourly sync to find and shout about.
-    assert "2026-08-02.0900b" in rows
-    assert cardstore.sync()["missing"] == ["2026-08-02.0900b"]
+    assert cardstore.read(cid) is None
+    assert _rows("SELECT deleted_by FROM cards WHERE id = ?", cid) == [("test",)]

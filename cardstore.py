@@ -1,66 +1,52 @@
-"""The journal card pool as real rows — the fourth typed entity in exo.db.
+"""The journal cards, read from exo.db — a compatibility layer for older callers.
 
-**What this is.** The journal lives as one markdown file per utterance in the
-vault (`CONTENT_DIR/_system/data/cards/*.md` — see tools/stream/stream.py,
-which owns that pool). Those files are the single source of truth and nothing
-here ever writes to them. This module walks the pool into two tables —
-`cards` and `card_tags` (schema in sqlstore.py, v6 rung) — so the journal
-becomes queryable in the SQL console: cards by day, by tag, by speaker, by
-what-replies-to-what. Same contract as codestore.py: git stays truth for
-commits, the files stay truth for cards, the tables are a one-way mirror.
+**What this is now.** The journal lives in the database (see
+`docs/journal-database.md`): `tools/stream/stream.py` writes every card as a
+row, and the tables are defined in `tools/stream/journaldb.py`. This module
+used to be the opposite — an hourly one-way copy of the card FILES into
+exo.db, plus an alarm for files that vanished. That copy and its alarm are
+retired; there is one copy of a card now, so there is nothing to drift.
 
-**The mirror is also the alarm.** The pool's standing promise is that a turn
-can be late but never lost — and on 2026-08-02 a card silently vanished,
-which nothing detected. So this mirror keeps a row for every card it has
-EVER seen, and on each sync checks presence three ways:
+What's left is what existing callers still call, kept working until the
+readers session moves them to the tables directly:
 
-  - file exists            -> row alive, `last_seen` bumped
-  - file gone, id found in the pool's deletion cast
-    (`_system/data/deleted_cards.jsonl`, written by stream.py's delete verb)
-                           -> `deleted_at` set from the cast; a cut the owner
-                              asked for, nothing wrong
-  - file gone, NO cast     -> `missing_since` set. That is silent loss, the
-                              exact failure the pool promises can't happen.
-                              The row stays forever so it can't be un-noticed,
-                              and sync() returns the ids so callers can shout.
+  - `read(cid)`      one card from the database, in the dict shape the
+                     callers expect (id, day, ts, who, kind, reply_to,
+                     session, refs, tags, body).
+  - `sync()`, `sync_one()`, `sync_fresh()`
+                     bring in any card that exists only as a FILE — insert
+                     only, never changing a row. On the live install every
+                     file already has its row (stream.py writes the files
+                     from the rows), so these find nothing; they matter for
+                     tests and tools that still create card files, and they
+                     are the same import the one-time migration used.
+  - `rebuild()`      the SQL console's repair button: the same import (rows
+                     are the truth now, so there is nothing to wipe).
+  - `integrity()`    always empty — there is no second copy to go missing.
 
-Cast entries also get rows of their own (body preserved), so deleted cards
-remain queryable and a rebuild doesn't forget legitimate deletions.
-
-  - `sync()`    — upsert the whole pool + run the presence check. The pool is
-                  ~1k tiny files; a full walk is well under a second, so no
-                  incremental variant is needed (sync_sessions' reasoning).
-  - `sync_fresh()` — copy in only the cards that are new or changed, and run
-                  no presence check. For a reader that needs the table current
-                  this minute (the Keeper's boot package).
-  - `rebuild()` — wipe both tables and sync fresh. Schema-repair button only:
-                  it forgets `missing_since` incidents (they exist nowhere
-                  but these rows), which sync() never does.
-
-Touches: `sqlstore.py` (owns the schema + connection), `store.py`
-(CONTENT_DIR is where the vault is), `routes/sqlab.py` (rebuild button),
-`scripts/update_cards.py` (hourly cron wrapper, the thing that shouts).
-
-Prompt that produced this file: "I want to turn them [the journal cards] into
-SQL as well with tags and date and stuff" + make silent card loss loud.
+Touches: `sqlstore.py` (connection + ladder), `store.py` (where the vault
+and data dir are), `tools/stream/stream.py` (file parsing and the import).
 """
 import json
 import re
-from datetime import datetime
 from pathlib import Path
 
 import sqlstore
 import store
+from tools.stream import stream
 
-# The only card-id shape stream.py mints: date.HHMM + the speaker's letter (b owner, k keeper, s system) + optional
-# counter. A card whose name doesn't match is skipped by the sync — so a
-# speaker missing here is a speaker silently missing from exo.db.
+# The table module stream.py itself loaded, so both share one copy.
+journaldb = stream.journaldb
+
+# The only card-id shape stream.py mints: date.HHMM + the speaker's letter
+# (b owner, k keeper, s system) + optional counter.
 _CARD_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.\d{4}[bks]\d*$")
 
 
 def pool_dir() -> Path:
-    # Resolved at call time so tests that monkeypatch store.CONTENT_DIR get
-    # an isolated pool, same rule as sqlstore._db_path.
+    """The old card folder (still written, from the rows, while
+    stream.py's compatibility files are on). Resolved at call time so tests
+    that move store.CONTENT_DIR get their own."""
     return store.CONTENT_DIR / "_system" / "data" / "cards"
 
 
@@ -68,298 +54,114 @@ def deleted_log_path() -> Path:
     return store.CONTENT_DIR / "_system" / "data" / "deleted_cards.jsonl"
 
 
-def _now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _parse_list(raw):
-    """`[a, b]` -> ['a', 'b']. stream.py writes lists in exactly this shape."""
-    inner = raw.strip()[1:-1].strip()
-    if not inner:
-        return []
-    return [p.strip() for p in inner.split(",") if p.strip()]
-
-
-def _parse_card(path: Path):
-    """One pool file -> a flat dict, or None if it isn't a card.
-
-    Deliberately tiny, like entities._parse_frontmatter: the pool's writer is
-    stream.py and its output is rigid (scalars, `null`, `[a, b]` lists), so a
-    YAML library would be armor against a shape that can't occur. A file
-    whose name or frontmatter doesn't match the card shape is skipped, never
-    guessed at.
-    """
-    name = path.stem
-    if not _CARD_ID_RE.match(name):
-        return None
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return None
-    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
-    if end is None:
-        return None
-    meta = {}
-    for line in lines[1:end]:
-        if ":" not in line:
-            continue
-        key, _, raw = line.partition(":")
-        raw = raw.strip()
-        if raw == "null" or raw == "":
-            val = None
-        elif raw.startswith("["):
-            val = _parse_list(raw)
-        else:
-            val = raw
-        meta[key.strip()] = val
-    body = "\n".join(lines[end + 1:]).strip("\n")
+def _as_dict(row):
+    """A journaldb row in the shape this module has always returned."""
     return {
-        "id": name,
-        "day": name.split(".")[0],
-        "ts": meta.get("ts"),
-        "who": meta.get("who") or "B",
-        "kind": meta.get("kind"),
-        "reply_to": meta.get("reply_to"),
-        "session": meta.get("session"),
-        "refs": json.dumps(meta.get("refs") or []),
-        "tags": meta.get("tags") or [],
-        "body": body,
+        "id": row["id"],
+        "day": row["day"],
+        "ts": row["said_at"],
+        "who": row["who"],
+        "kind": row["kind"],
+        "reply_to": row["reply_to"],
+        "session": row["session"],
+        "refs": json.dumps(row["refs"] or []),
+        "tags": row["tags"],
+        "body": row["body"],
     }
 
 
 def read(cid: str):
-    """One card from the pool, as _parse_card gives it, or None.
-
-    Read from the pool file itself, not the exo.db mirror, so a card written
-    a minute ago is there before the hourly sync has run."""
+    """One live card from the database, or None. A card that so far exists
+    only as a file is brought in first, as the old file-reading version of
+    this function would have found it."""
     if not _CARD_ID_RE.match(cid or ""):
         return None
-    path = pool_dir() / f"{cid}.md"
-    return _parse_card(path) if path.exists() else None
+    sync_one(cid)
+    conn = sqlstore.open_db()
+    try:
+        rows = journaldb.fetch_cards(conn, "id = ? AND deleted_at IS NULL", (cid,))
+    finally:
+        conn.close()
+    return _as_dict(rows[0]) if rows else None
 
 
-def _load_casts():
-    """The deletion log as {card_id: cast entry}. Missing file = no casts yet
-    (the log only exists once something has been deleted)."""
-    path = deleted_log_path()
-    if not path.exists():
-        return {}
-    casts = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
+def _label_context():
+    return journaldb.LabelContext(store.CONTENT_DIR, store.DATA_DIR)
+
+
+def import_files(pool=None, only=None, added_by="migration"):
+    """Insert every card file whose id has no row yet. Returns how many were
+    added. `only` limits it to a set of ids. Never changes an existing row,
+    so it is safe to run against the live database at any time."""
+    pool = Path(pool) if pool else pool_dir()
+    if not pool.exists():
+        return 0
+    paths = sorted(pool.glob("*.md"))
+    if only is not None:
+        paths = [p for p in paths if p.stem in only]
+    conn = sqlstore.open_db()
+    added = []
+    try:
+        have = {r[0] for r in conn.execute("SELECT id FROM cards")}
+        todo = [p for p in paths if p.stem not in have and _CARD_ID_RE.match(p.stem)]
+        if not todo:
+            return 0
+        context = _label_context()
+        sqlstore.begin_immediate(conn)
         try:
-            entry = json.loads(line)
-        except ValueError:
-            continue  # a shredded line loses one cast, never the sync
-        if entry.get("id"):
-            casts[entry["id"]] = entry
-    return casts
+            for path in todo:
+                try:
+                    card = stream.parse_card_file(path)
+                except (stream.StreamError, OSError, UnicodeDecodeError):
+                    continue  # not a readable card — skipped, never guessed at
+                if card.id != path.stem:
+                    continue
+                if stream.import_card(conn, card, added_by=added_by, context=context, links=False):
+                    added.append(card)
+            for card in added:
+                stream.import_links(conn, card)
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
+    return len(added)
 
 
-def _upsert(conn, card, now):
-    conn.execute(
-        "INSERT INTO cards (id, day, ts, who, kind, reply_to, session, refs,"
-        " body, first_seen, last_seen, deleted_at, missing_since)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)"
-        " ON CONFLICT(id) DO UPDATE SET"
-        # Content can change (the edit verb, tag sweeps) — mirror it all.
-        "  day=excluded.day, ts=excluded.ts, who=excluded.who,"
-        "  kind=excluded.kind, reply_to=excluded.reply_to,"
-        "  session=excluded.session, refs=excluded.refs, body=excluded.body,"
-        "  last_seen=excluded.last_seen,"
-        # A file that's back on disk is alive, whatever we thought before.
-        "  deleted_at=NULL, missing_since=NULL",
-        (card["id"], card["day"], card["ts"], card["who"], card["kind"],
-         card["reply_to"], card["session"], card["refs"], card["body"],
-         now, now),
-    )
-    conn.execute("DELETE FROM card_tags WHERE card_id = ?", (card["id"],))
-    conn.executemany(
-        "INSERT OR IGNORE INTO card_tags (card_id, tag) VALUES (?, ?)",
-        [(card["id"], t) for t in card["tags"]],
-    )
+def _live_count():
+    conn = sqlstore.open_db()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM cards WHERE deleted_at IS NULL").fetchone()[0]
+    finally:
+        conn.close()
 
 
 def sync():
-    """Walk the pool into the tables and run the presence check.
-
-    Returns {"cards", "new", "deleted", "missing"} — `missing` is the list of
-    ids that vanished with no cast. An empty list is the healthy answer;
-    anything else is an integrity incident the caller should make loud.
-    """
-    conn = sqlstore.open_db()
-    now = _now()
-    try:
-        sqlstore.begin_immediate(conn)
-        known = {r[0] for r in conn.execute("SELECT id FROM cards")}
-        seen = set()
-        for path in sorted(pool_dir().glob("*.md")):
-            card = _parse_card(path)
-            if card is None:
-                continue
-            seen.add(card["id"])
-            _upsert(conn, card, now)
-
-        casts = _load_casts()
-        # Cast entries become rows too (body preserved from the cast), so a
-        # deleted card is still queryable and survives rebuild(). INSERT OR
-        # IGNORE: if the row already exists the branch below explains it.
-        for cid, entry in casts.items():
-            if cid in seen or not _CARD_ID_RE.match(cid):
-                continue
-            conn.execute(
-                "INSERT OR IGNORE INTO cards (id, day, ts, who, kind, reply_to,"
-                " session, refs, body, first_seen, last_seen, deleted_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (cid, cid.split(".")[0], entry.get("ts"),
-                 entry.get("who") or "B", entry.get("kind"),
-                 entry.get("reply_to"), entry.get("session"),
-                 json.dumps(entry.get("refs") or []), entry.get("body") or "",
-                 now, now, entry.get("deleted_at") or now),
-            )
-
-        # The presence check: every row that WAS alive but has no file now is
-        # either explained by a cast or an incident.
-        unexplained = []
-        deleted = 0
-        gone = [r[0] for r in conn.execute(
-            "SELECT id FROM cards WHERE deleted_at IS NULL"
-            " AND missing_since IS NULL"
-        ) if r[0] not in seen]
-        for cid in gone:
-            if cid in casts:
-                conn.execute(
-                    "UPDATE cards SET deleted_at = ? WHERE id = ?",
-                    (casts[cid].get("deleted_at") or now, cid),
-                )
-                deleted += 1
-            else:
-                conn.execute(
-                    "UPDATE cards SET missing_since = ? WHERE id = ?",
-                    (now, cid),
-                )
-                unexplained.append(cid)
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
-    return {
-        "cards": len(seen),
-        "new": len(seen - known),
-        "deleted": deleted,
-        "missing": sorted(unexplained),
-    }
+    """Bring in cards that exist only as files; report in the old shape."""
+    new = import_files()
+    return {"cards": _live_count(), "new": new, "deleted": 0, "missing": []}
 
 
 def sync_one(cid: str):
-    """Refresh a single card's row right now — the instant echo under the
-    hourly sync. The card routes call this after every mutation so a tag,
-    edit, add, or delete is queryable the moment it lands instead of at :12.
-    Constant-time: parses one file, never walks the pool.
-
-    A file that's gone is only marked deleted here when the deletion cast
-    explains it (which it always does for a route delete — the cast is
-    written before the unlink). Flagging UNexplained absences stays the
-    hourly sync's job; it has the full-pool view this doesn't."""
-    if not _CARD_ID_RE.match(cid):
-        return
-    conn = sqlstore.open_db()
-    now = _now()
-    try:
-        sqlstore.begin_immediate(conn)
-        path = pool_dir() / f"{cid}.md"
-        card = _parse_card(path) if path.exists() else None
-        if card is not None:
-            _upsert(conn, card, now)
-        else:
-            entry = _load_casts().get(cid)
-            if entry is not None:
-                conn.execute(
-                    "UPDATE cards SET deleted_at = ? WHERE id = ?"
-                    " AND deleted_at IS NULL",
-                    (entry.get("deleted_at") or now, cid),
-                )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
+    """Bring in one card if it exists only as a file."""
+    if _CARD_ID_RE.match(cid or ""):
+        import_files(only={cid})
 
 
 def sync_fresh(pool=None):
-    """Copy in the cards that are new or changed since their last sync, and
-    nothing else. Returns how many were copied.
-
-    For a reader that needs the table current right now (the Keeper's boot
-    package, built at the wake) without waiting for the hourly sync. It never
-    marks a card deleted or missing: the presence check stays with `sync()`,
-    whose caller is the one that shouts, so an alarm can't be raised here
-    where nobody would hear it.
-
-    `pool` is the cards folder to read; the vault's own by default."""
-    pool = Path(pool) if pool else pool_dir()
-    conn = sqlstore.open_db()
-    now = _now()
-    copied = 0
-    try:
-        sqlstore.begin_immediate(conn)
-        last_seen = dict(conn.execute("SELECT id, last_seen FROM cards"))
-        for path in sorted(pool.glob("*.md")):
-            seen = last_seen.get(path.stem)
-            try:
-                changed = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-            except OSError:
-                continue
-            if seen is not None and changed <= seen:
-                continue
-            card = _parse_card(path)
-            if card is not None:
-                _upsert(conn, card, now)
-                copied += 1
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
-    return copied
+    """Bring in any card that exists only as a file in `pool` (the vault's
+    own folder by default). Returns how many were added."""
+    return import_files(pool)
 
 
 def rebuild():
-    """Wipe and re-derive. Self-repair only — sync() is the daily driver.
-    Forgets missing_since incidents (they live nowhere but these rows);
-    deleted cards survive because the cast log is re-read."""
-    conn = sqlstore.open_db()
-    try:
-        sqlstore.begin_immediate(conn)
-        conn.execute("DELETE FROM card_tags")
-        conn.execute("DELETE FROM cards")
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
+    """The SQL console's repair button. The rows are the truth now, so this
+    only brings in what's missing — it can never wipe the journal."""
     return sync()
 
 
 def integrity():
-    """The standing question — 'is anything missing?' — as one cheap read.
-    Returns rows currently marked missing_since, oldest first."""
-    conn = sqlstore.open_db()
-    try:
-        rows = conn.execute(
-            "SELECT id, missing_since FROM cards"
-            " WHERE missing_since IS NOT NULL ORDER BY missing_since"
-        ).fetchall()
-    finally:
-        conn.close()
-    return [{"id": r[0], "missing_since": r[1]} for r in rows]
+    """Kept for callers of the retired missing-card alarm. There is one copy
+    of each card now, so nothing can go missing from a second one."""
+    return []

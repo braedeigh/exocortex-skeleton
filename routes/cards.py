@@ -27,10 +27,12 @@ write. Editing/deleting a card file by hand here would silently desync those
 derived views from the pool.
 """
 import json
+import os
 import re
 import subprocess
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from flask import request, jsonify
 
@@ -59,7 +61,12 @@ def _pool_dir():
 
 
 def _stream_py():
-    return _content_dir() / "_system" / "stream.py"
+    """The journal engine this app ships (tools/stream/stream.py), run against
+    this install's content folder — not whatever stream.py sits in that folder.
+    The live vault's copy is only a shim that forwards here anyway; a freshly
+    seeded install's copy can be older than the app, and the app's routes pass
+    flags only the current engine knows."""
+    return Path(store.BUILD_DIR) / "tools" / "stream" / "stream.py"
 
 
 def _edit_log_path():
@@ -164,8 +171,11 @@ def _run_stream(*args, stdin=None):
     card files, since it re-renders the derived day/month/manifest views on
     every write. Returns the CompletedProcess; caller checks returncode."""
     cmd = [sys.executable, str(_stream_py()), *args]
+    # The engine finds the vault by TULKU_STREAM_ROOT; point it at this
+    # install's content folder (the vault shim used to pin it).
+    env = dict(os.environ, TULKU_STREAM_ROOT=str(_content_dir()))
     return subprocess.run(
-        cmd, input=stdin, text=True, capture_output=True, timeout=STREAM_TIMEOUT_SEC,
+        cmd, input=stdin, text=True, capture_output=True, timeout=STREAM_TIMEOUT_SEC, env=env,
     )
 
 
@@ -362,7 +372,9 @@ def register(app):
         if reply_to and not CARD_ID_RE.match(reply_to):
             return jsonify({"error": "invalid reply_to"}), 400
         ts = _insert_ts(date, position, _day_cards(date))
-        args = ["record", "--who", "B", "--ts", ts]
+        # Added by her hand on the journal page: the web door, and any tags
+        # credited to the owner (her labels outrank every agent's).
+        args = ["record", "--who", "B", "--ts", ts, "--door", "web", "--by", "owner"]
         if tags:
             args += ["--tags", ",".join(tags)]
         if reply_to:
@@ -421,7 +433,10 @@ def register(app):
                 or not all(isinstance(t, str) and TAG_RE.match(t) for t in tags)):
             return jsonify({"error": "tags must be a non-empty list of slugs"}), 400
         try:
-            result = _run_stream(verb, cid, *tags)
+            # --by owner: a tag changed here is her hand, which no agent may undo
+            # (stream.py refuses an agent removing her label or re-adding one she
+            # took off).
+            result = _run_stream(verb, cid, *tags, "--by", "owner")
         except subprocess.TimeoutExpired:
             return jsonify({"error": f"timed out running {verb}"}), 400
         if result.returncode != 0:

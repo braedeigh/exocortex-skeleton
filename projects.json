@@ -117,6 +117,7 @@
       ],
       "scripts": [
         "update_cards.py",
+        "journal_db_migrate.py",
         "context_loads.py",
         "keeper_rollover.py",
         "cricket_swarm.sh",
@@ -130,6 +131,12 @@
       "tables": [
         "cards",
         "card_tags",
+        "card_edits",
+        "card_links",
+        "labels",
+        "card_labels",
+        "cards_v6_mirror",
+        "card_tags_v6_mirror",
         "journal_pages",
         "context_loads",
         "thread_summaries",

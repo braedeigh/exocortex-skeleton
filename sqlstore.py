@@ -42,8 +42,9 @@ import time
 
 import store
 import tablelog
+from tools.stream import journaldb
 
-_SCHEMA_VERSION = 60
+_SCHEMA_VERSION = 61
 
 
 def _db_path():
@@ -177,7 +178,8 @@ _EXPECTED_TABLES = (
     "expenses", "expense_categories",
     "files", "file_paths", "commits", "commit_files",
     "sessions", "session_files", "session_turns",
-    "cards", "card_tags",
+    # The journal (tools/stream/journaldb.py; `card_tags` is a view over these now).
+    "cards", "card_edits", "card_links", "labels", "card_labels",
     "todos", "fronts", "todo_fronts", "todo_subtasks", "todo_agent_notes",
     "job_runs",
     "attention_segments",
@@ -551,60 +553,15 @@ def _run_ladder(conn):
             " ON session_files (file_id)"
         )
     if version < 6:
-        # Typed entity #4: the journal card pool (see cardstore.py for what
-        # fills these). The markdown files in the vault stay the single source
-        # of truth — these rows are a one-way queryable mirror, same contract
-        # as git and the commits table. The three presence columns double as
-        # the capture-integrity alarm: a row whose file disappeared is either
-        # `deleted_at` (found in the pool's deleted_cards.jsonl cast — a cut
-        # the owner asked for) or `missing_since` (no cast — silent loss, the
-        # thing the pool promises can never happen, surfaced loudly).
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS cards ("
-            # The pool's own id, e.g. 2026-08-02.0808b — date.HHMM + who-letter
-            # + optional counter. Stable for a card's whole life.
-            "  id TEXT PRIMARY KEY,"
-            # The journal day, split out of the id so day queries don't need
-            # substr(). Indexed: almost every question is 'over what period'.
-            "  day TEXT NOT NULL,"
-            # Full timestamp from the frontmatter (local, 'YYYY-MM-DD HH:MM:SS').
-            "  ts TEXT,"
-            # 'B' = the owner, 'K' = the Keeper, 'S' = the system (a reminder
-            # the app sent — neither of theirs). Free text, so no migration.
-            "  who TEXT NOT NULL DEFAULT 'B',"
-            "  kind TEXT,"
-            # Card id this one answers (the K-question/B-answer pairing).
-            "  reply_to TEXT,"
-            "  session TEXT,"
-            # refs kept as a JSON list in text — rarely queried, not worth a
-            # join table until a real query wants one.
-            "  refs TEXT,"
-            "  body TEXT NOT NULL DEFAULT '',"
-            # Presence tracking (the alarm). first_seen/last_seen are sync
-            # clock times, not card times.
-            "  first_seen TEXT NOT NULL,"
-            "  last_seen TEXT NOT NULL,"
-            # Set from the deletion cast when the file is legitimately gone.
-            "  deleted_at TEXT,"
-            # Set when the file is gone with NO cast. NULL = alive or
-            # explained. A non-NULL here is an integrity incident, kept as a
-            # row forever so it can't be un-noticed.
-            "  missing_since TEXT"
-            ")"
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_cards_day ON cards (day)")
-        # Tags are the many-to-many-carrying-nothing shape — a plain pair
-        # table, so 'every card tagged x' is one indexed lookup.
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS card_tags ("
-            "  card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,"
-            "  tag TEXT NOT NULL,"
-            "  PRIMARY KEY (card_id, tag)"
-            ")"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_card_tags_tag ON card_tags (tag)"
-        )
+        # Typed entity #4: the journal cards. This rung used to build the old
+        # one-way mirror of the card files (`cards` + a `card_tags` table);
+        # since the journal moved into the database (rung 61,
+        # docs/journal-database.md) a database that has no cards table yet
+        # gets the real journal tables straight away, from the one definition
+        # in tools/stream/journaldb.py. An existing database is left for rung
+        # 61 to reshape.
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'cards'").fetchone():
+            journaldb.create_schema(conn)
     if version < 7:
         # Typed entity #5: to-dos (see todostore.py for what fills these).
         # `todos.json` stays truth; these rows are a one-way mirror, same
@@ -1800,31 +1757,9 @@ def _run_ladder(conn):
             "  tokenize = 'porter unicode61 remove_diacritics 2'"
             ")"
         )
-        # Keep the index in step with `cards` — three triggers, one per kind
-        # of change. The update one fires only when the body really changed:
-        # the hourly sync rewrites every row, and re-indexing thousands of
-        # unchanged bodies each hour would be pure waste.
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS cards_fts_insert AFTER INSERT ON cards"
-            " BEGIN"
-            "  INSERT INTO cards_fts (card_id, body) VALUES (new.id, new.body);"
-            " END"
-        )
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS cards_fts_update AFTER UPDATE OF body ON cards"
-            " WHEN old.body IS NOT new.body"
-            " BEGIN"
-            "  DELETE FROM cards_fts WHERE card_id = old.id;"
-            "  INSERT INTO cards_fts (card_id, body) VALUES (new.id, new.body);"
-            " END"
-        )
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS cards_fts_delete AFTER DELETE ON cards"
-            " BEGIN"
-            "  DELETE FROM cards_fts WHERE card_id = old.id;"
-            " END"
-        )
-        # Fill it from whatever cards are already mirrored. Wipe-and-refill
+        # Keep the index in step with `cards` (see _card_fts_triggers).
+        _card_fts_triggers(conn)
+        # Fill it from whatever cards are already there. Wipe-and-refill
         # rather than insert-missing, so replaying the ladder can never
         # double an entry — the index is derived, rebuilding it is free.
         conn.execute("DELETE FROM cards_fts")
@@ -3527,8 +3462,50 @@ def _run_ladder(conn):
         )
         conn.execute("CREATE INDEX IF NOT EXISTS room_proposals_by_project"
                      " ON room_proposals (project, status)")
+    if version < 61:
+        # The journal moves into the database (docs/journal-database.md): the
+        # cards stop being files with an hourly copy here, and become the rows
+        # themselves. The old mirror tables are renamed out of the way (kept
+        # for comparison, dropped by a later rung), the five journal tables and
+        # the 24-hour lock triggers are built from tools/stream/journaldb.py,
+        # and the word index is pointed at the new `cards`. The rows are
+        # filled by scripts/journal_db_migrate.py, run right after.
+        #
+        # Prompt: "cards should be written straight into the database with all
+        # the information associated with them."
+        journaldb.reshape_old_mirror(conn)
+        _card_fts_triggers(conn)
+        conn.execute("DELETE FROM cards_fts")
+        conn.execute("INSERT INTO cards_fts (card_id, body) SELECT id, body FROM cards")
     if version < _SCHEMA_VERSION:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+
+
+def _card_fts_triggers(conn):
+    """Keep the journal word index in step with `cards` — three triggers, one
+    per kind of change. The update one fires only when the words really
+    changed. Shared by rung 23, which made the index, and rung 61, which
+    rebuilt `cards` underneath it."""
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS cards_fts_insert AFTER INSERT ON cards"
+        " BEGIN"
+        "  INSERT INTO cards_fts (card_id, body) VALUES (new.id, new.body);"
+        " END"
+    )
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS cards_fts_update AFTER UPDATE OF body ON cards"
+        " WHEN old.body IS NOT new.body"
+        " BEGIN"
+        "  DELETE FROM cards_fts WHERE card_id = old.id;"
+        "  INSERT INTO cards_fts (card_id, body) VALUES (new.id, new.body);"
+        " END"
+    )
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS cards_fts_delete AFTER DELETE ON cards"
+        " BEGIN"
+        "  DELETE FROM cards_fts WHERE card_id = old.id;"
+        " END"
+    )
 
 
 def _create_agent_messages(conn, name):

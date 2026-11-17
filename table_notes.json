@@ -482,53 +482,69 @@
     }
   },
   "cards": {
-    "holds": "One row per journal card: its id, the journal day, the full timestamp, who wrote it (the owner or the Keeper), what kind of card it is, which card it answers, which session it came from, and the text itself. It also tracks presence: when the card's file was first and last seen, whether it was deliberately deleted, and whether it has gone missing without explanation — a loud alarm, because the journal promises never to lose a card.",
-    "source": "Built by cardstore.py from the card markdown files in the vault, which stay the truth. The pond and the Terrain map's pond tile are drawn from this table.",
-    "kind": "mirror",
-    "time_column": "ts",
+    "holds": "One row per journal card — each thing said, by the owner, the Keeper or the system. This is the journal itself (since November 2026 the rows are the truth, not files). A card can be changed or deleted for 24 hours after it was saved, then never: triggers in the database refuse. Two extra columns are computed for older readers and are not stored: `ts` (the same as said_at) and `missing_since` (always empty).",
+    "source": "Written by the journal engine (tools/stream/stream.py), the one door every card comes in through — the web app, the capture hook, the reconciler, voice, the Keeper. The table definitions live in tools/stream/journaldb.py; see docs/journal-database.md.",
+    "kind": "store",
+    "time_column": "said_at",
     "columns": {
       "id": {
-        "holds": "The card's id: its date, time, a letter for who wrote it, and sometimes a counter — like 2026-08-02.0808b."
-      },
-      "day": {
-        "holds": "The journal day, as YYYY-MM-DD, split out of the id so questions about a day are easy."
-      },
-      "ts": {
-        "holds": "The full moment it was written, in local time."
+        "holds": "The card's id: its date, time, a letter for who said it, and sometimes a counter — like 2026-08-02.0808b. Never reused, even after a delete."
       },
       "who": {
-        "holds": "Who wrote the card.",
+        "holds": "Who said it.",
         "values": {
           "B": "the owner",
-          "K": "the Keeper"
+          "K": "the Keeper",
+          "S": "the system — text neither of them wrote, like a reminder the app sent"
         }
       },
+      "said_at": {
+        "holds": "The moment it was said, in local time."
+      },
+      "day": {
+        "holds": "The journal day, YYYY-MM-DD — the first part of said_at."
+      },
       "kind": {
-        "holds": "What sort of card it is, from the card's own header."
-      },
-      "reply_to": {
-        "holds": "The id of the card this one answers — how a Keeper question and the owner's answer are paired."
-      },
-      "session": {
-        "holds": "Which journaling session the card came from."
-      },
-      "refs": {
-        "holds": "References the card carries, as a JSON list."
+        "holds": "What sort of card it is.",
+        "values": {
+          "line": "something said",
+          "context": "the Keeper's one-paragraph context for the day",
+          "ref": "a Keeper annotation pointing at past days or files"
+        }
       },
       "body": {
-        "holds": "The text of the card itself."
+        "holds": "The words, verbatim."
       },
-      "first_seen": {
-        "holds": "When the sync first found this card's file. A sync-clock time, not the card's own time."
+      "refs": {
+        "holds": "For a ref card, what it points at — a list of days or vault paths, as JSON."
       },
-      "last_seen": {
-        "holds": "When the sync last found the file still there."
+      "fingerprint": {
+        "holds": "A checksum of who, said_at and body. If the words were ever changed without going through the engine, this stops matching, and `stream.py validate` says so."
+      },
+      "door": {
+        "holds": "How the card came in. Empty for cards from before this was recorded.",
+        "values": {
+          "web": "the web app (chat send or the journal page)",
+          "hook": "typed into a terminal, caught by the capture hook",
+          "reconciler": "recovered from a transcript by the minute-by-minute safety net",
+          "voice": "heard by a listening device",
+          "cli": "the command line, e.g. the Keeper minting a card by hand"
+        }
+      },
+      "device": {
+        "holds": "Which listening machine heard it, for a voice card."
+      },
+      "session": {
+        "holds": "The conversation the card was pulled out of, when it came from one."
+      },
+      "saved_at": {
+        "holds": "When the row was written. The 24-hour edit window runs from here, and it can never be changed. Cards moved in from the old files carry said_at here."
       },
       "deleted_at": {
-        "holds": "Set when the file is gone AND there is a record of the owner deleting it. Empty for a living card."
+        "holds": "When it was deleted, if it was. A deleted card's row stays, hidden."
       },
-      "missing_since": {
-        "holds": "Set when the file is gone with NO record of why. This should always be empty — a value here is the journal's integrity alarm."
+      "deleted_by": {
+        "holds": "Who deleted it (the journal page, the command line, …)."
       }
     }
   },
@@ -601,17 +617,39 @@
     "kind": "record",
     "time_column": "raised_on",
     "columns": {
-      "id": {"holds": "The item's number, used to show, note or close it."},
-      "title": {"holds": "What the item is, in a line."},
-      "body": {"holds": "The write-up, in markdown, as it was first filed. Later findings go in build_notes."},
-      "status": {"holds": "Where it stands: idea, open, paused, shipped, or dropped."},
-      "raised_by": {"holds": "Who raised it: 'hers', a persona, or a session name. 'unknown' when an old heading never said."},
-      "raised_on": {"holds": "The day it was raised. Empty for an old item that never said."},
-      "added_at": {"holds": "When the row was written."},
-      "closed_on": {"holds": "The day it was shipped or dropped; empty while it is live."},
-      "source": {"holds": "For an item moved in from the old markdown file: the file and line its heading was on."},
-      "owner_words": {"holds": "The owner's own words about the item, verbatim, copied from the journal cards she said them in. Empty when none were kept."},
-      "owner_cards": {"holds": "The journal card ids her words were copied from, as a JSON list."}
+      "id": {
+        "holds": "The item's number, used to show, note or close it."
+      },
+      "title": {
+        "holds": "What the item is, in a line."
+      },
+      "body": {
+        "holds": "The write-up, in markdown, as it was first filed. Later findings go in build_notes."
+      },
+      "status": {
+        "holds": "Where it stands: idea, open, paused, shipped, or dropped."
+      },
+      "raised_by": {
+        "holds": "Who raised it: 'hers', a persona, or a session name. 'unknown' when an old heading never said."
+      },
+      "raised_on": {
+        "holds": "The day it was raised. Empty for an old item that never said."
+      },
+      "added_at": {
+        "holds": "When the row was written."
+      },
+      "closed_on": {
+        "holds": "The day it was shipped or dropped; empty while it is live."
+      },
+      "source": {
+        "holds": "For an item moved in from the old markdown file: the file and line its heading was on."
+      },
+      "owner_words": {
+        "holds": "The owner's own words about the item, verbatim, copied from the journal cards she said them in. Empty when none were kept."
+      },
+      "owner_cards": {
+        "holds": "The journal card ids her words were copied from, as a JSON list."
+      }
     }
   },
   "build_notes": {
@@ -620,12 +658,24 @@
     "kind": "record",
     "time_column": "written_at",
     "columns": {
-      "id": {"holds": "A running number that identifies the row."},
-      "item_id": {"holds": "The build item it is about (build_items.id)."},
-      "written_at": {"holds": "When it was written, in local time."},
-      "author": {"holds": "Who wrote it."},
-      "kind": {"holds": "'note' for a finding or follow-up, 'status' for a change of status."},
-      "text": {"holds": "The note itself; for a status change, 'old → new' and the reason."}
+      "id": {
+        "holds": "A running number that identifies the row."
+      },
+      "item_id": {
+        "holds": "The build item it is about (build_items.id)."
+      },
+      "written_at": {
+        "holds": "When it was written, in local time."
+      },
+      "author": {
+        "holds": "Who wrote it."
+      },
+      "kind": {
+        "holds": "'note' for a finding or follow-up, 'status' for a change of status."
+      },
+      "text": {
+        "holds": "The note itself; for a status change, 'old → new' and the reason."
+      }
     }
   },
   "person_sheets": {
@@ -710,16 +760,16 @@
     }
   },
   "card_tags": {
-    "holds": "Which tags are on which journal card — one row per card-and-tag pair, nothing else. A plain pair table, so 'every card tagged x' is one quick lookup.",
-    "source": "Built by cardstore.py from the tags written in each card file.",
+    "holds": "A read-only VIEW, not a table: which tags are on which journal card, one row per pair, in the shape the old mirror table had so older readers keep working. Built from card_labels (labels currently on) plus the capture facts the old files carried as tags (`voice`, `via:<device>`). Nothing can be written here — tags are changed through stream.py's tag and untag.",
+    "source": "Computed from card_labels, labels and cards every time it is read.",
     "kind": "mirror",
     "time_column": null,
     "columns": {
       "card_id": {
-        "holds": "Which card. Points at cards.id. Together with `tag` it identifies the row."
+        "holds": "Which card. Points at cards.id."
       },
       "tag": {
-        "holds": "One tag on that card."
+        "holds": "One tag on that card — the label's slug."
       }
     }
   },
@@ -2879,9 +2929,15 @@
     "kind": "record",
     "time_column": "set_at",
     "columns": {
-      "food_id": {"holds": "The food."},
-      "fdc_id": {"holds": "Its USDA FoodData Central id (the fdc_foods table in commons.db)."},
-      "set_at": {"holds": "When she chose it."}
+      "food_id": {
+        "holds": "The food."
+      },
+      "fdc_id": {
+        "holds": "Its USDA FoodData Central id (the fdc_foods table in commons.db)."
+      },
+      "set_at": {
+        "holds": "When she chose it."
+      }
     }
   },
   "recipe_line_grams": {
@@ -2890,10 +2946,18 @@
     "kind": "record",
     "time_column": null,
     "columns": {
-      "recipe_id": {"holds": "The recipe."},
-      "line": {"holds": "The line's text as matched: trimmed, lowercased, spaces collapsed."},
-      "grams": {"holds": "Her weight for the whole line, in grams."},
-      "for_amount": {"holds": "The amount the line read when she set the weight."}
+      "recipe_id": {
+        "holds": "The recipe."
+      },
+      "line": {
+        "holds": "The line's text as matched: trimmed, lowercased, spaces collapsed."
+      },
+      "grams": {
+        "holds": "Her weight for the whole line, in grams."
+      },
+      "for_amount": {
+        "holds": "The amount the line read when she set the weight."
+      }
     }
   },
   "meal_rotation": {
@@ -4132,91 +4196,291 @@
       }
     }
   },
-    "spinoff_briefs": {
-      "holds": "What each spun-off session was asked to do: the brief, whole, tagged by the job's name and the date it was written. One row per brief. A brief no session has started on yet is a draft; once a session starts on it the row names that session and is not changed again. A continuation is a row of its own that names the session it carries on from.",
-      "source": "Written by briefstore.py: scripts/spinoff_brief.py saves an agent's brief, and the app's own buttons (helpers, stewards, forks, the nightly test fixer, continuations) save theirs. routes/spinoff.py stamps the session when it starts one. Briefs written before 2026-10-02 were files and were brought in by scripts/import_spinoff_briefs.py. Not rebuildable: the hourly backup dumps this table as text.",
-      "kind": "record",
-      "time_column": "written_at",
-      "columns": {
-        "id": {
-          "holds": "The row's number. A session's entry carries it as spinoff_brief."
-        },
-        "slug": {
-          "holds": "The job's name: a few lowercase words joined by hyphens."
-        },
-        "written_at": {
-          "holds": "When the brief was written."
-        },
-        "written_by": {
-          "holds": "The session that wrote it. Empty when the app itself or a terminal did."
-        },
-        "body": {
-          "holds": "The brief, whole, as Markdown. It is the new session's first message."
-        },
-        "conv": {
-          "holds": "The session started on this brief. Empty until one is."
-        },
-        "opened_at": {
-          "holds": "When that session was started."
-        },
-        "continues": {
-          "holds": "For a continuation: the session whose work this one carries on."
-        },
-        "preloaded": {
-          "holds": "The files from the brief's Where to look list that were pasted into the session's instructions, as a JSON list."
-        },
-        "too_big": {
-          "holds": "The listed files that were too big to paste and were left for the session to read, as a JSON list."
-        },
-        "imported_from": {
-          "holds": "For a brief that began as a file: the folder it was brought in from."
-        }
-      }
-    },
-    "spinoff_contexts": {
-      "holds": "The hidden instructions built for a brief when its session started: the Protocol, and the listed files as they were at that moment. One row per brief that has any. Every turn of the session is handed this text.",
-      "source": "Written by briefstore.py (opened) when routes/spinoff.py starts a session. Kept apart from spinoff_briefs so the hourly text dump of the briefs stays small; this table is not in that dump, since it is a copy of files that were on disk.",
-      "kind": "record",
-      "time_column": "at",
-      "columns": {
-        "brief_id": {
-          "holds": "Which brief, by its row number in spinoff_briefs."
-        },
-        "at": {
-          "holds": "When the snapshot was taken."
-        },
-        "body": {
-          "holds": "The instructions, whole."
-        }
-      }
-    },
-    "spinoff_handoffs": {
-      "holds": "What a session wrote when it filled its context and handed its work to a fresh one: the goal, what is done, what is left. One row per handoff.",
-      "source": "Written by briefstore.py from continuation.py (hand_off) when a session runs scripts/peers.py handoff. Handoffs written before 2026-10-02 were files and were brought in by scripts/import_spinoff_briefs.py. Not rebuildable: the hourly backup dumps this table as text.",
-      "kind": "record",
-      "time_column": "at",
-      "columns": {
-        "id": {
-          "holds": "The row's number."
-        },
-        "conv": {
-          "holds": "The session that wrote it. Empty for an imported file whose writer couldn't be worked out."
-        },
-        "at": {
-          "holds": "When it was written."
-        },
-        "body": {
-          "holds": "The handoff, whole, as Markdown."
-        },
-        "to_conv": {
-          "holds": "The session that took the work over. Empty until one does."
-        },
-        "slug": {
-          "holds": "For an imported file: the job folder it sat in."
-        },
-        "imported_from": {
-          "holds": "For an imported file: its path."
-        }
+  "spinoff_briefs": {
+    "holds": "What each spun-off session was asked to do: the brief, whole, tagged by the job's name and the date it was written. One row per brief. A brief no session has started on yet is a draft; once a session starts on it the row names that session and is not changed again. A continuation is a row of its own that names the session it carries on from.",
+    "source": "Written by briefstore.py: scripts/spinoff_brief.py saves an agent's brief, and the app's own buttons (helpers, stewards, forks, the nightly test fixer, continuations) save theirs. routes/spinoff.py stamps the session when it starts one. Briefs written before 2026-10-02 were files and were brought in by scripts/import_spinoff_briefs.py. Not rebuildable: the hourly backup dumps this table as text.",
+    "kind": "record",
+    "time_column": "written_at",
+    "columns": {
+      "id": {
+        "holds": "The row's number. A session's entry carries it as spinoff_brief."
+      },
+      "slug": {
+        "holds": "The job's name: a few lowercase words joined by hyphens."
+      },
+      "written_at": {
+        "holds": "When the brief was written."
+      },
+      "written_by": {
+        "holds": "The session that wrote it. Empty when the app itself or a terminal did."
+      },
+      "body": {
+        "holds": "The brief, whole, as Markdown. It is the new session's first message."
+      },
+      "conv": {
+        "holds": "The session started on this brief. Empty until one is."
+      },
+      "opened_at": {
+        "holds": "When that session was started."
+      },
+      "continues": {
+        "holds": "For a continuation: the session whose work this one carries on."
+      },
+      "preloaded": {
+        "holds": "The files from the brief's Where to look list that were pasted into the session's instructions, as a JSON list."
+      },
+      "too_big": {
+        "holds": "The listed files that were too big to paste and were left for the session to read, as a JSON list."
+      },
+      "imported_from": {
+        "holds": "For a brief that began as a file: the folder it was brought in from."
       }
     }
+  },
+  "spinoff_contexts": {
+    "holds": "The hidden instructions built for a brief when its session started: the Protocol, and the listed files as they were at that moment. One row per brief that has any. Every turn of the session is handed this text.",
+    "source": "Written by briefstore.py (opened) when routes/spinoff.py starts a session. Kept apart from spinoff_briefs so the hourly text dump of the briefs stays small; this table is not in that dump, since it is a copy of files that were on disk.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "brief_id": {
+        "holds": "Which brief, by its row number in spinoff_briefs."
+      },
+      "at": {
+        "holds": "When the snapshot was taken."
+      },
+      "body": {
+        "holds": "The instructions, whole."
+      }
+    }
+  },
+  "spinoff_handoffs": {
+    "holds": "What a session wrote when it filled its context and handed its work to a fresh one: the goal, what is done, what is left. One row per handoff.",
+    "source": "Written by briefstore.py from continuation.py (hand_off) when a session runs scripts/peers.py handoff. Handoffs written before 2026-10-02 were files and were brought in by scripts/import_spinoff_briefs.py. Not rebuildable: the hourly backup dumps this table as text.",
+    "kind": "record",
+    "time_column": "at",
+    "columns": {
+      "id": {
+        "holds": "The row's number."
+      },
+      "conv": {
+        "holds": "The session that wrote it. Empty for an imported file whose writer couldn't be worked out."
+      },
+      "at": {
+        "holds": "When it was written."
+      },
+      "body": {
+        "holds": "The handoff, whole, as Markdown."
+      },
+      "to_conv": {
+        "holds": "The session that took the work over. Empty until one does."
+      },
+      "slug": {
+        "holds": "For an imported file: the job folder it sat in."
+      },
+      "imported_from": {
+        "holds": "For an imported file: its path."
+      }
+    }
+  },
+  "card_edits": {
+    "holds": "Every edit made to a card's words, with the text before and after — the card's history. Append-only: a trigger refuses any change or delete. Edits can only happen in a card's first 24 hours, so this is short.",
+    "source": "Written by the journal engine (tools/stream/stream.py), the one door every card comes in through — the web app, the capture hook, the reconciler, voice, the Keeper. The table definitions live in tools/stream/journaldb.py; see docs/journal-database.md. Edits from before the move came from the old edit log file.",
+    "kind": "record",
+    "time_column": "edited_at",
+    "columns": {
+      "id": {
+        "holds": "A running number."
+      },
+      "card_id": {
+        "holds": "Which card was edited. Points at cards.id."
+      },
+      "edited_at": {
+        "holds": "When the edit was made."
+      },
+      "by": {
+        "holds": "Who made it (the journal page, the Keeper, the command line)."
+      },
+      "before": {
+        "holds": "The words before the edit."
+      },
+      "after": {
+        "holds": "The words after it."
+      }
+    }
+  },
+  "card_links": {
+    "holds": "Links from a newer card to an older one: a note added later to an old card, or the owner's answer to a question the Keeper asked. A link is never changed or removed.",
+    "source": "Written by the journal engine (tools/stream/stream.py), the one door every card comes in through — the web app, the capture hook, the reconciler, voice, the Keeper. The table definitions live in tools/stream/journaldb.py; see docs/journal-database.md. Answers from before the move came from each card file's reply_to.",
+    "kind": "record",
+    "time_column": "linked_at",
+    "columns": {
+      "from_card": {
+        "holds": "The newer card. Points at cards.id."
+      },
+      "to_card": {
+        "holds": "The card it points at. Points at cards.id."
+      },
+      "kind": {
+        "holds": "What the link means.",
+        "values": {
+          "note": "a later thought on the older card (often one that can no longer be edited)",
+          "answers": "the newer card answers the older one — usually her reply to a Keeper question"
+        }
+      },
+      "linked_at": {
+        "holds": "When the link was made."
+      },
+      "by": {
+        "holds": "Who made it, when known."
+      }
+    }
+  },
+  "labels": {
+    "holds": "The journal's vocabulary: every thread, person, topic, front and source a card can be labelled with, one row each.",
+    "source": "Made by the journal engine the first time a tag is used, classified from the vault: a people file makes it a person, a thread file a thread (with that thread's status), a fronts.json id a front, a capture tag a source, anything else a topic. The first set came from the tags in the old card files.",
+    "kind": "record",
+    "time_column": "created_at",
+    "columns": {
+      "id": {
+        "holds": "A running number."
+      },
+      "kind": {
+        "holds": "What sort of label.",
+        "values": {
+          "thread": "a thread (Threads/<slug>.md)",
+          "person": "a person (people/<slug>.md)",
+          "front": "a life front from fronts.json",
+          "topic": "anything else",
+          "source": "how a card came in, e.g. exo-command"
+        }
+      },
+      "slug": {
+        "holds": "The label's short name, as tags were written — one slug, one label."
+      },
+      "name": {
+        "holds": "Its readable name."
+      },
+      "status": {
+        "holds": "Whether it is in use.",
+        "values": {
+          "active": "in use",
+          "dormant": "resting",
+          "retired": "no longer in use"
+        }
+      },
+      "file": {
+        "holds": "The vault file it belongs to, if any."
+      },
+      "created_at": {
+        "holds": "When the label was first used."
+      }
+    }
+  },
+  "card_labels": {
+    "holds": "Which labels are on which card, with who put each one there, when and why. Taking a label off marks the row instead of deleting it, so the table also remembers what was removed and by whom — which is how an agent knows never to put back a label the owner took off, or remove one she added.",
+    "source": "Written by the journal engine (tools/stream/stream.py), the one door every card comes in through — the web app, the capture hook, the reconciler, voice, the Keeper. The table definitions live in tools/stream/journaldb.py; see docs/journal-database.md. Agents (the nightly filing) propose; the engine writes. Labels from before the move came from the old card files, credited to 'migration'.",
+    "kind": "record",
+    "time_column": "added_at",
+    "columns": {
+      "id": {
+        "holds": "A running number."
+      },
+      "card_id": {
+        "holds": "Which card. Points at cards.id."
+      },
+      "label_id": {
+        "holds": "Which label. Points at labels.id."
+      },
+      "added_by": {
+        "holds": "Who put it on: owner, keeper, capture, migration, or a nightly agent such as thread-tending."
+      },
+      "run": {
+        "holds": "Which nightly run added it, so one night's work can be undone at once."
+      },
+      "reason": {
+        "holds": "The adder's one sentence on why it belongs."
+      },
+      "weight": {
+        "holds": "How much the card is about this label; empty until judged.",
+        "values": {
+          "about": "mainly this",
+          "touches": "it comes up"
+        }
+      },
+      "added_at": {
+        "holds": "When it was put on."
+      },
+      "removed_at": {
+        "holds": "When it was taken off; empty while it is on."
+      },
+      "removed_by": {
+        "holds": "Who took it off."
+      },
+      "removed_why": {
+        "holds": "Why it was taken off."
+      }
+    }
+  },
+  "cards_v6_mirror": {
+    "holds": "The old hourly copy of the card files, from before the journal moved into the database — renamed out of the way on the move and kept only for comparison. Nothing reads or writes it; a later change drops it.",
+    "source": "Left by the move (sqlstore.py rung 61). Only present on a database that had the old copy.",
+    "kind": "mirror",
+    "time_column": "ts",
+    "columns": {
+      "id": {
+        "holds": "The card id."
+      },
+      "day": {
+        "holds": "The journal day."
+      },
+      "ts": {
+        "holds": "When it was said."
+      },
+      "who": {
+        "holds": "Who said it."
+      },
+      "kind": {
+        "holds": "Card kind."
+      },
+      "reply_to": {
+        "holds": "The card it answered."
+      },
+      "session": {
+        "holds": "The conversation it came from."
+      },
+      "refs": {
+        "holds": "A ref card's targets, as JSON."
+      },
+      "body": {
+        "holds": "The words."
+      },
+      "first_seen": {
+        "holds": "When the hourly copy first saw the file."
+      },
+      "last_seen": {
+        "holds": "When it last saw it."
+      },
+      "deleted_at": {
+        "holds": "When it was deleted, from the old deletion log."
+      },
+      "missing_since": {
+        "holds": "When the file vanished without a deletion record."
+      }
+    }
+  },
+  "card_tags_v6_mirror": {
+    "holds": "The old hourly copy's tag pairs, kept beside cards_v6_mirror for comparison only. A later change drops it.",
+    "source": "Left by the move (sqlstore.py rung 61).",
+    "kind": "mirror",
+    "time_column": null,
+    "columns": {
+      "card_id": {
+        "holds": "The card id."
+      },
+      "tag": {
+        "holds": "One tag."
+      }
+    }
+  }
 }

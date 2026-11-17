@@ -8,10 +8,10 @@ keeper_capture.py — Claude Code UserPromptSubmit hook for the Keeper's journal
 Ports exo's "fish" capture-at-source pattern (see dev/exo/_system/capture_prompt.py)
 into the tulku journal: every operator prompt mints a `B` card into the stream-cards
 pool the instant it's sent, deterministically, with the agent's discretion out of the
-loop (the fix for "you forgot to publish some of my inputs"). The pool
-(`_system/data/cards/`) is truth; today's daily log is a disposable VIEW re-rendered
-from it by `stream.py` on every mint — see STREAM.md for the full pool/manifest/view
-architecture.
+loop (the fix for "you forgot to publish some of my inputs"). The card rows in exo.db
+are truth (docs/journal-database.md); today's daily log is a disposable VIEW re-rendered
+from them by `stream.py` on every mint. If the database can't take the card, stream.py
+puts it in its holding file instead, so a capture never fails on the database.
 
 Reads the hook JSON on stdin (`prompt`, `session_id`, `transcript_path`) and prints
 NOTHING — UserPromptSubmit stdout is injected into the model's context, so a capture
@@ -39,8 +39,9 @@ Three things differ from fish:
 
   3. Manual K cards. This hook mints ONLY `B` cards. When the owner answers a question the
      Keeper asked, the Keeper mints the `K` card by hand — `stream.py record --who K`
-     (or `stream.record(who="K", ...)`) — carrying just that question, then sets the owner's
-     `B` card's `reply_to` to its id. Capture is automatic; the question context is not.
+     (or `stream.record(who="K", ...)`) — carrying just that question, then links the owner's
+     `B` card to it (`stream.py link <B> <K> --kind answers`). Capture is automatic; the
+     question context is not.
 
 Off the record. The web app's observatory composer has a switch that takes a turn off
 the record. That only silences the SERVER's mint — the model still receives the text, so
@@ -166,7 +167,7 @@ def main() -> int:
     tags = [slug] if (kind == "thread" and _thread_file_exists(slug)) else None
 
     try:
-        stream.record(who="B", body=prompt, tags=tags)  # mints, re-renders day + month index
+        stream.record(who="B", body=prompt, tags=tags, door="hook")  # mints, re-renders day + month
     except Exception as e:                       # never BLOCK prompt submission, but never
         _log_failure(prompt, repr(e))            # silently drop it either — leave a durable trace
     return 0            # silent: no stdout -> no context injection

@@ -245,7 +245,10 @@ def card_days(section, root, today):
         with _journal_engine(root) as stream:
             for day in days:
                 rows = conn.execute(
-                    "SELECT id, who, ts, reply_to, kind, refs, session, body FROM cards"
+                    # reply_to lives in card_links now (an `answers` link).
+                    "SELECT id, who, ts, (SELECT to_card FROM card_links l WHERE"
+                    " l.from_card = cards.id AND l.kind = 'answers' LIMIT 1),"
+                    " kind, refs, session, body FROM cards"
                     " WHERE day = ? AND deleted_at IS NULL AND missing_since IS NULL"
                     " AND ts IS NOT NULL", (day,)).fetchall()
                 day_cards = [stream.Card(

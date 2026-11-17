@@ -18,6 +18,7 @@ def stream_root(tmp_path, monkeypatch):
     """A fresh, empty vault for the engine. Root resolution is lazy (read on
     every call), so pointing the env var at tmp_path is enough."""
     monkeypatch.setenv("TULKU_STREAM_ROOT", str(tmp_path))
+    monkeypatch.setenv("TULKU_STREAM_DB", str(tmp_path / "exo.db"))
     return tmp_path
 
 

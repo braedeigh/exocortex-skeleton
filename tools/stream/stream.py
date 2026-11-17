@@ -8,21 +8,33 @@ stream.py — the deterministic spine of the journal's stream-cards architecture
 See STREAM.md (same directory) for the full writeup; this is the summary needed to
 read the code.
 
-THE MODEL. The journal used to be one prose markdown file per day. It is now an
-append-only POOL of atomic CARDS — one file per utterance, `_system/data/cards/<id>.md`
-— plus everything a human actually reads is a disposable derived VIEW, rendered from
-the pool by this module:
+THE MODEL. The journal is an append-only stream of atomic CARDS — one per
+utterance — and everything a human actually reads is a disposable derived VIEW,
+rendered from the cards by this module. Since 2026-11 the cards are ROWS in
+exo.db (tables in journaldb.py, the design in docs/journal-database.md), not
+files:
 
-    _system/data/cards/<id>.md       POOL   one file per utterance. append-only. truth.
+    exo.db: cards, card_labels, ...  CARDS  one row per utterance. truth.
     _system/data/manifests/<name>.md MANIFEST  a selection rule (tag=X) + an output path.
     _system/data/index/YYYY-MM.md    INDEX  one line per card that month. derived.
     Journal/Daily/YYYY-MM-DD.md      VIEW   the day, rendered exactly as it always
                                             looked. derived, disposable.
     <manifest out path>              VIEW   e.g. people/views/sage.md — every card
                                             tagged `sage`, inlined verbatim. derived.
+    _system/data/cards/<id>.md       COMPAT the old one-file-per-card pool, still
+                                            written from the rows until every reader
+                                            reads the database (STREAM_CARD_FILES=0
+                                            stops it). derived, never read back here.
+    _system/data/holding_cards.jsonl HOLD   cards the database couldn't take yet;
+                                            drained on the next write and by cron.
 
 Only cards are truth. Views can be deleted and rebuilt at any time — never hand-edit
-one; edit (or mint) a card and re-render. `validate` catches a view that drifted.
+one; edit (or mint) a card and re-render. `validate` catches a view that drifted,
+and a card whose fingerprint no longer matches its words.
+
+THE 24-HOUR RULE. A card can be edited or deleted for 24 hours after it was
+saved, then never — enforced by triggers in the database, so it holds for every
+writer. Later thoughts on a locked card are new cards linked to it as a `note`.
 
 FISH LINEAGE. This ports Ian Fish's exo "stream-cards" vault: pool/manifest/view
 split, capture-at-source, a deterministic stdlib-only spine, derived-never-stored
@@ -32,42 +44,34 @@ truth, materialized views over it (Kleppmann, DDIA ch. 11-12).
 THE LEGIBLE-ID DIVERGENCE. Fish's card ids are content hashes (`sha256(body, parent)`,
 his `enc:v2` Merkle-DAG) — that scheme solves *his* problem: multiple people appending
 to a shared pool from multiple devices over dumb folder sync, no server, no git.
-Content-addressing makes distributed writes merge as set union and dedups by
-construction, at the price of opaque hex ids and cards that can never be edited (an
-edit changes the id, cascading to every descendant).
-
-This vault is one writer, one machine, committed to git hourly — git is already a
-Merkle-DAG doing that job, and hex ids carry zero information to a reader scanning an
-index. So ids here are time-based and self-describing instead:
+This journal is one writer on one machine, so ids here are time-based and
+self-describing instead:
 
     YYYY-MM-DD.HHMM + speaker letter (+ a counter if the same speaker mints twice in
     the same minute): 2026-07-06.0843b, then 2026-07-06.0843b2, ...b3.
 
-A link tells you when it was and who spoke before you read a byte. Cards are editable
-when there's a real reason (a screenshot transcription filled into a captured line) —
-git records the edit; `validate` cannot detect it (a known, accepted edge — see
-STREAM.md section 5).
+A link tells you when it was and who spoke before you read a byte. The same
+single-writer reasoning is why the cards left their one-file-per-card pool for one database:
+the file design came from the multi-writer, serverless system.
 
-One addition beyond fish: tags, not reply-subtrees, are the collection primitive here
-— a person or a worry threads through months of unrelated conversation rather than
-living under one root card.
+One addition beyond fish: labels (tags), not reply-subtrees, are the collection
+primitive here — a person or a worry threads through months of unrelated
+conversation rather than living under one root card.
 
-THE VERBS. `record` (the primitive: body from `--body-file PATH` or stdin, plus flags
--> mint a card, re-render its day + month, echo the id), `render` (rebuild `--day`, `--view NAME`, or `--all` from
-the pool), `tag` / `untag` (edit a card's tags, re-render what depends on them),
-`edit` (replace a card's body from `--body-file` or stdin, re-render its day + month +
-any manifest selecting its tags — echoes the id), `delete` (write the card to the append-only
-deletion log, THEN remove it from the pool, re-render what's left — and clean up a
-day/month view that just lost its last card, since render never touches a zero-card
-day/month on its own), `validate` (structural checks on the whole pool + a drift
-check against every derived file).
+THE VERBS. `record` (mint a card: body from `--body-file PATH` or stdin, plus flags;
+re-render its day + month; echo the id), `render` (rebuild `--day`, `--view NAME`, or
+`--all`), `tag` / `untag` (labels, with `--by/--run/--reason/--weight`), `link`
+(`note` / `answers` between two cards), `edit` (replace a card's words inside its 24
+hours), `delete` (hide a card inside its 24 hours), `drain` (move held cards into the
+database), `validate` (integrity of the rows + drift of every derived file).
 
-Stdlib only. No network. No randomness. Same pool in, same bytes out, always.
+Stdlib only. No network. No randomness. Same cards in, same bytes out, always.
 """
 import argparse
 import fcntl
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -75,6 +79,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+# journaldb.py sits beside this file. Put its folder on the path whichever way
+# this module was loaded — run directly, imported as tools.stream.stream, or
+# exec'd from a file path (scripts/thread_tending.py).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import journaldb  # noqa: E402
 
 # A new timestamp marker in a day view is emitted only when this much wall-clock time
 # has passed since the previous line card — mirrors keeper_capture.py's GAP_SECONDS.
@@ -88,7 +98,7 @@ VALID_KIND = ("line", "context", "ref")
 
 
 class StreamError(Exception):
-    """A caller-facing problem (bad input, missing card, malformed pool file) — the
+    """A caller-facing problem (bad input, missing card, a locked card) — the
     CLI catches these and prints a clean message instead of a traceback."""
 
 
@@ -131,16 +141,16 @@ def card_path(cid: str) -> Path:
 
 
 def deleted_log_path() -> Path:
-    """Append-only record of every card the `delete` verb has removed. Beside the
-    pool, never inside it — same rule the pool lock follows, so `load_all_cards()`'s
-    *.md glob can't ever pick it up."""
+    """The old deletion log: every card the `delete` verb removed while cards
+    were files. Read only by the migration now — a delete is the row's own
+    deleted_at since."""
     return pool_dir().parent / "deleted_cards.jsonl"
 
 
 def edited_log_path() -> Path:
-    """The edit history: one JSON line per change to a card's text, holding the
-    text before and after. Beside the pool, never inside it — same rule as the
-    deletion log above."""
+    """The old edit history file: one JSON line per change, text before and
+    after. `card_edits` is the truth now; this file is still appended to while
+    the compatibility card files are on, because the journal page reads it."""
     return pool_dir().parent / "edited_cards.jsonl"
 
 
@@ -164,8 +174,9 @@ def day_legend() -> str:
 
 
 # --------------------------------------------------------------------------------
-# Card: frontmatter + verbatim body. Hand-rolled parser/serializer for exactly the
-# five fields below — no yaml import, the format is small and fixed.
+# Card: one row of `cards`, with what the old file header carried (tags, reply_to,
+# edited) filled in from the side tables. The file parser/serializer below stays
+# for the compatibility files and for the migration that reads the old pool.
 # --------------------------------------------------------------------------------
 
 @dataclass
@@ -189,13 +200,23 @@ class Card:
     # session it came from."
     session: Optional[str] = None
     # When the card's text was last changed, 'YYYY-MM-DD HH:MM:SS', or None for
-    # a card never edited (nearly all of them). Set by `edit_card`; the full
-    # history, old text included, is in the edit log (edited_log_path).
+    # a card never edited (nearly all of them). The full history, old text
+    # included, is in the card_edits table.
     #
     # Prompt: "any changes i want to be marked as edits on the date they were
     # made" — and keep the old text.
     edited: Optional[str] = None
     body: str = ""
+    # How it came in (web, hook, reconciler, voice, cli, ...) and which machine
+    # heard it — capture facts, from the database row.
+    door: Optional[str] = None
+    device: Optional[str] = None
+    # When the row was written (the 24-hour lock runs from here), and when it
+    # was deleted, if it was. None for a card that only exists as parsed text.
+    saved_at: Optional[str] = None
+    deleted_at: Optional[str] = None
+    # Set by add_tags/remove_tags: what happened to each tag asked for.
+    outcomes: Dict[str, str] = field(default_factory=dict)
 
 
 def _split_frontmatter(text: str) -> Tuple[str, str]:
@@ -295,10 +316,11 @@ def render_card_text(card: Card) -> str:
 
 @contextmanager
 def pool_lock():
-    """Serialize pool writers across processes (server mint, hook mint, reconciler,
-    cricket tagging). flock on a sidecar beside the pool — never inside it, so
-    load_all_cards()'s *.md glob can't pick it up. Held only around read/mint/write
-    critical sections; renders are deterministic from the pool and stay outside."""
+    """Serialize the engine's writers across processes (server mint, hook mint,
+    reconciler, taggers). flock on a sidecar beside the old card folder. The
+    database already serializes its own writes; this lock also covers the
+    compatibility card file written right after each commit, so two writers
+    can't leave that file showing the older of their two changes."""
     d = pool_dir()
     d.mkdir(parents=True, exist_ok=True)
     with open(d.parent / "pool.lock", "w") as lock_file:
@@ -306,10 +328,66 @@ def pool_lock():
         yield
 
 
+# --------------------------------------------------------------------------------
+# The database: where it is and how the engine opens it. Everything about the
+# tables themselves lives in journaldb.py, shared with the app's ladder.
+# --------------------------------------------------------------------------------
+
+def db_path() -> Path:
+    """exo.db, found the way the app finds it (see journaldb.db_path)."""
+    try:
+        root = stream_root()
+    except StreamError:
+        root = None
+    try:
+        return journaldb.db_path(root)
+    except journaldb.NotReady as e:
+        raise StreamError(str(e))
+
+
+@contextmanager
+def _db():
+    conn = journaldb.connect(db_path())
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def _label_context() -> "journaldb.LabelContext":
+    """What it takes to classify a brand-new tag: the vault (people and
+    thread files) and the data dir (fronts.json)."""
+    try:
+        root = stream_root()
+    except StreamError:
+        root = None
+    return journaldb.LabelContext(root, db_path().parent)
+
+
+# The failures that send a card to the holding file instead of the database:
+# anything wrong with the database itself, or the old file layout's lock.
+_DB_FAILURES = (sqlite3.Error, journaldb.NotReady, OSError)
+
+
+def _is_lock_refusal(exc: Exception) -> bool:
+    return "locked: saved more than 24 hours ago" in str(exc)
+
+
+# --------------------------------------------------------------------------------
+# Compatibility card files. Until every reader reads the database (the
+# readers session of docs/journal-database.md), each card is ALSO written out
+# as the markdown file it used to be — derived from the row, after the commit,
+# never read back by the engine. STREAM_CARD_FILES=0 turns it off; the
+# readers session flips the default and a later session removes the folder.
+# --------------------------------------------------------------------------------
+
+def card_files_enabled() -> bool:
+    return os.environ.get("STREAM_CARD_FILES", "1") != "0"
+
+
 def write_card(card: Card) -> Path:
-    """Write a card ATOMICALLY: temp file in the pool dir, fsync, os.replace().
-    A reader (or the hourly git commit) sees either the whole card or no card —
-    never a torn one. Same discipline as store.write_file()."""
+    """Write a card's compatibility file ATOMICALLY: temp file, fsync,
+    os.replace(), so a reader sees the whole file or none of it."""
     pool_dir().mkdir(parents=True, exist_ok=True)
     path = card_path(card.id)
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
@@ -325,27 +403,96 @@ def write_card(card: Card) -> Path:
     return path
 
 
-def read_card(cid: str) -> Card:
-    path = card_path(cid)
-    if not path.exists():
-        raise StreamError(f"no such card: {cid}")
-    return parse_card_file(path)
+def _sync_card_file(cid: str) -> None:
+    """Bring one compatibility file in line with the database: rewrite it
+    from the row, or remove it if the card is deleted. Best-effort — the
+    row is the truth, and a file that lags is fixed by the next write."""
+    if not card_files_enabled():
+        return
+    try:
+        card = _read_card_any(cid)
+        if card is None or card.deleted_at:
+            card_path(cid).unlink(missing_ok=True)
+        else:
+            write_card(card)
+    except Exception:
+        pass
 
 
-def card_exists(cid: str) -> bool:
-    return card_path(cid).exists()
-
-
-def load_all_cards() -> List[Card]:
-    d = pool_dir()
-    if not d.exists():
-        return []
-    return [parse_card_file(p) for p in d.glob("*.md")]
+def _append_compat_edit_log(entry: dict) -> None:
+    """The edit history the journal page still reads from a file
+    (routes/cards.py). `card_edits` is the truth; this line is its echo."""
+    if not card_files_enabled():
+        return
+    try:
+        path = edited_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
 
 
 # --------------------------------------------------------------------------------
-# Manifest: a selection rule + an output path. Same frontmatter mechanics as a card,
-# different fields (select / render / out), no body.
+# Reading cards back out of the database.
+# --------------------------------------------------------------------------------
+
+def _card_from_row(row: dict) -> Card:
+    return Card(
+        id=row["id"], who=row["who"], ts=row["said_at"], reply_to=row["reply_to"],
+        tags=row["tags"], kind=row["kind"], refs=row["refs"], session=row["session"],
+        edited=row["edited"], body=row["body"], door=row["door"], device=row["device"],
+        saved_at=row["saved_at"], deleted_at=row["deleted_at"],
+    )
+
+
+def _fetch(where: str = "deleted_at IS NULL", params=()) -> List[Card]:
+    with _db() as conn:
+        return [_card_from_row(r) for r in journaldb.fetch_cards(conn, where, params)]
+
+
+def _read_card_any(cid: str) -> Optional[Card]:
+    """One card by id, deleted or not; None if there's no such row."""
+    found = _fetch("id = ?", (cid,))
+    return found[0] if found else None
+
+
+def read_card(cid: str) -> Card:
+    """One live (not deleted) card by id. A database failure surfaces as a
+    StreamError, so the CLI reports it cleanly."""
+    try:
+        card = _read_card_any(cid)
+    except _DB_FAILURES as e:
+        raise StreamError(f"journal database unavailable: {e}")
+    if card is None or card.deleted_at:
+        raise StreamError(f"no such card: {cid}")
+    return card
+
+
+def card_exists(cid: str) -> bool:
+    try:
+        card = _read_card_any(cid)
+    except _DB_FAILURES:
+        return False
+    return card is not None and not card.deleted_at
+
+
+def load_all_cards() -> List[Card]:
+    """Every live card, oldest first."""
+    return _fetch()
+
+
+def load_day_cards(day: str) -> List[Card]:
+    return _fetch("deleted_at IS NULL AND day = ?", (day,))
+
+
+def load_month_cards(month: str) -> List[Card]:
+    return _fetch("deleted_at IS NULL AND day LIKE ?", (f"{month}-%",))
+
+
+# --------------------------------------------------------------------------------
+# Manifest: a selection rule + an output path. Same frontmatter mechanics as a card
+# file had, different fields (select / render / out), no body.
 # --------------------------------------------------------------------------------
 
 @dataclass
@@ -388,9 +535,12 @@ def manifest_names() -> List[str]:
 
 
 def cards_for_manifest(manifest: Manifest, cards: Optional[List[Card]] = None) -> List[Card]:
-    cards = load_all_cards() if cards is None else cards
     if manifest.select_key != "tag":
         return []
+    if cards is None:
+        cards = _fetch(
+            "deleted_at IS NULL AND id IN (SELECT card_id FROM card_tags WHERE tag = ?)",
+            (manifest.select_value,))
     return sorted(
         (c for c in cards if manifest.select_value in c.tags),
         key=lambda c: (c.ts, c.id),
@@ -401,19 +551,193 @@ def cards_for_manifest(manifest: Manifest, cards: Optional[List[Card]] = None) -
 # Id minting
 # --------------------------------------------------------------------------------
 
-def mint_id(ts: datetime, who: str) -> str:
+def mint_id(ts: datetime, who: str, conn: Optional[sqlite3.Connection] = None) -> str:
+    """`YYYY-MM-DD.HHMM` + speaker letter, + a counter if that minute is
+    taken. Taken means a row exists (deleted rows too — an id is never
+    reused) or, while the compatibility files exist, a file does."""
     base = f"{ts.strftime('%Y-%m-%d.%H%M')}{who.lower()}"
-    if not card_path(base).exists():
+
+    def taken(cid: str) -> bool:
+        if conn is not None and conn.execute("SELECT 1 FROM cards WHERE id = ?", (cid,)).fetchone():
+            return True
+        return card_path(cid).exists()
+
+    if not taken(base):
         return base
     counter = 2
-    while card_path(f"{base}{counter}").exists():
+    while taken(f"{base}{counter}"):
         counter += 1
     return f"{base}{counter}"
 
 
 # --------------------------------------------------------------------------------
 # record — the primitive every card is born through.
+#
+# SAVING A CARD NEVER FAILS BECAUSE OF THE DATABASE. If the write can't happen
+# (locked past the wait, the tables not built yet, the file broken), the card
+# is appended to the holding file instead and its provisional id is echoed. The
+# next successful record — or the reconciler's minute cron — drains the holding
+# file into the database. A held card keeps its own time; its final id is
+# minted when it lands, so it can differ from the provisional one if that
+# minute filled up meanwhile.
 # --------------------------------------------------------------------------------
+
+def holding_path() -> Path:
+    """Cards waiting for the database. Beside the old card folder, inside the
+    vault — so a held card is in the hourly git commit too."""
+    return pool_dir().parent / "holding_cards.jsonl"
+
+
+def _split_source_tags(tags: List[str], door: Optional[str], device: Optional[str]):
+    """The capture facts that used to be tags — `voice`, `via:<device>` —
+    become the door and device columns; every other tag stays a label."""
+    labels = []
+    for tag in tags:
+        if tag == "voice":
+            door = door or "voice"
+        elif tag.startswith("via:"):
+            device = device or tag[len("via:"):] or None
+        else:
+            labels.append(tag)
+    return labels, door, device
+
+
+def _insert_entry(conn, entry: dict, strict: bool = True) -> Tuple[str, bool]:
+    """Write one card (an entry dict, as record builds it) inside an open
+    transaction. Returns (id, inserted). With strict=False (draining the
+    holding file) a link to a card that doesn't exist is dropped instead of
+    refusing the card, and a card already in the database — same speaker,
+    time and words — is recognized instead of written twice."""
+    said_at = entry["ts"]
+    body = entry["body"]
+    if not strict:
+        same = conn.execute(
+            "SELECT id FROM cards WHERE fingerprint = ?",
+            (journaldb.fingerprint(entry["who"], said_at, body),)).fetchone()
+        if same:
+            return same[0], False
+    links = []
+    for kind, target in (("answers", entry.get("reply_to")), ("note", entry.get("note_on"))):
+        if not target:
+            continue
+        alive = conn.execute("SELECT 1 FROM cards WHERE id = ? AND deleted_at IS NULL",
+                             (target,)).fetchone()
+        if alive:
+            links.append((kind, target))
+        elif strict:
+            flag = "--reply-to" if kind == "answers" else "--note-on"
+            raise StreamError(f"{flag} {target!r} does not resolve to an existing card")
+    labels, door, device = _split_source_tags(list(entry.get("tags") or []),
+                                              entry.get("door"), entry.get("device"))
+    cid = mint_id(datetime.strptime(said_at, "%Y-%m-%d %H:%M:%S"), entry["who"], conn)
+    now = journaldb.now_text()
+    journaldb.insert_card(
+        conn, id=cid, who=entry["who"], said_at=said_at, body=body, kind=entry["kind"],
+        refs=entry.get("refs") or [], door=door, device=device,
+        session=entry.get("session"), saved_at=now)
+    context = _label_context()
+    for slug in dict.fromkeys(labels):
+        journaldb.add_label(conn, cid, slug, entry.get("by") or "capture", context, added_at=now)
+    for kind, target in links:
+        journaldb.link(conn, cid, target, kind, by=entry.get("by"), linked_at=now)
+    return cid, True
+
+
+def _write_entry(entry: dict, strict: bool = True) -> Tuple[str, bool]:
+    with pool_lock():
+        with _db() as conn:
+            journaldb.begin_immediate(conn)
+            try:
+                cid, inserted = _insert_entry(conn, entry, strict)
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+        if inserted:
+            _sync_card_file(cid)
+    return cid, inserted
+
+
+def _hold(entry: dict, error: Exception) -> str:
+    """Append a card the database couldn't take to the holding file, and
+    return its provisional id. One O_APPEND write per line, so concurrent
+    holders interleave whole lines. If even this fails the error propagates:
+    the callers above it (the hook, the send route) log the words to their
+    own failure files, so they are never lost silently."""
+    ts_dt = datetime.strptime(entry["ts"], "%Y-%m-%d %H:%M:%S")
+    provisional = mint_id(ts_dt, entry["who"])
+    line = dict(entry, held_at=journaldb.now_text(), error=repr(error), provisional_id=provisional)
+    path = holding_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(line, ensure_ascii=False) + "\n")
+    return provisional
+
+
+def held_cards() -> List[dict]:
+    """What's waiting in the holding file. Never raises."""
+    try:
+        # "\n" only — splitlines() would also break at Unicode line
+        # separators inside a held card's words, which the JSON leaves raw.
+        lines = holding_path().read_text(encoding="utf-8").split("\n")
+    except OSError:
+        return []
+    held = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict) and entry.get("body") and entry.get("ts"):
+            held.append(entry)
+    return held
+
+
+def drain_holding() -> int:
+    """Move every held card into the database, oldest first. Returns how many
+    landed. Cards that still can't be written stay held, in order. Safe to
+    run from several processes at once: a lock beside the file serializes
+    drains, and a card already in the database is recognized, not doubled."""
+    path = holding_path()
+    if not path.exists() or path.stat().st_size == 0:
+        return 0
+    landed = []
+    with open(path.with_suffix(".lock"), "w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        remaining = []
+        for raw in path.read_text(encoding="utf-8").split("\n"):   # see held_cards
+            if not raw.strip():
+                continue
+            try:
+                entry = json.loads(raw)
+            except ValueError:
+                remaining.append(raw)   # unreadable: keep it for a person to look at
+                continue
+            if remaining:
+                remaining.append(raw)   # keep order: nothing jumps a card still waiting
+                continue
+            try:
+                cid, inserted = _write_entry(entry, strict=False)
+            except _DB_FAILURES:
+                remaining.append(raw)
+                continue
+            if inserted:
+                landed.append((cid, entry))
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("".join(line + "\n" for line in remaining), encoding="utf-8")
+        os.replace(tmp, path)
+    for cid, entry in landed:
+        _rerender_for(entry["ts"], list(entry.get("tags") or []))
+    return len(landed)
+
+
+def _drain_if_waiting() -> None:
+    try:
+        if holding_path().exists() and holding_path().stat().st_size:
+            drain_holding()
+    except Exception:
+        pass   # the minute cron tries again
+
 
 def record(
     who: str,
@@ -424,7 +748,15 @@ def record(
     kind: str = "line",
     refs: Optional[List[str]] = None,
     session: Optional[str] = None,
+    door: Optional[str] = None,
+    device: Optional[str] = None,
+    by: Optional[str] = None,
+    note_on: Optional[str] = None,
 ) -> str:
+    """Mint a card and return its id. `reply_to` links it as the answer to
+    that card; `note_on` links it as a later note on that card. `door` says
+    how it came in, `device` which machine heard it; `by` is who its labels
+    are credited to (default: capture)."""
     who = (who or "").upper()
     if who not in VALID_WHO:
         raise StreamError(f"--who must be B, K or S, got {who!r}")
@@ -432,57 +764,85 @@ def record(
         raise StreamError(f"--kind must be one of {VALID_KIND}, got {kind!r}")
     if not body.strip():
         raise StreamError("empty (or whitespace-only) body — no card recorded")
-    if reply_to is not None and not card_exists(reply_to):
-        raise StreamError(f"--reply-to {reply_to!r} does not resolve to an existing card")
-
     ts_dt = ts or datetime.now()
-    # Mint + write under the pool lock: mint_id probes the dir for a free id, so
-    # two concurrent recorders (server door + hook + reconciler) could otherwise
-    # resolve the SAME id and the later write would silently swallow the earlier
-    # card. The lock makes probe->write one step; no turn can overwrite another.
-    with pool_lock():
-        cid = mint_id(ts_dt, who)
-        card = Card(
-            id=cid,
-            who=who,
-            ts=ts_dt.strftime("%Y-%m-%d %H:%M:%S"),
-            reply_to=reply_to,
-            tags=list(tags or []),
-            kind=kind,
-            refs=list(refs or []),
-            session=session or None,
-            body=body,
-        )
-        write_card(card)
-    render_day(ts_dt.strftime("%Y-%m-%d"))
-    render_month_index(ts_dt.strftime("%Y-%m"))
+    entry = {
+        "who": who, "body": body.rstrip("\n"), "ts": ts_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "kind": kind, "reply_to": reply_to, "note_on": note_on, "tags": list(tags or []),
+        "refs": list(refs or []), "session": session or None, "door": door or None,
+        "device": device or None, "by": by or None,
+    }
+    try:
+        cid, _inserted = _write_entry(entry)
+    except StreamError:
+        raise
+    except _DB_FAILURES as e:
+        return _hold(entry, e)
+    _rerender_for(entry["ts"], entry["tags"])
+    _drain_if_waiting()
     return cid
 
 
+def _rerender_for(ts: str, tags: List[str]) -> None:
+    render_day(ts[:10])
+    render_month_index(ts[:7])
+    _render_manifests_for_tags(tags)
+
+
 # --------------------------------------------------------------------------------
-# tag / untag
+# tag / untag — labels on a card, with who did it and why.
+#
+# Labels are rows (journaldb.card_labels), not words in a file. Taking one off
+# marks its row instead of deleting it. Two rules hold whoever calls: an agent
+# never removes a label the owner added, and never re-adds one she took off —
+# those come back as `refused` instead of happening.
 # --------------------------------------------------------------------------------
 
-def add_tags(cid: str, tags_to_add: List[str]) -> Card:
-    # Read-modify-write under the pool lock, so a concurrent tagger (cricket)
-    # and recorder can't interleave and drop one side's change.
-    with pool_lock():
-        card = read_card(cid)
-        for t in tags_to_add:
-            if t not in card.tags:
-                card.tags.append(t)
-        write_card(card)
+def add_tags(cid: str, tags_to_add: List[str], by: str = "cli", run: Optional[str] = None,
+             reason: Optional[str] = None, weight: Optional[str] = None) -> Card:
+    """Put labels on a card. The returned card carries `outcomes`: for each
+    tag, 'added', 'already' or 'refused'."""
+    if weight not in (None, "about", "touches"):
+        raise StreamError("--weight must be 'about' or 'touches'")
+    outcomes = _change_labels(cid, lambda conn, slug, context: journaldb.add_label(
+        conn, cid, slug, by, context, run=run, reason=reason, weight=weight), tags_to_add)
+    card = read_card(cid)
+    card.outcomes = outcomes
     _rerender_after_tag_change(card, tags_to_add)
     return card
 
 
-def remove_tags(cid: str, tags_to_remove: List[str]) -> Card:
-    with pool_lock():
-        card = read_card(cid)
-        card.tags = [t for t in card.tags if t not in tags_to_remove]
-        write_card(card)
+def remove_tags(cid: str, tags_to_remove: List[str], by: str = "cli",
+                reason: Optional[str] = None) -> Card:
+    """Take labels off a card. `outcomes` per tag: 'removed', 'absent' or
+    'refused'."""
+    outcomes = _change_labels(cid, lambda conn, slug, context: journaldb.remove_label(
+        conn, cid, slug, by, why=reason), tags_to_remove)
+    card = read_card(cid)
+    card.outcomes = outcomes
     _rerender_after_tag_change(card, tags_to_remove)
     return card
+
+
+def _change_labels(cid: str, change, slugs: List[str]) -> Dict[str, str]:
+    _check_cid_safe(cid)
+    try:
+        with pool_lock():
+            with _db() as conn:
+                journaldb.begin_immediate(conn)
+                try:
+                    if not conn.execute("SELECT 1 FROM cards WHERE id = ? AND deleted_at IS NULL",
+                                        (cid,)).fetchone():
+                        raise StreamError(f"no such card: {cid}")
+                    context = _label_context()
+                    outcomes = {slug: change(conn, slug, context) for slug in dict.fromkeys(slugs)}
+                    conn.execute("COMMIT")
+                except BaseException:
+                    conn.execute("ROLLBACK")
+                    raise
+            _sync_card_file(cid)
+    except _DB_FAILURES as e:
+        raise StreamError(f"journal database unavailable: {e}")
+    return outcomes
 
 
 def _render_manifests_for_tags(tags: List[str]) -> None:
@@ -501,8 +861,48 @@ def _rerender_after_tag_change(card: Card, involved_tags: List[str]) -> None:
 
 
 # --------------------------------------------------------------------------------
-# Id safety. edit/delete take a caller-supplied id and turn it straight into a path
-# — refuse anything that could walk out of the pool dir before that happens.
+# link — a newer card pointing at an older one: `note` (a later thought on a
+# card, usually one that is locked) or `answers` (a reply to a Keeper
+# question). Links are never changed or removed, and linking never touches
+# either card's own row, so it works on cards of any age.
+# --------------------------------------------------------------------------------
+
+LINK_KINDS = ("note", "answers")
+
+
+def link_cards(from_card: str, to_card: str, kind: str, by: Optional[str] = None) -> bool:
+    """Link two existing cards. True if the link is new."""
+    _check_cid_safe(from_card)
+    _check_cid_safe(to_card)
+    if kind not in LINK_KINDS:
+        raise StreamError(f"--kind must be one of {LINK_KINDS}, got {kind!r}")
+    if from_card == to_card:
+        raise StreamError("a card can't link to itself")
+    try:
+        with pool_lock():
+            with _db() as conn:
+                journaldb.begin_immediate(conn)
+                try:
+                    for cid in (from_card, to_card):
+                        if not conn.execute("SELECT 1 FROM cards WHERE id = ? AND deleted_at IS NULL",
+                                            (cid,)).fetchone():
+                            raise StreamError(f"no such card: {cid}")
+                    made = journaldb.link(conn, from_card, to_card, kind, by=by)
+                    conn.execute("COMMIT")
+                except BaseException:
+                    conn.execute("ROLLBACK")
+                    raise
+            _sync_card_file(from_card)
+    except _DB_FAILURES as e:
+        raise StreamError(f"journal database unavailable: {e}")
+    card = read_card(from_card)
+    render_day(card.ts[:10])
+    return made
+
+
+# --------------------------------------------------------------------------------
+# Id safety. Ids come from callers and still name compatibility files — refuse
+# anything that could walk out of the card folder.
 # --------------------------------------------------------------------------------
 
 def _check_cid_safe(cid: str) -> None:
@@ -510,58 +910,66 @@ def _check_cid_safe(cid: str) -> None:
         raise StreamError(f"invalid card id: {cid!r}")
 
 
+def _refuse_if_locked(card: Card, verb: str) -> None:
+    """The 24-hour rule, said kindly before the database's trigger says it
+    bluntly. The trigger is what actually enforces it."""
+    if journaldb.is_locked(card.saved_at or card.ts):
+        raise StreamError(
+            f"card {card.id} is locked — it was saved more than 24 hours ago"
+            f" (locked at {journaldb.locks_at(card.saved_at or card.ts)}), so it can't be {verb}."
+            " Add a note to it instead: record --note-on " + card.id)
+
+
 # --------------------------------------------------------------------------------
-# edit — replace a card's body in place, and keep what it said before.
+# edit — replace a card's words, inside its 24 hours.
 #
-# The card keeps its own time — an edit never moves an entry — but it's stamped
-# `edited: <when>`, and the change is written to the edit log FIRST: one JSON line
-# with the text before and after, when, and who asked. Same discipline as the
-# deletion log below: if the log line can't be written the edit is refused, so a
-# change can never land without its record. Saving identical text is not an edit
-# and leaves no trace.
+# The card keeps its own time — an edit never moves an entry. The change and
+# its record land together in one transaction: the new text on the row, and a
+# before/after row in card_edits. Saving identical text is not an edit and
+# leaves no trace.
 #
 # The day the edit was MADE gets a marker too ("✎ edited an entry from …"), woven
 # into that day's timeline like a finished to-do (see `edit_markers`), so a change
-# shows up on the date it happened, not only on the entry it changed.
+# shows up on the date it happened, not only on the entry it changed. Under the
+# 24-hour rule that is only ever today or yesterday.
 #
 # Prompt: "any changes i want to be marked as edits on the date they were made" —
 # both marked on the entry and recorded on the edit's own day, keeping the old text.
 # --------------------------------------------------------------------------------
 
-def _log_edit(card: Card, new_body: str, edited_at: str, by: str) -> None:
-    """Append one JSON line recording a change to a card's text. Same atomic
-    O_APPEND single-write shape as `_log_deletion`."""
-    entry = {
-        "edited_at": edited_at,
-        "by": by,
-        "id": card.id,
-        "day": card.ts[:10],
-        "who": card.who,
-        "before": card.body,
-        "after": new_body.rstrip("\n"),
-    }
-    path = edited_log_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-
 def edit_card(cid: str, body: str, by: str = "unknown", now: Optional[datetime] = None) -> Card:
-    """Change a card's text. `now` pins the edit's time (tests); default is the
-    real clock."""
+    """Change a card's text. `now` pins the time recorded for the edit
+    (tests); the lock itself always uses the real clock."""
     _check_cid_safe(cid)
     if not body.strip():
         raise StreamError("empty (or whitespace-only) body — card not edited")
-    with pool_lock():
-        card = read_card(cid)
-        if body.rstrip("\n") == card.body:
-            return card  # nothing changed — not an edit, nothing to record
-        edited_at = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-        # Log before write. If this raises, the card is untouched.
-        _log_edit(card, body, edited_at, by)
-        card.body = body
-        card.edited = edited_at
-        write_card(card)
+    new_body = body.rstrip("\n")
+    card = read_card(cid)
+    if new_body == card.body:
+        return card  # nothing changed — not an edit, nothing to record
+    _refuse_if_locked(card, "edited")
+    edited_at = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with pool_lock():
+            with _db() as conn:
+                journaldb.begin_immediate(conn)
+                try:
+                    conn.execute(
+                        "UPDATE cards SET body = ?, fingerprint = ? WHERE id = ? AND deleted_at IS NULL",
+                        (new_body, journaldb.fingerprint(card.who, card.ts, new_body), cid))
+                    journaldb.record_edit(conn, cid, edited_at, by, card.body, new_body)
+                    conn.execute("COMMIT")
+                except BaseException:
+                    conn.execute("ROLLBACK")
+                    raise
+            _sync_card_file(cid)
+    except _DB_FAILURES as e:
+        if _is_lock_refusal(e):
+            raise StreamError(f"card {cid} is locked — it was saved more than 24 hours ago")
+        raise StreamError(f"journal database unavailable: {e}")
+    _append_compat_edit_log({"edited_at": edited_at, "by": by, "id": cid, "day": card.ts[:10],
+                             "who": card.who, "before": card.body, "after": new_body})
+    card = read_card(cid)
     _rerender_after_tag_change(card, card.tags)
     # The day the edit was made shows it too, when that's a different day.
     if edited_at[:10] != card.ts[:10]:
@@ -570,86 +978,54 @@ def edit_card(cid: str, body: str, by: str = "unknown", now: Optional[datetime] 
 
 
 def load_edit_log() -> List[dict]:
-    """Every line of the edit log, oldest first. MUST NEVER RAISE: a missing
-    file is no edits, and a torn or garbled line is skipped, not fatal."""
+    """Every edit, oldest first, in the shape the old edit log file had.
+    MUST NEVER RAISE: no database means no edits to weave."""
     try:
-        lines = edited_log_path().read_text(encoding="utf-8").splitlines()
-    except (OSError, StreamError):
+        with _db() as conn:
+            rows = conn.execute(
+                "SELECT e.edited_at, e.by, e.card_id, c.day, c.who, e.before, e.after"
+                " FROM card_edits e JOIN cards c ON c.id = e.card_id"
+                " ORDER BY e.edited_at, e.id").fetchall()
+    except Exception:
         return []
-    entries = []
-    for line in lines:
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(entry, dict) and isinstance(entry.get("edited_at"), str) and entry.get("id"):
-            entries.append(entry)
-    return entries
+    return [{"edited_at": r[0], "by": r[1], "id": r[2], "day": r[3], "who": r[4],
+             "before": r[5], "after": r[6]} for r in rows]
 
 
 # --------------------------------------------------------------------------------
-# delete — remove a card from the pool outright. render_day/render_month_index never
-# touch a zero-card day/month (they return None instead), so a delete that empties one
-# has to clean up the now-stale view itself, or it lingers forever.
+# delete — hide a card, inside its 24 hours.
 #
-# EVERY CUT LEAVES A CAST. Deleting used to unlink the file and leave nothing behind —
-# no record of what went, when, or who asked for it. That made two completely different
-# events look identical from the outside: a card the owner deliberately removed, and a
-# turn the capture path silently lost. A twelve-minute hole in the pool could not be
-# told apart from an ordinary deletion, because there was nothing to tell it apart
-# WITH. So delete now writes the whole card — body verbatim — as one JSON line in
-# `_system/data/deleted_cards.jsonl` before it unlinks anything.
+# A delete sets `deleted_at` / `deleted_by` on the row and keeps everything
+# else: the row is its own record of what went, when, and who asked. (Before
+# the database, a delete wrote the whole card to a deletion log and then
+# removed the file; that log was migrated into these columns.) After 24 hours
+# the trigger refuses — the card stays, and a note can be added to it instead.
 #
-# The cast is written FIRST, and a failure to write it ABORTS the delete. That ordering
-# is the point, not an accident: a cut that leaves no cast is exactly the failure this
-# exists to prevent, so refusing to cut is the correct outcome. The ordering we chose
-# can only ever fail by refusing a deletion, which is cheap and obvious. The reverse
-# ordering fails by removing a card with no record, which is the thing we're fixing.
-# (A log line stranded by a later unlink error is possible and harmless — the id is
-# still sitting in the pool, so the contradiction is self-evident.)
-#
-# Consequence, not a promise: because the body is kept, a deletion is now recoverable
-# by hand from the log. Nothing reads this file back yet — no un-delete verb exists.
-#
-# Prompt: "build a delete log" — so a missing card can be told apart from a deleted one
-# without archaeology.
+# render_day/render_month_index never touch a zero-card day/month (they return
+# None instead), so a delete that empties one cleans up the now-stale view itself.
 # --------------------------------------------------------------------------------
-
-def _log_deletion(card: Card, by: str) -> None:
-    """Append one JSON line for a card that is about to be unlinked.
-
-    One `open(..., "a")` and one `write()` of a line ending in "\\n": on Linux an
-    O_APPEND write this small lands atomically, so two deleters running at once
-    interleave whole lines instead of shredding each other's. No lock is taken, and
-    that's deliberate — `delete_card` doesn't hold `pool_lock` either, and grabbing one
-    here would change the engine's concurrency shape for a sidecar that doesn't need
-    it."""
-    entry = {
-        "deleted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "by": by,
-        "id": card.id,
-        "who": card.who,
-        "ts": card.ts,
-        "kind": card.kind,
-        "reply_to": card.reply_to,
-        "tags": card.tags,
-        "refs": card.refs,
-        "session": card.session,
-        "body": card.body,
-    }
-    path = deleted_log_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
 
 def delete_card(cid: str, by: str = "unknown") -> None:
     _check_cid_safe(cid)
     card = read_card(cid)
-    # Cast before cut. If this raises, the card is still in the pool — which is the
-    # outcome we want over a silent removal.
-    _log_deletion(card, by)
-    card_path(cid).unlink()
+    _refuse_if_locked(card, "deleted")
+    try:
+        with pool_lock():
+            with _db() as conn:
+                journaldb.begin_immediate(conn)
+                try:
+                    conn.execute(
+                        "UPDATE cards SET deleted_at = ?, deleted_by = ? WHERE id = ?"
+                        " AND deleted_at IS NULL", (journaldb.now_text(), by, cid))
+                    conn.execute("COMMIT")
+                except BaseException:
+                    conn.execute("ROLLBACK")
+                    raise
+            _sync_card_file(cid)
+    except _DB_FAILURES as e:
+        if _is_lock_refusal(e):
+            raise StreamError(f"card {cid} is locked — it was saved more than 24 hours ago")
+        raise StreamError(f"journal database unavailable: {e}")
 
     day = card.ts[:10]
     if render_day(day) is None:
@@ -664,6 +1040,45 @@ def delete_card(cid: str, by: str = "unknown") -> None:
             stale_month.unlink()
 
     _render_manifests_for_tags(card.tags)
+
+
+# --------------------------------------------------------------------------------
+# import — bring a card that exists only as a file into the database, as it
+# was: same id, time, words, tags (credited to `added_by`) and reply link.
+# Used by the one-time migration (scripts/journal_db_migrate.py) and by
+# cardstore.sync() while some callers still create files. Insert-only: a card
+# already in the database is never changed by this.
+# --------------------------------------------------------------------------------
+
+def import_card(conn, card: Card, added_by: str = "migration",
+                context: Optional["journaldb.LabelContext"] = None,
+                deleted_at: Optional[str] = None, deleted_by: Optional[str] = None,
+                links: bool = True) -> bool:
+    """Insert one parsed card inside the caller's transaction. True if it
+    was new. Pass links=False and call import_links afterwards when loading
+    many cards, so a reply can point at a card loaded later."""
+    if conn.execute("SELECT 1 FROM cards WHERE id = ?", (card.id,)).fetchone():
+        return False
+    context = context or _label_context()
+    labels, door, device = _split_source_tags(list(card.tags), None, None)
+    journaldb.insert_card(
+        conn, id=card.id, who=card.who, said_at=card.ts, body=card.body.rstrip("\n"),
+        kind=card.kind, refs=card.refs, door=door, device=device, session=card.session,
+        # The lock runs from saved_at. When a file was written isn't known, so
+        # an imported card is treated as saved when it was said: the old pool
+        # locks on schedule instead of every card reopening for a day.
+        saved_at=card.ts, deleted_at=deleted_at, deleted_by=deleted_by)
+    for slug in dict.fromkeys(labels):
+        journaldb.add_label(conn, card.id, slug, added_by, context, added_at=card.ts)
+    if links:
+        import_links(conn, card)
+    return True
+
+
+def import_links(conn, card: Card) -> None:
+    """A file card's reply_to, as an `answers` link — when both ends exist."""
+    if card.reply_to and conn.execute("SELECT 1 FROM cards WHERE id = ?", (card.reply_to,)).fetchone():
+        journaldb.link(conn, card.id, card.reply_to, "answers", by="migration", linked_at=card.ts)
 
 
 # --------------------------------------------------------------------------------
@@ -1022,7 +1437,7 @@ def render_day_text(day: str, cards: Optional[List[Card]] = None,
     (`B [1010b]: …`). The day files never use it; the Keeper's boot package
     does (scripts/boot_context.py), so every line it loads can be named.
     """
-    all_cards = load_all_cards() if cards is None else cards
+    all_cards = load_day_cards(day) if cards is None else cards
     day_cards = [c for c in all_cards if c.ts.startswith(day)]
     if not day_cards:
         return None
@@ -1159,7 +1574,7 @@ def render_index_text(month: str, cards: List[Card]) -> str:
 
 def render_month_index(month: str) -> Optional[Path]:
     month_cards = sorted(
-        (c for c in load_all_cards() if c.ts.startswith(month)),
+        (c for c in load_month_cards(month) if c.ts.startswith(month)),
         key=lambda c: (c.ts, c.id),
     )
     if not month_cards:
@@ -1246,37 +1661,47 @@ def _check_drift(cards: Dict[str, Card]) -> List[str]:
 
 
 def validate() -> Tuple[bool, List[str]]:
+    """Integrity of the card rows, then drift of every derived file.
+
+    For every live and deleted row: the fingerprint still matches its
+    speaker, time and words (a mismatch means the row was rewritten around the
+    triggers), and its id, time, speaker and kind are well-formed. Then: every
+    `answers` link resolves, the answer chains have no cycles, every manifest
+    parses, nothing is waiting in the holding file, and every derived view
+    matches a fresh render."""
     messages: List[str] = []
     ok = True
-    cards: Dict[str, Card] = {}
+    try:
+        with _db() as conn:
+            rows = conn.execute(
+                "SELECT id, who, said_at, day, kind, body, fingerprint FROM cards ORDER BY id").fetchall()
+            dangling = conn.execute(
+                "SELECT l.from_card, l.to_card FROM card_links l"
+                " LEFT JOIN cards c ON c.id = l.to_card WHERE c.id IS NULL").fetchall()
+    except _DB_FAILURES as e:
+        return False, [f"INVALID database: {e}"]
 
-    for path in sorted(pool_dir().glob("*.md")) if pool_dir().exists() else []:
-        stem = path.stem
-        try:
-            card = parse_card_file(path)
-        except StreamError as e:
-            messages.append(f"INVALID {stem}: {e}")
+    for cid, who, said_at, day, kind, body, stored in rows:
+        if stored != journaldb.fingerprint(who, said_at, body):
+            messages.append(f"INVALID {cid}: fingerprint does not match its words — rewritten outside the engine?")
             ok = False
-            continue
-        if card.id != stem:
-            messages.append(f"INVALID {stem}: id field {card.id!r} != filename")
+        if not _valid_ts(said_at or ""):
+            messages.append(f"INVALID {cid}: bad said_at {said_at!r}")
             ok = False
-        if not _valid_ts(card.ts):
-            messages.append(f"INVALID {stem}: bad ts {card.ts!r}")
+        elif day != said_at[:10]:
+            messages.append(f"INVALID {cid}: day {day!r} is not said_at's day")
             ok = False
-        if card.who not in VALID_WHO:
-            messages.append(f"INVALID {stem}: bad who {card.who!r}")
+        if who not in VALID_WHO:
+            messages.append(f"INVALID {cid}: bad who {who!r}")
             ok = False
-        if card.kind not in VALID_KIND:
-            messages.append(f"INVALID {stem}: bad kind {card.kind!r}")
+        if kind not in VALID_KIND:
+            messages.append(f"INVALID {cid}: bad kind {kind!r}")
             ok = False
-        cards[stem] = card
+    for from_card, to_card in dangling:
+        messages.append(f"INVALID {from_card}: links to {to_card!r}, which does not exist")
+        ok = False
 
-    for cid, card in cards.items():
-        if card.reply_to is not None and card.reply_to not in cards:
-            messages.append(f"INVALID {cid}: reply_to {card.reply_to!r} does not resolve")
-            ok = False
-
+    cards = {c.id: c for c in load_all_cards()}
     cycles_ok, cycle_messages = _check_cycles(cards)
     ok = ok and cycles_ok
     messages.extend(cycle_messages)
@@ -1287,6 +1712,11 @@ def validate() -> Tuple[bool, List[str]]:
         except StreamError as e:
             messages.append(f"INVALID manifest {name}: {e}")
             ok = False
+
+    held = held_cards()
+    if held:
+        messages.append(f"HELD {len(held)} card(s) waiting in {holding_path()} — run `stream.py drain`")
+        ok = False
 
     drift_messages = _check_drift(cards)
     if drift_messages:
@@ -1341,6 +1771,10 @@ def _cmd_record(args: argparse.Namespace) -> int:
             kind=args.kind,
             refs=refs,
             session=args.session,
+            door=args.door or os.environ.get("STREAM_DOOR") or "cli",
+            device=args.device,
+            by=args.by,
+            note_on=args.note_on,
         )
     except StreamError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -1367,22 +1801,57 @@ def _cmd_render(args: argparse.Namespace) -> int:
     return 1
 
 
+def _label_by(args: argparse.Namespace) -> str:
+    """Who is changing labels. Explicit --by wins; STREAM_TAG_BY lets a calling
+    process name itself once; "cli" means a person at a prompt. The journal
+    page passes --by owner — the owner's hand outranks every agent's."""
+    return args.by or os.environ.get("STREAM_TAG_BY") or "cli"
+
+
+def _report_outcomes(card: Card) -> None:
+    """Tell the caller about any tag that didn't change as asked."""
+    for tag, outcome in card.outcomes.items():
+        if outcome == "refused":
+            print(f"refused: {tag} on {card.id} — the owner's own label choice stands",
+                  file=sys.stderr)
+
+
 def _cmd_tag(args: argparse.Namespace) -> int:
     try:
-        add_tags(args.id, args.tags)
+        card = add_tags(args.id, args.tags, by=_label_by(args), run=args.run,
+                        reason=args.reason, weight=args.weight)
     except StreamError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+    _report_outcomes(card)
     return 0
 
 
 def _cmd_untag(args: argparse.Namespace) -> int:
     try:
-        remove_tags(args.id, args.tags)
+        card = remove_tags(args.id, args.tags, by=_label_by(args), reason=args.reason)
     except StreamError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+    _report_outcomes(card)
     return 0
+
+
+def _cmd_link(args: argparse.Namespace) -> int:
+    try:
+        made = link_cards(args.from_card, args.to_card, args.kind, by=args.by)
+    except StreamError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(f"{'linked' if made else 'already linked'} {args.from_card} -{args.kind}-> {args.to_card}")
+    return 0
+
+
+def _cmd_drain(args: argparse.Namespace) -> int:
+    landed = drain_holding()
+    waiting = len(held_cards())
+    print(f"drained {landed} card(s); {waiting} still waiting")
+    return 0 if waiting == 0 else 1
 
 
 def _cmd_edit(args: argparse.Namespace) -> int:
@@ -1391,7 +1860,7 @@ def _cmd_edit(args: argparse.Namespace) -> int:
     except OSError as e:
         print(f"error: --body-file: {e}", file=sys.stderr)
         return 1
-    # Who asked, recorded in the edit log. Same resolution as delete's --by.
+    # Who asked, recorded in card_edits. Same resolution as delete's --by.
     by = args.by or os.environ.get("STREAM_EDIT_BY") or "cli"
     try:
         card = edit_card(args.id, raw, by=by)
@@ -1420,7 +1889,10 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     ok, messages = validate()
     for m in messages:
         print(m)
-    total = len(load_all_cards())
+    try:
+        total = len(load_all_cards())
+    except _DB_FAILURES:
+        total = 0
     print(f"{'OK' if ok else 'FAIL'} — {total} card(s), {len(messages)} issue(s)")
     return 0 if ok else 1
 
@@ -1428,7 +1900,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="stream.py",
-        description="Deterministic spine of the journal's card pool (see the module docstring).",
+        description="Deterministic spine of the journal's cards (see the module docstring).",
     )
     sub = p.add_subparsers(dest="verb", required=True)
 
@@ -1438,7 +1910,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--body-file", default=None,
         help="read the card body from this file instead of stdin (lets a gated "
              "session mint a card as one bare command, no pipe)")
-    rec.add_argument("--reply-to", default=None, help="id of the card this one replies to")
+    rec.add_argument("--reply-to", default=None, help="id of the card this one answers (an `answers` link)")
+    rec.add_argument("--note-on", default=None,
+                     help="id of an older card this one is a later note on (a `note` link)")
+    rec.add_argument("--door", default=None,
+                     help="how it came in: web, hook, reconciler, voice, keeper, ... (default: "
+                          "$STREAM_DOOR, else cli)")
+    rec.add_argument("--device", default=None, help="which machine heard it (voice)")
+    rec.add_argument("--by", default=None,
+                     help="who the card's --tags are credited to (default: capture)")
     rec.add_argument("--tags", default=None, help="comma-separated tags, e.g. a,b,c")
     rec.add_argument("--ts", default=None, help="'YYYY-MM-DD HH:MM:SS' (default: now)")
     rec.add_argument("--kind", default="line", choices=VALID_KIND)
@@ -1452,34 +1932,53 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     rec.set_defaults(func=_cmd_record)
 
-    ren = sub.add_parser("render", help="rebuild derived views from the pool")
+    ren = sub.add_parser("render", help="rebuild derived views from the cards")
     ren.add_argument("--day", default=None, help="YYYY-MM-DD — rebuild one day's view")
     ren.add_argument("--view", default=None, help="rebuild one manifest's view")
     ren.add_argument("--all", action="store_true", help="rebuild every day, manifest, and month index")
     ren.set_defaults(func=_cmd_render)
 
-    tagp = sub.add_parser("tag", help="add tags to a card")
+    tagp = sub.add_parser("tag", help="put labels on a card")
     tagp.add_argument("id")
     tagp.add_argument("tags", nargs="+")
+    tagp.add_argument("--by", help="who is adding them: owner, keeper, thread-tending, ... "
+                                   "(default: $STREAM_TAG_BY, else cli)")
+    tagp.add_argument("--run", help="which nightly run, so one night can be undone at once")
+    tagp.add_argument("--reason", help="one sentence: why this label belongs")
+    tagp.add_argument("--weight", choices=("about", "touches"),
+                      help="about = mainly this; touches = it comes up")
     tagp.set_defaults(func=_cmd_tag)
 
-    untagp = sub.add_parser("untag", help="remove tags from a card")
+    untagp = sub.add_parser("untag", help="take labels off a card (the row is marked, not deleted)")
     untagp.add_argument("id")
     untagp.add_argument("tags", nargs="+")
+    untagp.add_argument("--by", help="who is removing them (default: $STREAM_TAG_BY, else cli)")
+    untagp.add_argument("--reason", help="one sentence: why it doesn't belong")
     untagp.set_defaults(func=_cmd_untag)
 
-    editp = sub.add_parser("edit", help="replace a card's body from --body-file or stdin, re-render what depends on it")
+    linkp = sub.add_parser("link", help="link a newer card to an older one")
+    linkp.add_argument("from_card", help="the newer card")
+    linkp.add_argument("to_card", help="the card it points at")
+    linkp.add_argument("--kind", required=True, choices=LINK_KINDS,
+                       help="note = a later note on it; answers = a reply to it")
+    linkp.add_argument("--by", help="who linked them")
+    linkp.set_defaults(func=_cmd_link)
+
+    drainp = sub.add_parser("drain", help="move cards waiting in the holding file into the database")
+    drainp.set_defaults(func=_cmd_drain)
+
+    editp = sub.add_parser("edit", help="replace a card's words (within 24 hours of saving) from --body-file or stdin")
     editp.add_argument("id")
     editp.add_argument("--body-file", default=None, help="read the new body from this file instead of stdin")
     editp.add_argument("--by", help="who is asking (recorded in the edit log)")
     editp.set_defaults(func=_cmd_edit)
 
-    delp = sub.add_parser("delete", help="remove a card from the pool, re-render what's left")
+    delp = sub.add_parser("delete", help="hide a card (within 24 hours of saving); the row is kept")
     delp.add_argument("id")
-    delp.add_argument("--by", help="who is asking (recorded in the deletion log)")
+    delp.add_argument("--by", help="who is asking (recorded on the row)")
     delp.set_defaults(func=_cmd_delete)
 
-    val = sub.add_parser("validate", help="check pool integrity and drift against derived files")
+    val = sub.add_parser("validate", help="check the rows' integrity and drift against derived files")
     val.set_defaults(func=_cmd_validate)
 
     return p

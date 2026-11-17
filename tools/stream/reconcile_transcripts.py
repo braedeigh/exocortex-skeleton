@@ -53,7 +53,7 @@ server dropped. The server writes the prompt's hash to `.keeper/off_record.jsonl
 skips the mint on purpose, and this module refuses anything listed there (the check lives
 in keeper_capture, shared with the hook, so the two doors can't drift).
 
-DEDUP. A body-for-body check against the pool (the prompt's local date plus its two
+DEDUP. A body-for-body check against the card rows (the prompt's local date plus its two
 neighbors, since a message near local midnight can land a card on the adjacent day) is
 the second line of defense — the same words she typed may already be sitting in the
 pool because the hook actually did fire. This also has to eat one deliberate
@@ -74,7 +74,7 @@ import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import keeper_capture  # noqa: E402 — reuse SYNTHETIC_PREFIXES, the per-entry mode
@@ -153,6 +153,12 @@ def main() -> int:
     except OSError:
         os.close(lock_fd)   # another run already holds it — cron runs can overlap,
         return 0             # this one just steps aside silently.
+    # Every minute, also move any card waiting in the engine's holding file
+    # (a card the database couldn't take when it was said) into the database.
+    try:
+        stream.drain_holding()
+    except Exception as e:
+        _log_failure("", f"holding-file drain failed: {e!r}")
     try:
         _run()
     except Exception as e:
@@ -367,7 +373,7 @@ def _maybe_mint(entry: dict, path: Path, mode) -> None:
         tags = [mode[1]]
 
     try:
-        cid = stream.record(who="B", body=prompt, ts=ts_local, tags=tags)
+        cid = stream.record(who="B", body=prompt, ts=ts_local, tags=tags, door="reconciler")
     except Exception as e:
         _log_failure(prompt, repr(e))   # never abort the file over one bad line
         return
@@ -393,47 +399,30 @@ def _to_local(ts_str: Optional[str]) -> Optional[datetime]:
 
 
 # --------------------------------------------------------------------------------
-# dedup — direct, minimal card-file reads (not stream.parse_card_file, which
-# enforces every required field; a dedup scan should be forgiving of anything in
-# the pool, not raise on it).
+# dedup — is this exact body already a `B` card? Asked of the database (the cards
+# are rows now), plus the engine's holding file, where a card waits when the
+# database couldn't take it.
 # --------------------------------------------------------------------------------
 
-def _read_card_light(path: Path) -> Tuple[Optional[str], str]:
-    """(who, body) for a card file, parsed by splitting on the frontmatter's second
-    '---' line — same shape stream.py uses, without stream's strict field checks."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return None, ""
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return None, ""
-    front, body = parts[1], parts[2]
-    if body.startswith("\n"):
-        body = body[1:]
-    who = None
-    for line in front.strip("\n").split("\n"):
-        if line.startswith("who:"):
-            who = line.split(":", 1)[1].strip()
-            break
-    return who, body
-
-
 def _already_captured(prompt: str, ts_local: datetime) -> bool:
-    """True iff this exact body already exists as a `B` card on the prompt's local
-    date or either adjacent date (a message near local midnight can land its card on
-    the neighboring day depending on exactly when it was minted)."""
-    pool = stream.pool_dir()
-    if not pool.exists():
-        return False
+    """True iff this exact body already exists as a live `B` card on the prompt's
+    local date or either adjacent date (a message near local midnight can land its
+    card on the neighboring day depending on exactly when it was minted), or is
+    waiting in the holding file. If the database can't be read, only the holding
+    file is checked — a duplicate card beats a lost one."""
     target = prompt.strip()
-    dates = {(ts_local + timedelta(days=d)).strftime("%Y-%m-%d") for d in (-1, 0, 1)}
-    for date in dates:
-        for card_file in pool.glob(f"{date}.*.md"):
-            who, body = _read_card_light(card_file)
-            if who == "B" and body.strip() == target:
-                return True
-    return False
+    days = sorted({(ts_local + timedelta(days=d)).strftime("%Y-%m-%d") for d in (-1, 0, 1)})
+    if any(entry.get("who") == "B" and str(entry.get("body", "")).strip() == target
+           for entry in stream.held_cards()):
+        return True
+    try:
+        with stream._db() as conn:
+            bodies = conn.execute(
+                "SELECT body FROM cards WHERE who = 'B' AND deleted_at IS NULL"
+                " AND day IN (?, ?, ?)", days).fetchall()
+    except Exception:
+        return False
+    return any(body.strip() == target for (body,) in bodies)
 
 
 # --------------------------------------------------------------------------------

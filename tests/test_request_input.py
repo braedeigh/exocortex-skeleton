@@ -603,13 +603,16 @@ HER_WORDS = 'it\'s hard to answer a bunch of build questions in a row\n\n  — I
 
 
 def _seed_cards():
-    """Her card, a follow-up of hers, and a Keeper card, in the journal pool."""
-    import cardstore
-    pool = cardstore.pool_dir()
-    pool.mkdir(parents=True, exist_ok=True)
-    (pool / "2026-10-14.2200b.md").write_text(f"---\nts: 22:00\nwho: B\n---\n{HER_WORDS}\n")
-    (pool / "2026-10-15.0900b.md").write_text("---\nts: 09:00\nwho: B\n---\nAnd a follow-up.\n")
-    (pool / "2026-10-14.2201k.md").write_text("---\nts: 22:01\nwho: K\n---\nThe Keeper's take.\n")
+    """Her card, a follow-up of hers, and a Keeper card, in the journal."""
+    import sqlstore
+    from journal_seed import seed_card
+    conn = sqlstore.open_db()
+    try:
+        seed_card(conn, "2026-10-14.2200b", HER_WORDS)
+        seed_card(conn, "2026-10-15.0900b", "And a follow-up.")
+        seed_card(conn, "2026-10-14.2201k", "The Keeper's take.", who="K")
+    finally:
+        conn.close()
 
 
 def test_a_set_quotes_her_words_verbatim_on_the_roster_and_in_the_chat(bot_client, monkeypatch):

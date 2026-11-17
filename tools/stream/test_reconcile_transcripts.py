@@ -23,6 +23,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import keeper_capture         # noqa: E402 — owns the shared off-record gate
 import reconcile_transcripts  # noqa: E402
+
+
+def _own_journal_db(case, folder):
+    """Give a test its own exo.db and data dir. The engine finds the database
+    through TULKU_STREAM_DB, then EXOCORTEX_DATA_DIR — and an agent session on
+    the live install carries EXOCORTEX_DATA_DIR pointing at the owner's real
+    data — so without this a test card could land in the live journal (and the
+    day views would read the live to-dos). Restored when the test ends."""
+    for name, value in (("TULKU_STREAM_DB", str(Path(folder) / "exo.db")),
+                        ("EXOCORTEX_DATA_DIR", str(Path(folder) / "data"))):
+        previous = os.environ.get(name)
+        case.addCleanup(lambda n=name, p=previous: os.environ.pop(n, None) if p is None
+                        else os.environ.__setitem__(n, p))
+        os.environ[name] = value
 import stream                 # noqa: E402
 
 SENTINEL_LINE = ("<!-- KEEPER_SESSION_ACTIVE — sentinel for the capture hook. "
@@ -91,6 +105,7 @@ class ReconcilerTestCase(unittest.TestCase):
         self._prev_stream_root = os.environ.get("TULKU_STREAM_ROOT")
         self._prev_proj_dirs = os.environ.get("TULKU_RECONCILER_PROJECT_DIRS")
         os.environ["TULKU_STREAM_ROOT"] = str(self.vault)
+        _own_journal_db(self, root)
         os.environ["TULKU_RECONCILER_PROJECT_DIRS"] = str(self.projects)
 
         self._prev_state_path = reconcile_transcripts._state_path

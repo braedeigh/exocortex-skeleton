@@ -989,7 +989,7 @@ def test_a_spinoff_from_a_journaling_session_leaves_one_card_pointing_at_it(
     _sender(monkeypatch, lane="personal", journal=True)
     _write_brief(store.SPINOFF_DIR, "noted", "# Spinoff: the pattern quotes\n")
     child = _post(spinoff_client, "noted").get_json()["conversation_id"]
-    assert journal_cards == [(("record", "--who", "S", "--session", child),
+    assert journal_cards == [(("record", "--who", "S", "--door", "web", "--session", child),
                               "Spun off: the pattern quotes")]
     # Rejoining the same spinoff writes nothing more.
     _post(spinoff_client, "noted")

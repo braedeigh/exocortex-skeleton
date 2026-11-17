@@ -235,7 +235,10 @@ def _commit_card_untag(payload):
         raise RuntimeError(f"card_untag: bad tag: {tag!r}")
     stream_py = Path(__file__).resolve().parent.parent / "tools" / "stream" / "stream.py"
     result = subprocess.run(
-        [sys.executable, str(stream_py), "untag", card_id, tag],
+        # --by owner: she approved it, so the removal is her hand — and no
+        # agent may put the label back (the journal engine refuses).
+        [sys.executable, str(stream_py), "untag", card_id, tag, "--by", "owner",
+         "--reason", str(payload.get("reason") or "approved from the queue")[:500]],
         env={**os.environ, "TULKU_STREAM_ROOT": str(store.CONTENT_DIR)},
         capture_output=True, text=True, timeout=60)
     if result.returncode != 0:

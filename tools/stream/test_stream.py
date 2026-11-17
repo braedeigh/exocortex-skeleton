@@ -22,11 +22,26 @@ import stream  # noqa: E402
 STREAM_PY = str(Path(__file__).resolve().parent / "stream.py")
 
 
+def _own_journal_db(case, folder):
+    """Give a test its own exo.db and data dir. The engine finds the database
+    through TULKU_STREAM_DB, then EXOCORTEX_DATA_DIR — and an agent session on
+    the live install carries EXOCORTEX_DATA_DIR pointing at the owner's real
+    data — so without this a test card could land in the live journal (and the
+    day views would read the live to-dos). Restored when the test ends."""
+    for name, value in (("TULKU_STREAM_DB", str(Path(folder) / "exo.db")),
+                        ("EXOCORTEX_DATA_DIR", str(Path(folder) / "data"))):
+        previous = os.environ.get(name)
+        case.addCleanup(lambda n=name, p=previous: os.environ.pop(n, None) if p is None
+                        else os.environ.__setitem__(n, p))
+        os.environ[name] = value
+
+
 class StreamTestCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self._prev_root = os.environ.get("TULKU_STREAM_ROOT")
         os.environ["TULKU_STREAM_ROOT"] = self._tmp.name
+        _own_journal_db(self, self._tmp.name)
 
     def tearDown(self):
         if self._prev_root is None:
@@ -291,25 +306,21 @@ class ReplyToAndValidateTests(StreamTestCase):
         )
         self.assertNotEqual(result.returncode, 0)
 
-    def test_validate_detects_hand_broken_reply_to(self):
-        cid = stream.record(who="B", body="a", ts=datetime(2026, 7, 6, 10, 0, 0))
-        card = stream.read_card(cid)
-        card.reply_to = "2026-01-01.0000k"       # hand-break it: nothing resolves to this
-        stream.write_card(card)
+    def test_validate_detects_words_rewritten_around_the_engine(self):
+        """A row whose words were changed by raw SQL (not through `edit`) no
+        longer matches its fingerprint, and validate says so."""
+        cid = stream.record(who="B", body="what I said", ts=datetime(2026, 7, 6, 10, 0, 0))
+        with stream._db() as conn:
+            conn.execute("UPDATE cards SET body = 'what someone wrote instead' WHERE id = ?", (cid,))
 
         ok, messages = stream.validate()
         self.assertFalse(ok)
-        self.assertTrue(any("reply_to" in m and cid in m for m in messages), messages)
+        self.assertTrue(any("fingerprint" in m and cid in m for m in messages), messages)
 
     def test_validate_detects_cycle(self):
         cid_a = stream.record(who="B", body="a2", ts=datetime(2026, 7, 6, 10, 5, 0))
-        cid_b = stream.record(who="B", body="b2", ts=datetime(2026, 7, 6, 10, 6, 0))
-        card_a = stream.read_card(cid_a)
-        card_b = stream.read_card(cid_b)
-        card_a.reply_to = cid_b
-        card_b.reply_to = cid_a
-        stream.write_card(card_a)
-        stream.write_card(card_b)
+        cid_b = stream.record(who="B", body="b2", ts=datetime(2026, 7, 6, 10, 6, 0), reply_to=cid_a)
+        stream.link_cards(cid_a, cid_b, "answers")
 
         ok, messages = stream.validate()
         self.assertFalse(ok)
@@ -565,110 +576,202 @@ class DeleteCardTests(StreamTestCase):
         self.assertFalse(stream.card_path(cid).exists())
 
 
-class DeletionLogTests(StreamTestCase):
-    """The cast every cut leaves. These pin the two things the log exists for: that a
-    deleted card's words survive it, and that a delete which cannot be recorded does
-    not happen at all."""
+class DeletionRecordTests(StreamTestCase):
+    """A delete hides the row and keeps it: the row is its own record of what
+    went, when, and who asked."""
 
-    def _entries(self):
-        path = stream.deleted_log_path()
-        if not path.exists():
-            return []
-        return [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    def _row(self, cid):
+        with stream._db() as conn:
+            return conn.execute("SELECT body, deleted_at, deleted_by FROM cards WHERE id = ?",
+                                (cid,)).fetchone()
 
-    def test_delete_records_the_card_verbatim(self):
-        cid = stream.record(
-            who="B", body="the words that went\nsecond line", ts=datetime(2026, 7, 6, 17, 0, 0),
-            tags=["gut"], kind="line",
-        )
+    def test_delete_keeps_the_words_and_who_asked(self):
+        cid = stream.record(who="B", body="the words that went\nsecond line",
+                            ts=datetime(2026, 7, 6, 17, 0, 0), tags=["gut"])
         stream.record(who="B", body="keeps the day alive", ts=datetime(2026, 7, 6, 17, 1, 0))
         stream.delete_card(cid, by="test")
 
-        entries = self._entries()
-        self.assertEqual(len(entries), 1)
-        e = entries[0]
-        self.assertEqual(e["id"], cid)
-        self.assertEqual(e["who"], "B")
-        self.assertEqual(e["ts"], "2026-07-06 17:00:00")
-        self.assertEqual(e["tags"], ["gut"])
-        self.assertEqual(e["by"], "test")
-        # The whole point: the body survives the card.
-        self.assertEqual(e["body"], "the words that went\nsecond line")
+        body, deleted_at, deleted_by = self._row(cid)
+        self.assertEqual(body, "the words that went\nsecond line")
+        self.assertIsNotNone(deleted_at)
+        self.assertEqual(deleted_by, "test")
+        self.assertFalse(stream.card_exists(cid))
+        self.assertNotIn(cid, {c.id for c in stream.load_all_cards()})
 
-    def test_log_is_append_only_across_deletes(self):
-        for minute in (10, 11, 12):
-            stream.record(who="B", body=f"card {minute}", ts=datetime(2026, 7, 6, 17, minute, 0))
-        stream.record(who="B", body="survivor", ts=datetime(2026, 7, 6, 17, 30, 0))
-        for minute in (10, 11, 12):
-            stream.delete_card(f"2026-07-06.17{minute}b", by="test")
-
-        entries = self._entries()
-        self.assertEqual([e["body"] for e in entries], ["card 10", "card 11", "card 12"])
-
-    def test_failed_log_write_aborts_the_delete(self):
-        """Cast before cut. If the log can't be written the card stays — refusing to
-        delete is the correct failure, since a silent removal is the thing this
-        whole mechanism exists to prevent."""
-        cid = stream.record(who="B", body="do not lose me", ts=datetime(2026, 7, 6, 18, 0, 0))
-        stream.record(who="B", body="neighbour", ts=datetime(2026, 7, 6, 18, 1, 0))
-
-        original = stream._log_deletion
-        stream._log_deletion = lambda card, by: (_ for _ in ()).throw(OSError("disk full"))
-        try:
-            with self.assertRaises(OSError):
-                stream.delete_card(cid, by="test")
-        finally:
-            stream._log_deletion = original
-
-        self.assertTrue(stream.card_path(cid).exists())
-        self.assertEqual(stream.read_card(cid).body, "do not lose me")
-
-    def test_missing_card_writes_no_entry(self):
-        with self.assertRaises(stream.StreamError):
-            stream.delete_card("2026-01-01.0000k")
-        self.assertEqual(self._entries(), [])
-
-    def test_cli_records_who_asked(self):
-        stream.record(who="B", body="via cli", ts=datetime(2026, 7, 6, 19, 0, 0))
-        stream.record(who="B", body="neighbour", ts=datetime(2026, 7, 6, 19, 1, 0))
-        cid = "2026-07-06.1900b"
-        result = subprocess.run(
-            [sys.executable, STREAM_PY, "delete", cid, "--by", "cards-route"],
-            capture_output=True, text=True, env=dict(os.environ),
-        )
-        self.assertEqual(result.returncode, 0)
-        entries = self._entries()
-        self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]["by"], "cards-route")
-        self.assertEqual(entries[0]["body"], "via cli")
-
-    def test_cli_falls_back_to_env_then_cli_literal(self):
-        stream.record(who="B", body="from env", ts=datetime(2026, 7, 6, 19, 10, 0))
-        stream.record(who="B", body="bare", ts=datetime(2026, 7, 6, 19, 11, 0))
-        stream.record(who="B", body="neighbour", ts=datetime(2026, 7, 6, 19, 12, 0))
-
-        env = dict(os.environ, STREAM_DELETE_BY="keeper")
-        subprocess.run(
-            [sys.executable, STREAM_PY, "delete", "2026-07-06.1910b"],
-            capture_output=True, text=True, env=env, check=True,
-        )
-        subprocess.run(
-            [sys.executable, STREAM_PY, "delete", "2026-07-06.1911b"],
-            capture_output=True, text=True, env=dict(os.environ), check=True,
-        )
-        self.assertEqual([e["by"] for e in self._entries()], ["keeper", "cli"])
-
-    def test_log_lives_beside_the_pool_not_inside_it(self):
-        """load_all_cards() globs *.md in the pool dir — a sidecar in there would be
-        picked up as a card. This asserts the placement, not just the filename."""
-        cid = stream.record(who="B", body="x", ts=datetime(2026, 7, 6, 20, 0, 0))
-        stream.record(who="B", body="neighbour", ts=datetime(2026, 7, 6, 20, 1, 0))
+    def test_a_deleted_id_is_never_minted_again(self):
+        cid = stream.record(who="B", body="first", ts=datetime(2026, 7, 6, 17, 20, 0))
         stream.delete_card(cid, by="test")
+        again = stream.record(who="B", body="second", ts=datetime(2026, 7, 6, 17, 20, 30))
+        self.assertNotEqual(again, cid)
 
-        self.assertTrue(stream.deleted_log_path().exists())
-        self.assertNotEqual(stream.deleted_log_path().parent, stream.pool_dir())
-        ok, messages = stream.validate()
-        self.assertTrue(ok, messages)
+    def test_cli_records_who_asked_then_env_then_cli_literal(self):
+        for minute in (10, 11, 12, 13):
+            stream.record(who="B", body=f"card {minute}", ts=datetime(2026, 7, 6, 19, minute, 0))
+        subprocess.run([sys.executable, STREAM_PY, "delete", "2026-07-06.1910b", "--by", "cards-route"],
+                       capture_output=True, text=True, env=dict(os.environ), check=True)
+        subprocess.run([sys.executable, STREAM_PY, "delete", "2026-07-06.1911b"],
+                       capture_output=True, text=True, env=dict(os.environ, STREAM_DELETE_BY="keeper"),
+                       check=True)
+        subprocess.run([sys.executable, STREAM_PY, "delete", "2026-07-06.1912b"],
+                       capture_output=True, text=True, env=dict(os.environ), check=True)
+        self.assertEqual([self._row(f"2026-07-06.19{m}b")[2] for m in (10, 11, 12)],
+                         ["cards-route", "keeper", "cli"])
+
+
+class TwentyFourHourLockTests(StreamTestCase):
+    """Rule 2 of docs/journal-database.md: a card can be edited or deleted for
+    24 hours after it was saved, then never — enforced in SQLite itself."""
+
+    def _old_card(self, cid="2026-07-01.0900b", body="said long ago"):
+        """A card saved more than a day ago, put straight into the table."""
+        with stream._db() as conn:
+            stream.journaldb.insert_card(conn, id=cid, who="B", said_at="2026-07-01 09:00:00",
+                                         body=body, saved_at="2026-07-01 09:00:00")
+        return cid
+
+    def test_the_database_refuses_changing_or_deleting_an_old_card(self):
+        """At the SQL level, whoever is asking: no engine, no app code."""
+        cid = self._old_card()
+        with stream._db() as conn:
+            for sql in ("UPDATE cards SET body = 'rewritten' WHERE id = ?",
+                        "UPDATE cards SET who = 'K' WHERE id = ?",
+                        "UPDATE cards SET said_at = '2026-07-01 10:00:00' WHERE id = ?",
+                        "UPDATE cards SET deleted_at = '2026-11-16 00:00:00' WHERE id = ?",
+                        "UPDATE cards SET saved_at = '2099-01-01 00:00:00' WHERE id = ?",
+                        "DELETE FROM cards WHERE id = ?"):
+                with self.assertRaises(stream.sqlite3.DatabaseError, msg=sql):
+                    conn.execute(sql, (cid,))
+            # Filing around a locked card still works: labels and links are rows of their own.
+            conn.execute("UPDATE cards SET session = 'conv-1' WHERE id = ?", (cid,))
+            self.assertEqual(conn.execute("SELECT body FROM cards WHERE id = ?", (cid,)).fetchone()[0],
+                             "said long ago")
+
+    def test_a_late_arrival_gets_its_full_day(self):
+        """The clock runs from when the row was saved, not when it was said: a
+        card recorded today about last week can still be fixed today."""
+        cid = stream.record(who="B", body="said last week, saved now", ts=datetime(2026, 7, 1, 9, 0, 0))
+        card = stream.edit_card(cid, "said last week, fixed now", by="test")
+        self.assertEqual(card.body, "said last week, fixed now")
+
+    def test_the_engine_refuses_kindly_and_points_at_a_note(self):
+        cid = self._old_card()
+        for change in (lambda: stream.edit_card(cid, "new words", by="test"),
+                       lambda: stream.delete_card(cid, by="test")):
+            with self.assertRaises(stream.StreamError) as caught:
+                change()
+            self.assertIn("locked", str(caught.exception))
+            self.assertIn("--note-on", str(caught.exception))
+        self.assertEqual(stream.read_card(cid).body, "said long ago")
+
+    def test_a_note_on_a_locked_card_is_a_new_card_linked_to_it(self):
+        old = self._old_card()
+        note = stream.record(who="B", body="looking back, I was wrong", note_on=old)
+        with stream._db() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT kind FROM card_links WHERE from_card = ? AND to_card = ?", (note, old)).fetchone(),
+                ("note",))
+        self.assertEqual(stream.read_card(note).ts[:10], datetime.now().strftime("%Y-%m-%d"))
+        # Labels can still be put on the old card itself.
+        self.assertIn("hindsight", stream.add_tags(old, ["hindsight"], by="owner").tags)
+
+
+class HoldingFileTests(StreamTestCase):
+    """Rule 4: saving a card never fails because of the database."""
+
+    def _break_db(self):
+        """Point the engine at a database path it can't open."""
+        self._real_db = os.environ["TULKU_STREAM_DB"]
+        os.environ["TULKU_STREAM_DB"] = str(Path(self._tmp.name) / "no-such-dir" / "exo.db")
+
+    def _mend_db(self):
+        os.environ["TULKU_STREAM_DB"] = self._real_db
+
+    def test_a_card_the_database_cant_take_is_held_then_lands(self):
+        stream.record(who="B", body="before the outage", ts=datetime(2026, 7, 6, 8, 0, 0))
+        self._break_db()
+        provisional = stream.record(who="B", body="said during the outage",
+                                    ts=datetime(2026, 7, 6, 8, 5, 0), tags=["worries"])
+        self.assertEqual(provisional, "2026-07-06.0805b")
+        self.assertEqual([e["body"] for e in stream.held_cards()], ["said during the outage"])
+        self._mend_db()
+
+        # The next ordinary write drains the holding file first-come.
+        stream.record(who="B", body="after the outage", ts=datetime(2026, 7, 6, 8, 10, 0))
+        self.assertEqual(stream.held_cards(), [])
+        held = stream.read_card("2026-07-06.0805b")
+        self.assertEqual((held.body, held.tags), ("said during the outage", ["worries"]))
+        day = (stream.daily_dir() / "2026-07-06.md").read_text(encoding="utf-8")
+        self.assertIn("said during the outage", day)
+
+    def test_draining_twice_never_doubles_a_card(self):
+        self._break_db()
+        stream.record(who="B", body="once only", ts=datetime(2026, 7, 6, 9, 0, 0))
+        self._mend_db()
+        # Simulate a drain that wrote the row but died before clearing the file.
+        entry = stream.held_cards()[0]
+        stream._write_entry(entry, strict=False)
+        self.assertEqual(stream.drain_holding(), 0)
+        self.assertEqual([c.body for c in stream.load_all_cards()], ["once only"])
+        self.assertEqual(stream.held_cards(), [])
+
+    def test_the_cli_echoes_an_id_even_when_held(self):
+        self._break_db()
+        result = subprocess.run([sys.executable, STREAM_PY, "record", "--who", "B"],
+                                input="held via cli\n", capture_output=True, text=True,
+                                env=dict(os.environ))
+        self._mend_db()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stdout.strip(), r"^\d{4}-\d{2}-\d{2}\.\d{4}b\d*$")
+        self.assertEqual(len(stream.held_cards()), 1)
+
+
+class LabelRuleTests(StreamTestCase):
+    """Rules 6-7: labels carry who added them and why, and the owner's hand
+    outranks every agent's."""
+
+    def test_the_owners_removal_is_remembered_and_her_label_is_hers(self):
+        cid = stream.record(who="B", body="a long talk", ts=datetime(2026, 7, 6, 11, 0, 0))
+        stream.add_tags(cid, ["ezra"], by="people-cricket", run="2026-07-07", reason="names him")
+        stream.remove_tags(cid, ["ezra"], by="owner", reason="a different Ezra")
+        self.assertEqual(stream.add_tags(cid, ["ezra"], by="people-cricket").outcomes, {"ezra": "refused"})
+        self.assertNotIn("ezra", stream.read_card(cid).tags)
+
+        stream.add_tags(cid, ["long-covid"], by="owner")
+        self.assertEqual(stream.remove_tags(cid, ["long-covid"], by="thread-tending").outcomes,
+                         {"long-covid": "refused"})
+        self.assertIn("long-covid", stream.read_card(cid).tags)
+        # She can change her own mind.
+        self.assertEqual(stream.add_tags(cid, ["ezra"], by="owner").outcomes, {"ezra": "added"})
+
+        with stream._db() as conn:
+            history = conn.execute(
+                "SELECT added_by, run, reason, removed_by, removed_why FROM card_labels cl"
+                " JOIN labels l ON l.id = cl.label_id WHERE l.slug = 'ezra' ORDER BY cl.id").fetchall()
+        self.assertEqual(history, [("people-cricket", "2026-07-07", "names him", "owner", "a different Ezra"),
+                                   ("owner", None, None, None, None)])
+
+    def test_new_slugs_are_classified_from_the_vault(self):
+        root = Path(self._tmp.name)
+        (root / "people").mkdir()
+        (root / "people" / "sage.md").write_text("---\nname: Sage\n---\n", encoding="utf-8")
+        (root / "Threads").mkdir()
+        (root / "Threads" / "worries.md").write_text("---\nstatus: dormant\n---\n", encoding="utf-8")
+        stream.record(who="B", body="x", ts=datetime(2026, 7, 6, 12, 0, 0),
+                      tags=["sage", "worries", "mandala", "exo-command"])
+        with stream._db() as conn:
+            kinds = dict(conn.execute("SELECT slug, kind || '/' || status FROM labels"))
+        self.assertEqual(kinds, {"sage": "person/active", "worries": "thread/dormant",
+                                 "mandala": "topic/active", "exo-command": "source/active"})
+
+    def test_voice_tags_become_capture_facts_and_still_read_as_tags(self):
+        cid = stream.record(who="B", body="heard aloud", tags=["voice", "via:kitchen-pi", "exo-command"])
+        with stream._db() as conn:
+            self.assertEqual(conn.execute("SELECT door, device FROM cards WHERE id = ?", (cid,)).fetchone(),
+                             ("voice", "kitchen-pi"))
+            self.assertEqual(sorted(t for (t,) in conn.execute(
+                "SELECT tag FROM card_tags WHERE card_id = ?", (cid,))),
+                ["exo-command", "via:kitchen-pi", "voice"])
+        self.assertEqual(stream.read_card(cid).tags, ["voice", "via:kitchen-pi", "exo-command"])
 
 
 class ValidateDriftTests(StreamTestCase):
