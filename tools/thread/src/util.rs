@@ -33,10 +33,6 @@ pub fn people_dir(content: &Path) -> PathBuf {
     content.join("people")
 }
 
-pub fn cards_dir(content: &Path) -> PathBuf {
-    content.join("_system/data/cards")
-}
-
 pub fn journal_daily_dir(content: &Path) -> PathBuf {
     content.join("Journal/Daily")
 }

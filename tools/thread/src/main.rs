@@ -29,6 +29,7 @@
 
 mod changelog;
 mod graph;
+mod journal;
 mod lint;
 mod model;
 mod payload;
@@ -217,8 +218,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 //  Shared setup
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// The content and data folders, and (as a side effect) where the journal's
+/// database is: `<data-dir>/exo.db`, which every card check reads.
 fn dirs(cli: &Cli) -> Result<(PathBuf, PathBuf), Box<dyn Error>> {
-    Ok((util::content_dir(&cli.content_dir)?, util::data_dir(&cli.data_dir)?))
+    let (content, data) = (util::content_dir(&cli.content_dir)?, util::data_dir(&cli.data_dir)?);
+    journal::use_data_dir(&data);
+    Ok((content, data))
 }
 
 fn known_fronts_set(data_dir: &std::path::Path) -> Result<HashSet<String>, Box<dyn Error>> {
@@ -1011,31 +1016,18 @@ fn run_inbox(cli: &Cli, slug: &str) -> Result<(), Box<dyn Error>> {
     let tf = model::parse_thread_file(&raw);
     let watermark = tf.meta.distilled.as_deref().and_then(util::parse_date);
 
-    let cards_dir = util::cards_dir(&content);
+    // Cards wearing this thread's label in the journal (exo.db), live only.
     let mut hits: Vec<(String, String)> = Vec::new(); // (id, first-line)
-    if let Ok(rd) = fs::read_dir(&cards_dir) {
-        for entry in rd.filter_map(|e| e.ok()) {
-            let p = entry.path();
-            if p.extension().map(|e| e != "md").unwrap_or(true) {
-                continue;
-            }
-            let text = match fs::read_to_string(&p) {
-                Ok(t) => t,
-                Err(_) => continue,
-            };
-            let card = parse_card(&text, &p);
-            if !card.tags.iter().any(|t| t == slug) {
-                continue;
-            }
-            let id_date = card.id.split('.').next().and_then(util::parse_date);
-            let after_watermark = match (watermark, id_date) {
-                (Some(w), Some(d)) => d > w,
-                (None, Some(_)) => true,
-                (_, None) => false,
-            };
-            if after_watermark {
-                hits.push((card.id.clone(), truncate(&card.first_line, 120)));
-            }
+    for (id, body) in journal::cards_labelled(slug) {
+        let id_date = id.split('.').next().and_then(util::parse_date);
+        let after_watermark = match (watermark, id_date) {
+            (Some(w), Some(d)) => d > w,
+            (None, Some(_)) => true,
+            (_, None) => false,
+        };
+        if after_watermark {
+            let first_line = body.lines().map(|l| l.trim()).find(|l| !l.is_empty()).unwrap_or("");
+            hits.push((id, truncate(first_line, 120)));
         }
     }
     hits.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1043,60 +1035,6 @@ fn run_inbox(cli: &Cli, slug: &str) -> Result<(), Box<dyn Error>> {
         println!("{}\t{}", id, line);
     }
     Ok(())
-}
-
-struct Card {
-    id: String,
-    tags: Vec<String>,
-    first_line: String,
-}
-
-fn parse_card(text: &str, path: &std::path::Path) -> Card {
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
-    let mut id = stem;
-    let mut tags = Vec::new();
-    let mut first_line = String::new();
-
-    if text.starts_with("---") {
-        let lines: Vec<&str> = text.lines().collect();
-        if let Some(rel_end) = lines.iter().skip(1).position(|l| l.trim() == "---") {
-            let end = rel_end + 1;
-            for line in &lines[1..end] {
-                if let Some((k, v)) = line.split_once(':') {
-                    let k = k.trim().to_lowercase();
-                    let v = v.trim();
-                    match k.as_str() {
-                        "id" if !v.is_empty() => id = v.to_string(),
-                        "tags" => {
-                            let v2 = v.strip_prefix('[').unwrap_or(v);
-                            let v2 = v2.strip_suffix(']').unwrap_or(v2);
-                            tags = v2
-                                .split(',')
-                                .map(|s| s.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
-                                .filter(|s| !s.is_empty())
-                                .collect();
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            first_line = lines[end + 1..]
-                .iter()
-                .map(|l| l.trim())
-                .find(|l| !l.is_empty())
-                .unwrap_or("")
-                .to_string();
-        }
-    } else {
-        first_line = text
-            .lines()
-            .map(|l| l.trim())
-            .find(|l| !l.is_empty())
-            .unwrap_or("")
-            .to_string();
-    }
-
-    Card { id, tags, first_line }
 }
 
 fn truncate(s: &str, max: usize) -> String {

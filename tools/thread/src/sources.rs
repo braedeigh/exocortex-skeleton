@@ -1,6 +1,7 @@
 //! Source-token classification and existence checks — byte-for-byte the same
 //! three kinds `_classify_source` in routes/threads.py recognizes, plus the
-//! filesystem checks that turn "well-formed" into "actually resolvable".
+//! checks that turn "well-formed" into "actually resolvable": card ids and
+//! days against the journal in exo.db (journal.rs), `.md` paths on disk.
 
 use std::path::Path;
 
@@ -56,14 +57,13 @@ pub fn check_source(token: &str, content_dir: &Path) -> Result<(), String> {
     }
 
     if card_id_re().is_match(tok) {
-        let p = content_dir.join("_system/data/cards").join(format!("{}.md", tok));
-        if p.exists() {
+        if crate::journal::card_exists(tok) {
             return Ok(());
         }
         return Err(format!(
-            "card id `{}` not found in the card pool ({})",
+            "card id `{}` not found in the journal ({})",
             tok,
-            p.display()
+            crate::journal::db_path().display()
         ));
     }
 
@@ -72,19 +72,12 @@ pub fn check_source(token: &str, content_dir: &Path) -> Result<(), String> {
         if day_file.exists() {
             return Ok(());
         }
-        let cards_dir = content_dir.join("_system/data/cards");
-        let prefix = format!("{}.", tok);
-        let has_card = std::fs::read_dir(&cards_dir)
-            .into_iter()
-            .flatten()
-            .filter_map(|e| e.ok())
-            .any(|e| e.file_name().to_string_lossy().starts_with(&prefix));
-        if has_card {
+        if crate::journal::day_has_card(tok) {
             return Ok(());
         }
         return Err(format!(
-            "bare day `{}` has no Journal/Daily file and no card in the pool starting `{}`",
-            tok, prefix
+            "bare day `{}` has no Journal/Daily file and no card in the journal on that day",
+            tok
         ));
     }
 

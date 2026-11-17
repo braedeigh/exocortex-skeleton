@@ -37,7 +37,49 @@ fn sandbox() -> Sandbox {
     copy_dir(&fixtures_src(), tmp.path());
     let content = tmp.path().join("content");
     let data = tmp.path().join("data");
+    build_journal_db(&content.join("_system/data/cards"), &data.join("exo.db"));
     Sandbox { _tmp: tmp, content, data }
+}
+
+/// The journal's cards live in exo.db; the shared fixture keeps its few cards
+/// as old-style card files (frontmatter + body), so each sandbox loads them
+/// into a small exo.db with just the columns this tool reads — the same
+/// names as the real tables (skeleton tools/stream/journaldb.py).
+fn build_journal_db(cards_dir: &Path, db: &Path) {
+    let conn = rusqlite::Connection::open(db).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE cards (id TEXT PRIMARY KEY, day TEXT NOT NULL, body TEXT NOT NULL,
+                             deleted_at TEXT);
+         CREATE TABLE labels (id INTEGER PRIMARY KEY, slug TEXT NOT NULL UNIQUE);
+         CREATE TABLE card_labels (id INTEGER PRIMARY KEY, card_id TEXT NOT NULL,
+                                   label_id INTEGER NOT NULL, removed_at TEXT);",
+    )
+    .unwrap();
+    for entry in std::fs::read_dir(cards_dir).unwrap() {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut parts = text.splitn(3, "---\n");
+        let (_, header, body) = (parts.next(), parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+        let field = |name: &str| {
+            header
+                .lines()
+                .find_map(|l| l.strip_prefix(&format!("{}:", name)).map(|v| v.trim().to_string()))
+                .unwrap_or_default()
+        };
+        let id = field("id");
+        conn.execute("INSERT INTO cards (id, day, body) VALUES (?1, ?2, ?3)",
+                     rusqlite::params![id, &id[..10], body.trim()])
+            .unwrap();
+        let tags = field("tags");
+        for tag in tags.trim_matches(|c| c == '[' || c == ']').split(',').map(str::trim).filter(|t| !t.is_empty()) {
+            conn.execute("INSERT OR IGNORE INTO labels (slug) VALUES (?1)", [tag]).unwrap();
+            conn.execute(
+                "INSERT INTO card_labels (card_id, label_id) SELECT ?1, id FROM labels WHERE slug = ?2",
+                rusqlite::params![id, tag],
+            )
+            .unwrap();
+        }
+    }
 }
 
 fn bin() -> PathBuf {
@@ -948,6 +990,32 @@ fn inbox_filters_by_distilled_watermark_and_sorts_oldest_first() {
     assert!(lines[0].starts_with("2026-07-12.1200a\t"));
     assert!(lines[1].starts_with("2026-07-14.1655c\t"));
     assert!(!out.contains("2026-07-05.0900a"));
+}
+
+#[test]
+fn inbox_skips_a_card_whose_label_was_taken_off() {
+    let sb = sandbox();
+    let conn = rusqlite::Connection::open(sb.data.join("exo.db")).unwrap();
+    conn.execute("UPDATE card_labels SET removed_at = '2026-07-20 09:00:00'
+                  WHERE card_id = '2026-07-12.1200a'", []).unwrap();
+    let out = stdout(&run(&sb, &["inbox", "topic-b"]));
+    assert!(!out.contains("2026-07-12.1200a"), "{}", out);
+    assert!(out.contains("2026-07-14.1655c"), "{}", out);
+}
+
+#[test]
+fn a_card_that_exists_only_as_a_file_is_not_a_source() {
+    // The journal is the database: a card file with no row behind it is not a card.
+    let sb = sandbox();
+    std::fs::write(
+        sb.content.join("_system/data/cards/2026-07-15.0900b.md"),
+        "---\nid: 2026-07-15.0900b\nwho: B\nts: 2026-07-15 09:00:00\ntags: []\n---\nA stray file.\n",
+    )
+    .unwrap();
+    let o = run(&sb, &["add-card", "--slug", "topic-a", "--section", "What it is",
+                       "--text", "A fact.", "--source", "2026-07-15.0900b"]);
+    assert!(!o.status.success());
+    assert!(stderr(&o).contains("not found in the journal"), "{}", stderr(&o));
 }
 
 #[test]

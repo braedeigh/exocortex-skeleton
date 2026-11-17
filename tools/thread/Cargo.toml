@@ -20,7 +20,9 @@ serde_json = "1"                                    # payload JSON in/out
 chrono = "0.4"                                      # local timestamps + date math (dormancy, denial expiry)
 fs2 = "0.4"                                          # flock on pending_changes.json.lock
 rand = "0.8"                                         # 8-hex proposal ids, like add-todo's new_id()
+rusqlite = { version = "0.43", features = ["bundled"] }  # read the journal's cards in exo.db (bundled: builds its own SQLite)
 
 [dev-dependencies]
+rusqlite = { version = "0.43", features = ["bundled"] }  # tests/cli.rs builds each sandbox's exo.db from the fixture cards
 tempfile = "3"                                       # tests/cli.rs copies fixtures into a scratch dir before writing
 chrono = "0.4"                                       # denial-window tests stamp their own dates relative to today, so they can't age out

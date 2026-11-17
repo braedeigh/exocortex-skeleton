@@ -38,6 +38,15 @@ def thread_vault(tmp_path, monkeypatch):
     data = tmp_path / "data"
     shutil.copytree(FIXTURES_ROOT / "content", content)
     shutil.copytree(FIXTURES_ROOT / "data", data)
+    # The binary checks card sources against the journal in <data>/exo.db:
+    # load the fixture's card files in as rows, through the real table code.
+    import sqlite3
+    from tests.journal_seed import journaldb, seed_card_files
+    conn = sqlite3.connect(data / "exo.db")
+    journaldb.create_schema(conn)
+    seed_card_files(conn, content / "_system" / "data" / "cards")
+    conn.commit()
+    conn.close()
     monkeypatch.setattr(store, "CONTENT_DIR", content)
     monkeypatch.setattr(store, "DATA_DIR", data)
     return content, data
