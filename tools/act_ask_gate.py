@@ -98,7 +98,25 @@ _ALLOW = [
         # of the journal engine from a journaling session, so it can't mint its
         # context card, re-render a day, or validate the pool at close. Allow the
         # reversible verbs; keep the destructive ones asking."
-        r"^\S*python3? (?:\S*/)?stream\.py (record|render|validate|--help)\b",
+        r"^\S*python3? (?:\S*/)?stream\.py (record|render|validate|link|--help)\b",
+        # `link` is let through though it can't be undone (the engine has no
+        # unlink: "links are never changed or removed"). It only ADDS a row
+        # pointing a newer card at an older one, never touches either card's
+        # words, and is idempotent — and the Keeper protocol runs it on every
+        # answer to her question (`link <B> <K> --kind answers`). Prompt: "let
+        # Keeper sessions run the journal commands the protocol requires."
+        #
+        # The card reader (scripts/journal_cards.py) only reads exo.db — it
+        # writes nothing — so all its verbs act. It replaced grepping the card
+        # folder when the cards moved into the database.
+        r"^\S*python3? (?:\S*/)?scripts/journal_cards\.py (show|day|tagged|--help)\b",
+        # The build log (scripts/build_log.py): `list`/`show` read; `add` and
+        # `quote` only append (a wrong item is closed with `status dropped`).
+        # They act because the Keeper's handoff to Spark runs at close, often
+        # unattended, where nobody can tap an approval. `note`, `status` (closing
+        # items is the builder's job) and `import-markdown` (a one-time bulk
+        # move) keep asking.
+        r"^\S*python3? (?:\S*/)?scripts/build_log\.py (list|show|add|quote|--help)\b",
         # The Keeper's door into the reminder log (scripts/log_activity.py):
         # one {"date", "type"} row per call, refused for unknown types and
         # future dates, and always undoable with --remove — reversible, so

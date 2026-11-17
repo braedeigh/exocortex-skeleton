@@ -65,6 +65,19 @@ ACT_COMMANDS = [
     # the Keeper logging a dose she reported in chat, and undoing one
     "python3 /opt/exocortex/skeleton/scripts/log_activity.py estradiol --date 2026-11-12",
     "python3 /opt/exocortex/skeleton/scripts/log_activity.py estradiol --date 2026-11-12 --remove",
+    # The Keeper protocol's journal commands since the cards moved into exo.db,
+    # in the exact shapes two Keepers were refused on: linking her answer to the
+    # Keeper's question, reading cards, and the close-time handoff to Spark.
+    "python3 /opt/exocortex/personal/tulku/_system/stream.py link 2026-11-16.2044b 2026-11-16.2043k --kind answers",
+    "/opt/exocortex/skeleton/venv/bin/python3 /opt/exocortex/skeleton/scripts/journal_cards.py day 2026-11-17",
+    "/opt/exocortex/skeleton/venv/bin/python3 /opt/exocortex/skeleton/scripts/journal_cards.py show 2026-11-17.0152b --json",
+    "/opt/exocortex/skeleton/venv/bin/python3 /opt/exocortex/skeleton/scripts/journal_cards.py tagged somethread --since 2026-11-01",
+    "cd /opt/exocortex/skeleton && ./venv/bin/python3 scripts/build_log.py list --search \"card id\"",
+    "/opt/exocortex/skeleton/venv/bin/python3 /opt/exocortex/skeleton/scripts/build_log.py show 42",
+    "cd /opt/exocortex/skeleton && ./venv/bin/python3 scripts/build_log.py add --title \"Fix the thing\" --by keeper --body-file /tmp/item.md --card 2026-11-17.0152b",
+    "./venv/bin/python3 scripts/build_log.py quote 42 --card 2026-11-17.0152b",
+    # the K-card recipe the Keeper docs give, for a plain question
+    "echo \"How was Orders today?\" | python3 tulku/_system/stream.py record --who K --ts \"2026-11-15 17:00:30\"",
 ]
 
 
@@ -122,6 +135,18 @@ ASK_COMMANDS = [
     "python3 tools/stream/stream.py record --who K < body.md",
     "python3 scripts/log_activity.py estradiol > /tmp/out",
     "python3 scripts/my_log_activity.py estradiol",
+    # The build log's other verbs keep asking: closing an item is the builder's
+    # call, a note isn't part of the Keeper's handoff, and the import is a
+    # one-time bulk move. Lookalike script names don't inherit the allowance.
+    "./venv/bin/python3 scripts/build_log.py status 42 shipped --by keeper",
+    "./venv/bin/python3 scripts/build_log.py note 42 --by keeper --text x",
+    "./venv/bin/python3 scripts/build_log.py import-markdown /tmp/dev_todo.md",
+    "python3 myscripts/build_log.py add --title x --by k",
+    "python3 scripts/my_journal_cards.py day 2026-11-17",
+    "python3 scripts/journal_cards.py day 2026-11-17 > /tmp/out",
+    # a question carrying a shell separator splits into a tail that matches
+    # nothing, so it asks — which is why the docs say --body-file for those
+    "echo \"Eat; sleep?\" | python3 tulku/_system/stream.py record --who K",
     # empty / unknown
     "", "   ", "someunknownbinary --flag",
 ]
