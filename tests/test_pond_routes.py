@@ -241,6 +241,24 @@ def test_cards_come_back_in_time_order(pond_db, client):
     assert [c["id"] for c in got] == ["first", "second", "next-day"]
 
 
+def test_past_the_ceiling_the_newest_cards_are_kept_in_time_order(
+        pond_db, client, monkeypatch):
+    # The pool outgrew the ceiling once and every new card vanished from the
+    # drawing, because the oldest were kept. The newest must win, both in the
+    # card list and in the per-day sizes, still drawn oldest-first.
+    from routes import pond
+    monkeypatch.setattr(pond, "MAX_CARDS", 2)
+    pond_db("old", "2026-07-01", body="a")
+    pond_db("mid", "2026-07-02", body="bb")
+    pond_db("new", "2026-07-03", body="ccc")
+    cards = client.get("/api/pond/cards").get_json()
+    shape = client.get("/api/pond/shape?sizes=1").get_json()
+    assert ([c["id"] for c in cards["cards"]], cards["truncated"],
+            {d["day"]: d["chars"] for d in shape["days"]}) == (
+        ["mid", "new"], True,
+        {"2026-07-01": [], "2026-07-02": [2], "2026-07-03": [3]})
+
+
 @pytest.mark.parametrize("qs", ["from=nope", "to=2026-13-99", "from=2026-08-09&to=2026-07-01"])
 def test_a_bad_window_is_rejected(pond_db, client, qs):
     assert client.get(f"/api/pond/cards?{qs}").status_code == 400

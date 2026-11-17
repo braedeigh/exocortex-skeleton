@@ -118,7 +118,10 @@ _STOP = {
 _WORD_RE = re.compile(r"[^a-z0-9]+")
 
 # A ceiling so a widened date range can never ask for the entire pool at once.
-# Reported honestly as `truncated` rather than silently trimming.
+# Reported honestly as `truncated` rather than silently trimming. Past the
+# ceiling the NEWEST cards are kept and the oldest dropped: the pool passed
+# 4,000 cards in Nov 2026, and keeping the oldest made every new card vanish
+# from the drawing.
 MAX_CARDS = 4000
 
 # The same ceiling for the working half, applied to each list separately. The
@@ -408,16 +411,18 @@ def register(app):
             params = params + [tag]
 
         with closing(_read_only_conn()) as conn:
+            # Keep the newest cards past the ceiling: read newest-first with
+            # the limit, then flip back to oldest-first for the drawing.
             rows = conn.execute(
                 f"""SELECT c.id, c.day, c.ts, c.who, c.kind, c.body
                       FROM cards c
                      WHERE {where}
-                  ORDER BY c.day ASC, c.ts ASC, c.id ASC
+                  ORDER BY c.day DESC, c.ts DESC, c.id DESC
                      LIMIT ?""",
                 params + [MAX_CARDS + 1],
             ).fetchall()
             truncated = len(rows) > MAX_CARDS
-            rows = rows[:MAX_CARDS]
+            rows = rows[:MAX_CARDS][::-1]
             # Tags for exactly the cards being returned, in one query rather
             # than one per card.
             tags = {}
@@ -527,16 +532,19 @@ def register(app):
             chars = {}
             truncated = False
             if sizes:
+                # Keep the newest cards past the ceiling: read newest-first
+                # with the limit, then flip back so each day stacks in the
+                # order its cards were written.
                 size_rows = conn.execute(
                     f"""SELECT c.day AS day, LENGTH(c.body) AS chars
                           FROM cards c
                          WHERE {where}
-                      ORDER BY c.day ASC, c.ts ASC, c.id ASC
+                      ORDER BY c.day DESC, c.ts DESC, c.id DESC
                          LIMIT ?""",
                     params + [MAX_CARDS + 1],
                 ).fetchall()
                 truncated = len(size_rows) > MAX_CARDS
-                for r in size_rows[:MAX_CARDS]:
+                for r in size_rows[:MAX_CARDS][::-1]:
                     chars.setdefault(r["day"], []).append(int(r["chars"] or 0))
 
         # `owner` and `system` come back from SUM() as whatever SQLite made of

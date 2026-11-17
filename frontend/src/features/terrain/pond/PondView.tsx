@@ -866,7 +866,7 @@ export function PondView() {
       ) : null}
       {cards.data?.truncated ? (
         <p className={styles.note}>
-          Showing the first {totalCards.toLocaleString()} cards — the pond holds more than
+          Showing the newest {totalCards.toLocaleString()} cards — the pond holds more than
           one screen can carry.
         </p>
       ) : null}
