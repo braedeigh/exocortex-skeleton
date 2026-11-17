@@ -28,6 +28,12 @@ Do this now:
    - Any other bare path (`people/x.md`, `context/about.md`, and so on) → relative to
      `data/`, the content root.
 
+   Then read what's labelled but not yet cited: the journal's cards live in the app's
+   database, so run the app's reader, `scripts/journal_cards.py tagged <slug>` (from the
+   app's folder, with its venv's python; add `--since <the thread's distilled: date>`
+   when it has one). It prints every card wearing this thread's label, mainly-about-this
+   first. These are the freshest entries, not yet absorbed into the thread file.
+
 3. **Then talk with them about it.** Open with a short, grounded picture of where the
    thread stands — their own words and dates where you can — and ask what they want to
    dig into. Don't dump everything you just read; you're holding it so the conversation
