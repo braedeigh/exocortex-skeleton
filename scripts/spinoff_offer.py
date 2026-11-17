@@ -11,8 +11,9 @@ directly.
 
 Her Go starts a PLANNING session for each slug (the card's "Skip the plan"
 button starts a builder instead). A planning session calls this too, with its
-own slug, once she has agreed the plan and it has saved the plan as a new
-brief: that offer is the approval card, and its Go starts the build session.
+own slug, once nothing is open (her answers are in, no correction pending)
+and it has saved the plan as a new brief: that offer is the approval card, and
+its Go starts the build session.
 
     spinoff_offer.py <slug> [<slug> ...] [--room personal|coding]
 

@@ -48,9 +48,10 @@ until she taps Go or ×, or the agent offers again.
 
 A /spinoff PLANS BEFORE IT BUILDS, in two sessions (see "The stages" below).
 Go starts a planning session, which can read but not edit (tools/plan_gate.py)
-and works a plan out with her. When she says the plan is right it saves the
-plan as a new brief under its own slug and offers that; her second Go starts a
-fresh build session on that brief alone and closes the planning session. The
+and works a plan out with her. Once her questions are answered and nothing is
+open, it saves the plan as a new brief under its own slug and offers that,
+without waiting for her to say "go"; her second Go is the approval, and starts
+a fresh build session on that brief alone and closes the planning session. The
 Go card's "Skip the plan" button starts a single session that builds straight
 away, as every spinoff used to. A session a helper starts (the room helper, a
 swarm's helper) always plans first. The app's own spawns (helper buttons,

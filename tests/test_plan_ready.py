@@ -59,6 +59,24 @@ def test_her_message_takes_the_mark_off_and_tells_the_agent(spinoff_client, monk
     assert told[0].startswith("make it green") and "plan_ready.py" in told[0]
 
 
+def test_her_answers_tell_the_planner_to_put_up_go_without_waiting_for_her_word(
+        spinoff_client, monkeypatch):
+    # The planner asked one question and marked its plan ready; her reply is
+    # the answer. She never says "go", so the note riding on her reply must
+    # tell the planner to save the brief and put up the Go button itself.
+    planner = _planned(spinoff_client, monkeypatch)
+    assert observatory.request_input(planner, ["Blue or green?"])[1] == 200
+    _mark(monkeypatch, planner, "Paint the pond blue")
+    told = []
+    monkeypatch.setattr(observatory, "_spawn_host",
+                        lambda config, text, *a, **k: told.append(text) or True)
+    assert observatory.begin_turn(planner, "green")["ok"]
+    note = told[0]
+    assert "Blue or green?" in note
+    assert "spinoff_brief.py" in note and "spinoff_offer.py" in note
+    assert "don't wait for her to say" in note
+
+
 def test_the_build_card_keeps_the_summary_and_her_go_clears_the_mark(spinoff_client, monkeypatch):
     planner = _planned(spinoff_client, monkeypatch)
     _mark(monkeypatch, planner, "Paint the pond blue")

@@ -69,7 +69,8 @@ _SCRIPTS = re.compile(
 
 _HAND_OVER = (
     " You're a planning session: you read, explain, ask and plan; a fresh "
-    "session builds once the owner approves. When the plan is agreed, save it "
+    "session builds once the owner approves. Once nothing is open (her answers "
+    "are in, no correction pending), save the plan "
     "as the builder's brief with `./venv/bin/python3 scripts/spinoff_brief.py "
     "<your slug> <<'BRIEF'` … `BRIEF`, then put up the Go button with "
     "`./venv/bin/python3 scripts/spinoff_offer.py <your slug>` and end your turn.")

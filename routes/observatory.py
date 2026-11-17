@@ -2454,8 +2454,9 @@ def withdraw_questions(conv_id, source):
 # Two fields, because they come off at different moments. `plan_ready` is
 # the flag: her next message takes it off (_her_message_arrived), since the
 # plan may be about to change, and the planner marks it again once the plan
-# is ready again. `plan_summary` is the blurb, and stays: after her "go" the
-# planner puts up its build Go card (`spinoff_offer.kind == "build"`), which
+# is ready again. `plan_summary` is the blurb, and stays: once nothing is
+# open (her answers in, no correction pending — she never has to say "go"),
+# the planner puts up its build Go card (`spinoff_offer.kind == "build"`), which
 # the card also draws as plan-ready, and that card still wants the summary.
 # Her Go (routes/spinoff.py go_offer) and closing the session take the flag
 # off for good.
@@ -2522,7 +2523,11 @@ def _reopen_note(questions, plan_cleared=False):
     open questions, and the plan-ready mark. Her next message clears them
     whether or not it answers them — she may be asking about something else
     entirely — so the agent is told what was open and re-files whatever is
-    still unanswered. Empty when nothing was open."""
+    still unanswered. A planner whose plan mark came off is also told the
+    next step: if her message settles everything that was open, save the
+    builder's brief and put up the Go button now, without waiting for her to
+    say "go" (claude-commands/spinoff/plan_protocol.md step 4). Empty when
+    nothing was open."""
     questions = [q for q in questions if q and q.strip()]
     note = ""
     if questions:
@@ -2534,9 +2539,12 @@ def _reopen_note(questions, plan_cleared=False):
                  " your turn, or it is gone from her card.]")
     if plan_cleared:
         note += ("\n\n[System: this message took the plan-ready mark off your card."
-                 " Once the plan is ready for her go again, run"
-                 " scripts/plan_ready.py \"<the plan in a line or two>\" before you"
-                 " end your turn.]")
+                 " If it settles everything that was open, save the builder's brief"
+                 " and put up the Go button now (scripts/spinoff_brief.py, then"
+                 " scripts/spinoff_offer.py) — don't wait for her to say \"go\" —"
+                 " then run scripts/plan_ready.py \"<the plan in a line or two>\"."
+                 " If not, work it in or ask, and run scripts/plan_ready.py once the"
+                 " plan is ready again, before you end your turn.]")
     return note
 
 

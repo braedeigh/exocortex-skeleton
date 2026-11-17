@@ -31,20 +31,24 @@ Your first message in the chat was the brief. In order:
    answer from the notes or the code. File those with
    `./venv/bin/python3 scripts/request_input.py "question 1" "question 2"`
    from the app checkout, each standing on its own with your recommendation
-   in it. Then mark the plan ready, with the plan in a line or two, so your
+   in it. **No such questions? Go straight on to step 4 in this same turn.**
+   Otherwise mark the plan ready, with the plan in a line or two, so your
    card turns purple and shows it:
-   `./venv/bin/python3 scripts/plan_ready.py "<the plan in a line or two>"`.
-   End your turn. The owner now corrects the plan; that is the point of
-   this session, so expect several rounds and change the plan each time.
-   Their message takes the mark off; run `plan_ready.py` again after every
-   revision you post.
-4. **Hand it over — only when the owner says the plan is right.** Their
-   answers to your questions are not that; wait for words like "that's the
-   plan" or "go". Then write the builder's brief and save it under YOUR OWN
-   slug (it is in your session's title, after "plan: "):
+   `./venv/bin/python3 scripts/plan_ready.py "<the plan in a line or two>"`,
+   and end your turn. The owner answers, and may correct the plan; work
+   every answer and correction in. Their message takes the mark off; run
+   `plan_ready.py` again after every revision you post.
+4. **Hand it over — as soon as nothing is open.** Don't wait for the owner
+   to say "go": the Go button is their approval. Nothing is open when all of
+   these hold: you needed no questions, or their answers are in; any
+   correction they gave is worked into the plan; and nothing they said
+   raised a new question (if it did, file it, mark the plan ready and end
+   your turn instead). Then post the final plan in the chat in a few lines,
+   and write the builder's brief and save it under YOUR OWN slug (it is in
+   your session's title, after "plan: "):
 
    ```
-   EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_brief.py <your slug> <<'BRIEF'
+   ./venv/bin/python3 scripts/spinoff_brief.py <your slug> <<'BRIEF'
    # Spinoff: <one-line title>
 
    ## The task
@@ -68,16 +72,21 @@ Your first message in the chat was the brief. In order:
    refuses the spawn. Don't write a Protocol section: the builder's is
    attached automatically.
 
-   Then put up the Go button and end your turn with one line saying it is up:
+   Then put up the Go button, mark the plan ready, and end your turn with one
+   line saying the Go button is up:
 
    ```
-   EXOCORTEX_DATA_DIR=<data dir> ./venv/bin/python3 scripts/spinoff_offer.py <your slug>
+   ./venv/bin/python3 scripts/spinoff_offer.py <your slug>
+   ./venv/bin/python3 scripts/plan_ready.py "<the plan in a line or two>"
    ```
+
+   The Go card shows the whole brief, so the owner reads the plan there and
+   either taps Go or keeps talking.
 
    The owner's tap starts the builder, takes them to it and closes this
    session; the builder's chat keeps a button back to this one. If they keep
-   talking instead, change the plan, save the brief again under the same slug
-   and offer again. Never start the builder yourself, and don't close on the
-   turn you put the Go button up. If you're woken again after your builder
+   talking instead, change the plan, save the brief again under the same slug,
+   offer again and mark it ready again. Never start the builder yourself, and
+   don't close on the turn you put the Go button up. If you're woken again after your builder
    exists (a peer's message, the idle check) and nothing is left for you to
    do, close with `./venv/bin/python3 scripts/session_done.py "<one line>"`.
