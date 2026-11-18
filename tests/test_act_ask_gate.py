@@ -68,7 +68,7 @@ ACT_COMMANDS = [
     # The Keeper protocol's journal commands since the cards moved into exo.db,
     # in the exact shapes two Keepers were refused on: linking her answer to the
     # Keeper's question, reading cards, and the close-time handoff to Spark.
-    "python3 /opt/exocortex/personal/tulku/_system/stream.py link 2026-11-16.2044b 2026-11-16.2043k --kind answers",
+    "python3 /srv/vault/tulku/_system/stream.py link 2026-11-16.2044b 2026-11-16.2043k --kind answers",
     "/opt/exocortex/skeleton/venv/bin/python3 /opt/exocortex/skeleton/scripts/journal_cards.py day 2026-11-17",
     "/opt/exocortex/skeleton/venv/bin/python3 /opt/exocortex/skeleton/scripts/journal_cards.py show 2026-11-17.0152b --json",
     "/opt/exocortex/skeleton/venv/bin/python3 /opt/exocortex/skeleton/scripts/journal_cards.py tagged somethread --since 2026-11-01",
